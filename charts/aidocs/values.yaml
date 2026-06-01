@@ -103,14 +103,14 @@ resources:
 
 livenessProbe:
   httpGet:
-    path: /commit.txt
+    path: /livez
     port: http
   initialDelaySeconds: 10
   periodSeconds: 30
 
 readinessProbe:
   httpGet:
-    path: /openapi.json
+    path: /readyz
     port: http
   initialDelaySeconds: 5
   periodSeconds: 10

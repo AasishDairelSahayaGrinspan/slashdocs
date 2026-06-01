@@ -352,7 +352,8 @@ shared config, etc.).
 GET /openapi.json              OpenAPI 3 spec
 GET /api-docs                  Swagger UI
 GET /commit.txt                Build revision (controlled by AIDOCS_COMMIT_SHA)
-GET /v1/health                 Liveness JSON: {"ok": true}
+GET /livez                     Liveness JSON: {"status":"ok"}
+GET /readyz                    Readiness JSON with dependency checks
 GET /.well-known/aidocs.json   Deployment discovery
 GET /onboarding/sample.html    Bundled sample report used by the in-app
                                setup guide. Downloadable, no auth.

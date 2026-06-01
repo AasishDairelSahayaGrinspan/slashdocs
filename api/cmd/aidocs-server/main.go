@@ -104,6 +104,15 @@ func main() {
 		log.Fatalf("AIDOCS_DEPLOYMENT must be %q or %q (got %q)", server.DeploymentPublic, server.DeploymentOrg, deployment)
 	}
 
+	options := []server.Option{
+		server.WithRepository(store),
+		server.WithAuthenticator(auth.DBAuthenticator{Resolver: store, SessionSecret: sessionSecret}),
+		server.WithStateStore(auth.NewPostgresStateStore(store.Pool())),
+		server.WithReadinessCheck("postgres", store.Ping),
+	}
+	if pinger, ok := blobs.(blob.Pinger); ok {
+		options = append(options, server.WithReadinessCheck("blob", pinger.Ping))
+	}
 	srv := server.New(server.Config{
 		Environment:         server.EnvProduction,
 		AppOrigin:           appOrigin,
@@ -113,11 +122,7 @@ func main() {
 		AllowedOAuthDomains: allowedOAuthDomains,
 		Deployment:          deployment,
 		OrgName:             orgName,
-	},
-		server.WithRepository(store),
-		server.WithAuthenticator(auth.DBAuthenticator{Resolver: store, SessionSecret: sessionSecret}),
-		server.WithStateStore(auth.NewPostgresStateStore(store.Pool())),
-	)
+	}, options...)
 
 	// Serve Prometheus metrics on a separate listener so /metrics is kept off
 	// the public app port (expose only `addr` publicly; scrape metricsAddr over

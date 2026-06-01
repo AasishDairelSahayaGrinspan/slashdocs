@@ -46,6 +46,14 @@ func NewS3(ctx context.Context, c S3Config) (*S3, error) {
 	return &S3{client: client, bucket: c.Bucket}, nil
 }
 
+func (s *S3) Ping(ctx context.Context) error {
+	_, err := s.client.HeadBucket(ctx, &s3.HeadBucketInput{Bucket: aws.String(s.bucket)})
+	if err != nil {
+		return fmt.Errorf("%w: head bucket %q: %v", ErrStorage, s.bucket, err)
+	}
+	return nil
+}
+
 func (s *S3) Put(ctx context.Context, key, contentType string, body []byte) error {
 	_, err := s.client.PutObject(ctx, &s3.PutObjectInput{Bucket: aws.String(s.bucket), Key: aws.String(key), Body: bytes.NewReader(body), ContentType: aws.String(contentType)})
 	if err != nil {

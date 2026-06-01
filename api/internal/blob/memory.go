@@ -14,7 +14,8 @@ type memObj struct {
 	b  []byte
 }
 
-func NewMemory() *Memory { return &Memory{objs: map[string]memObj{}} }
+func NewMemory() *Memory                         { return &Memory{objs: map[string]memObj{}} }
+func (m *Memory) Ping(ctx context.Context) error { return nil }
 func (m *Memory) Put(ctx context.Context, key, contentType string, body []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()

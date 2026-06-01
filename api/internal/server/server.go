@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"io"
 	"net/http"
@@ -28,6 +29,11 @@ type Config struct {
 // Server wraps the gin engine.
 type Server struct{ engine *gin.Engine }
 
+type readinessCheck struct {
+	name string
+	fn   func(context.Context) error
+}
+
 type dependencies struct {
 	authenticator       auth.Authenticator
 	repository          repo.Repository
@@ -39,6 +45,7 @@ type dependencies struct {
 	allowedOAuthDomains []string
 	deployment          string
 	orgName             string
+	readinessChecks     []readinessCheck
 }
 
 // Option configures the Server.
@@ -52,6 +59,14 @@ func WithRepository(r repo.Repository) Option { return func(d *dependencies) { d
 
 func WithStateStore(st auth.LoginStateStore) Option {
 	return func(d *dependencies) { d.stateStore = st }
+}
+
+func WithReadinessCheck(name string, fn func(context.Context) error) Option {
+	return func(d *dependencies) {
+		if name != "" && fn != nil {
+			d.readinessChecks = append(d.readinessChecks, readinessCheck{name: name, fn: fn})
+		}
+	}
 }
 
 // denyAllAuthenticator rejects every request. It is the default authenticator,
@@ -125,8 +140,10 @@ func (s *Server) routes(deps dependencies) {
 	s.engine.GET("/v/:id/:version_id", h.renderVersion)
 	registerFrontendRoutes(s.engine, deps.appOrigin)
 
+	s.engine.GET("/livez", h.livez)
+	s.engine.GET("/readyz", h.readyz)
+
 	v1 := s.engine.Group("/v1")
-	v1.GET("/health", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"ok": true}) })
 	v1.GET("/config", h.config)
 	v1.GET("/auth/google/start", h.googleStart)
 	v1.GET("/auth/google/callback", h.googleCallback)

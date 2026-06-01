@@ -51,8 +51,9 @@ func ConnectWithBlob(ctx context.Context, databaseURL string, blobs blob.Store) 
 	}
 	return NewWithBlob(p, blobs), nil
 }
-func (s *Store) Close()              { s.db.Close() }
-func (s *Store) Pool() *pgxpool.Pool { return s.db }
+func (s *Store) Close()                         { s.db.Close() }
+func (s *Store) Pool() *pgxpool.Pool            { return s.db }
+func (s *Store) Ping(ctx context.Context) error { return s.db.Ping(ctx) }
 
 func (s *Store) ResolveBearerToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
 	u, err := s.q.ResolveCLIToken(ctx, tokenHash)

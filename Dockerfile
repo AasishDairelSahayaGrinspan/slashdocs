@@ -23,6 +23,7 @@ RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags=
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w" -o /out/aidocs ./cli
 
 FROM alpine:3.22
+ARG AIDOCS_COMMIT_SHA=""
 # CA certs are arch-independent data files; copy them from the builder rather
 # than running apk under emulation in the target-arch final stage.
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
@@ -31,4 +32,5 @@ COPY --from=builder /out/aidocs-server /usr/local/bin/aidocs-server
 COPY --from=builder /out/aidocs /usr/local/bin/aidocs
 EXPOSE 8080
 ENV AIDOCS_PORT=8080
+ENV AIDOCS_COMMIT_SHA=$AIDOCS_COMMIT_SHA
 CMD ["aidocs-server"]

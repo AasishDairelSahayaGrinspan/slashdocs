@@ -20,6 +20,40 @@ import (
 	"github.com/anuragrao/aidocs/api/internal/server"
 )
 
+func TestLiveness(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodGet, "/livez", "", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	assertJSON(t, rr.Body.Bytes(), `{"status":"ok"}`)
+}
+
+func TestReadiness(t *testing.T) {
+	ok := server.New(server.Config{Environment: "test"},
+		server.WithRepository(repo.NewMemorySeeded()),
+		server.WithAuthenticator(testPrincipalAuth{}),
+		server.WithReadinessCheck("postgres", func(context.Context) error { return nil }),
+		server.WithReadinessCheck("blob", func(context.Context) error { return nil }),
+	).Handler()
+	rr := do(t, ok, http.MethodGet, "/readyz", "", nil)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: %s", rr.Code, rr.Body.String())
+	}
+	assertJSON(t, rr.Body.Bytes(), `{"status":"ok","checks":{"postgres":"ok","blob":"ok"}}`)
+
+	fail := server.New(server.Config{Environment: "test"},
+		server.WithRepository(repo.NewMemorySeeded()),
+		server.WithAuthenticator(testPrincipalAuth{}),
+		server.WithReadinessCheck("postgres", func(context.Context) error { return nil }),
+		server.WithReadinessCheck("blob", func(context.Context) error { return context.Canceled }),
+	).Handler()
+	rr = do(t, fail, http.MethodGet, "/readyz", "", nil)
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503: %s", rr.Code, rr.Body.String())
+	}
+	assertJSON(t, rr.Body.Bytes(), `{"status":"error","checks":{"postgres":"ok","blob":"error"}}`)
+}
+
 func TestDiscovery(t *testing.T) {
 	rr := do(t, newTestServer(), http.MethodGet, "/.well-known/aidocs.json", "", nil)
 	assertStatus(t, rr, http.StatusOK)
