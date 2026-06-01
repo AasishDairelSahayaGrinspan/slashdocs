@@ -2,6 +2,13 @@
 
 replicaCount: 1
 
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 70
+
 image:
   repository: ghcr.io/anuragrao04/aidocs
   tag: ""
@@ -51,14 +58,14 @@ googleOAuth:
   clientID: ""
   clientSecret: ""
   existingSecret: ""
-  clientIDKey: google-oauth-client-id
-  clientSecretKey: google-oauth-client-secret
+  clientIDKey: GOOGLE_OAUTH_CLIENT_ID
+  clientSecretKey: GOOGLE_OAUTH_CLIENT_SECRET
 
 # Session secret must be at least 32 bytes.
 session:
   secret: ""
   existingSecret: ""
-  secretKey: session-secret
+  secretKey: SESSION_SECRET
 
 # Postgres connection string.
 database:

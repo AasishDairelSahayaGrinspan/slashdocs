@@ -5,7 +5,9 @@ metadata:
   labels:
     {{- include "aidocs.labels" . | nindent 4 }}
 spec:
+  {{- if not .Values.autoscaling.enabled }}
   replicas: {{ .Values.replicaCount }}
+  {{- end }}
   selector:
     matchLabels:
       {{- include "aidocs.selectorLabels" . | nindent 6 }}

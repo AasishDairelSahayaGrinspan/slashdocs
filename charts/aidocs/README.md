@@ -38,6 +38,13 @@ blob:
   accessKeyID: "..."
   secretAccessKey: "..."
 
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 5
+  targetCPUUtilizationPercentage: 70
+  targetMemoryUtilizationPercentage: 70
+
 ingress:
   enabled: true
   className: nginx
@@ -59,12 +66,12 @@ You can keep secrets outside Helm values:
 ```yaml
 googleOAuth:
   existingSecret: aidocs-google-oauth
-  clientIDKey: client-id
-  clientSecretKey: client-secret
+  clientIDKey: GOOGLE_OAUTH_CLIENT_ID
+  clientSecretKey: GOOGLE_OAUTH_CLIENT_SECRET
 
 session:
   existingSecret: aidocs-session
-  secretKey: session-secret
+  secretKey: SESSION_SECRET
 
 database:
   existingSecret: aidocs-database
