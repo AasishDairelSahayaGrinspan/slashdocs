@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -34,11 +34,18 @@ export function DocumentPage() {
   });
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
+  const [selectedVersion, setSelectedVersion] = useState<string>();
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
-  const current =
+  const latest =
     currentVersionID(doc.data || {}) ||
     versionID(versions.data?.items?.[0] || {});
+  const current = selectedVersion || latest;
+
+  useEffect(() => {
+    if (!latest) return;
+    setSelectedVersion((prev) => prev || latest);
+  }, [latest]);
 
   const ctx = useMemo(
     () => ({
@@ -77,7 +84,14 @@ export function DocumentPage() {
   return (
     <DocProvider value={ctx}>
       <div className="flex h-full flex-col">
-        <DocBar title={docTitle(doc.data)} docId={id} current={current} />
+        <DocBar
+          title={docTitle(doc.data)}
+          docId={id}
+          current={current}
+          latest={latest}
+          versions={versions.data?.items || []}
+          onSelectVersion={setSelectedVersion}
+        />
         <div className="flex flex-1 overflow-hidden">
           <section className="relative flex-1 bg-[var(--color-surface-muted)]">
             {current ? <RenderFrame /> : <Center>No version available.</Center>}

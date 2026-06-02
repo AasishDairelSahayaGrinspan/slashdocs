@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Center, Skeleton, EmptyState } from "@/components/ui/misc";
+import { Avatar, Center, Skeleton, EmptyState } from "@/components/ui/misc";
 import {
   Dropdown,
   DropdownContent,
@@ -33,7 +33,7 @@ import {
 } from "@/components/ui/dialog";
 import { HtmlFileInput, useStagedFile } from "@/components/ui/upload";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
-import { api, docID, docTitle, type Document } from "@/api";
+import { api, docID, docTitle, type Document, type Principal } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 
 export function DocumentsPage() {
@@ -136,7 +136,7 @@ function DocTable({ items }: { items: Document[] }) {
         <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
           <tr>
             <th className="px-4 py-2.5 text-left font-medium">Title</th>
-            <th className="px-4 py-2.5 text-left font-medium">ID</th>
+            <th className="px-4 py-2.5 text-left font-medium">Owner</th>
             <th className="w-12 px-2 py-2.5"></th>
           </tr>
         </thead>
@@ -172,8 +172,8 @@ function DocRow({ doc }: { doc: Document }) {
           {docTitle(doc)}
         </Link>
       </td>
-      <td className="px-4 py-3 font-mono text-xs text-[var(--color-fg-muted)]">
-        {docID(doc)}
+      <td className="px-4 py-3">
+        <OwnerCell owner={doc.owner} />
       </td>
       <td className="px-2 py-3">
         <DeleteDocumentDialog
@@ -193,6 +193,35 @@ function DocRow({ doc }: { doc: Document }) {
       </td>
     </tr>
   );
+}
+
+function OwnerCell({ owner }: { owner?: Principal }) {
+  const label = principalLabel(owner);
+  const detail =
+    owner?.email && owner.email !== label
+      ? owner.email
+      : owner?.type === "service_account"
+        ? "Service account"
+        : "Owner";
+  return (
+    <div className="flex min-w-0 items-center gap-2">
+      <Avatar name={label} src={owner?.picture_url} size={28} />
+      <div className="min-w-0">
+        <div className="truncate text-sm font-medium">{label}</div>
+        <div className="truncate text-xs text-[var(--color-fg-muted)]">
+          {detail}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function principalLabel(p?: Principal) {
+  if (!p) return "Unknown owner";
+  if (p.name) return p.name;
+  if (p.email) return p.email;
+  if (p.type === "service_account") return p.id || "Service account";
+  return p.id || "Unknown owner";
 }
 
 function EmptyDocs() {

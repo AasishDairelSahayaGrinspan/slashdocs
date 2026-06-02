@@ -20,6 +20,7 @@ export type Version = {
   id: string;
   number: number;
   document_id?: string;
+  created_by?: Principal;
   change_summary?: string;
   sha256?: string;
 };
@@ -111,6 +112,8 @@ export const api = {
   listDocuments: () => request<{ items: Document[] }>("/v1/documents"),
   getDocument: (id: string) => request<Document>(`/v1/documents/${id}`),
   getConfig: () => request<ServerConfig>("/v1/config"),
+  searchUsers: (q: string) =>
+    request<{ items: Principal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
   createDocument: (title: string, file: File) => {
     const fd = new FormData();
     fd.set("title", title);
