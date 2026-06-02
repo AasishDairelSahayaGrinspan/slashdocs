@@ -60,8 +60,8 @@ func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 			"access to everyone who can reach this server (anyone with the link on a\n" +
 			"public deployment, or everyone in the org on an org deployment).\n\n" +
 			"Examples:\n" +
-			"  aidocs docs grants add doc_… --to anurag@razorpay.com --role commenter\n" +
-			"  aidocs docs grants add doc_… --to n8n-prod@brave.otter.bot --role editor\n" +
+			"  aidocs docs grants add doc_… --to user@org.example --role commenter\n" +
+			"  aidocs docs grants add doc_… --to report-creator@brave.otter.bot --role editor\n" +
 			"  aidocs docs grants add doc_… --everyone --role viewer",
 		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -89,7 +89,7 @@ func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 			})
 		},
 	}
-	add.Flags().StringVar(&address, "to", "", "email or bot address (e.g. anurag@razorpay.com or n8n@brave.otter.bot)")
+	add.Flags().StringVar(&address, "to", "", "email or bot address (e.g. user@org.example or report-creator@brave.otter.bot)")
 	add.Flags().BoolVar(&everyone, "everyone", false, "share with everyone who can reach this server")
 	add.Flags().StringVar(&principal, "principal", "", "legacy: sa:<id> or user:<email>")
 	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, or editor")

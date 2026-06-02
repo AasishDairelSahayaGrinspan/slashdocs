@@ -177,12 +177,31 @@ func compactRow(m map[string]any) string {
 		}
 	}
 	if owner, ok := value(m, "owner").(map[string]any); ok {
-		if email := value(owner, "email"); email != nil && fmt.Sprint(email) != "" {
-			parts = append(parts, "owner="+fmt.Sprint(email))
+		if label := principalLabel(owner); label != "" {
+			parts = append(parts, "owner="+label)
+		}
+	}
+	if principal, ok := value(m, "principal").(map[string]any); ok {
+		if label := principalLabel(principal); label != "" {
+			parts = append(parts, "principal="+label)
+		}
+	}
+	if createdBy, ok := value(m, "created_by").(map[string]any); ok {
+		if label := principalLabel(createdBy); label != "" {
+			parts = append(parts, "created_by="+label)
 		}
 	}
 	if len(parts) == 0 {
 		return fmt.Sprintf("%v", m)
 	}
 	return strings.Join(parts, "  ")
+}
+
+func principalLabel(p map[string]any) string {
+	for _, k := range []string{"name", "email", "id"} {
+		if v := value(p, k); v != nil && fmt.Sprint(v) != "" {
+			return fmt.Sprint(v)
+		}
+	}
+	return ""
 }
