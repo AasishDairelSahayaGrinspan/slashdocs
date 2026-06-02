@@ -95,12 +95,35 @@ func (s *Store) UpsertGoogleUser(ctx context.Context, id, email, name, googleSub
 	}
 	return auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl}, nil
 }
-func (s *Store) EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error) {
-	u, err := s.q.GetUserByEmail(ctx, email)
-	if err == nil {
-		return auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl}, nil
+func (s *Store) UserByEmail(ctx context.Context, email string) (auth.Principal, error) {
+	u, err := s.q.GetSignedInUserByEmail(ctx, email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return auth.Principal{}, repo.ErrNotFound
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil {
+		return auth.Principal{}, err
+	}
+	return auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl}, nil
+}
+
+func (s *Store) SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error) {
+	rows, err := s.q.SearchUsersByEmail(ctx, query)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]auth.Principal, 0, len(rows))
+	for _, u := range rows {
+		out = append(out, auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl})
+	}
+	return out, nil
+}
+
+func (s *Store) EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error) {
+	u, err := s.UserByEmail(ctx, email)
+	if err == nil {
+		return u, nil
+	}
+	if !errors.Is(err, repo.ErrNotFound) {
 		return auth.Principal{}, err
 	}
 	id := newID("usr")
@@ -455,7 +478,7 @@ func (s *Store) ListGrants(ctx context.Context, documentID string) ([]repo.Grant
 	}
 	out := make([]repo.Grant, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repo.Grant{ID: r.ID, DocumentID: documentID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalUser, ID: r.GrantedByUserID}})
+		out = append(out, repo.Grant{ID: r.ID, DocumentID: documentID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalUser, ID: r.GrantedByUserID}})
 	}
 	return out, nil
 }
@@ -467,7 +490,7 @@ func (s *Store) UpdateGrant(ctx context.Context, documentID, grantID string, rol
 	if err != nil {
 		return repo.Grant{}, err
 	}
-	return repo.Grant{ID: r.ID, DocumentID: r.ResourceID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalUser, ID: r.GrantedByUserID}}, nil
+	return repo.Grant{ID: r.ID, DocumentID: r.ResourceID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalUser, ID: r.GrantedByUserID}}, nil
 }
 func (s *Store) DeleteGrant(ctx context.Context, documentID, grantID string) error {
 	_, err := s.q.DeleteGrant(ctx, dbsqlc.DeleteGrantParams{ID: grantID, ResourceID: documentID})
@@ -483,7 +506,7 @@ func (s *Store) ListVersions(ctx context.Context, documentID string) ([]repo.Ver
 	}
 	out := make([]repo.Version, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256})
+		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256})
 	}
 	return out, nil
 }
@@ -495,7 +518,7 @@ func (s *Store) GetVersion(ctx context.Context, id string) (repo.Version, error)
 	if err != nil {
 		return repo.Version{}, err
 	}
-	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}, nil
+	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}, nil
 }
 func (s *Store) GetVersionHTML(ctx context.Context, id string) ([]byte, error) {
 	key, err := s.q.GetVersionBlobKey(ctx, id)

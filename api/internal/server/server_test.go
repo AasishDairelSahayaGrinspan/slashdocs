@@ -244,7 +244,7 @@ func TestGrantDocumentAccessToServiceAccount(t *testing.T) {
 
 func TestGrantDocumentAccessToUserByEmail(t *testing.T) {
 	rr := do(t, newTestServer(), http.MethodPost, "/v1/documents/doc_1/grants", `{
-	  "principal": { "type": "user", "email": "reviewer@example.com" },
+	  "principal": { "type": "user", "email": "owner@example.com" },
 	  "role": "commenter"
 	}`, map[string]string{
 		"Content-Type":     "application/json",
@@ -255,10 +255,25 @@ func TestGrantDocumentAccessToUserByEmail(t *testing.T) {
 	assertJSON(t, rr.Body.Bytes(), `{
 	  "id": "gr_1",
 	  "resource": { "type": "document", "id": "doc_1" },
-	  "principal": { "type": "user", "id": "usr_2", "email": "reviewer@example.com" },
+	  "principal": { "type": "user", "id": "owner_1", "email": "owner@example.com", "name": "Owner" },
 	  "role": "commenter",
 	  "granted_by": { "id": "owner_1", "email": "owner@example.com" }
 	}`)
+}
+
+func TestGrantDocumentAccessRejectsUnknownUserEmail(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "user", "email": "reviewer@example.com" },
+	  "role": "commenter"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	assertStatus(t, rr, http.StatusBadRequest)
+	if !strings.Contains(rr.Body.String(), "No aidocs user exists") {
+		t.Fatalf("response = %s", rr.Body.String())
+	}
 }
 
 func TestViewerCannotUploadVersion(t *testing.T) {

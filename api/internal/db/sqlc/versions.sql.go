@@ -12,17 +12,36 @@ import (
 )
 
 const getVersion = `-- name: GetVersion :one
-SELECT id,number,document_id,created_by_type,created_by_id,change_summary,sha256 FROM versions WHERE id=$1
+SELECT
+  v.id,
+  v.number,
+  v.document_id,
+  v.created_by_type,
+  v.created_by_id,
+  COALESCE(u.email, '') AS created_by_email,
+  COALESCE(u.name, sa.name, '') AS created_by_name,
+  COALESCE(u.picture_url, '') AS created_by_picture_url,
+  v.change_summary,
+  v.sha256
+FROM versions v
+LEFT JOIN users u
+  ON v.created_by_type = 'user' AND v.created_by_id = u.id
+LEFT JOIN service_accounts sa
+  ON v.created_by_type = 'service_account' AND v.created_by_id = sa.id
+WHERE v.id=$1
 `
 
 type GetVersionRow struct {
-	ID            string
-	Number        int32
-	DocumentID    string
-	CreatedByType string
-	CreatedByID   string
-	ChangeSummary string
-	Sha256        string
+	ID                  string
+	Number              int32
+	DocumentID          string
+	CreatedByType       string
+	CreatedByID         string
+	CreatedByEmail      string
+	CreatedByName       string
+	CreatedByPictureUrl string
+	ChangeSummary       string
+	Sha256              string
 }
 
 func (q *Queries) GetVersion(ctx context.Context, id string) (GetVersionRow, error) {
@@ -34,6 +53,9 @@ func (q *Queries) GetVersion(ctx context.Context, id string) (GetVersionRow, err
 		&i.DocumentID,
 		&i.CreatedByType,
 		&i.CreatedByID,
+		&i.CreatedByEmail,
+		&i.CreatedByName,
+		&i.CreatedByPictureUrl,
 		&i.ChangeSummary,
 		&i.Sha256,
 	)
@@ -110,17 +132,37 @@ func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) er
 }
 
 const listVersions = `-- name: ListVersions :many
-SELECT id,number,document_id,created_by_type,created_by_id,change_summary,sha256 FROM versions WHERE document_id=$1 ORDER BY number
+SELECT
+  v.id,
+  v.number,
+  v.document_id,
+  v.created_by_type,
+  v.created_by_id,
+  COALESCE(u.email, '') AS created_by_email,
+  COALESCE(u.name, sa.name, '') AS created_by_name,
+  COALESCE(u.picture_url, '') AS created_by_picture_url,
+  v.change_summary,
+  v.sha256
+FROM versions v
+LEFT JOIN users u
+  ON v.created_by_type = 'user' AND v.created_by_id = u.id
+LEFT JOIN service_accounts sa
+  ON v.created_by_type = 'service_account' AND v.created_by_id = sa.id
+WHERE v.document_id=$1
+ORDER BY v.number
 `
 
 type ListVersionsRow struct {
-	ID            string
-	Number        int32
-	DocumentID    string
-	CreatedByType string
-	CreatedByID   string
-	ChangeSummary string
-	Sha256        string
+	ID                  string
+	Number              int32
+	DocumentID          string
+	CreatedByType       string
+	CreatedByID         string
+	CreatedByEmail      string
+	CreatedByName       string
+	CreatedByPictureUrl string
+	ChangeSummary       string
+	Sha256              string
 }
 
 func (q *Queries) ListVersions(ctx context.Context, documentID string) ([]ListVersionsRow, error) {
@@ -138,6 +180,9 @@ func (q *Queries) ListVersions(ctx context.Context, documentID string) ([]ListVe
 			&i.DocumentID,
 			&i.CreatedByType,
 			&i.CreatedByID,
+			&i.CreatedByEmail,
+			&i.CreatedByName,
+			&i.CreatedByPictureUrl,
 			&i.ChangeSummary,
 			&i.Sha256,
 		); err != nil {

@@ -11,6 +11,29 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const getSignedInUserByEmail = `-- name: GetSignedInUserByEmail :one
+SELECT id,email,name,picture_url FROM users WHERE email=$1 AND google_sub IS NOT NULL
+`
+
+type GetSignedInUserByEmailRow struct {
+	ID         string
+	Email      string
+	Name       string
+	PictureUrl string
+}
+
+func (q *Queries) GetSignedInUserByEmail(ctx context.Context, email string) (GetSignedInUserByEmailRow, error) {
+	row := q.db.QueryRow(ctx, getSignedInUserByEmail, email)
+	var i GetSignedInUserByEmailRow
+	err := row.Scan(
+		&i.ID,
+		&i.Email,
+		&i.Name,
+		&i.PictureUrl,
+	)
+	return i, err
+}
+
 const getUserByEmail = `-- name: GetUserByEmail :one
 SELECT id,email,name,picture_url FROM users WHERE email=$1
 `
@@ -157,6 +180,53 @@ func (q *Queries) ResolveServiceAccountToken(ctx context.Context, tokenHash stri
 		&i.PictureUrl,
 	)
 	return i, err
+}
+
+const searchUsersByEmail = `-- name: SearchUsersByEmail :many
+SELECT id,email,name,picture_url
+FROM users
+WHERE google_sub IS NOT NULL
+  AND lower(email) LIKE '%' || lower($1) || '%'
+ORDER BY
+  CASE
+    WHEN lower(email) = lower($1) THEN 0
+    WHEN lower(email) LIKE lower($1) || '%' THEN 1
+    ELSE 2
+  END,
+  email
+LIMIT 8
+`
+
+type SearchUsersByEmailRow struct {
+	ID         string
+	Email      string
+	Name       string
+	PictureUrl string
+}
+
+func (q *Queries) SearchUsersByEmail(ctx context.Context, lower string) ([]SearchUsersByEmailRow, error) {
+	rows, err := q.db.Query(ctx, searchUsersByEmail, lower)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchUsersByEmailRow
+	for rows.Next() {
+		var i SearchUsersByEmailRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Email,
+			&i.Name,
+			&i.PictureUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const touchCLIToken = `-- name: TouchCLIToken :exec

@@ -19,6 +19,7 @@ import (
 var (
 	errInvalidAddress      = errors.New("invalid grant address")
 	errPrincipalIDRequired = errors.New("principal id required")
+	errUnknownUserEmail    = errors.New("unknown user email")
 )
 
 func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, principal auth.Principal) (auth.Principal, error) {
@@ -40,7 +41,10 @@ func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, pr
 	}
 	switch {
 	case principal.Type == auth.PrincipalUser && principal.ID == "" && principal.Email != "":
-		p, err := r.EnsureUserByEmail(c.Request.Context(), principal.Email)
+		p, err := r.UserByEmail(c.Request.Context(), principal.Email)
+		if errors.Is(err, repo.ErrNotFound) {
+			return auth.Principal{}, errUnknownUserEmail
+		}
 		if err != nil {
 			return auth.Principal{}, err
 		}
@@ -105,6 +109,8 @@ func (h handlers) createGrant(c *gin.Context) {
 			badRequest(c, "That doesn't look like an email or bot address.")
 		case errors.Is(err, errPrincipalIDRequired):
 			badRequest(c, "principal id, user email, or service account name is required")
+		case errors.Is(err, errUnknownUserEmail):
+			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
 		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
 		default:

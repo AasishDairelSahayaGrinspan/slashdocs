@@ -152,6 +152,7 @@ func (s *Server) routes(deps dependencies) {
 	// Every route below requires authentication.
 	authed := v1.Group("", requireAuth(deps.authenticator))
 	authed.GET("/me", h.me)
+	authed.GET("/users", h.searchUsers)
 	authed.GET("/auth/cli/credentials", h.listCLICredentials)
 	authed.DELETE("/auth/cli/credentials/:id", h.revokeCLICredential)
 	authed.POST("/service-accounts", h.createServiceAccount)

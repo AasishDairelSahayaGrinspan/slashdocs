@@ -5,11 +5,44 @@ ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET
 RETURNING id;
 
 -- name: ListGrants :many
-SELECT id,principal_type,principal_id,role,granted_by_user_id FROM resource_grants WHERE resource_type='document' AND resource_id=$1 AND revoked_at IS NULL;
+SELECT
+  g.id,
+  g.principal_type,
+  g.principal_id,
+  COALESCE(u.email, '') AS principal_email,
+  COALESCE(u.name, sa.name, '') AS principal_name,
+  COALESCE(u.picture_url, '') AS principal_picture_url,
+  g.role,
+  g.granted_by_user_id
+FROM resource_grants g
+LEFT JOIN users u
+  ON g.principal_type = 'user' AND g.principal_id = u.id
+LEFT JOIN service_accounts sa
+  ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+WHERE g.resource_type='document' AND g.resource_id=$1 AND g.revoked_at IS NULL;
 
 -- name: UpdateGrantRole :one
-UPDATE resource_grants SET role=$1 WHERE id=$2 AND resource_type='document' AND resource_id=$3 AND revoked_at IS NULL
-RETURNING id,resource_id,principal_type,principal_id,role,granted_by_user_id;
+WITH updated AS (
+  UPDATE resource_grants
+  SET role=$1
+  WHERE resource_grants.id=$2 AND resource_type='document' AND resource_id=$3 AND revoked_at IS NULL
+  RETURNING *
+)
+SELECT
+  g.id,
+  g.resource_id,
+  g.principal_type,
+  g.principal_id,
+  COALESCE(u.email, '') AS principal_email,
+  COALESCE(u.name, sa.name, '') AS principal_name,
+  COALESCE(u.picture_url, '') AS principal_picture_url,
+  g.role,
+  g.granted_by_user_id
+FROM updated g
+LEFT JOIN users u
+  ON g.principal_type = 'user' AND g.principal_id = u.id
+LEFT JOIN service_accounts sa
+  ON g.principal_type = 'service_account' AND g.principal_id = sa.id;
 
 -- name: GetGrant :one
 SELECT id,resource_id,principal_type,principal_id,role,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL;

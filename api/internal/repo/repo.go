@@ -168,6 +168,8 @@ type Repository interface {
 	AcceptOwnershipTransfer(ctx context.Context, id string, user auth.Principal) (OwnershipTransfer, error)
 	DeclineOwnershipTransfer(ctx context.Context, id string, user auth.Principal) error
 	PrincipalExists(ctx context.Context, principal auth.Principal) (bool, error)
+	UserByEmail(ctx context.Context, email string) (auth.Principal, error)
+	SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error)
 	EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error)
 	CreateGrant(ctx context.Context, documentID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
 	ListGrants(ctx context.Context, documentID string) ([]Grant, error)
@@ -403,7 +405,7 @@ func (m *Memory) PrincipalExists(ctx context.Context, p auth.Principal) (bool, e
 	}
 	return false, nil
 }
-func (m *Memory) EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error) {
+func (m *Memory) UserByEmail(ctx context.Context, email string) (auth.Principal, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, p := range m.users {
@@ -411,6 +413,30 @@ func (m *Memory) EnsureUserByEmail(ctx context.Context, email string) (auth.Prin
 			return p, nil
 		}
 	}
+	return auth.Principal{}, ErrNotFound
+}
+
+func (m *Memory) SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	q := strings.ToLower(strings.TrimSpace(query))
+	out := []auth.Principal{}
+	for _, p := range m.users {
+		if q == "" || strings.Contains(strings.ToLower(p.Email), q) || strings.Contains(strings.ToLower(p.Name), q) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error) {
+	if p, err := m.UserByEmail(ctx, email); err == nil {
+		return p, nil
+	} else if !errors.Is(err, ErrNotFound) {
+		return auth.Principal{}, err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	id := fmt.Sprintf("usr_%d", len(m.users)+1)
 	p := auth.Principal{Type: auth.PrincipalUser, ID: id, Email: email}
 	m.users[id] = p

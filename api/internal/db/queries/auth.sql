@@ -28,6 +28,23 @@ WHERE NOT EXISTS (SELECT 1 FROM updated);
 -- name: GetUserByEmail :one
 SELECT id,email,name,picture_url FROM users WHERE email=$1;
 
+-- name: GetSignedInUserByEmail :one
+SELECT id,email,name,picture_url FROM users WHERE email=$1 AND google_sub IS NOT NULL;
+
+-- name: SearchUsersByEmail :many
+SELECT id,email,name,picture_url
+FROM users
+WHERE google_sub IS NOT NULL
+  AND lower(email) LIKE '%' || lower($1) || '%'
+ORDER BY
+  CASE
+    WHEN lower(email) = lower($1) THEN 0
+    WHEN lower(email) LIKE lower($1) || '%' THEN 1
+    ELSE 2
+  END,
+  email
+LIMIT 8;
+
 -- name: GetUserByGoogleSub :one
 SELECT id,email,name,picture_url FROM users WHERE google_sub=$1;
 
