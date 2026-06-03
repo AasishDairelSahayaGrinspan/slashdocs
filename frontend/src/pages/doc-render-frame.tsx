@@ -33,6 +33,7 @@ export function RenderFrame() {
         .map((c) => ({
           id: c.id,
           quote: c.selected_text || c.anchor?.quote,
+          anchor: c.anchor,
         })),
     [comments],
   );
