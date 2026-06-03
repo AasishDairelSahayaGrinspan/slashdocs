@@ -108,6 +108,12 @@ export function Comments() {
               rows={3}
               value={body}
               onChange={(e) => setBody(e.target.value)}
+              onKeyDown={(e) => {
+                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+                  e.preventDefault();
+                  if (body.trim() && !create.isPending) create.mutate();
+                }
+              }}
               placeholder="Add a comment…"
             />
             <div className="flex justify-end gap-2">
@@ -119,7 +125,7 @@ export function Comments() {
                 type="submit"
                 disabled={!body || create.isPending}
               >
-                Comment
+                Comment ⌘↵
               </Button>
             </div>
           </form>
