@@ -10,6 +10,10 @@ that playbook:
 
   aidocs guidelines <category>
 
+Fastest correct start: scaffold a themed, anchor-safe starter file, then edit it:
+
+  aidocs docs new report.html --type report   # report|comparison|pr-review|explainer|deck
+
 Categories:
   report      status updates, RCAs, postmortems, incident timelines
   comparison  options/approaches weighed side by side, recommendations

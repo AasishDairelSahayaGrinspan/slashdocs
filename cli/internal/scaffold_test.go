@@ -49,6 +49,23 @@ func TestUnknownScaffoldTypeErrors(t *testing.T) {
 	}
 }
 
+func TestDocsNewSurfacedInContract(t *testing.T) {
+	core, err := readGuideline("core.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(core, "docs new") {
+		t.Error("core.md should mention `aidocs docs new` as the fastest correct start")
+	}
+	skill, err := os.ReadFile("../../skills/aidocs/SKILL.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(skill), "docs new") {
+		t.Error("SKILL.md should mention `aidocs docs new`")
+	}
+}
+
 func TestDocsNewWritesFileAndRefusesOverwrite(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "r.html")
