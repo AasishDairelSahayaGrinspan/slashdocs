@@ -59,14 +59,14 @@ bin/aidocs
 Release images are published to Razorpay Harbor:
 
 ```bash
-docker pull c.rzp.io/razorpay/aidocs:latest
+docker pull harbor.razorpay.com/razorpay/aidocs:latest
 ```
 
 Copy [`.env.example`](.env.example) to `.env`, fill it in, and run (pin an exact
 tag or digest in production rather than `:latest`):
 
 ```bash
-docker run --rm -p 8080:8080 --env-file .env c.rzp.io/razorpay/aidocs:latest
+docker run --rm -p 8080:8080 --env-file .env harbor.razorpay.com/razorpay/aidocs:latest
 ```
 
 See [Self-hosting](docs/self-hosting.md) for production setup and all environment variables. A Kubernetes Helm chart is available in [`charts/aidocs`](charts/aidocs).

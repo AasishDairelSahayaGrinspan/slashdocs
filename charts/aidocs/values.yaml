@@ -10,7 +10,7 @@ autoscaling:
   targetMemoryUtilizationPercentage: 70
 
 image:
-  repository: c.rzp.io/razorpay/aidocs
+  repository: harbor.razorpay.com/razorpay/aidocs
   tag: ""
   pullPolicy: IfNotPresent
 

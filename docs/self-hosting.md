@@ -117,7 +117,7 @@ Build the image from source, or pull the prebuilt image from Razorpay Harbor.
 docker build -t aidocs:local .
 
 # Razorpay Harbor
-docker pull c.rzp.io/razorpay/aidocs:latest
+docker pull harbor.razorpay.com/razorpay/aidocs:latest
 ```
 
 Pin an exact tag or digest in production rather than `:latest`.
@@ -127,7 +127,7 @@ Run it, pointing at your Postgres and S3-compatible storage. Copy
 
 ```bash
 docker run --rm -p 8080:8080 --env-file .env \
-  c.rzp.io/razorpay/aidocs:latest
+  harbor.razorpay.com/razorpay/aidocs:latest
 ```
 
 Open <http://localhost:8080>. See `.env.example` for every variable; the
@@ -162,7 +162,7 @@ cp charts/aidocs/values.yaml my-values.yaml
 
 ```yaml
 image:
-  repository: c.rzp.io/razorpay/aidocs
+  repository: harbor.razorpay.com/razorpay/aidocs
   tag: "0.1.0"
 
 origins:

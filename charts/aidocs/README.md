@@ -15,7 +15,7 @@ helm upgrade --install aidocs ./charts/aidocs \
 
 ```yaml
 image:
-  repository: c.rzp.io/razorpay/aidocs
+  repository: harbor.razorpay.com/razorpay/aidocs
   tag: "0.1.0"
 
 origins:
