@@ -155,12 +155,11 @@ if command -v brew >/dev/null 2>&1 && brew list aidocs >/dev/null 2>&1; then
 fi
 
 old_path="$(command -v aidocs 2>/dev/null || true)"
-if [ "$INSTALL_MODE" = "user" ] && [ -n "$old_path" ] && [ "$old_path" != "$BIN_PATH" ]; then
-  case "$old_path" in
-    /usr/local/bin/aidocs|/opt/homebrew/bin/aidocs)
-      echo "Found existing aidocs at $old_path. Installing user-local at $BIN_PATH."
-      ;;
-  esac
+if [ -n "$old_path" ] && [ "$old_path" != "$BIN_PATH" ]; then
+  echo "Existing aidocs install found at $old_path." >&2
+  echo "Remove it first, or install to that location instead." >&2
+  echo "Target install path: $BIN_PATH" >&2
+  exit 1
 fi
 
 tmp="$(mktemp)"
