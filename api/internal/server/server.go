@@ -184,6 +184,7 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/versions/:version_id/render-token", h.createRenderToken)
 	authed.POST("/documents/:id/comments", h.createComment)
 	authed.GET("/documents/:id/comments", h.listComments)
+	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)
 	authed.DELETE("/documents/:id/comments/:comment_id", h.deleteComment)
 }

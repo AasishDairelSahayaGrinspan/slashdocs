@@ -38,11 +38,17 @@ import { queryKeys } from "@/lib/queryKeys";
 
 export function DocumentsPage() {
   useTitle("Documents");
-  const docs = useQuery({
-    queryKey: queryKeys.documents(),
-    queryFn: api.listDocuments,
-  });
   const [q, setQ] = useState("");
+  const [debouncedQ, setDebouncedQ] = useState("");
+  useEffect(() => {
+    const t = window.setTimeout(() => setDebouncedQ(q.trim()), 250);
+    return () => window.clearTimeout(t);
+  }, [q]);
+  const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
+  const docs = useQuery({
+    queryKey: [...queryKeys.documents(), debouncedQ],
+    queryFn: () => api.listDocuments(debouncedQ || undefined),
+  });
   const { state: onb } = useOnboarding();
   const nav = useNavigate();
   useEffect(() => {
@@ -66,13 +72,7 @@ export function DocumentsPage() {
       autoMarkFirstDoc();
     }
   }, [docs.data]);
-  const items = useMemo(() => {
-    const list = docs.data?.items || [];
-    if (!q) return list;
-    return list.filter((d) =>
-      docTitle(d).toLowerCase().includes(q.toLowerCase()),
-    );
-  }, [docs.data, q]);
+  const items = useMemo(() => docs.data?.items || [], [docs.data]);
 
   if (docs.isLoading) {
     return (
@@ -84,7 +84,8 @@ export function DocumentsPage() {
   }
   if (docs.error) return <Center>Could not load documents.</Center>;
 
-  const empty = (docs.data?.items || []).length === 0;
+  const searching = debouncedQ.length > 0;
+  const empty = !searching && (docs.data?.items || []).length === 0;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -123,13 +124,13 @@ export function DocumentsPage() {
       ) : items.length === 0 ? (
         <EmptyState title="No matches" description={`Nothing matches “${q}”.`} />
       ) : (
-        <DocTable items={items} />
+        <DocTable items={items} principal={me.data?.principal} />
       )}
     </div>
   );
 }
 
-function DocTable({ items }: { items: Document[] }) {
+function DocTable({ items, principal }: { items: Document[]; principal?: Principal }) {
   return (
     <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <table className="w-full text-sm">
@@ -142,7 +143,7 @@ function DocTable({ items }: { items: Document[] }) {
         </thead>
         <tbody>
           {items.map((d) => (
-            <DocRow key={docID(d)} doc={d} />
+            <DocRow key={docID(d)} doc={d} canDelete={samePrincipal(principal, d.owner)} />
           ))}
         </tbody>
       </table>
@@ -150,7 +151,7 @@ function DocTable({ items }: { items: Document[] }) {
   );
 }
 
-function DocRow({ doc }: { doc: Document }) {
+function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
   const q = useQueryClient();
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docID(doc)),
@@ -176,20 +177,22 @@ function DocRow({ doc }: { doc: Document }) {
         <OwnerCell owner={doc.owner} />
       </td>
       <td className="px-2 py-3">
-        <DeleteDocumentDialog
-          title={docTitle(doc)}
-          onConfirm={() => del.mutate()}
-          trigger={
-            <Button
-              variant="ghost"
-              size="icon"
-              className="opacity-0 transition-opacity group-hover:opacity-100"
-              aria-label="Delete document"
-            >
-              <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
-            </Button>
-          }
-        />
+        {canDelete ? (
+          <DeleteDocumentDialog
+            title={docTitle(doc)}
+            onConfirm={() => del.mutate()}
+            trigger={
+              <Button
+                variant="ghost"
+                size="icon"
+                className="opacity-0 transition-opacity group-hover:opacity-100"
+                aria-label="Delete document"
+              >
+                <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+              </Button>
+            }
+          />
+        ) : null}
       </td>
     </tr>
   );
@@ -214,6 +217,10 @@ function OwnerCell({ owner }: { owner?: Principal }) {
       </div>
     </div>
   );
+}
+
+function samePrincipal(a?: Principal, b?: Principal) {
+  return !!a && !!b && a.type === b.type && a.id === b.id;
 }
 
 function principalLabel(p?: Principal) {

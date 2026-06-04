@@ -1,5 +1,5 @@
 import { createContext, useContext } from "react";
-import type { Anchor, Comment } from "@/api";
+import type { Anchor, Comment, Principal } from "@/api";
 
 // A text selection captured from the render bridge that a new comment will
 // anchor to. `anchor` is present only when the bridge supplies real offsets.
@@ -14,6 +14,7 @@ export type DocContextValue = {
   comments: Comment[];
   commentsLoading: boolean;
   commentsError: boolean;
+  principal?: Principal;
   selection: PendingSelection | null;
   setSelection: (s: PendingSelection | null) => void;
   activeComment?: string;

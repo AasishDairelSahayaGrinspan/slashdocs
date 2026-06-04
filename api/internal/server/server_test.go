@@ -183,16 +183,17 @@ func TestCreateDocument(t *testing.T) {
 	}`)
 }
 
-func TestServiceAccountCannotCreateDocument(t *testing.T) {
+func TestServiceAccountCanCreateDocument(t *testing.T) {
 	body, contentType := multipartBody(t, map[string]string{"title": "Bot doc"}, "file", "bot.html", "<html></html>")
 	rr := doRaw(t, newTestServer(), http.MethodPost, "/v1/documents", body, map[string]string{
 		"Content-Type":     contentType,
 		"X-Test-Principal": "service_account:sa_1",
 	})
 
-	assertStatus(t, rr, http.StatusForbidden)
+	assertStatus(t, rr, http.StatusCreated)
 	assertJSON(t, rr.Body.Bytes(), `{
-	  "error": { "code": "forbidden", "message": "service accounts cannot own documents" }
+	  "id": "doc_1",
+	  "current_version_id": "ver_1"
 	}`)
 }
 
@@ -415,9 +416,59 @@ func TestRandomUserCannotPatchAnotherUsersComment(t *testing.T) {
 	assertStatus(t, rr, http.StatusForbidden)
 }
 
+func TestCreateCommentReplyAndListThread(t *testing.T) {
+	h := newTestServer()
+	rr := do(t, h, http.MethodPost, "/v1/documents/doc_1/comments/cmt_1/replies", `{"body":"reply body"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:commenter_1:commenter@example.com:Commenter",
+	})
+	assertStatus(t, rr, http.StatusCreated)
+	assertJSON(t, rr.Body.Bytes(), `{
+	  "id": "cmt_2",
+	  "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
+	  "body": "reply body",
+	  "status": "open",
+	  "created_on_version_id": "ver_1",
+	  "parent_comment_id": "cmt_1"
+	}`)
+
+	rr = do(t, h, http.MethodGet, "/v1/documents/doc_1/comments", "", map[string]string{
+		"X-Test-Principal": "user:commenter_1:commenter@example.com:Commenter",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	assertJSON(t, rr.Body.Bytes(), `{
+	  "items": [{
+	    "id": "cmt_1",
+	    "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
+	    "body": "original",
+	    "selected_text": "fixture",
+	    "anchor": { "quote": "fixture", "prefix": "", "suffix": "", "dom_path": "", "start_offset": 0, "end_offset": 0 },
+	    "status": "open",
+	    "created_on_version_id": "ver_1",
+	    "current_placement": { "version_id": "ver_1", "status": "attached", "anchor": { "quote": "fixture", "prefix": "", "suffix": "", "dom_path": "", "start_offset": 0, "end_offset": 0 }, "matched_text": "fixture", "confidence": 1 },
+	    "replies": [{
+	      "id": "cmt_2",
+	      "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
+	      "body": "reply body",
+	      "status": "open",
+	      "created_on_version_id": "ver_1",
+	      "parent_comment_id": "cmt_1"
+	    }]
+	  }]
+	}`)
+}
+
 func TestRandomUserCannotDeleteAnotherUsersComment(t *testing.T) {
 	rr := do(t, newTestServer(), http.MethodDelete, "/v1/documents/doc_1/comments/cmt_1", "", map[string]string{
 		"X-Test-Principal": "user:attacker_1:attacker@example.com:Attacker",
+	})
+
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
+func TestEditorCannotDeleteAnotherUsersComment(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodDelete, "/v1/documents/doc_1/comments/cmt_1", "", map[string]string{
+		"X-Test-Principal": "user:editor_1:editor@example.com:Editor",
 	})
 
 	assertStatus(t, rr, http.StatusForbidden)

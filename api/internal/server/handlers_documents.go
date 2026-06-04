@@ -6,7 +6,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -24,10 +23,6 @@ import (
 // @Router /v1/documents [post]
 func (h handlers) createDocument(c *gin.Context) {
 	p := current(c)
-	if p.Type == auth.PrincipalServiceAccount {
-		forbidden(c, "service accounts cannot own documents")
-		return
-	}
 	title := c.PostForm("title")
 	html, err := readMultipartFile(c, "file")
 	if errors.Is(err, errPayloadTooLarge) {
@@ -59,9 +54,21 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Produce json
+// @Param q query string false "Title search query"
 // @Success 200 {object} map[string]interface{}
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
+	q := c.Query("q")
+	if q != "" {
+		includeOrgWide := h.deps.deployment == DeploymentOrg
+		items, err := h.deps.repository.SearchDocumentsByTitle(c.Request.Context(), *current(c), q, includeOrgWide, 25)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+		return
+	}
 	items, err := h.deps.repository.ListDocuments(c.Request.Context(), *current(c))
 	if err != nil {
 		internalErr(c, err)
@@ -92,7 +99,7 @@ func (h handlers) getDocument(c *gin.Context) {
 	// already listed; recording for them is unnecessary. Best-effort: a failure
 	// here must not block serving the document.
 	p := current(c)
-	if !(p.Type == auth.PrincipalUser && p.ID == d.Owner.ID) {
+	if !(p.Type == d.Owner.Type && p.ID == d.Owner.ID) {
 		_ = h.deps.repository.RecordDocumentOpened(c.Request.Context(), d.ID, *p)
 	}
 	c.JSON(http.StatusOK, d)

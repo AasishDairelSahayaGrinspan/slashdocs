@@ -35,11 +35,14 @@ export type Anchor = {
 export type Comment = {
   id: string;
   body: string;
-  selected_text: string;
+  selected_text?: string;
   status: string;
   author: Principal;
   created_on_version_id: string;
-  anchor: Anchor;
+  parent_comment_id?: string;
+  root_comment_id?: string;
+  anchor?: Anchor;
+  replies?: Comment[];
   current_placement?: {
     status: string;
     confidence: number;
@@ -109,7 +112,10 @@ export const api = {
     }>("/v1/me"),
   loginURL: (redirect: string = location.pathname + location.search) =>
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
-  listDocuments: () => request<{ items: Document[] }>("/v1/documents"),
+  listDocuments: (q?: string) =>
+    request<{ items: Document[] }>(
+      `/v1/documents${q ? `?q=${encodeURIComponent(q)}` : ""}`,
+    ),
   getDocument: (id: string) => request<Document>(`/v1/documents/${id}`),
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>
@@ -168,11 +174,18 @@ export const api = {
         },
       }),
     }),
+  createCommentReply: (doc: string, id: string, body: string) =>
+    request<Comment>(`/v1/documents/${doc}/comments/${id}/replies`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    }),
   patchComment: (doc: string, id: string, body: string, status: string) =>
     request<Comment>(`/v1/documents/${doc}/comments/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ body, status }),
     }),
+  deleteComment: (doc: string, id: string) =>
+    request<void>(`/v1/documents/${doc}/comments/${id}`, { method: "DELETE" }),
   listGrants: (doc: string) =>
     request<{ items: Grant[] }>(`/v1/documents/${doc}/grants`),
   createGrant: (doc: string, address: string, role: string) =>

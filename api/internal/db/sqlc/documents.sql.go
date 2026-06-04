@@ -21,14 +21,20 @@ func (q *Queries) DeleteDocument(ctx context.Context, id string) error {
 }
 
 const getDocument = `-- name: GetDocument :one
-SELECT d.id,d.title,d.current_version_id,u.id AS owner_id,u.email AS owner_email,u.name AS owner_name
-FROM documents d JOIN users u ON u.id=d.owner_id WHERE d.id=$1
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+       COALESCE(u.email,'') AS owner_email,
+       COALESCE(u.name,sa.name,'') AS owner_name
+FROM documents d
+LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND sa.id=d.owner_id
+WHERE d.id=$1
 `
 
 type GetDocumentRow struct {
 	ID               string
 	Title            string
 	CurrentVersionID pgtype.Text
+	OwnerType        string
 	OwnerID          string
 	OwnerEmail       string
 	OwnerName        string
@@ -41,6 +47,7 @@ func (q *Queries) GetDocument(ctx context.Context, id string) (GetDocumentRow, e
 		&i.ID,
 		&i.Title,
 		&i.CurrentVersionID,
+		&i.OwnerType,
 		&i.OwnerID,
 		&i.OwnerEmail,
 		&i.OwnerName,
@@ -65,15 +72,20 @@ func (q *Queries) GetDocumentGrantRole(ctx context.Context, arg GetDocumentGrant
 	return role, err
 }
 
-const getDocumentOwnerID = `-- name: GetDocumentOwnerID :one
-SELECT owner_id FROM documents WHERE id=$1
+const getDocumentOwner = `-- name: GetDocumentOwner :one
+SELECT owner_type, owner_id FROM documents WHERE id=$1
 `
 
-func (q *Queries) GetDocumentOwnerID(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, getDocumentOwnerID, id)
-	var owner_id string
-	err := row.Scan(&owner_id)
-	return owner_id, err
+type GetDocumentOwnerRow struct {
+	OwnerType string
+	OwnerID   string
+}
+
+func (q *Queries) GetDocumentOwner(ctx context.Context, id string) (GetDocumentOwnerRow, error) {
+	row := q.db.QueryRow(ctx, getDocumentOwner, id)
+	var i GetDocumentOwnerRow
+	err := row.Scan(&i.OwnerType, &i.OwnerID)
+	return i, err
 }
 
 const getDocumentVersionForUpdate = `-- name: GetDocumentVersionForUpdate :one
@@ -94,24 +106,34 @@ func (q *Queries) GetDocumentVersionForUpdate(ctx context.Context, documentID st
 }
 
 const insertDocument = `-- name: InsertDocument :exec
-INSERT INTO documents(id,title,owner_id) VALUES($1,$2,$3)
+INSERT INTO documents(id,title,owner_type,owner_id) VALUES($1,$2,$3,$4)
 `
 
 type InsertDocumentParams struct {
-	ID      string
-	Title   string
-	OwnerID string
+	ID        string
+	Title     string
+	OwnerType string
+	OwnerID   string
 }
 
 func (q *Queries) InsertDocument(ctx context.Context, arg InsertDocumentParams) error {
-	_, err := q.db.Exec(ctx, insertDocument, arg.ID, arg.Title, arg.OwnerID)
+	_, err := q.db.Exec(ctx, insertDocument,
+		arg.ID,
+		arg.Title,
+		arg.OwnerType,
+		arg.OwnerID,
+	)
 	return err
 }
 
 const listDocuments = `-- name: ListDocuments :many
-SELECT d.id,d.title,d.current_version_id,u.id AS owner_id,u.email AS owner_email,u.name AS owner_name
-FROM documents d JOIN users u ON u.id=d.owner_id
-WHERE (d.owner_id=$1 AND $2='user')
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+       COALESCE(u.email,'') AS owner_email,
+       COALESCE(u.name,sa.name,'') AS owner_name
+FROM documents d
+LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND sa.id=d.owner_id
+WHERE (d.owner_type=$2 AND d.owner_id=$1)
    OR EXISTS (
        SELECT 1 FROM resource_grants g
        WHERE g.resource_type='document'
@@ -134,17 +156,19 @@ WHERE (d.owner_id=$1 AND $2='user')
        )
    )
 ORDER BY d.updated_at DESC
+LIMIT 25
 `
 
 type ListDocumentsParams struct {
-	OwnerID string
-	Column2 interface{}
+	OwnerID   string
+	OwnerType string
 }
 
 type ListDocumentsRow struct {
 	ID               string
 	Title            string
 	CurrentVersionID pgtype.Text
+	OwnerType        string
 	OwnerID          string
 	OwnerEmail       string
 	OwnerName        string
@@ -156,12 +180,11 @@ type ListDocumentsRow struct {
 //  3. have opened it (a workspace entry exists) AND it is still broadly shared
 //     via an active "anyone" grant.
 //
-// A bare "anyone" grant alone does NOT list the document: a public link grants
-// access via the link, it does not place the document in every user's
-// workspace until they open it. Link access is authorized separately via the
-// per-document role resolution.
+// A bare "anyone" grant alone does NOT list the document: broad access grants
+// access via discovery/link, it does not place the document in every user's
+// workspace until they open it.
 func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]ListDocumentsRow, error) {
-	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.Column2)
+	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.OwnerType)
 	if err != nil {
 		return nil, err
 	}
@@ -173,6 +196,7 @@ func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([
 			&i.ID,
 			&i.Title,
 			&i.CurrentVersionID,
+			&i.OwnerType,
 			&i.OwnerID,
 			&i.OwnerEmail,
 			&i.OwnerName,
@@ -204,6 +228,90 @@ type RecordWorkspaceEntryParams struct {
 func (q *Queries) RecordWorkspaceEntry(ctx context.Context, arg RecordWorkspaceEntryParams) error {
 	_, err := q.db.Exec(ctx, recordWorkspaceEntry, arg.DocumentID, arg.PrincipalType, arg.PrincipalID)
 	return err
+}
+
+const searchDocumentsByTitle = `-- name: SearchDocumentsByTitle :many
+SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+       COALESCE(u.email,'') AS owner_email,
+       COALESCE(u.name,sa.name,'') AS owner_name
+FROM documents d
+LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND sa.id=d.owner_id
+WHERE d.title ILIKE '%' || $1 || '%'
+  AND (
+    (d.owner_type=$3 AND d.owner_id=$2)
+    OR EXISTS (
+      SELECT 1 FROM resource_grants g
+      WHERE g.resource_type='document'
+        AND g.resource_id=d.id
+        AND g.revoked_at IS NULL
+        AND g.principal_type=$3 AND g.principal_id=$2
+    )
+    OR (
+      $4::boolean
+      AND EXISTS (
+        SELECT 1 FROM resource_grants g
+        WHERE g.resource_type='document'
+          AND g.resource_id=d.id
+          AND g.revoked_at IS NULL
+          AND g.principal_type='anyone'
+      )
+    )
+  )
+ORDER BY d.title
+LIMIT $5
+`
+
+type SearchDocumentsByTitleParams struct {
+	Column1   pgtype.Text
+	OwnerID   string
+	OwnerType string
+	Column4   bool
+	Limit     int32
+}
+
+type SearchDocumentsByTitleRow struct {
+	ID               string
+	Title            string
+	CurrentVersionID pgtype.Text
+	OwnerType        string
+	OwnerID          string
+	OwnerEmail       string
+	OwnerName        string
+}
+
+func (q *Queries) SearchDocumentsByTitle(ctx context.Context, arg SearchDocumentsByTitleParams) ([]SearchDocumentsByTitleRow, error) {
+	rows, err := q.db.Query(ctx, searchDocumentsByTitle,
+		arg.Column1,
+		arg.OwnerID,
+		arg.OwnerType,
+		arg.Column4,
+		arg.Limit,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []SearchDocumentsByTitleRow
+	for rows.Next() {
+		var i SearchDocumentsByTitleRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.CurrentVersionID,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.OwnerEmail,
+			&i.OwnerName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const updateDocumentCurrentVersion = `-- name: UpdateDocumentCurrentVersion :exec

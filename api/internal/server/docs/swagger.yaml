@@ -279,6 +279,11 @@ paths:
       - discovery
   /v1/documents:
     get:
+      parameters:
+      - description: Title search query
+        in: query
+        name: q
+        type: string
       produces:
       - application/json
       responses:
@@ -467,6 +472,33 @@ paths:
       - bearerAuth: []
       - cookieAuth: []
       summary: Update comment
+      tags:
+      - comments
+  /v1/documents/{id}/comments/{comment_id}/replies:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Document ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Parent Comment ID
+        in: path
+        name: comment_id
+        required: true
+        type: string
+      responses:
+        "201":
+          description: Created
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Create comment reply
       tags:
       - comments
   /v1/documents/{id}/grants:

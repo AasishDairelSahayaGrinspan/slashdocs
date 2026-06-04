@@ -11,8 +11,31 @@ import (
 func commentsJSON(items []repo.Comment, placementVersionID string, placementHTML []byte) []gin.H {
 	// Stringify the version body once for all placement checks below.
 	haystack := string(placementHTML)
-	out := make([]gin.H, 0, len(items))
+	roots := make([]repo.Comment, 0, len(items))
+	byID := map[string]int{}
 	for _, cm := range items {
+		if cm.ParentCommentID == "" {
+			byID[cm.ID] = len(roots)
+			if cm.Replies == nil {
+				cm.Replies = []repo.Comment{}
+			}
+			roots = append(roots, cm)
+		}
+	}
+	for _, cm := range items {
+		if cm.ParentCommentID == "" {
+			continue
+		}
+		rootID := cm.RootCommentID
+		if rootID == "" {
+			rootID = cm.ParentCommentID
+		}
+		if i, ok := byID[rootID]; ok {
+			roots[i].Replies = append(roots[i].Replies, cm)
+		}
+	}
+	out := make([]gin.H, 0, len(roots))
+	for _, cm := range roots {
 		out = append(out, commentJSON(cm, placementVersionID, haystack))
 	}
 	return out
@@ -56,24 +79,36 @@ func principalJSON(p auth.Principal) gin.H {
 }
 
 func commentJSON(cm repo.Comment, placementVersionID, placementHTML string) gin.H {
-	if placementVersionID == "" {
-		placementVersionID = cm.VersionID
+	out := commentBaseJSON(cm)
+	if cm.ParentCommentID == "" {
+		if placementVersionID == "" {
+			placementVersionID = cm.VersionID
+		}
+		status, confidence, matched := commentPlacement(cm, placementVersionID, placementHTML)
+		out["current_placement"] = gin.H{"version_id": placementVersionID, "status": status, "anchor": cm.Anchor, "matched_text": matched, "confidence": confidence}
+		if cm.Replies != nil {
+			out["replies"] = commentsReplyJSON(cm.Replies)
+		}
 	}
-	status, confidence, matched := commentPlacement(cm, placementVersionID, placementHTML)
-	return gin.H{
-		"id":                    cm.ID,
-		"author":                principalJSON(cm.Author),
-		"body":                  cm.Body,
-		"selected_text":         cm.SelectedText,
-		"anchor":                cm.Anchor,
-		"status":                cm.Status,
-		"created_on_version_id": cm.VersionID,
-		"current_placement": gin.H{
-			"version_id":   placementVersionID,
-			"status":       status,
-			"anchor":       cm.Anchor,
-			"matched_text": matched,
-			"confidence":   confidence,
-		},
+	return out
+}
+
+func commentBaseJSON(cm repo.Comment) gin.H {
+	out := gin.H{"id": cm.ID, "author": principalJSON(cm.Author), "body": cm.Body, "status": cm.Status, "created_on_version_id": cm.VersionID}
+	if cm.ParentCommentID != "" {
+		out["parent_comment_id"] = cm.ParentCommentID
 	}
+	if cm.SelectedText != "" {
+		out["selected_text"] = cm.SelectedText
+		out["anchor"] = cm.Anchor
+	}
+	return out
+}
+
+func commentsReplyJSON(items []repo.Comment) []gin.H {
+	out := make([]gin.H, 0, len(items))
+	for _, cm := range items {
+		out = append(out, commentBaseJSON(cm))
+	}
+	return out
 }

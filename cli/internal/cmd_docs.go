@@ -247,6 +247,19 @@ func commentsCmd(g *globals, out io.Writer) *cobra.Command {
 	create.Flags().StringVar(&createSuffix, "suffix", "", "anchor: text immediately after the quote")
 	create.Flags().StringVar(&createVersion, "version", "", "version ID the comment anchors to")
 
+	var replyBody string
+	reply := &cobra.Command{Use: "reply <doc_id> <comment_id>", Short: "Create a reply in a comment thread", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		if replyBody == "" {
+			return errors.New("--body is required")
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("POST", apiPath("/v1/documents/%s/comments/%s/replies", args[0], args[1]), map[string]any{"body": replyBody})
+		}, func(m map[string]any) string {
+			return "Created reply " + fmt.Sprint(value(m, "id")) + " on comment " + args[1] + "."
+		})
+	}}
+	reply.Flags().StringVar(&replyBody, "body", "", "reply body text")
+
 	var updateBody, updateStatus string
 	update := &cobra.Command{Use: "update <doc_id> <comment_id>", Short: "Update a document comment", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		if updateBody == "" && updateStatus == "" {
@@ -259,7 +272,7 @@ func commentsCmd(g *globals, out io.Writer) *cobra.Command {
 	update.Flags().StringVar(&updateBody, "body", "", "new comment body text")
 	update.Flags().StringVar(&updateStatus, "status", "", "new status: open or resolved")
 
-	c.AddCommand(list, create, update, deleteCommentCmd(g, out), resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"))
+	c.AddCommand(list, create, reply, update, deleteCommentCmd(g, out), resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"))
 	return c
 }
 

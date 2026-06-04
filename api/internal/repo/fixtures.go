@@ -17,7 +17,7 @@ func NewMemorySeeded() *Memory {
 	m.docs["doc_1"] = Document{ID: "doc_1", Title: "fixture", Owner: owner, CurrentVersionID: "ver_1"}
 	m.versions["ver_1"] = Version{ID: "ver_1", Number: 1, DocumentID: "doc_1", CreatedBy: owner, SHA256: "sha_1"}
 	m.sas["sa_1"] = ServiceAccount{ID: "sa_1", Name: "fixture", Owner: owner}
-	m.comments["cmt_1"] = Comment{ID: "cmt_1", DocumentID: "doc_1", VersionID: "ver_1", Author: auth.Principal{Type: auth.PrincipalUser, ID: "commenter_1", Email: "commenter@example.com", Name: "Commenter"}, Body: "original", Status: StatusOpen}
+	m.comments["cmt_1"] = Comment{ID: "cmt_1", DocumentID: "doc_1", VersionID: "ver_1", Author: auth.Principal{Type: auth.PrincipalUser, ID: "commenter_1", Email: "commenter@example.com", Name: "Commenter"}, Body: "original", SelectedText: "fixture", Anchor: Anchor{Quote: "fixture"}, Status: StatusOpen, RootCommentID: "cmt_1"}
 	m.fixtureRoles = map[string]Role{
 		"owner_1":     RoleOwner,
 		"editor_1":    RoleEditor,

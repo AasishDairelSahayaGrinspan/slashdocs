@@ -7,6 +7,8 @@ package dbsqlc
 
 import (
 	"context"
+
+	"github.com/jackc/pgx/v5/pgtype"
 )
 
 const deleteComment = `-- name: DeleteComment :exec
@@ -19,7 +21,7 @@ func (q *Queries) DeleteComment(ctx context.Context, id string) error {
 }
 
 const getComment = `-- name: GetComment :one
-SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status
+SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id
 FROM comments
 WHERE id = $1
 `
@@ -36,6 +38,8 @@ type GetCommentRow struct {
 	SelectedText       string
 	AnchorJson         []byte
 	Status             string
+	ParentCommentID    pgtype.Text
+	RootCommentID      string
 }
 
 func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, error) {
@@ -53,13 +57,15 @@ func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, err
 		&i.SelectedText,
 		&i.AnchorJson,
 		&i.Status,
+		&i.ParentCommentID,
+		&i.RootCommentID,
 	)
 	return i, err
 }
 
 const insertComment = `-- name: InsertComment :exec
-INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open')
+INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,root_comment_id)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$1)
 `
 
 type InsertCommentParams struct {
@@ -91,8 +97,42 @@ func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) er
 	return err
 }
 
+const insertCommentReply = `-- name: InsertCommentReply :exec
+INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,'','{}'::jsonb,'open',$9,$10)
+`
+
+type InsertCommentReplyParams struct {
+	ID                 string
+	DocumentID         string
+	CreatedOnVersionID string
+	AuthorType         string
+	AuthorID           string
+	AuthorEmail        string
+	AuthorName         string
+	Body               string
+	ParentCommentID    pgtype.Text
+	RootCommentID      string
+}
+
+func (q *Queries) InsertCommentReply(ctx context.Context, arg InsertCommentReplyParams) error {
+	_, err := q.db.Exec(ctx, insertCommentReply,
+		arg.ID,
+		arg.DocumentID,
+		arg.CreatedOnVersionID,
+		arg.AuthorType,
+		arg.AuthorID,
+		arg.AuthorEmail,
+		arg.AuthorName,
+		arg.Body,
+		arg.ParentCommentID,
+		arg.RootCommentID,
+	)
+	return err
+}
+
 const listComments = `-- name: ListComments :many
-SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status
+SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id
 FROM comments WHERE document_id=$1 AND ($2='' OR status=$2) AND ($3='' OR created_on_version_id=$3) ORDER BY created_at
 `
 
@@ -114,6 +154,8 @@ type ListCommentsRow struct {
 	SelectedText       string
 	AnchorJson         []byte
 	Status             string
+	ParentCommentID    pgtype.Text
+	RootCommentID      string
 }
 
 func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]ListCommentsRow, error) {
@@ -137,6 +179,8 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]L
 			&i.SelectedText,
 			&i.AnchorJson,
 			&i.Status,
+			&i.ParentCommentID,
+			&i.RootCommentID,
 		); err != nil {
 			return nil, err
 		}

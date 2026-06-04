@@ -32,6 +32,8 @@ type Comment struct {
 	Status             string
 	CreatedAt          pgtype.Timestamptz
 	ResolvedAt         pgtype.Timestamptz
+	ParentCommentID    pgtype.Text
+	RootCommentID      string
 }
 
 type CommentPlacement struct {
@@ -52,6 +54,7 @@ type Document struct {
 	CurrentVersionID pgtype.Text
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
+	OwnerType        string
 }
 
 type DocumentWorkspaceEntry struct {
@@ -89,6 +92,7 @@ type ResourceGrant struct {
 	GrantedByUserID string
 	CreatedAt       pgtype.Timestamptz
 	RevokedAt       pgtype.Timestamptz
+	GrantedByType   string
 }
 
 type ServiceAccount struct {

@@ -38,6 +38,8 @@ import { UploadVersionItem } from "./doc-upload-version";
 export function DocBar({
   title,
   docId,
+  owner,
+  principal,
   current,
   latest,
   versions,
@@ -45,6 +47,8 @@ export function DocBar({
 }: {
   title: string;
   docId: string;
+  owner?: Principal;
+  principal?: Principal;
   current: string;
   latest: string;
   versions: Version[];
@@ -54,6 +58,7 @@ export function DocBar({
   const q = useQueryClient();
   const currentVersion = versions.find((v) => v.id === current);
   const isViewingOlder = !!current && !!latest && current !== latest;
+  const canManage = samePrincipal(principal, owner);
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -90,14 +95,16 @@ export function DocBar({
         versions={versions}
         onSelectVersion={onSelectVersion}
       />
-      <Sheet>
-        <SheetTrigger asChild>
-          <Button variant="outline" size="sm">
-            <Share2 className="h-4 w-4" /> Share
-          </Button>
-        </SheetTrigger>
-        <ShareSheet docId={docId} />
-      </Sheet>
+      {canManage ? (
+        <Sheet>
+          <SheetTrigger asChild>
+            <Button variant="outline" size="sm">
+              <Share2 className="h-4 w-4" /> Share
+            </Button>
+          </SheetTrigger>
+          <ShareSheet docId={docId} />
+        </Sheet>
+      ) : null}
       <Dropdown>
         <DropdownTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="More">
@@ -112,24 +119,32 @@ export function DocBar({
           >
             <ExternalLink className="h-4 w-4" /> Open raw HTML
           </DropdownItem>
-          <UploadVersionItem docId={docId} baseVersion={latest || current} />
-          <DropdownSeparator />
-          <DeleteDocumentDialog
-            title={title}
-            onConfirm={() => del.mutate()}
-            trigger={
-              <DropdownItem
-                onSelect={(e) => e.preventDefault()}
-                className="text-[var(--color-danger)] data-[highlighted]:bg-red-50 dark:data-[highlighted]:bg-red-950/40"
-              >
-                <Trash2 className="h-4 w-4" /> Delete document
-              </DropdownItem>
-            }
-          />
+          {canManage ? (
+            <>
+              <UploadVersionItem docId={docId} baseVersion={latest || current} />
+              <DropdownSeparator />
+              <DeleteDocumentDialog
+                title={title}
+                onConfirm={() => del.mutate()}
+                trigger={
+                  <DropdownItem
+                    onSelect={(e) => e.preventDefault()}
+                    className="text-[var(--color-danger)] data-[highlighted]:bg-red-50 dark:data-[highlighted]:bg-red-950/40"
+                  >
+                    <Trash2 className="h-4 w-4" /> Delete document
+                  </DropdownItem>
+                }
+              />
+            </>
+          ) : null}
         </DropdownContent>
       </Dropdown>
     </div>
   );
+}
+
+function samePrincipal(a?: Principal, b?: Principal) {
+  return !!a && !!b && a.type === b.type && a.id === b.id;
 }
 
 function VersionHistoryDialog({

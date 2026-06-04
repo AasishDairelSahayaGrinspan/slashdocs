@@ -126,14 +126,17 @@ type CLICredential struct {
 }
 
 type Comment struct {
-	ID           string         `json:"id"`
-	DocumentID   string         `json:"document_id"`
-	VersionID    string         `json:"version_id"`
-	Author       auth.Principal `json:"author"`
-	Body         string         `json:"body"`
-	SelectedText string         `json:"selected_text"`
-	Anchor       Anchor         `json:"anchor"`
-	Status       string         `json:"status"`
+	ID              string         `json:"id"`
+	DocumentID      string         `json:"document_id"`
+	VersionID       string         `json:"version_id"`
+	Author          auth.Principal `json:"author"`
+	Body            string         `json:"body"`
+	SelectedText    string         `json:"selected_text"`
+	Anchor          Anchor         `json:"anchor"`
+	Status          string         `json:"status"`
+	ParentCommentID string         `json:"parent_comment_id,omitempty"`
+	RootCommentID   string         `json:"root_comment_id,omitempty"`
+	Replies         []Comment      `json:"replies,omitempty"`
 }
 
 // Repository is the application persistence boundary. The real implementation
@@ -148,6 +151,7 @@ type Repository interface {
 	RoleForDocument(ctx context.Context, principal auth.Principal, documentID string) (Role, error)
 	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
+	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
 	// RecordDocumentOpened notes that a principal opened a document, so a
 	// broadly-shared ("anyone") document joins their workspace listing after
 	// first open. Idempotent.
@@ -180,6 +184,7 @@ type Repository interface {
 	GetVersion(ctx context.Context, id string) (Version, error)
 	GetVersionHTML(ctx context.Context, id string) ([]byte, error)
 	CreateComment(ctx context.Context, documentID, versionID, body string, anchor Anchor, author auth.Principal) (Comment, error)
+	CreateCommentReply(ctx context.Context, documentID, parentCommentID, body string, author auth.Principal) (Comment, error)
 	GetComment(ctx context.Context, id string) (Comment, error)
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)
 	UpdateComment(ctx context.Context, id, body, status string) (Comment, error)
@@ -313,7 +318,7 @@ func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, document
 		return "", ErrNotFound
 	}
 	best := RoleNone
-	if d := m.docs[documentID]; p.Type == auth.PrincipalUser && p.ID == d.Owner.ID {
+	if d := m.docs[documentID]; p.Type == d.Owner.Type && p.ID == d.Owner.ID {
 		best = RoleOwner
 	}
 	for _, g := range m.grants {
@@ -476,6 +481,30 @@ func (m *Memory) CreateComment(ctx context.Context, documentID, versionID, body 
 	}
 	m.commentN++
 	cm := Comment{ID: fmt.Sprintf("cmt_%d", m.commentN), DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: StatusOpen}
+	cm.RootCommentID = cm.ID
+	m.comments[cm.ID] = cm
+	return cm, nil
+}
+func (m *Memory) CreateCommentReply(ctx context.Context, documentID, parentCommentID, body string, author auth.Principal) (Comment, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	parent, ok := m.comments[parentCommentID]
+	if !ok || parent.DocumentID != documentID {
+		return Comment{}, ErrNotFound
+	}
+	rootID := parent.RootCommentID
+	if rootID == "" {
+		rootID = parent.ID
+	}
+	var id string
+	for {
+		m.commentN++
+		id = fmt.Sprintf("cmt_%d", m.commentN)
+		if _, exists := m.comments[id]; !exists {
+			break
+		}
+	}
+	cm := Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID}
 	m.comments[cm.ID] = cm
 	return cm, nil
 }
@@ -495,6 +524,21 @@ func (m *Memory) ListDocuments(ctx context.Context, principal auth.Principal) ([
 	out := []Document{}
 	for _, d := range m.docs {
 		out = append(out, d)
+	}
+	return out, nil
+}
+func (m *Memory) SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	query = strings.ToLower(query)
+	out := []Document{}
+	for _, d := range m.docs {
+		if query == "" || strings.Contains(strings.ToLower(d.Title), query) {
+			out = append(out, d)
+		}
+		if limit > 0 && int32(len(out)) >= limit {
+			break
+		}
 	}
 	return out, nil
 }
@@ -614,12 +658,45 @@ func (m *Memory) GetVersionHTML(ctx context.Context, id string) ([]byte, error) 
 	return []byte("<html></html>"), nil
 }
 func (m *Memory) ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error) {
-	return []Comment{}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Comment{}
+	for _, cm := range m.comments {
+		if cm.DocumentID != documentID {
+			continue
+		}
+		if status != "" && cm.Status != status {
+			continue
+		}
+		if versionID != "" && cm.VersionID != versionID {
+			continue
+		}
+		out = append(out, cm)
+	}
+	return out, nil
 }
 func (m *Memory) UpdateComment(ctx context.Context, id, body, status string) (Comment, error) {
-	return Comment{ID: id, Body: body, Status: status}, nil
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cm, ok := m.comments[id]
+	if !ok {
+		return Comment{}, ErrNotFound
+	}
+	if body != "" {
+		cm.Body = body
+	}
+	if status != "" {
+		cm.Status = status
+	}
+	m.comments[id] = cm
+	return cm, nil
 }
-func (m *Memory) DeleteComment(ctx context.Context, id string) error { return nil }
+func (m *Memory) DeleteComment(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.comments, id)
+	return nil
+}
 
 func (m *Memory) CreateOwnershipTransfer(ctx context.Context, saID string, from auth.Principal, toEmail string) (OwnershipTransfer, error) {
 	m.mu.Lock()

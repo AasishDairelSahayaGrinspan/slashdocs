@@ -79,6 +79,40 @@ func (h handlers) listComments(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"items": commentsJSON(items, placementVersionID, placementHTML)})
 }
 
+// CreateCommentReply godoc
+// @Summary Create comment reply
+// @Tags comments
+// @Security bearerAuth
+// @Security cookieAuth
+// @Accept json
+// @Param id path string true "Document ID"
+// @Param comment_id path string true "Parent Comment ID"
+// @Success 201 {object} map[string]interface{}
+// @Router /v1/documents/{id}/comments/{comment_id}/replies [post]
+func (h handlers) createCommentReply(c *gin.Context) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleCommenter) {
+		return
+	}
+	var in struct {
+		Body string `json:"body"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.Body == "" {
+		badRequest(c, "invalid reply")
+		return
+	}
+	cm, err := h.deps.repository.CreateCommentReply(c.Request.Context(), c.Param("id"), c.Param("comment_id"), in.Body, *current(c))
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+			return
+		}
+		internalErr(c, err)
+		return
+	}
+	incComment("created", cm.Status, actorType(c))
+	c.JSON(http.StatusCreated, commentJSON(cm, "", ""))
+}
+
 // PatchComment godoc
 // @Summary Update comment
 // @Tags comments
@@ -126,7 +160,7 @@ func (h handlers) patchComment(c *gin.Context) {
 // @Success 204
 // @Router /v1/documents/{id}/comments/{comment_id} [delete]
 func (h handlers) deleteComment(c *gin.Context) {
-	if !h.canMutateComment(c, c.Param("id"), c.Param("comment_id")) {
+	if !h.canDeleteComment(c, c.Param("id"), c.Param("comment_id")) {
 		return
 	}
 	if err := h.deps.repository.DeleteComment(c.Request.Context(), c.Param("comment_id")); err != nil {
@@ -135,6 +169,24 @@ func (h handlers) deleteComment(c *gin.Context) {
 	}
 	incComment("deleted", labelUnknown, actorType(c))
 	c.Status(http.StatusNoContent)
+}
+
+func (h handlers) canDeleteComment(c *gin.Context, docID, commentID string) bool {
+	p := current(c)
+	cm, err := h.deps.repository.GetComment(c.Request.Context(), commentID)
+	if err != nil {
+		forbidden(c, "comment access required")
+		return false
+	}
+	if cm.DocumentID != docID {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "comment not found in document", nil))
+		return false
+	}
+	if cm.Author.Type == p.Type && cm.Author.ID == p.ID {
+		return true
+	}
+	forbidden(c, "only the comment author can delete this comment")
+	return false
 }
 
 func (h handlers) canMutateComment(c *gin.Context, docID, commentID string) bool {

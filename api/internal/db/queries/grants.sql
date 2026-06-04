@@ -1,7 +1,7 @@
 -- name: UpsertResourceGrant :one
-INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_user_id)
-VALUES($1,'document',$2,$3,$4,$5,$6)
-ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL
+INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id)
+VALUES($1,'document',$2,$3,$4,$5,$6,$7)
+ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id
 RETURNING id;
 
 -- name: ListGrants :many
@@ -13,13 +13,21 @@ SELECT
   COALESCE(u.name, sa.name, '') AS principal_name,
   COALESCE(u.picture_url, '') AS principal_picture_url,
   g.role,
-  g.granted_by_user_id
+  g.granted_by_type,
+  g.granted_by_user_id,
+  COALESCE(gu.email, '') AS granted_by_email,
+  COALESCE(gu.name, gsa.name, '') AS granted_by_name
 FROM resource_grants g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
 LEFT JOIN service_accounts sa
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+LEFT JOIN users gu
+  ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
+LEFT JOIN service_accounts gsa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
 WHERE g.resource_type='document' AND g.resource_id=$1 AND g.revoked_at IS NULL;
 
 -- name: UpdateGrantRole :one
@@ -38,16 +46,24 @@ SELECT
   COALESCE(u.name, sa.name, '') AS principal_name,
   COALESCE(u.picture_url, '') AS principal_picture_url,
   g.role,
-  g.granted_by_user_id
+  g.granted_by_type,
+  g.granted_by_user_id,
+  COALESCE(gu.email, '') AS granted_by_email,
+  COALESCE(gu.name, gsa.name, '') AS granted_by_name
 FROM updated g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
 LEFT JOIN service_accounts sa
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.principal_type = 'service_account' AND g.principal_id = sa.id;
+  ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+LEFT JOIN users gu
+  ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
+LEFT JOIN service_accounts gsa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id;
 
 -- name: GetGrant :one
-SELECT id,resource_id,principal_type,principal_id,role,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL;
+SELECT id,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL;
 
 -- name: DeleteGrant :one
 UPDATE resource_grants SET revoked_at=now() WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL

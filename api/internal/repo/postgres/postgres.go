@@ -153,7 +153,7 @@ func (s *Store) RevokeCLICredential(ctx context.Context, userID, credentialID st
 }
 
 func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentID string) (repo.Role, error) {
-	ownerID, err := s.q.GetDocumentOwnerID(ctx, documentID)
+	owner, err := s.q.GetDocumentOwner(ctx, documentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return "", repo.ErrNotFound
 	}
@@ -161,7 +161,7 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 		return "", err
 	}
 	best := repo.RoleNone
-	if p.Type == auth.PrincipalUser && p.ID == ownerID {
+	if string(p.Type) == owner.OwnerType && p.ID == owner.OwnerID {
 		best = repo.RoleOwner
 	}
 	// Explicit grant for this exact principal.
@@ -201,8 +201,10 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 	}
 	defer tx.Rollback(ctx)
 	q := s.q.WithTx(tx)
-	if err := upsertUser(ctx, q, owner); err != nil {
-		return repo.Document{}, repo.Version{}, err
+	if owner.Type == auth.PrincipalUser {
+		if err := upsertUser(ctx, q, owner); err != nil {
+			return repo.Document{}, repo.Version{}, err
+		}
 	}
 	docID, verID := newID("doc"), newID("ver")
 	blobKey := fmt.Sprintf("docs/%s/%s.html", docID, verID)
@@ -216,7 +218,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 			_ = s.blobs.Delete(context.WithoutCancel(ctx), blobKey)
 		}
 	}()
-	if err := q.InsertDocument(ctx, dbsqlc.InsertDocumentParams{ID: docID, Title: title, OwnerID: owner.ID}); err != nil {
+	if err := q.InsertDocument(ctx, dbsqlc.InsertDocumentParams{ID: docID, Title: title, OwnerType: string(owner.Type), OwnerID: owner.ID}); err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
 	if err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID}); err != nil {
@@ -318,7 +320,7 @@ func (s *Store) CreateGrant(ctx context.Context, documentID string, principal au
 	// The upsert returns the authoritative id (the existing row's id on
 	// conflict, or the newly generated one on insert), so we trust its result
 	// rather than keeping a second, possibly-discarded local id.
-	id, err := q.UpsertResourceGrant(ctx, dbsqlc.UpsertResourceGrantParams{ID: newID("gr"), ResourceID: documentID, PrincipalType: string(principal.Type), PrincipalID: principal.ID, Role: string(role), GrantedByUserID: grantedBy.ID})
+	id, err := q.UpsertResourceGrant(ctx, dbsqlc.UpsertResourceGrantParams{ID: newID("gr"), ResourceID: documentID, PrincipalType: string(principal.Type), PrincipalID: principal.ID, Role: string(role), GrantedByType: string(grantedBy.Type), GrantedByUserID: grantedBy.ID})
 	if err != nil {
 		return repo.Grant{}, err
 	}
@@ -386,7 +388,26 @@ func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body s
 	if err != nil {
 		return repo.Comment{}, err
 	}
-	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen}, nil
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen, RootCommentID: id}, nil
+}
+func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommentID, body string, author auth.Principal) (repo.Comment, error) {
+	parent, err := s.GetComment(ctx, parentCommentID)
+	if err != nil {
+		return repo.Comment{}, err
+	}
+	if parent.DocumentID != documentID {
+		return repo.Comment{}, repo.ErrNotFound
+	}
+	rootID := parent.RootCommentID
+	if rootID == "" {
+		rootID = parent.ID
+	}
+	id := newID("cmt")
+	err = s.q.InsertCommentReply(ctx, dbsqlc.InsertCommentReplyParams{ID: id, DocumentID: documentID, CreatedOnVersionID: parent.VersionID, AuthorType: string(author.Type), AuthorID: author.ID, AuthorEmail: author.Email, AuthorName: author.Name, Body: body, ParentCommentID: pgtype.Text{String: parent.ID, Valid: true}, RootCommentID: rootID})
+	if err != nil {
+		return repo.Comment{}, err
+	}
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: repo.StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID}, nil
 }
 func upsertUser(ctx context.Context, q *dbsqlc.Queries, p auth.Principal) error {
 	return q.UpsertUser(ctx, dbsqlc.UpsertUserParams{ID: p.ID, Email: p.Email, Name: p.Name})
@@ -394,13 +415,24 @@ func upsertUser(ctx context.Context, q *dbsqlc.Queries, p auth.Principal) error 
 func sha(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
 
 func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Document, error) {
-	rows, err := s.q.ListDocuments(ctx, dbsqlc.ListDocumentsParams{OwnerID: p.ID, Column2: string(p.Type)})
+	rows, err := s.q.ListDocuments(ctx, dbsqlc.ListDocumentsParams{OwnerID: p.ID, OwnerType: string(p.Type)})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]repo.Document, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, docFromList(r))
+	}
+	return out, nil
+}
+func (s *Store) SearchDocumentsByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Document, error) {
+	rows, err := s.q.SearchDocumentsByTitle(ctx, dbsqlc.SearchDocumentsByTitleParams{Column1: pgtype.Text{String: query, Valid: true}, OwnerID: p.ID, OwnerType: string(p.Type), Column4: includeOrgWide, Limit: limit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Document, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, docFromSearch(r))
 	}
 	return out, nil
 }
@@ -478,7 +510,7 @@ func (s *Store) ListGrants(ctx context.Context, documentID string) ([]repo.Grant
 	}
 	out := make([]repo.Grant, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repo.Grant{ID: r.ID, DocumentID: documentID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalUser, ID: r.GrantedByUserID}})
+		out = append(out, repo.Grant{ID: r.ID, DocumentID: documentID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalType(r.GrantedByType), ID: r.GrantedByUserID, Email: r.GrantedByEmail, Name: r.GrantedByName}})
 	}
 	return out, nil
 }
@@ -490,7 +522,7 @@ func (s *Store) UpdateGrant(ctx context.Context, documentID, grantID string, rol
 	if err != nil {
 		return repo.Grant{}, err
 	}
-	return repo.Grant{ID: r.ID, DocumentID: r.ResourceID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalUser, ID: r.GrantedByUserID}}, nil
+	return repo.Grant{ID: r.ID, DocumentID: r.ResourceID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalType(r.GrantedByType), ID: r.GrantedByUserID, Email: r.GrantedByEmail, Name: r.GrantedByName}}, nil
 }
 func (s *Store) DeleteGrant(ctx context.Context, documentID, grantID string) error {
 	_, err := s.q.DeleteGrant(ctx, dbsqlc.DeleteGrantParams{ID: grantID, ResourceID: documentID})
@@ -635,18 +667,27 @@ func (s *Store) DeclineOwnershipTransfer(ctx context.Context, id string, user au
 }
 
 func docFromGet(r dbsqlc.GetDocumentRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalUser, ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
 }
 func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalUser, ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+}
+func docFromSearch(r dbsqlc.SearchDocumentsByTitleRow) repo.Document {
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	if r.ParentCommentID.Valid {
+		c.ParentCommentID = r.ParentCommentID.String
+	}
 	_ = json.Unmarshal(r.AnchorJson, &c.Anchor)
 	return c
 }
 func commentFromList(r dbsqlc.ListCommentsRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	if r.ParentCommentID.Valid {
+		c.ParentCommentID = r.ParentCommentID.String
+	}
 	_ = json.Unmarshal(r.AnchorJson, &c.Anchor)
 	return c
 }

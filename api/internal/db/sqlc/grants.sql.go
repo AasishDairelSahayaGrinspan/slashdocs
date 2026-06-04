@@ -27,7 +27,7 @@ func (q *Queries) DeleteGrant(ctx context.Context, arg DeleteGrantParams) (strin
 }
 
 const getGrant = `-- name: GetGrant :one
-SELECT id,resource_id,principal_type,principal_id,role,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL
+SELECT id,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL
 `
 
 type GetGrantParams struct {
@@ -41,6 +41,7 @@ type GetGrantRow struct {
 	PrincipalType   string
 	PrincipalID     string
 	Role            string
+	GrantedByType   string
 	GrantedByUserID string
 }
 
@@ -53,6 +54,7 @@ func (q *Queries) GetGrant(ctx context.Context, arg GetGrantParams) (GetGrantRow
 		&i.PrincipalType,
 		&i.PrincipalID,
 		&i.Role,
+		&i.GrantedByType,
 		&i.GrantedByUserID,
 	)
 	return i, err
@@ -67,13 +69,21 @@ SELECT
   COALESCE(u.name, sa.name, '') AS principal_name,
   COALESCE(u.picture_url, '') AS principal_picture_url,
   g.role,
-  g.granted_by_user_id
+  g.granted_by_type,
+  g.granted_by_user_id,
+  COALESCE(gu.email, '') AS granted_by_email,
+  COALESCE(gu.name, gsa.name, '') AS granted_by_name
 FROM resource_grants g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
 LEFT JOIN service_accounts sa
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+LEFT JOIN users gu
+  ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
+LEFT JOIN service_accounts gsa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
 WHERE g.resource_type='document' AND g.resource_id=$1 AND g.revoked_at IS NULL
 `
 
@@ -85,7 +95,10 @@ type ListGrantsRow struct {
 	PrincipalName       string
 	PrincipalPictureUrl string
 	Role                string
+	GrantedByType       string
 	GrantedByUserID     string
+	GrantedByEmail      string
+	GrantedByName       string
 }
 
 func (q *Queries) ListGrants(ctx context.Context, resourceID string) ([]ListGrantsRow, error) {
@@ -105,7 +118,10 @@ func (q *Queries) ListGrants(ctx context.Context, resourceID string) ([]ListGran
 			&i.PrincipalName,
 			&i.PrincipalPictureUrl,
 			&i.Role,
+			&i.GrantedByType,
 			&i.GrantedByUserID,
+			&i.GrantedByEmail,
+			&i.GrantedByName,
 		); err != nil {
 			return nil, err
 		}
@@ -122,7 +138,7 @@ WITH updated AS (
   UPDATE resource_grants
   SET role=$1
   WHERE resource_grants.id=$2 AND resource_type='document' AND resource_id=$3 AND revoked_at IS NULL
-  RETURNING id, resource_type, resource_id, principal_type, principal_id, role, granted_by_user_id, created_at, revoked_at
+  RETURNING id, resource_type, resource_id, principal_type, principal_id, role, granted_by_user_id, created_at, revoked_at, granted_by_type
 )
 SELECT
   g.id,
@@ -133,13 +149,21 @@ SELECT
   COALESCE(u.name, sa.name, '') AS principal_name,
   COALESCE(u.picture_url, '') AS principal_picture_url,
   g.role,
-  g.granted_by_user_id
+  g.granted_by_type,
+  g.granted_by_user_id,
+  COALESCE(gu.email, '') AS granted_by_email,
+  COALESCE(gu.name, gsa.name, '') AS granted_by_name
 FROM updated g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
 LEFT JOIN service_accounts sa
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+LEFT JOIN users gu
+  ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
+LEFT JOIN service_accounts gsa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
 `
 
 type UpdateGrantRoleParams struct {
@@ -157,7 +181,10 @@ type UpdateGrantRoleRow struct {
 	PrincipalName       string
 	PrincipalPictureUrl string
 	Role                string
+	GrantedByType       string
 	GrantedByUserID     string
+	GrantedByEmail      string
+	GrantedByName       string
 }
 
 func (q *Queries) UpdateGrantRole(ctx context.Context, arg UpdateGrantRoleParams) (UpdateGrantRoleRow, error) {
@@ -172,15 +199,18 @@ func (q *Queries) UpdateGrantRole(ctx context.Context, arg UpdateGrantRoleParams
 		&i.PrincipalName,
 		&i.PrincipalPictureUrl,
 		&i.Role,
+		&i.GrantedByType,
 		&i.GrantedByUserID,
+		&i.GrantedByEmail,
+		&i.GrantedByName,
 	)
 	return i, err
 }
 
 const upsertResourceGrant = `-- name: UpsertResourceGrant :one
-INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_user_id)
-VALUES($1,'document',$2,$3,$4,$5,$6)
-ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL
+INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id)
+VALUES($1,'document',$2,$3,$4,$5,$6,$7)
+ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id
 RETURNING id
 `
 
@@ -190,6 +220,7 @@ type UpsertResourceGrantParams struct {
 	PrincipalType   string
 	PrincipalID     string
 	Role            string
+	GrantedByType   string
 	GrantedByUserID string
 }
 
@@ -200,6 +231,7 @@ func (q *Queries) UpsertResourceGrant(ctx context.Context, arg UpsertResourceGra
 		arg.PrincipalType,
 		arg.PrincipalID,
 		arg.Role,
+		arg.GrantedByType,
 		arg.GrantedByUserID,
 	)
 	var id string

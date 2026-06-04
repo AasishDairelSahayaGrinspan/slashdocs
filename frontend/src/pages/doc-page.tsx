@@ -21,6 +21,7 @@ export function DocumentPage() {
     queryKey: queryKeys.document(id),
     queryFn: () => api.getDocument(id),
   });
+  const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const versions = useQuery({
     queryKey: queryKeys.versions(id),
     queryFn: () => api.listVersions(id),
@@ -54,6 +55,7 @@ export function DocumentPage() {
       comments: comments.data?.items || [],
       commentsLoading: comments.isLoading,
       commentsError: !!comments.error,
+      principal: me.data?.principal,
       selection,
       setSelection,
       activeComment,
@@ -65,6 +67,7 @@ export function DocumentPage() {
       comments.data,
       comments.isLoading,
       comments.error,
+      me.data,
       selection,
       activeComment,
     ],
@@ -87,6 +90,8 @@ export function DocumentPage() {
         <DocBar
           title={docTitle(doc.data)}
           docId={id}
+          owner={doc.data.owner}
+          principal={me.data?.principal}
           current={current}
           latest={latest}
           versions={versions.data?.items || []}
