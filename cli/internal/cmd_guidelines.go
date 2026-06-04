@@ -19,6 +19,7 @@ var guidelinesFS embed.FS
 
 // categories maps the `aidocs guidelines <category>` arg to its embedded file.
 var categories = map[string]string{
+	"overview":      "communicating-with-html.md",
 	"deck":          "deck.md",
 	"pr-review":     "pr-and-code-review.md",
 	"comparison":    "comparison-and-options.md",

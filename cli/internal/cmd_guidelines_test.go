@@ -44,3 +44,12 @@ func TestGuidelinesUnknownCategoryErrors(t *testing.T) {
 		t.Fatal("expected error for unknown category")
 	}
 }
+
+func TestEveryCategoryResolvesAndIsSubstantial(t *testing.T) {
+	for name := range categories {
+		out := runGuidelines(t, name)
+		if len(out) < 300 {
+			t.Errorf("category %q playbook too thin (%d bytes)", name, len(out))
+		}
+	}
+}
