@@ -1,9 +1,8 @@
-name: ci
+name: aidocs CI
 
 on:
   push:
     branches:
-      - main
       - master
   pull_request:
 
@@ -11,11 +10,11 @@ permissions:
   contents: read
 
 jobs:
-  build:
-    name: Build and test
-    runs-on: ubuntu-latest
+  test:
+    name: Test aidocs
+    runs-on: [k8s-runner, linux-amd64]
     steps:
-      - name: Checkout
+      - name: Checkout Codebase
         uses: actions/checkout@v4
 
       - name: Set up Go
@@ -31,19 +30,37 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
-      - name: Install dashboard tools
-        run: |
-          go install github.com/jsonnet-bundler/jsonnet-bundler/cmd/jb@latest
-          go install github.com/google/go-jsonnet/cmd/jsonnet@latest
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
 
-      - name: Check dashboards
-        run: make check-dashboards
+      - name: Typecheck frontend
+        run: cd frontend && npx tsc --noEmit
 
-      - name: Build frontend
-        run: npm ci --prefix frontend && npm run build --prefix frontend
+      - name: Build frontend test assets
+        run: npm run build --prefix frontend
 
       - name: Test Go
         run: go test -tags testfixtures ./...
 
-      - name: Build server and CLI
-        run: make build-backend build-cli
+  docker:
+    name: Build and push Docker image
+    runs-on: [k8s-runner, linux-amd64]
+    needs: test
+    if: github.event_name == 'push'
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Build and Push Docker Image For aidocs
+        uses: razorpay/actions/docker-image-build-push@master
+        with:
+          username: ${{ secrets.HARBOR_DOCKER_USERNAME }}
+          password: ${{ secrets.HARBOR_DOCKER_PASSWORD }}
+          registry: c.rzp.io
+          repository: aidocs
+          enable-login: true
+          push: true
+          context: .
+          file: Dockerfile
+          build-args: |
+            AIDOCS_COMMIT_SHA=${{ github.sha }}
