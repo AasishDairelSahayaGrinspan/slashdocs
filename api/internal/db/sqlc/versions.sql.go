@@ -27,6 +27,7 @@ FROM versions v
 LEFT JOIN users u
   ON v.created_by_type = 'user' AND v.created_by_id = u.id
 LEFT JOIN service_accounts sa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON v.created_by_type = 'service_account' AND v.created_by_id = sa.id
 WHERE v.id=$1
 `
@@ -147,6 +148,7 @@ FROM versions v
 LEFT JOIN users u
   ON v.created_by_type = 'user' AND v.created_by_id = u.id
 LEFT JOIN service_accounts sa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON v.created_by_type = 'service_account' AND v.created_by_id = sa.id
 WHERE v.document_id=$1
 ORDER BY v.number

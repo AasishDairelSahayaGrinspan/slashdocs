@@ -72,6 +72,7 @@ FROM resource_grants g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
 LEFT JOIN service_accounts sa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type = 'service_account' AND g.principal_id = sa.id
 WHERE g.resource_type='document' AND g.resource_id=$1 AND g.revoked_at IS NULL
 `
@@ -137,6 +138,7 @@ FROM updated g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
 LEFT JOIN service_accounts sa
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type = 'service_account' AND g.principal_id = sa.id
 `
 

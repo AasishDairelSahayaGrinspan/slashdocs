@@ -257,6 +257,7 @@ func openBrowserErr(u string) error {
 
 func parsePrincipal(s string) map[string]any {
 	if strings.HasPrefix(s, "sa:") {
+		// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
 		return map[string]any{"type": "service_account", "id": strings.TrimPrefix(s, "sa:")}
 	}
 	v := strings.TrimPrefix(s, "user:")
