@@ -119,7 +119,22 @@ const installScriptTemplate = `#!/usr/bin/env bash
 set -euo pipefail
 
 BASE_URL="${AIDOCS_BASE_URL:-__BASE_URL__}"
-BIN_DIR="${AIDOCS_INSTALL_DIR:-/usr/local/bin}"
+INSTALL_MODE="user"
+for arg in "$@"; do
+  case "$arg" in
+    --user) INSTALL_MODE="user" ;;
+    --system) INSTALL_MODE="system" ;;
+    *) echo "unknown option: $arg" >&2; exit 2 ;;
+  esac
+done
+
+if [ -n "${AIDOCS_INSTALL_DIR:-}" ]; then
+  BIN_DIR="$AIDOCS_INSTALL_DIR"
+elif [ "$INSTALL_MODE" = "system" ]; then
+  BIN_DIR="/usr/local/bin"
+else
+  BIN_DIR="$HOME/.local/bin"
+fi
 BIN_PATH="$BIN_DIR/aidocs"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
@@ -139,6 +154,15 @@ if command -v brew >/dev/null 2>&1 && brew list aidocs >/dev/null 2>&1; then
   brew uninstall aidocs
 fi
 
+old_path="$(command -v aidocs 2>/dev/null || true)"
+if [ "$INSTALL_MODE" = "user" ] && [ -n "$old_path" ] && [ "$old_path" != "$BIN_PATH" ]; then
+  case "$old_path" in
+    /usr/local/bin/aidocs|/opt/homebrew/bin/aidocs)
+      echo "Found existing aidocs at $old_path. Installing user-local at $BIN_PATH."
+      ;;
+  esac
+fi
+
 tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 url="$BASE_URL/cli/$os/$arch"
@@ -147,13 +171,32 @@ curl -fsSL "$url" -o "$tmp"
 chmod +x "$tmp"
 
 if [ ! -d "$BIN_DIR" ]; then
-  mkdir -p "$BIN_DIR" 2>/dev/null || sudo mkdir -p "$BIN_DIR"
+  if [ "$INSTALL_MODE" = "system" ]; then
+    mkdir -p "$BIN_DIR" 2>/dev/null || sudo mkdir -p "$BIN_DIR"
+  else
+    mkdir -p "$BIN_DIR"
+  fi
 fi
 if [ -w "$BIN_DIR" ]; then
   mv "$tmp" "$BIN_PATH"
-else
+elif [ "$INSTALL_MODE" = "system" ]; then
   sudo mv "$tmp" "$BIN_PATH"
+else
+  echo "install dir is not writable: $BIN_DIR" >&2
+  echo "Set AIDOCS_INSTALL_DIR or run with --system if you have sudo access." >&2
+  exit 1
 fi
 
 echo "Installed $($BIN_PATH version 2>/dev/null || echo aidocs) at $BIN_PATH"
+
+case ":$PATH:" in
+  *":$BIN_DIR:"*) ;;
+  *) echo "Add $BIN_DIR to PATH to use this install." ;;
+esac
+
+active_path="$(command -v aidocs 2>/dev/null || true)"
+if [ -n "$active_path" ] && [ "$active_path" != "$BIN_PATH" ]; then
+  echo "Warning: 'aidocs' currently resolves to $active_path."
+  echo "Move $BIN_DIR earlier in PATH or remove the older install."
+fi
 `

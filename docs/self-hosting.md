@@ -415,5 +415,8 @@ curl -fsSL https://aidocs.example.com/install.sh | bash
 aidocs auth login https://aidocs.example.com
 ```
 
+The installer defaults to a user-local install under `~/.local/bin`. For a
+system install, run `curl -fsSL https://aidocs.example.com/install.sh | bash -s -- --system`.
+
 For self-hosted instances, pass the URL to `aidocs auth login` so the
 CLI knows which server to authenticate against.
