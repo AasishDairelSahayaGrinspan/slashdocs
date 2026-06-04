@@ -84,9 +84,9 @@ func TestThemeMeetsAA(t *testing.T) {
 	light, dark := themeBlocks(t)
 	const aaNormal = 4.5
 	cases := []struct {
-		name        string
-		set         map[string][3]float64
-		fg, bg      string
+		name   string
+		set    map[string][3]float64
+		fg, bg string
 	}{
 		{"light ink on bg", light, "ink", "bg"},
 		{"light ink-soft on bg", light, "ink-soft", "bg"},

@@ -44,16 +44,30 @@ func TestScanForbiddenDetectsExternalAssets(t *testing.T) {
 
 func TestShippedHTMLIsCSPCompliant(t *testing.T) {
 	roots := []string{"onboarding"} // extend as templates are added
+	scanned := 0
 	for _, root := range roots {
-		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
-			if err != nil || d.IsDir() || !strings.HasSuffix(path, ".html") {
+		err := filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if d.IsDir() || !strings.HasSuffix(path, ".html") {
 				return nil
 			}
-			b, _ := os.ReadFile(path)
+			b, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			scanned++
 			if hits := scanForbidden(string(b)); len(hits) != 0 {
 				t.Errorf("%s violates render CSP: %v", path, hits)
 			}
 			return nil
 		})
+		if err != nil {
+			t.Fatalf("walk %s: %v", root, err)
+		}
+	}
+	if scanned == 0 {
+		t.Fatal("no shipped HTML files scanned; CSP guard is not actually running")
 	}
 }
