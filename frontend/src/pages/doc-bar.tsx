@@ -66,8 +66,7 @@ export function DocBar({
       q.invalidateQueries({ queryKey: queryKeys.documents() });
       nav("/app/documents");
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Delete failed")),
+    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
     <div className="flex h-14 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4">
@@ -114,7 +113,11 @@ export function DocBar({
         <DropdownContent>
           <DropdownItem
             onSelect={() =>
-              window.open(`/v1/documents/${docId}/html`, "_blank")
+              window.open(
+                `/v1/documents/${docId}/versions/${current}/html`,
+                "_blank",
+                "noopener,noreferrer",
+              )
             }
           >
             <ExternalLink className="h-4 w-4" /> Open raw HTML
@@ -172,8 +175,8 @@ function VersionHistoryDialog({
         <DialogHeader>
           <DialogTitle>Version history</DialogTitle>
           <DialogDescription>
-            Immutable HTML revisions for this document. Open any version to
-            inspect the exact HTML your reviewers saw.
+            Immutable HTML revisions for this document. Open any version to inspect the
+            exact HTML your reviewers saw.
           </DialogDescription>
         </DialogHeader>
         {sorted.length === 0 ? (

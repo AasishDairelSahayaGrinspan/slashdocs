@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { Link } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import {
   ArrowRight,
   BookOpen,
@@ -13,6 +13,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/ui/misc";
 import { HowItWorks } from "@/components/marketing/how-it-works";
+import { useFrontendSignedOut } from "@/lib/auth-state";
+import { useMe } from "@/lib/hooks";
 
 const INSTALL_SNIPPET = `curl -fsSL https://aidocs.concierge.razorpay.com/install.sh | bash
 
@@ -30,6 +32,11 @@ const useCases = [
 
 export function LandingPage() {
   useTitle();
+  const me = useMe();
+  const frontendSignedOut = useFrontendSignedOut();
+  if (me.data && !me.unauth && !frontendSignedOut) {
+    return <Navigate to="/app/documents" replace />;
+  }
   return (
     <div className="min-h-full bg-[var(--color-bg)]">
       <Nav />
@@ -43,6 +50,9 @@ export function LandingPage() {
 }
 
 function Nav() {
+  const me = useMe();
+  const frontendSignedOut = useFrontendSignedOut();
+  const isSignedIn = !!me.data && !me.unauth && !frontendSignedOut;
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--color-border)] bg-[var(--color-bg)]/80 backdrop-blur">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
@@ -64,8 +74,8 @@ function Nav() {
             <a href="#install">Install</a>
           </Button>
           <Button asChild size="sm">
-            <Link to="/login">
-              Sign in <ArrowRight className="h-4 w-4" />
+            <Link to={isSignedIn ? "/app/documents" : "/login"}>
+              {isSignedIn ? "Open app" : "Sign in"} <ArrowRight className="h-4 w-4" />
             </Link>
           </Button>
         </nav>
@@ -75,6 +85,9 @@ function Nav() {
 }
 
 function Hero() {
+  const me = useMe();
+  const frontendSignedOut = useFrontendSignedOut();
+  const isSignedIn = !!me.data && !me.unauth && !frontendSignedOut;
   return (
     <section className="relative overflow-hidden">
       <div
@@ -92,19 +105,17 @@ function Hero() {
           </div>
           <h1 className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
             Give your agents the power to publish{" "}
-            <span className="text-[var(--color-accent)]">reviewable</span>{" "}
-            documents.
+            <span className="text-[var(--color-accent)]">reviewable</span> documents.
           </h1>
           <p className="mx-auto mt-6 max-w-2xl text-pretty text-base text-[var(--color-fg-muted)] md:text-lg">
             aidocs is a Google-Docs-style review layer for self-contained HTML
-            artifacts. Agents push reports, specs, and RCAs through a CLI.
-            Humans review them in the browser with anchored comments and
-            immutable versions.
+            artifacts. Agents push reports, specs, and RCAs through a CLI. Humans review
+            them in the browser with anchored comments and immutable versions.
           </p>
           <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg">
-              <Link to="/login">
-                Sign in <ArrowRight className="h-4 w-4" />
+              <Link to={isSignedIn ? "/app/documents" : "/login"}>
+                {isSignedIn ? "Open app" : "Sign in"} <ArrowRight className="h-4 w-4" />
               </Link>
             </Button>
             <Button asChild size="lg" variant="outline">
@@ -119,10 +130,7 @@ function Hero() {
 
 function Install() {
   return (
-    <section
-      id="install"
-      className="border-t border-[var(--color-border)] py-24"
-    >
+    <section id="install" className="border-t border-[var(--color-border)] py-24">
       <div className="mx-auto max-w-2xl px-6">
         <div className="mb-8 text-center">
           <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
@@ -180,15 +188,9 @@ function UseCases() {
   );
 }
 
-
 function GithubIcon() {
   return (
-    <svg
-      viewBox="0 0 24 24"
-      className="h-4 w-4"
-      fill="currentColor"
-      aria-hidden
-    >
+    <svg viewBox="0 0 24 24" className="h-4 w-4" fill="currentColor" aria-hidden>
       <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56v-2.18c-3.2.7-3.87-1.36-3.87-1.36-.53-1.34-1.29-1.7-1.29-1.7-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.19-3.1-.12-.29-.51-1.46.11-3.05 0 0 .97-.31 3.18 1.18.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.21-1.49 3.18-1.18 3.18-1.18.62 1.59.23 2.76.11 3.05.74.81 1.19 1.84 1.19 3.1 0 4.42-2.69 5.4-5.25 5.68.41.36.78 1.07.78 2.15v3.19c0 .31.21.67.8.56C20.22 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z" />
     </svg>
   );

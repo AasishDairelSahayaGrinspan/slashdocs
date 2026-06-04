@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import { useTitle } from "@/lib/use-title";
 import { LogOut, Monitor, Moon, Sun } from "lucide-react";
 import { Avatar, Center, Skeleton } from "@/components/ui/misc";
@@ -12,10 +13,12 @@ import {
 import { useMe } from "@/lib/hooks";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
+import { setFrontendSignedOut } from "@/lib/auth-state";
 
 export function ProfilePage() {
   useTitle("Profile");
   const me = useMe();
+  const nav = useNavigate();
   const { theme, setTheme } = useTheme();
   const user = me.data?.user || me.data?.principal;
 
@@ -38,11 +41,7 @@ export function ProfilePage() {
       <div className="space-y-4">
         <Card>
           <CardContent className="flex items-center gap-4 pt-5">
-            <Avatar
-              size={56}
-              src={user.picture_url}
-              name={user.name || user.email}
-            />
+            <Avatar size={56} src={user.picture_url} name={user.name || user.email} />
             <div className="min-w-0">
               <div className="font-medium">{user.name || "Signed-in user"}</div>
               <div className="text-sm text-[var(--color-fg-muted)]">
@@ -85,7 +84,10 @@ export function ProfilePage() {
           <CardContent className="pt-5">
             <Button
               variant="outline"
-              onClick={() => (window.location.href = "/v1/auth/logout")}
+              onClick={() => {
+                setFrontendSignedOut(true);
+                nav("/");
+              }}
             >
               <LogOut className="h-4 w-4" /> Sign out
             </Button>

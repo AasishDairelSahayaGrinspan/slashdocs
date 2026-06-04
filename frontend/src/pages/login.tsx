@@ -1,8 +1,10 @@
 import { useTitle } from "@/lib/use-title";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { ArrowLeft, MessageSquareText, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/api";
+import { setFrontendSignedOut, useFrontendSignedOut } from "@/lib/auth-state";
+import { useMe } from "@/lib/hooks";
 
 const HIGHLIGHTS = [
   {
@@ -26,7 +28,12 @@ export function LoginPage() {
   useTitle("Sign in");
   const [params] = useSearchParams();
   const next = params.get("next") || "/app/documents";
+  const me = useMe();
+  const frontendSignedOut = useFrontendSignedOut();
   const url = api.loginURL(next);
+  if (me.data && !me.unauth && !frontendSignedOut) {
+    return <Navigate to={next} replace />;
+  }
   return (
     <div className="relative flex min-h-full flex-col items-center justify-center overflow-hidden bg-[var(--color-bg)] px-6 py-12">
       {/* Subtle accent glow behind the card. */}
@@ -44,15 +51,13 @@ export function LoginPage() {
         <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-sm">
           <div className="mb-7 flex flex-col items-center text-center">
             <img src="/favicon.svg" alt="" className="mb-4 h-14 w-14" />
-            <h1 className="text-2xl font-semibold tracking-tight">
-              Sign in to aidocs
-            </h1>
+            <h1 className="text-2xl font-semibold tracking-tight">Sign in to aidocs</h1>
             <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
               The review layer for documents your agents write.
             </p>
           </div>
           <Button asChild size="lg" className="w-full">
-            <a href={url}>
+            <a href={url} onClick={() => setFrontendSignedOut(false)}>
               <GoogleIcon /> Continue with Google
             </a>
           </Button>
@@ -65,9 +70,7 @@ export function LoginPage() {
               </span>
               <div>
                 <div className="text-sm font-medium">{h.title}</div>
-                <div className="text-xs text-[var(--color-fg-muted)]">
-                  {h.body}
-                </div>
+                <div className="text-xs text-[var(--color-fg-muted)]">{h.body}</div>
               </div>
             </li>
           ))}

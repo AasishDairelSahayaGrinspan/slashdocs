@@ -123,7 +123,7 @@ export function RenderFrame() {
       className="h-full w-full"
       style={{ background: theme === "dark" ? "#0b0d12" : "#fff" }}
       src={frameSrc}
-      sandbox="allow-scripts allow-same-origin"
+      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
     />
   );
 }

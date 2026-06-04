@@ -20,6 +20,7 @@ import {
   DropdownTrigger,
 } from "@/components/ui/dropdown";
 import { Avatar } from "@/components/ui/misc";
+import { setFrontendSignedOut } from "@/lib/auth-state";
 import { useTheme } from "@/lib/theme";
 import type { Principal } from "@/api";
 
@@ -98,7 +99,8 @@ export function TopBar({
             <DropdownSeparator />
             <DropdownItem
               onSelect={() => {
-                window.location.href = "/v1/auth/logout";
+                setFrontendSignedOut(true);
+                nav("/");
               }}
             >
               <LogOut className="h-4 w-4" /> Sign out

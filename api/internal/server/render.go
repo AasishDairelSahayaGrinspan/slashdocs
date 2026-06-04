@@ -13,7 +13,7 @@ var bridgeJSSource string
 // wrapperTmpl renders the sandboxed iframe that hosts untrusted user HTML.
 // Using html/template ensures the srcdoc attribute value is correctly escaped
 // (including </script> sequences inside inline scripts).
-var wrapperTmpl = template.Must(template.New("wrapper").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>aidocs render</title><style>html,body{margin:0;height:100%;overflow:hidden}#aidocs-doc{border:0;width:100%;height:100vh}</style></head><body><iframe id="aidocs-doc" sandbox="allow-scripts allow-same-origin" srcdoc="{{.SrcDoc}}"></iframe><script>window.__AIDOCS_APP_ORIGIN__={{.AppOriginJS}};({{.BridgeJS}})();</script></body></html>`))
+var wrapperTmpl = template.Must(template.New("wrapper").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>aidocs render</title><style>html,body{margin:0;height:100%;overflow:hidden}#aidocs-doc{border:0;width:100%;height:100vh}</style></head><body><iframe id="aidocs-doc" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc="{{.SrcDoc}}"></iframe><script>window.__AIDOCS_APP_ORIGIN__={{.AppOriginJS}};({{.BridgeJS}})();</script></body></html>`))
 
 type wrapperData struct {
 	// SrcDoc is the raw user HTML. html/template escapes it for the
