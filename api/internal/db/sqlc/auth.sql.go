@@ -241,7 +241,7 @@ func (q *Queries) TouchCLIToken(ctx context.Context, tokenHash string) error {
 }
 
 const touchServiceAccountToken = `-- name: TouchServiceAccountToken :exec
-UPDATE service_account_keys SET last_used_at=now() WHERE token_hash=$1 -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+UPDATE service_account_keys SET last_used_at=now() WHERE token_hash=$1
 `
 
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.

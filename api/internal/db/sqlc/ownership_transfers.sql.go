@@ -42,7 +42,7 @@ func (q *Queries) DeclineOwnershipTransfer(ctx context.Context, arg DeclineOwner
 
 const getOwnershipTransferForUpdate = `-- name: GetOwnershipTransferForUpdate :one
 
-SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE id=$1 FOR UPDATE -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE id=$1 FOR UPDATE
 `
 
 type GetOwnershipTransferForUpdateRow struct {
@@ -69,7 +69,7 @@ func (q *Queries) GetOwnershipTransferForUpdate(ctx context.Context, id string) 
 }
 
 const insertOwnershipTransfer = `-- name: InsertOwnershipTransfer :exec
-INSERT INTO ownership_transfers(id,service_account_id,from_user_id,to_user_id,status) VALUES($1,$2,$3,$4,'pending') -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+INSERT INTO ownership_transfers(id,service_account_id,from_user_id,to_user_id,status) VALUES($1,$2,$3,$4,'pending')
 `
 
 type InsertOwnershipTransferParams struct {
@@ -92,7 +92,7 @@ func (q *Queries) InsertOwnershipTransfer(ctx context.Context, arg InsertOwnersh
 
 const listOwnershipTransfers = `-- name: ListOwnershipTransfers :many
 
-SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE from_user_id=$1 OR to_user_id=$1 ORDER BY initiated_at DESC -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE from_user_id=$1 OR to_user_id=$1 ORDER BY initiated_at DESC
 `
 
 type ListOwnershipTransfersRow struct {
@@ -133,7 +133,7 @@ func (q *Queries) ListOwnershipTransfers(ctx context.Context, fromUserID string)
 
 const updateServiceAccountOwner = `-- name: UpdateServiceAccountOwner :exec
 
-UPDATE service_accounts SET owner_user_id=$1 WHERE id=$2 -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+UPDATE service_accounts SET owner_user_id=$1 WHERE id=$2
 `
 
 type UpdateServiceAccountOwnerParams struct {

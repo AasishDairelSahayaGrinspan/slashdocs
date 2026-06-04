@@ -167,7 +167,7 @@ LEFT JOIN users gu
   ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
 LEFT JOIN service_accounts gsa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
 `
 
 type UpdateGrantRoleParams struct {
