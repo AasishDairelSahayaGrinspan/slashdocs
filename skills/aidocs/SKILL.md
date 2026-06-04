@@ -1,6 +1,6 @@
 ---
 name: aidocs
-description: Publish a long-form artifact (report, RCA, postmortem, architecture review, product spec, QA findings, data analysis, design proposal, launch plan, incident timeline) to aidocs as a reviewable HTML document. Use this whenever the user asks for a "doc", "document", "report", "review", "writeup", "spec", "RCA", "postmortem", "analysis", or "findings" and hasn't specified a different output format. Produces a single HTML file (external stylesheets/fonts/scripts allowed; aidocs does not host assets, so embed images as base64) and uploads it via the `aidocs` CLI so a human can review and leave anchored comments in the browser.
+description: Publish a long-form artifact (report, RCA, postmortem, architecture review, product spec, QA findings, data analysis, design proposal, launch plan, incident timeline) to aidocs as a reviewable HTML document. Use this whenever the user asks for a "doc", "document", "report", "review", "writeup", "spec", "RCA", "postmortem", "analysis", or "findings" and hasn't specified a different output format. Also use when a user asks Slash to "publish to aidocs", "upload this HTML", "get a shareable link", or attaches an HTML file to a Slack message and asks for a shareable link. Produces a single HTML file (external stylesheets/fonts/scripts allowed; aidocs does not host assets, so embed images as base64) and uploads it via the `aidocs` CLI so a human can review and leave anchored comments in the browser.
 ---
 
 # aidocs
@@ -67,6 +67,39 @@ aidocs docs create --help
 
 The CLI supports `--json` for structured output if you need to parse
 identifiers (e.g. the new document ID) reliably.
+
+## Slack / Slash integration
+
+Slash (the Razorpay AI coding assistant) can publish to aidocs in two modes:
+
+**Mode 1 — Generate HTML then publish**
+When the user asks Slash to create a document (e.g. "generate an architecture diagram and share it"):
+1. Generate the HTML as described in the Workflow section.
+2. Save it locally (e.g. `/tmp/doc.html`).
+3. Run `aidocs docs create /tmp/doc.html --title "Title" --json` to upload it.
+4. Share the printed URL back in Slack.
+
+**Mode 2 — Upload an HTML file the user already attached**
+When the user attaches an HTML file to the Slack message, the system saves it to disk and
+includes a note like `[File attached — path: /app/uploads/slack_attachments/slack_attachment_<id>.html]`
+in the prompt. In that case:
+1. Read the file from the given path (do NOT re-save it — the file is already on disk).
+2. Run `aidocs docs create <path> --title "Title" --json` directly on that path.
+3. Share the printed URL back in Slack.
+
+**Sharing after upload**
+Documents are private by default. After creating, grant read access to everyone in the org:
+
+```bash
+aidocs docs grants add <doc_id> --everyone --role commenter
+```
+
+This lets any Razorpay employee open the link and leave comments without needing an invite.
+
+**Service account authentication**
+When running inside Slash, `AIDOCS_TOKEN` and `AIDOCS_SERVER` are pre-set as env vars.
+The CLI picks them up automatically — no `aidocs auth login` is needed. If you see an auth
+error, surface it verbatim and stop; do not attempt to re-authenticate.
 
 ## When NOT to use this skill
 
