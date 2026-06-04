@@ -183,7 +183,8 @@ elif [ "$INSTALL_MODE" = "system" ]; then
   sudo mv "$tmp" "$BIN_PATH"
 else
   echo "install dir is not writable: $BIN_DIR" >&2
-  echo "Set AIDOCS_INSTALL_DIR or run with --system if you have sudo access." >&2
+  echo "Try: curl -fsSL $BASE_URL/install.sh | bash -s -- --system" >&2
+  echo "Or set AIDOCS_INSTALL_DIR to a writable directory." >&2
   exit 1
 fi
 
