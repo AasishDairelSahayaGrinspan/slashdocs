@@ -37,7 +37,6 @@ export function LandingPage() {
       <HowItWorks />
       <Install />
       <UseCases />
-      <SelfHost />
       <Footer />
     </div>
   );
@@ -181,83 +180,6 @@ function UseCases() {
   );
 }
 
-function SelfHost() {
-  const points = [
-    {
-      title: "Single Go binary",
-      body: "Embeds the web UI. Deploy via Docker, the Helm chart, or bare metal.",
-    },
-    {
-      title: "Your data stays yours",
-      body: "Postgres + S3-compatible storage you control. Documents never leave your VPC.",
-    },
-    {
-      title: "SSO-ready",
-      body: "Google OAuth out of the box. Bring your IdP via standard OIDC.",
-    },
-    {
-      title: "Audit-friendly",
-      body: "Immutable versions, per-document grants, scoped service-account keys.",
-    },
-  ];
-  return (
-    <section className="border-t border-[var(--color-border)] bg-[var(--color-surface)]/30 py-24">
-      <div className="mx-auto max-w-5xl px-6">
-        <div className="mb-10 text-center">
-          <div className="mb-3 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
-            <Server className="h-3 w-3" /> Self-hosting & enterprise
-          </div>
-          <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
-            Built to run on your infrastructure
-          </h2>
-          <p className="mx-auto mt-3 max-w-2xl text-[var(--color-fg-muted)]">
-            aidocs is open source and self-hostable. Keep sensitive
-            agent-generated documents — RCAs, incident reports, product
-            specs — inside your network, on your terms.
-          </p>
-        </div>
-        <div className="grid gap-3 md:grid-cols-2">
-          {points.map((p) => (
-            <div
-              key={p.title}
-              className="rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] p-5"
-            >
-              <div className="text-sm font-semibold">{p.title}</div>
-              <div className="mt-1 text-sm text-[var(--color-fg-muted)]">
-                {p.body}
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-          <Button asChild>
-            <a
-              href="https://github.com/razorpay/aidocs"
-              target="_blank"
-              rel="noreferrer"
-            >
-              <GithubIcon /> View on GitHub
-            </a>
-          </Button>
-          <Button asChild variant="outline">
-            <a
-              href="https://github.com/razorpay/aidocs/blob/main/docs/self-hosting.md"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Self-hosting guide
-            </a>
-          </Button>
-          <Button asChild variant="ghost">
-            <a href="mailto:raoanu2004@gmail.com?subject=Enterprise%20inquiry">
-              Talk to us
-            </a>
-          </Button>
-        </div>
-      </div>
-    </section>
-  );
-}
 
 function GithubIcon() {
   return (
