@@ -26,7 +26,9 @@ SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
-LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND sa.id=d.owner_id
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE d.id=$1
 `
 
@@ -40,6 +42,7 @@ type GetDocumentRow struct {
 	OwnerName        string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) GetDocument(ctx context.Context, id string) (GetDocumentRow, error) {
 	row := q.db.QueryRow(ctx, getDocument, id)
 	var i GetDocumentRow
@@ -132,7 +135,9 @@ SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
-LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND sa.id=d.owner_id
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE (d.owner_type=$2 AND d.owner_id=$1)
    OR EXISTS (
        SELECT 1 FROM resource_grants g
@@ -183,6 +188,7 @@ type ListDocumentsRow struct {
 // A bare "anyone" grant alone does NOT list the document: broad access grants
 // access via discovery/link, it does not place the document in every user's
 // workspace until they open it.
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]ListDocumentsRow, error) {
 	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.OwnerType)
 	if err != nil {
@@ -236,7 +242,9 @@ SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
-LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND sa.id=d.owner_id
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE d.title ILIKE '%' || $1 || '%'
   AND (
     (d.owner_type=$3 AND d.owner_id=$2)
@@ -280,6 +288,7 @@ type SearchDocumentsByTitleRow struct {
 	OwnerName        string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) SearchDocumentsByTitle(ctx context.Context, arg SearchDocumentsByTitleParams) ([]SearchDocumentsByTitleRow, error) {
 	rows, err := q.db.Query(ctx, searchDocumentsByTitle,
 		arg.Column1,

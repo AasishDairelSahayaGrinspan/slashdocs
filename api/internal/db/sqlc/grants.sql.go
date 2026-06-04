@@ -27,6 +27,7 @@ func (q *Queries) DeleteGrant(ctx context.Context, arg DeleteGrantParams) (strin
 }
 
 const getGrant = `-- name: GetGrant :one
+
 SELECT id,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL
 `
 
@@ -45,6 +46,7 @@ type GetGrantRow struct {
 	GrantedByUserID string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) GetGrant(ctx context.Context, arg GetGrantParams) (GetGrantRow, error) {
 	row := q.db.QueryRow(ctx, getGrant, arg.ID, arg.ResourceID)
 	var i GetGrantRow
@@ -76,14 +78,14 @@ SELECT
 FROM resource_grants g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
-LEFT JOIN service_accounts sa
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+  ON g.principal_type = 'service_account' AND g.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 LEFT JOIN users gu
   ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
-LEFT JOIN service_accounts gsa
+LEFT JOIN service_accounts gsa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE g.resource_type='document' AND g.resource_id=$1 AND g.revoked_at IS NULL
 `
 
@@ -101,6 +103,8 @@ type ListGrantsRow struct {
 	GrantedByName       string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) ListGrants(ctx context.Context, resourceID string) ([]ListGrantsRow, error) {
 	rows, err := q.db.Query(ctx, listGrants, resourceID)
 	if err != nil {
@@ -156,14 +160,14 @@ SELECT
 FROM updated g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
-LEFT JOIN service_accounts sa
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+  ON g.principal_type = 'service_account' AND g.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 LEFT JOIN users gu
   ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
-LEFT JOIN service_accounts gsa
+LEFT JOIN service_accounts gsa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 `
 
 type UpdateGrantRoleParams struct {
@@ -187,6 +191,8 @@ type UpdateGrantRoleRow struct {
 	GrantedByName       string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) UpdateGrantRole(ctx context.Context, arg UpdateGrantRoleParams) (UpdateGrantRoleRow, error) {
 	row := q.db.QueryRow(ctx, updateGrantRole, arg.Role, arg.ID, arg.ResourceID)
 	var i UpdateGrantRoleRow

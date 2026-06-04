@@ -7,12 +7,15 @@ WHERE c.token_hash=$1 AND c.revoked_at IS NULL;
 UPDATE cli_credentials SET last_used_at=now() WHERE token_hash=$1;
 
 -- name: ResolveServiceAccountToken :one
-SELECT 'service_account'::text AS principal_type, sa.id, ''::text AS email, sa.name, ''::text AS picture_url
-FROM service_account_keys k JOIN service_accounts sa ON sa.id=k.service_account_id
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+SELECT 'service_account'::text AS principal_type, sa.id, ''::text AS email, sa.name, ''::text AS picture_url -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+FROM service_account_keys k JOIN service_accounts sa ON sa.id=k.service_account_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND sa.disabled_at IS NULL;
 
 -- name: TouchServiceAccountToken :exec
-UPDATE service_account_keys SET last_used_at=now() WHERE token_hash=$1;
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+UPDATE service_account_keys SET last_used_at=now() WHERE token_hash=$1; -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 
 -- name: UpsertGoogleUser :exec
 WITH updated AS (

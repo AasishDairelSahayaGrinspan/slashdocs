@@ -20,14 +20,16 @@ SELECT
 FROM resource_grants g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
-LEFT JOIN service_accounts sa
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+  ON g.principal_type = 'service_account' AND g.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 LEFT JOIN users gu
   ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
-LEFT JOIN service_accounts gsa
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts gsa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE g.resource_type='document' AND g.resource_id=$1 AND g.revoked_at IS NULL;
 
 -- name: UpdateGrantRole :one
@@ -53,14 +55,16 @@ SELECT
 FROM updated g
 LEFT JOIN users u
   ON g.principal_type = 'user' AND g.principal_id = u.id
-LEFT JOIN service_accounts sa
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.principal_type = 'service_account' AND g.principal_id = sa.id
+  ON g.principal_type = 'service_account' AND g.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 LEFT JOIN users gu
   ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
-LEFT JOIN service_accounts gsa
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts gsa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id;
+  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id; -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 
 -- name: GetGrant :one
 SELECT id,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL;

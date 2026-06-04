@@ -10,10 +10,12 @@ import (
 )
 
 const acceptOwnershipTransfer = `-- name: AcceptOwnershipTransfer :one
+
 UPDATE ownership_transfers SET status='accepted',accepted_at=now() WHERE id=$1 AND status='pending'
 RETURNING id
 `
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) AcceptOwnershipTransfer(ctx context.Context, id string) (string, error) {
 	row := q.db.QueryRow(ctx, acceptOwnershipTransfer, id)
 	var id_2 string
@@ -39,7 +41,8 @@ func (q *Queries) DeclineOwnershipTransfer(ctx context.Context, arg DeclineOwner
 }
 
 const getOwnershipTransferForUpdate = `-- name: GetOwnershipTransferForUpdate :one
-SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE id=$1 FOR UPDATE
+
+SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE id=$1 FOR UPDATE -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 `
 
 type GetOwnershipTransferForUpdateRow struct {
@@ -50,6 +53,8 @@ type GetOwnershipTransferForUpdateRow struct {
 	Status           string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) GetOwnershipTransferForUpdate(ctx context.Context, id string) (GetOwnershipTransferForUpdateRow, error) {
 	row := q.db.QueryRow(ctx, getOwnershipTransferForUpdate, id)
 	var i GetOwnershipTransferForUpdateRow
@@ -64,7 +69,7 @@ func (q *Queries) GetOwnershipTransferForUpdate(ctx context.Context, id string) 
 }
 
 const insertOwnershipTransfer = `-- name: InsertOwnershipTransfer :exec
-INSERT INTO ownership_transfers(id,service_account_id,from_user_id,to_user_id,status) VALUES($1,$2,$3,$4,'pending')
+INSERT INTO ownership_transfers(id,service_account_id,from_user_id,to_user_id,status) VALUES($1,$2,$3,$4,'pending') -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 `
 
 type InsertOwnershipTransferParams struct {
@@ -74,6 +79,7 @@ type InsertOwnershipTransferParams struct {
 	ToUserID         string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) InsertOwnershipTransfer(ctx context.Context, arg InsertOwnershipTransferParams) error {
 	_, err := q.db.Exec(ctx, insertOwnershipTransfer,
 		arg.ID,
@@ -85,7 +91,8 @@ func (q *Queries) InsertOwnershipTransfer(ctx context.Context, arg InsertOwnersh
 }
 
 const listOwnershipTransfers = `-- name: ListOwnershipTransfers :many
-SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE from_user_id=$1 OR to_user_id=$1 ORDER BY initiated_at DESC
+
+SELECT id,service_account_id,from_user_id,to_user_id,status FROM ownership_transfers WHERE from_user_id=$1 OR to_user_id=$1 ORDER BY initiated_at DESC -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 `
 
 type ListOwnershipTransfersRow struct {
@@ -96,6 +103,8 @@ type ListOwnershipTransfersRow struct {
 	Status           string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) ListOwnershipTransfers(ctx context.Context, fromUserID string) ([]ListOwnershipTransfersRow, error) {
 	rows, err := q.db.Query(ctx, listOwnershipTransfers, fromUserID)
 	if err != nil {
@@ -123,7 +132,8 @@ func (q *Queries) ListOwnershipTransfers(ctx context.Context, fromUserID string)
 }
 
 const updateServiceAccountOwner = `-- name: UpdateServiceAccountOwner :exec
-UPDATE service_accounts SET owner_user_id=$1 WHERE id=$2
+
+UPDATE service_accounts SET owner_user_id=$1 WHERE id=$2 -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 `
 
 type UpdateServiceAccountOwnerParams struct {
@@ -131,6 +141,8 @@ type UpdateServiceAccountOwnerParams struct {
 	ID          string
 }
 
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) UpdateServiceAccountOwner(ctx context.Context, arg UpdateServiceAccountOwnerParams) error {
 	_, err := q.db.Exec(ctx, updateServiceAccountOwner, arg.OwnerUserID, arg.ID)
 	return err
