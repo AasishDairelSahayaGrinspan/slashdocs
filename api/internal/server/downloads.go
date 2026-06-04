@@ -156,8 +156,10 @@ fi
 
 old_path="$(command -v aidocs 2>/dev/null || true)"
 if [ -n "$old_path" ] && [ "$old_path" != "$BIN_PATH" ]; then
+  old_dir="$(dirname "$old_path")"
   echo "Existing aidocs install found at $old_path." >&2
-  echo "Remove it first, or install to that location instead." >&2
+  echo "Remove it first, or install there with:" >&2
+  echo "  curl -fsSL $BASE_URL/install.sh | AIDOCS_INSTALL_DIR=$old_dir bash" >&2
   echo "Target install path: $BIN_PATH" >&2
   exit 1
 fi
