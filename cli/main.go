@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/anuragrao/aidocs/cli/internal"
+	"github.com/razorpay/aidocs/cli/internal"
 )
 
 func main() {

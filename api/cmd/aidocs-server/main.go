@@ -9,11 +9,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
-	"github.com/anuragrao/aidocs/api/internal/blob"
-	"github.com/anuragrao/aidocs/api/internal/db"
-	pgrepo "github.com/anuragrao/aidocs/api/internal/repo/postgres"
-	"github.com/anuragrao/aidocs/api/internal/server"
+	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/blob"
+	"github.com/razorpay/aidocs/api/internal/db"
+	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
+	"github.com/razorpay/aidocs/api/internal/server"
 )
 
 // @title aidocs API

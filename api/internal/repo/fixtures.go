@@ -2,7 +2,7 @@
 
 package repo
 
-import "github.com/anuragrao/aidocs/api/internal/auth"
+import "github.com/razorpay/aidocs/api/internal/auth"
 
 // NewMemorySeeded returns an in-memory repository preloaded with a fixture
 // graph: an owner-owned document (doc_1 / ver_1), a service account (sa_1), a

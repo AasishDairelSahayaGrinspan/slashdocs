@@ -26,7 +26,7 @@ import {
 
 type StepKey = keyof OnboardingState["steps"];
 
-const SKILL_REPO = "github:anuragrao04/aidocs";
+const SKILL_REPO = "github:razorpay/aidocs";
 
 const AGENT_TARGETS = [
   { id: "claude-code", label: "Claude Code" },
@@ -144,7 +144,7 @@ export function StartPage() {
               the{" "}
               <a
                 className="text-[var(--color-fg)] underline-offset-2 hover:underline"
-                href="https://github.com/anuragrao04/aidocs"
+                href="https://github.com/razorpay/aidocs"
                 target="_blank"
                 rel="noreferrer"
               >
@@ -326,7 +326,7 @@ function AgentConfigure() {
       <p className="mt-4 text-xs text-[var(--color-fg-muted)]">
         Skill source:{" "}
         <a
-          href="https://github.com/anuragrao04/aidocs/tree/main/skills/aidocs"
+          href="https://github.com/razorpay/aidocs/tree/main/skills/aidocs"
           target="_blank"
           rel="noreferrer"
           className="text-[var(--color-fg)] underline-offset-2 hover:underline"

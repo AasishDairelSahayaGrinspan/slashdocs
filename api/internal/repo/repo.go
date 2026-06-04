@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/auth"
 )
 
 type Role string

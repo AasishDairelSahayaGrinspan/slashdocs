@@ -42,7 +42,7 @@ No separate image hosting is required for v1.
 ## Install from source
 
 ```bash
-git clone https://github.com/anuragrao04/aidocs.git
+git clone https://github.com/razorpay/aidocs.git
 cd aidocs
 make build
 ```
@@ -56,19 +56,17 @@ bin/aidocs
 
 ## Run with Docker
 
-Multi-arch release images (`linux/amd64`, `linux/arm64`) are published to both
-GitHub Container Registry and Docker Hub:
+Release images are published to Razorpay Harbor:
 
 ```bash
-docker pull ghcr.io/anuragrao04/aidocs:latest   # GHCR
-docker pull anuragrao04/aidocs:latest           # Docker Hub
+docker pull c.rzp.io/razorpay/aidocs:latest
 ```
 
 Copy [`.env.example`](.env.example) to `.env`, fill it in, and run (pin an exact
 tag or digest in production rather than `:latest`):
 
 ```bash
-docker run --rm -p 8080:8080 --env-file .env ghcr.io/anuragrao04/aidocs:latest
+docker run --rm -p 8080:8080 --env-file .env c.rzp.io/razorpay/aidocs:latest
 ```
 
 See [Self-hosting](docs/self-hosting.md) for production setup and all environment variables. A Kubernetes Helm chart is available in [`charts/aidocs`](charts/aidocs).

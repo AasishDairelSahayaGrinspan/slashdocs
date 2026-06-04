@@ -13,10 +13,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
-	"github.com/anuragrao/aidocs/api/internal/blob"
-	dbsqlc "github.com/anuragrao/aidocs/api/internal/db/sqlc"
-	"github.com/anuragrao/aidocs/api/internal/repo"
+	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/blob"
+	dbsqlc "github.com/razorpay/aidocs/api/internal/db/sqlc"
+	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 // htmlContentType is the content type stored for all version HTML blobs.

@@ -1,4 +1,4 @@
-module github.com/anuragrao/aidocs
+module github.com/razorpay/aidocs
 
 go 1.25.0
 

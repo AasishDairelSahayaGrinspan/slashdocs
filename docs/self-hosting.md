@@ -110,21 +110,14 @@ AIDOCS_ORG_NAME=Acme
 
 ## Docker
 
-Build the image from source, or pull the prebuilt image from GHCR.
-
-Release images are multi-arch (`linux/amd64`, `linux/arm64`) and published to
-both GitHub Container Registry and Docker Hub. Pull from whichever your network
-allows (e.g. a Harbor `proxy_dockerhub` mirror reaches the Docker Hub copy):
+Build the image from source, or pull the prebuilt image from Razorpay Harbor.
 
 ```bash
 # Build locally
 docker build -t aidocs:local .
 
-# GitHub Container Registry
-docker pull ghcr.io/anuragrao04/aidocs:latest
-
-# Docker Hub
-docker pull anuragrao04/aidocs:latest
+# Razorpay Harbor
+docker pull c.rzp.io/razorpay/aidocs:latest
 ```
 
 Pin an exact tag or digest in production rather than `:latest`.
@@ -134,7 +127,7 @@ Run it, pointing at your Postgres and S3-compatible storage. Copy
 
 ```bash
 docker run --rm -p 8080:8080 --env-file .env \
-  ghcr.io/anuragrao04/aidocs:latest
+  c.rzp.io/razorpay/aidocs:latest
 ```
 
 Open <http://localhost:8080>. See `.env.example` for every variable; the
@@ -169,7 +162,7 @@ cp charts/aidocs/values.yaml my-values.yaml
 
 ```yaml
 image:
-  repository: ghcr.io/anuragrao04/aidocs
+  repository: c.rzp.io/razorpay/aidocs
   tag: "0.1.0"
 
 origins:
@@ -270,7 +263,7 @@ full schema with defaults.
 ## Bare metal / systemd
 
 ```bash
-git clone https://github.com/anuragrao04/aidocs.git
+git clone https://github.com/razorpay/aidocs.git
 cd aidocs
 make build              # produces bin/aidocs-server and bin/aidocs
 

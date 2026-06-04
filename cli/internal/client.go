@@ -14,7 +14,7 @@ import (
 )
 
 // defaultServer is the single source of truth for the default API server URL.
-const defaultServer = "https://aidocs.anuragrao.dev"
+const defaultServer = "https://aidocs.concierge.razorpay.com"
 
 // Client is a thin HTTP transport for the aidocs API.
 type Client struct {

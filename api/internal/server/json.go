@@ -3,9 +3,9 @@ package server
 import (
 	"strings"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
-	"github.com/anuragrao/aidocs/api/internal/repo"
 	"github.com/gin-gonic/gin"
+	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 func commentsJSON(items []repo.Comment, placementVersionID string, placementHTML []byte) []gin.H {

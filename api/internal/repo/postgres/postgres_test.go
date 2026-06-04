@@ -5,11 +5,11 @@ import (
 	"os"
 	"testing"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
-	"github.com/anuragrao/aidocs/api/internal/blob"
-	"github.com/anuragrao/aidocs/api/internal/db"
-	"github.com/anuragrao/aidocs/api/internal/repo"
-	pgrepo "github.com/anuragrao/aidocs/api/internal/repo/postgres"
+	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/blob"
+	"github.com/razorpay/aidocs/api/internal/db"
+	"github.com/razorpay/aidocs/api/internal/repo"
+	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
 )
 
 func TestPostgresRepositoryDocumentGrantVersionCommentFlow(t *testing.T) {

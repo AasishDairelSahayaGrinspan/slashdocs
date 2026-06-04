@@ -62,5 +62,8 @@ jobs:
           push: true
           context: .
           file: Dockerfile
+          use-default-caching: true
+          cache-registry-username: ${{ secrets.HARBOR_CACHE_DOCKER_USERNAME }}
+          cache-registry-password: ${{ secrets.HARBOR_CACHE_DOCKER_PASSWORD }}
           build-args: |
             AIDOCS_COMMIT_SHA=${{ github.sha }}

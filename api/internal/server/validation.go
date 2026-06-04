@@ -4,7 +4,7 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/anuragrao/aidocs/api/internal/repo"
+	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 var roleRank = map[repo.Role]int{repo.RoleViewer: 1, repo.RoleCommenter: 2, repo.RoleEditor: 3, repo.RoleOwner: 4}

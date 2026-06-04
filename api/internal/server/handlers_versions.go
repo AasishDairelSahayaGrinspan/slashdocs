@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
-	"github.com/anuragrao/aidocs/api/internal/repo"
+	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 // CreateVersion godoc

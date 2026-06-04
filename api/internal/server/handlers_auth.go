@@ -10,7 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/auth"
 )
 
 // GoogleStart godoc

@@ -147,7 +147,9 @@ func transferCmd(g *globals, out io.Writer) *cobra.Command {
 		}
 		return action(g, out, func(c *Client) ([]byte, error) {
 			return c.doJSON("POST", apiPath("/v1/service-accounts/%s/transfer", args[0]), map[string]any{"to_user_email": to})
-		}, func(map[string]any) string { return "Requested transfer of " + args[0] + " to " + to + ". They must accept it." })
+		}, func(map[string]any) string {
+			return "Requested transfer of " + args[0] + " to " + to + ". They must accept it."
+		})
 	}}
 	c.Flags().StringVar(&to, "to", "", "email of the user to transfer ownership to")
 	c.AddCommand(

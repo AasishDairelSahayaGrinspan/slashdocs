@@ -7,9 +7,9 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/anuragrao/aidocs/api/internal/auth"
-	"github.com/anuragrao/aidocs/api/internal/bots"
-	"github.com/anuragrao/aidocs/api/internal/repo"
+	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/bots"
+	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 // resolveGrantPrincipal turns a grant request's address or inline principal

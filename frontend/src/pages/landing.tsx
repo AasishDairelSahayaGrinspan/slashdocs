@@ -53,7 +53,7 @@ function Nav() {
         </Link>
         <nav className="flex items-center gap-2">
           <a
-            href="https://github.com/anuragrao04/aidocs"
+            href="https://github.com/razorpay/aidocs"
             target="_blank"
             rel="noreferrer"
             aria-label="GitHub"
@@ -137,7 +137,7 @@ function Install() {
         <p className="mt-4 text-center text-sm text-[var(--color-fg-muted)]">
           Other install methods are documented in the{" "}
           <a
-            href="https://github.com/anuragrao04/aidocs"
+            href="https://github.com/razorpay/aidocs"
             className="text-[var(--color-fg)] underline-offset-2 hover:underline"
             target="_blank"
             rel="noreferrer"
@@ -232,7 +232,7 @@ function SelfHost() {
         <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
           <Button asChild>
             <a
-              href="https://github.com/anuragrao04/aidocs"
+              href="https://github.com/razorpay/aidocs"
               target="_blank"
               rel="noreferrer"
             >
@@ -241,7 +241,7 @@ function SelfHost() {
           </Button>
           <Button asChild variant="outline">
             <a
-              href="https://github.com/anuragrao04/aidocs/blob/main/docs/self-hosting.md"
+              href="https://github.com/razorpay/aidocs/blob/main/docs/self-hosting.md"
               target="_blank"
               rel="noreferrer"
             >
@@ -288,7 +288,7 @@ function Footer() {
             API docs
           </a>
           <a
-            href="https://github.com/anuragrao04/aidocs"
+            href="https://github.com/razorpay/aidocs"
             target="_blank"
             rel="noreferrer"
             className="hover:text-[var(--color-fg)]"
