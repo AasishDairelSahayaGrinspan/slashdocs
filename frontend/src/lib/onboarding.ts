@@ -37,22 +37,22 @@ const requiredSteps = ["cli_installed", "cli_authed", "agent_configured"] as con
 
 export function useOnboarding() {
   const state = store.useStore();
-  const setStep = useCallback(
-    (key: keyof OnboardingState["steps"], value: boolean) => {
-      const cur = store.read();
-      const next: OnboardingState = {
-        ...cur,
-        steps: { ...cur.steps, [key]: value },
-      };
-      // Auto-complete once the required steps are all done.
-      if (cur.status === "active" && requiredSteps.every((k) => next.steps[k])) {
-        next.status = "complete";
-      }
-      store.write(next);
-    },
+  const setStep = useCallback((key: keyof OnboardingState["steps"], value: boolean) => {
+    const cur = store.read();
+    const next: OnboardingState = {
+      ...cur,
+      steps: { ...cur.steps, [key]: value },
+    };
+    // Auto-complete once the required steps are all done.
+    if (cur.status === "active" && requiredSteps.every((k) => next.steps[k])) {
+      next.status = "complete";
+    }
+    store.write(next);
+  }, []);
+  const skip = useCallback(
+    () => store.write({ ...store.read(), status: "skipped" }),
     [],
   );
-  const skip = useCallback(() => store.write({ ...store.read(), status: "skipped" }), []);
   const reset = useCallback(() => store.write(initial), []);
   return { state, setStep, skip, reset };
 }

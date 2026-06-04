@@ -60,25 +60,22 @@ export function StartPage() {
   };
 
   const allRequiredDone =
-    state.steps.cli_installed &&
-    state.steps.cli_authed &&
-    state.steps.agent_configured;
+    state.steps.cli_installed && state.steps.cli_authed && state.steps.agent_configured;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-10">
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
           <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
-            <Rocket className="h-3 w-3 text-[var(--color-accent)]" /> Setup
-            guide
+            <Rocket className="h-3 w-3 text-[var(--color-accent)]" /> Setup guide
           </div>
           <h1 className="text-3xl font-semibold tracking-tight">
             Get your agent publishing to aidocs
           </h1>
           <p className="mt-2 max-w-xl text-sm text-[var(--color-fg-muted)]">
-            aidocs is meant to be driven by your AI agent — Claude Code,
-            Codex, Cursor, Pi, OpenCode, Aider, or anything else. These
-            three steps wire it up. About 2 minutes.
+            aidocs is meant to be driven by your AI agent — Claude Code, Codex, Cursor,
+            Pi, OpenCode, Aider, or anything else. These three steps wire it up. About 2
+            minutes.
           </p>
         </div>
         <button
@@ -96,8 +93,7 @@ export function StartPage() {
             <div className="flex-1">
               <div className="font-medium">You're all set.</div>
               <div className="text-xs text-[var(--color-fg-muted)]">
-                Ask your agent to publish something to aidocs. It'll show
-                up here.
+                Ask your agent to publish something to aidocs. It'll show up here.
               </div>
             </div>
             <Button asChild size="sm">
@@ -130,9 +126,8 @@ export function StartPage() {
           setStep={setStep}
         >
           <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time, on the machine where your agent runs. Your agent
-            calls this CLI under the hood — you won't need to use it
-            directly.
+            One-time, on the machine where your agent runs. Your agent calls this CLI
+            under the hood — you won't need to use it directly.
           </p>
           <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash`}</CodeBlock>
           <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
@@ -148,8 +143,8 @@ export function StartPage() {
           setStep={setStep}
         >
           <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time. After this, your agent can publish documents on
-            your behalf — no keys or tokens to copy around.
+            One-time. After this, your agent can publish documents on your behalf — no
+            keys or tokens to copy around.
           </p>
           <CodeBlock>{loginCmd}</CodeBlock>
         </Step>
@@ -287,10 +282,10 @@ function AgentConfigure() {
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-        Run this once to install the aidocs skill into the agents you use.
-        It tells them: "when the user asks for a doc / report / RCA / spec,
-        publish it to aidocs". <code>--all</code> installs across every
-        coding agent it finds on your machine.
+        Run this once to install the aidocs skill into the agents you use. It tells
+        them: "when the user asks for a doc / report / RCA / spec, publish it to
+        aidocs". <code>--all</code> installs across every coding agent it finds on your
+        machine.
       </p>
       <CodeBlock>{cmd}</CodeBlock>
       <div className="mt-4">
@@ -318,8 +313,7 @@ function AgentConfigure() {
         >
           skills/aidocs/SKILL.md
         </a>
-        . Read it, fork it, change the trigger wording — it's just a
-        Markdown file.
+        . Read it, fork it, change the trigger wording — it's just a Markdown file.
       </p>
     </div>
   );
@@ -335,9 +329,8 @@ Then use the aidocs CLI to publish sample.html to aidocs. Give me the document U
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-        Want to see the loop work without writing anything? Copy this
-        prompt into your agent — it'll fetch a sample report and
-        publish it to aidocs.
+        Want to see the loop work without writing anything? Copy this prompt into your
+        agent — it'll fetch a sample report and publish it to aidocs.
       </p>
       <CodeBlock>{prompt}</CodeBlock>
       <div className="mt-4">

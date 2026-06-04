@@ -54,8 +54,7 @@ export function Comments() {
   }, [selection]);
 
   const create = useMutation({
-    mutationFn: () =>
-      api.createComment(docId, version, body, quote, anchorRef.current),
+    mutationFn: () => api.createComment(docId, version, body, quote, anchorRef.current),
     onSuccess: () => {
       setBody("");
       setQuote("");
@@ -64,8 +63,7 @@ export function Comments() {
       toast.success("Comment added.");
       q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Could not add comment")),
+    onError: (e) => toast.error(errorMessage(e, "Could not add comment")),
   });
 
   const clear = () => {
@@ -77,8 +75,7 @@ export function Comments() {
 
   const items = comments.filter((c) => {
     if (filter === COMMENT_FILTER_ALL) return true;
-    if (filter === COMMENT_STATUS.resolved)
-      return c.status === COMMENT_STATUS.resolved;
+    if (filter === COMMENT_STATUS.resolved) return c.status === COMMENT_STATUS.resolved;
     return c.status !== COMMENT_STATUS.resolved;
   });
 
@@ -130,11 +127,7 @@ export function Comments() {
               <Button type="button" variant="ghost" size="sm" onClick={clear}>
                 Cancel
               </Button>
-              <Button
-                size="sm"
-                type="submit"
-                disabled={!body || create.isPending}
-              >
+              <Button size="sm" type="submit" disabled={!body || create.isPending}>
                 Comment ⌘↵
               </Button>
             </div>
@@ -181,8 +174,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   const m = useMutation({
     mutationFn: (status: string) => api.patchComment(docId, c.id, c.body, status),
     onSuccess: () => q.invalidateQueries({ queryKey: queryKeys.comments(docId) }),
-    onError: (e) =>
-      toast.error(errorMessage(e, "Could not update comment")),
+    onError: (e) => toast.error(errorMessage(e, "Could not update comment")),
   });
   const resolved = c.status === COMMENT_STATUS.resolved;
   return (
@@ -216,12 +208,22 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
       )}
       <div className="flex items-start justify-between gap-2">
         <p className="text-sm">{c.body}</p>
-        <DeleteCommentButton c={c} docId={docId} canDelete={samePrincipal(principal, c.author)} className="opacity-0 transition-opacity group-hover:opacity-100" />
+        <DeleteCommentButton
+          c={c}
+          docId={docId}
+          canDelete={samePrincipal(principal, c.author)}
+          className="opacity-0 transition-opacity group-hover:opacity-100"
+        />
       </div>
       {(c.replies || []).length > 0 && (
         <div className="mt-3 space-y-2 border-l border-[var(--color-border)] pl-3">
           {(c.replies || []).map((r) => (
-            <ReplyItem key={r.id} r={r} docId={docId} canDelete={samePrincipal(principal, r.author)} />
+            <ReplyItem
+              key={r.id}
+              r={r}
+              docId={docId}
+              canDelete={samePrincipal(principal, r.author)}
+            />
           ))}
         </div>
       )}
@@ -242,21 +244,40 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   );
 }
 
-function ReplyItem({ r, docId, canDelete }: { r: Comment; docId: string; canDelete: boolean }) {
+function ReplyItem({
+  r,
+  docId,
+  canDelete,
+}: {
+  r: Comment;
+  docId: string;
+  canDelete: boolean;
+}) {
   return (
     <div className="group/reply rounded-md bg-[var(--color-surface-muted)]/50 p-2">
       <div className="mb-1 flex items-center justify-between gap-2">
         <span className="text-xs font-semibold">
           {r.author.name || r.author.email || r.author.id}
         </span>
-        <DeleteCommentButton c={r} docId={docId} canDelete={canDelete} className="opacity-0 transition-opacity group-hover/reply:opacity-100" />
+        <DeleteCommentButton
+          c={r}
+          docId={docId}
+          canDelete={canDelete}
+          className="opacity-0 transition-opacity group-hover/reply:opacity-100"
+        />
       </div>
       <p className="text-sm">{r.body}</p>
     </div>
   );
 }
 
-function ReplyComposer({ onReply, pending }: { onReply: (body: string) => void; pending: boolean }) {
+function ReplyComposer({
+  onReply,
+  pending,
+}: {
+  onReply: (body: string) => void;
+  pending: boolean;
+}) {
   const [body, setBody] = useState("");
   return (
     <form
@@ -282,7 +303,17 @@ function ReplyComposer({ onReply, pending }: { onReply: (body: string) => void; 
   );
 }
 
-function DeleteCommentButton({ c, docId, canDelete, className = "" }: { c: Comment; docId: string; canDelete: boolean; className?: string }) {
+function DeleteCommentButton({
+  c,
+  docId,
+  canDelete,
+  className = "",
+}: {
+  c: Comment;
+  docId: string;
+  canDelete: boolean;
+  className?: string;
+}) {
   const q = useQueryClient();
   const del = useMutation({
     mutationFn: () => api.deleteComment(docId, c.id),
@@ -296,14 +327,21 @@ function DeleteCommentButton({ c, docId, canDelete, className = "" }: { c: Comme
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>
-        <Button variant="ghost" size="icon" className={`h-7 w-7 shrink-0 ${className}`} aria-label="Delete comment" onClick={(e) => e.stopPropagation()}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className={`h-7 w-7 shrink-0 ${className}`}
+          aria-label="Delete comment"
+          onClick={(e) => e.stopPropagation()}
+        >
           <Trash2 className="h-3.5 w-3.5" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent onClick={(e) => e.stopPropagation()}>
         <AlertDialogTitle>Delete comment?</AlertDialogTitle>
         <AlertDialogDescription>
-          This removes the comment permanently. Replies are removed when deleting a thread starter.
+          This removes the comment permanently. Replies are removed when deleting a
+          thread starter.
         </AlertDialogDescription>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -20,8 +20,7 @@ export function DevelopersPage() {
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Developers</h1>
         <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
-          API reference and authentication model for building against
-          aidocs directly.
+          API reference and authentication model for building against aidocs directly.
         </p>
       </div>
 
@@ -32,8 +31,7 @@ export function DevelopersPage() {
               <Rocket className="h-4 w-4" /> Looking to set up your agent?
             </CardTitle>
             <CardDescription>
-              The CLI install and agent skill setup live in the setup
-              guide, not here.
+              The CLI install and agent skill setup live in the setup guide, not here.
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -50,25 +48,22 @@ export function DevelopersPage() {
             <CardTitle className="flex items-center gap-2">
               <KeyRound className="h-4 w-4" /> Authentication model
             </CardTitle>
-            <CardDescription>
-              Two ways to authenticate against the API.
-            </CardDescription>
+            <CardDescription>Two ways to authenticate against the API.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
               <div className="text-sm font-medium">User session</div>
               <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
-                Google OAuth via the browser. The CLI uses this when you
-                run <code className="font-mono">aidocs auth login</code>.
-                Best for interactive use and any agent running locally on
-                your machine.
+                Google OAuth via the browser. The CLI uses this when you run{" "}
+                <code className="font-mono">aidocs auth login</code>. Best for
+                interactive use and any agent running locally on your machine.
               </p>
             </div>
             <div>
               <div className="text-sm font-medium">Service account token</div>
               <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
-                Bearer token for headless agents that can't run OAuth —
-                n8n, scheduled jobs, CI. Mint a key under{" "}
+                Bearer token for headless agents that can't run OAuth — n8n, scheduled
+                jobs, CI. Mint a key under{" "}
                 <Link
                   className="font-medium text-[var(--color-fg)] underline-offset-2 hover:underline"
                   to="/app/settings/service-accounts"
@@ -88,17 +83,14 @@ export function DevelopersPage() {
               <Bot className="h-4 w-4" /> Service accounts
             </CardTitle>
             <CardDescription>
-              Headless identities for agents that can’t run OAuth (n8n,
-              CI, scheduled jobs). Mint bearer tokens here. Most users
-              should ignore this — the CLI handles auth automatically
-              when an agent runs it on your machine.
+              Headless identities for agents that can’t run OAuth (n8n, CI, scheduled
+              jobs). Mint bearer tokens here. Most users should ignore this — the CLI
+              handles auth automatically when an agent runs it on your machine.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild variant="outline">
-              <Link to="/app/settings/service-accounts">
-                Manage service accounts
-              </Link>
+              <Link to="/app/settings/service-accounts">Manage service accounts</Link>
             </Button>
           </CardContent>
         </Card>

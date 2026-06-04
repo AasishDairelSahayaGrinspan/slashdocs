@@ -38,9 +38,7 @@ export function ShareSheet({ docId }: { docId: string }) {
   const userSearch = useQuery({
     queryKey: ["users", "search", debouncedAddress],
     queryFn: () => api.searchUsers(debouncedAddress),
-    enabled:
-      debouncedAddress.length >= 2 &&
-      !debouncedAddress.includes(".bot"),
+    enabled: debouncedAddress.length >= 2 && !debouncedAddress.includes(".bot"),
     staleTime: 30_000,
   });
   const userSuggestions = userSearch.data?.items || [];
@@ -51,8 +49,7 @@ export function ShareSheet({ docId }: { docId: string }) {
       toast.success("Access granted.");
       q.invalidateQueries({ queryKey: queryKeys.grants(docId) });
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Couldn't share.")),
+    onError: (e) => toast.error(errorMessage(e, "Couldn't share.")),
   });
   const items = grants.data?.items || [];
   const anyoneGrant = items.find((g) => g.principal?.type === "anyone");
@@ -134,9 +131,12 @@ export function ShareSheet({ docId }: { docId: string }) {
                   </button>
                 ))}
               </div>
-            ) : debouncedAddress.length >= 2 && !debouncedAddress.includes(".bot") && !userSearch.isFetching ? (
+            ) : debouncedAddress.length >= 2 &&
+              !debouncedAddress.includes(".bot") &&
+              !userSearch.isFetching ? (
               <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-fg-muted)]">
-                No matching aidocs users. They need to sign in once before you can share with them.
+                No matching aidocs users. They need to sign in once before you can share
+                with them.
               </div>
             ) : null}
           </div>
@@ -186,9 +186,7 @@ export function ShareSheet({ docId }: { docId: string }) {
                 >
                   <div className="min-w-0">
                     <div className="truncate font-medium">
-                      {g.principal?.name ||
-                        g.principal?.email ||
-                        g.principal?.id}
+                      {g.principal?.name || g.principal?.email || g.principal?.id}
                       {g.principal?.type === "service_account" ? " (bot)" : ""}
                     </div>
                     {g.principal?.name && g.principal?.email ? (

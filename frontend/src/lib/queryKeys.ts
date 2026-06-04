@@ -9,6 +9,5 @@ export const queryKeys = {
   comments: (doc: string) => ["comments", doc] as const,
   grants: (doc: string) => ["grants", doc] as const,
   serviceAccounts: () => ["service-accounts"] as const,
-  serviceAccountKeys: (id: string) =>
-    ["service-account-keys", id] as const,
+  serviceAccountKeys: (id: string) => ["service-account-keys", id] as const,
 };

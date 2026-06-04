@@ -3,8 +3,7 @@ export const COMMENT_STATUS = {
   open: "open",
   resolved: "resolved",
 } as const;
-export type CommentStatus =
-  (typeof COMMENT_STATUS)[keyof typeof COMMENT_STATUS];
+export type CommentStatus = (typeof COMMENT_STATUS)[keyof typeof COMMENT_STATUS];
 
 export const COMMENT_FILTERS = ["all", "open", "resolved"] as const;
 export type CommentFilter = (typeof COMMENT_FILTERS)[number];

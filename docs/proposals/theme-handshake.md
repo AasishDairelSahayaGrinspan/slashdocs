@@ -51,8 +51,9 @@ The first option is the simplest and covers ~all real authoring cases.
 Inside the render iframe, the aidocs render bridge sets and keeps in sync:
 
 ```html
-<html data-aidocs-theme="light"  data-aidocs-color-scheme="light">
-<html data-aidocs-theme="dark"   data-aidocs-color-scheme="dark">
+<html data-aidocs-theme="light" data-aidocs-color-scheme="light">
+  <html data-aidocs-theme="dark" data-aidocs-color-scheme="dark"></html>
+</html>
 ```
 
 Update rules:
@@ -73,9 +74,18 @@ That's the whole API surface from the user-HTML side.
 A document opts in with two lines of CSS:
 
 ```css
-:root[data-aidocs-theme="light"] { --bg: #fff; --ink: #111; }
-:root[data-aidocs-theme="dark"]  { --bg: #0b0d12; --ink: #e7ecf3; }
-body { background: var(--bg); color: var(--ink); }
+:root[data-aidocs-theme="light"] {
+  --bg: #fff;
+  --ink: #111;
+}
+:root[data-aidocs-theme="dark"] {
+  --bg: #0b0d12;
+  --ink: #e7ecf3;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
 ```
 
 A document with a `prefers-color-scheme` stylesheet keeps working as-is, as
@@ -84,8 +94,14 @@ long as the bridge also forwards the resolved scheme to the iframe's
 who want both can do:
 
 ```css
-@media (prefers-color-scheme: dark) { :root { color-scheme: dark; } }
-:root[data-aidocs-theme="dark"]     { color-scheme: dark; }
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+  }
+}
+:root[data-aidocs-theme="dark"] {
+  color-scheme: dark;
+}
 ```
 
 A document that wants to **ignore** the host theme just doesn't reference
@@ -95,8 +111,10 @@ A document that wants its **own** in-doc toggle to also drive the host can
 post back to the parent:
 
 ```js
-parent.postMessage({ type: 'aidocs:set-theme', theme: 'light' },
-                   /* set by render bridge */ window.__AIDOCS_APP_ORIGIN__);
+parent.postMessage(
+  { type: "aidocs:set-theme", theme: "light" },
+  /* set by render bridge */ window.__AIDOCS_APP_ORIGIN__,
+);
 ```
 
 The app may accept or ignore this (probably a setting — "let documents

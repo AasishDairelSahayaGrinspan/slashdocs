@@ -27,8 +27,8 @@ export function DeleteDocumentDialog({
       <AlertDialogContent>
         <AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>
         <AlertDialogDescription>
-          This permanently removes the document, all versions, and all
-          comments. This cannot be undone.
+          This permanently removes the document, all versions, and all comments. This
+          cannot be undone.
         </AlertDialogDescription>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>

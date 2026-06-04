@@ -2,12 +2,7 @@ import { useTitle } from "@/lib/use-title";
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import {
-  api,
-  currentVersionID,
-  docTitle,
-  versionID,
-} from "@/api";
+import { api, currentVersionID, docTitle, versionID } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { DocProvider, type PendingSelection } from "./doc-context";
@@ -39,8 +34,7 @@ export function DocumentPage() {
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
   const latest =
-    currentVersionID(doc.data || {}) ||
-    versionID(versions.data?.items?.[0] || {});
+    currentVersionID(doc.data || {}) || versionID(versions.data?.items?.[0] || {});
   const current = selectedVersion || latest;
 
   useEffect(() => {

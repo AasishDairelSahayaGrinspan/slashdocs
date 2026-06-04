@@ -50,9 +50,9 @@ export function ServiceAccountsPage() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Bots</h1>
           <p className="mt-1 max-w-2xl text-sm text-[var(--color-fg-muted)]">
-            Bots are their own identities — share docs with them just like
-            you would with a person. Use them for n8n workflows, scheduled
-            jobs, or anything that runs without you.
+            Bots are their own identities — share docs with them just like you would
+            with a person. Use them for n8n workflows, scheduled jobs, or anything that
+            runs without you.
           </p>
         </div>
         <Button onClick={() => setCreating(true)}>
@@ -154,8 +154,7 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
       toast.success("Key revoked.");
       q.invalidateQueries({ queryKey: queryKeys.serviceAccountKeys(id) });
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Could not revoke key")),
+    onError: (e) => toast.error(errorMessage(e, "Could not revoke key")),
   });
   const toggle = useMutation({
     mutationFn: () => api.updateServiceAccount(id, name, !disabled),
@@ -163,8 +162,7 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
       toast.success(disabled ? "Enabled." : "Disabled.");
       q.invalidateQueries({ queryKey: queryKeys.serviceAccounts() });
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Could not update bot")),
+    onError: (e) => toast.error(errorMessage(e, "Could not update bot")),
   });
 
   return (
@@ -289,29 +287,24 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
         </CardHeader>
         <CardContent>
           <p className="mb-2 text-xs text-[var(--color-fg-muted)]">
-            Use the minted key as a bearer token from any HTTP client, or
-            with the CLI in non-interactive mode:
+            Use the minted key as a bearer token from any HTTP client, or with the CLI
+            in non-interactive mode:
           </p>
           <CodeBlock>{`aidocs auth login --token <YOUR_KEY>
 aidocs docs create report.html`}</CodeBlock>
-          <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
-            For raw HTTP:
-          </p>
+          <p className="mt-3 text-xs text-[var(--color-fg-muted)]">For raw HTTP:</p>
           <CodeBlock>{`curl -H "Authorization: Bearer <YOUR_KEY>" \\
   ${url}/v1/documents`}</CodeBlock>
         </CardContent>
       </Card>
 
-      <Dialog
-        open={!!revealToken}
-        onOpenChange={(o) => !o && setRevealToken(null)}
-      >
+      <Dialog open={!!revealToken} onOpenChange={(o) => !o && setRevealToken(null)}>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Copy this key now</DialogTitle>
             <DialogDescription>
-              This is the only time the secret token will be shown. Store it
-              somewhere safe.
+              This is the only time the secret token will be shown. Store it somewhere
+              safe.
             </DialogDescription>
           </DialogHeader>
           {revealToken && (
@@ -345,9 +338,7 @@ function NewBotDialog({
   onCreated: (sa: { id: string; name: string }) => void;
 }) {
   const [value, setValue] = useState("");
-  const [result, setResult] = useState<{ name: string; token: string } | null>(
-    null,
-  );
+  const [result, setResult] = useState<{ name: string; token: string } | null>(null);
   const trimmed = value.trim();
   const at = trimmed.indexOf("@");
   const label = at >= 0 ? trimmed.slice(0, at) : trimmed;
@@ -357,8 +348,7 @@ function NewBotDialog({
   // server remains authoritative.
   const domainLooksValid = !hasDomain || domain.endsWith(BOT_DOMAIN_SUFFIX);
   const create = useMutation({
-    mutationFn: () =>
-      api.createServiceAccount(label, hasDomain ? domain : undefined),
+    mutationFn: () => api.createServiceAccount(label, hasDomain ? domain : undefined),
     onSuccess: (r) => {
       setResult({ name: r.name, token: r.key.token });
       onCreated({ id: r.id, name: r.name });
@@ -383,8 +373,8 @@ function NewBotDialog({
             <DialogHeader>
               <DialogTitle>New bot</DialogTitle>
               <DialogDescription>
-                Bots are their own identities — share docs with them just like
-                you would with a person.
+                Bots are their own identities — share docs with them just like you would
+                with a person.
               </DialogDescription>
             </DialogHeader>
             <form
@@ -409,8 +399,8 @@ function NewBotDialog({
                 />
                 <p className="mt-1 text-[11px] text-[var(--color-fg-muted)]">
                   Letters, numbers, and hyphens. Add{" "}
-                  <code className="font-mono">@something.bot</code> to pick your
-                  bot's address, or skip it and we'll pick one for you.
+                  <code className="font-mono">@something.bot</code> to pick your bot's
+                  address, or skip it and we'll pick one for you.
                 </p>
                 {hasDomain && !domainLooksValid && (
                   <p className="mt-1 text-[11px] text-[var(--color-danger)]">

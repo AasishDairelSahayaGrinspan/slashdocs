@@ -10,8 +10,7 @@ const store = createPersistentStore<Theme>("aidocs.theme", "system", (parsed) =>
 function apply(t: Theme) {
   const isDark =
     t === "dark" ||
-    (t === "system" &&
-      window.matchMedia("(prefers-color-scheme: dark)").matches);
+    (t === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
   document.documentElement.classList.toggle("dark", isDark);
 }
 
@@ -36,9 +35,7 @@ export function useTheme() {
 
 function resolve(t: Theme): "light" | "dark" {
   if (t === "light" || t === "dark") return t;
-  return window.matchMedia("(prefers-color-scheme: dark)").matches
-    ? "dark"
-    : "light";
+  return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
 // useResolvedTheme returns the concrete "light"/"dark" the reader is seeing,

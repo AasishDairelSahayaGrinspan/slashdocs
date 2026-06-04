@@ -143,7 +143,11 @@ function DocTable({ items, principal }: { items: Document[]; principal?: Princip
         </thead>
         <tbody>
           {items.map((d) => (
-            <DocRow key={docID(d)} doc={d} canDelete={samePrincipal(principal, d.owner)} />
+            <DocRow
+              key={docID(d)}
+              doc={d}
+              canDelete={samePrincipal(principal, d.owner)}
+            />
           ))}
         </tbody>
       </table>
@@ -159,8 +163,7 @@ function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
       toast.success("Deleted.");
       q.invalidateQueries({ queryKey: queryKeys.documents() });
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Delete failed")),
+    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
     <tr className="group border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40">
@@ -211,9 +214,7 @@ function OwnerCell({ owner }: { owner?: Principal }) {
       <Avatar name={label} src={owner?.picture_url} size={28} />
       <div className="min-w-0">
         <div className="truncate text-sm font-medium">{label}</div>
-        <div className="truncate text-xs text-[var(--color-fg-muted)]">
-          {detail}
-        </div>
+        <div className="truncate text-xs text-[var(--color-fg-muted)]">{detail}</div>
       </div>
     </div>
   );
@@ -240,8 +241,8 @@ function EmptyDocs() {
         </div>
         <h3 className="text-base font-semibold">Set up your agent</h3>
         <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
-          Documents are published by your AI agent. Walk through the
-          three-step setup so it knows how to use aidocs.
+          Documents are published by your AI agent. Walk through the three-step setup so
+          it knows how to use aidocs.
         </p>
         <div className="mt-4">
           <Button asChild>
@@ -268,9 +269,7 @@ function UploadBackupItem() {
 
 function UploadBackupCard() {
   return (
-    <div
-      className="rounded-[14px] border border-dashed border-[var(--color-border)] p-4 text-center text-sm text-[var(--color-fg-muted)]"
-    >
+    <div className="rounded-[14px] border border-dashed border-[var(--color-border)] p-4 text-center text-sm text-[var(--color-fg-muted)]">
       Manual fallback —{" "}
       <UploadBackupDialog
         trigger={
@@ -291,8 +290,7 @@ function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
   const { file, setFile, reset } = useStagedFile();
   const [open, setOpen] = useState(false);
   const m = useMutation({
-    mutationFn: () =>
-      api.createDocument(title || file?.name || "Untitled", file!),
+    mutationFn: () => api.createDocument(title || file?.name || "Untitled", file!),
     onSuccess: (r) => {
       q.invalidateQueries({ queryKey: queryKeys.documents() });
       toast.success("Document uploaded.");
@@ -300,8 +298,7 @@ function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
       reset();
       nav(`/app/d/${r.id}`);
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Upload failed")),
+    onError: (e) => toast.error(errorMessage(e, "Upload failed")),
   });
   return (
     <Dialog open={open} onOpenChange={setOpen}>
@@ -310,8 +307,7 @@ function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
         <DialogHeader>
           <DialogTitle>Upload HTML (backup)</DialogTitle>
           <DialogDescription>
-            Agents normally publish via the CLI. Use this only as a manual
-            fallback.
+            Agents normally publish via the CLI. Use this only as a manual fallback.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -328,11 +324,7 @@ function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
           />
           <HtmlFileInput onFile={setFile} />
           <DialogFooter>
-            <Button
-              type="button"
-              variant="ghost"
-              onClick={() => setOpen(false)}
-            >
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" disabled={!file || m.isPending}>

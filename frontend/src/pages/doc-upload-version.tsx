@@ -40,8 +40,7 @@ export function UploadVersionItem({
       q.invalidateQueries({ queryKey: queryKeys.document(docId) });
       q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
     },
-    onError: (e) =>
-      toast.error(errorMessage(e, "Upload failed")),
+    onError: (e) => toast.error(errorMessage(e, "Upload failed")),
   });
   return (
     <Sheet open={open} onOpenChange={setOpen}>

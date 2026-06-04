@@ -36,14 +36,28 @@ The render bridge sets and keeps in sync, on `<html>` inside your document:
 that attribute:
 
 ```css
-:root                           { --bg: #fff;    --ink: #111; }
-:root[data-aidocs-theme="dark"] { --bg: #0b0d12; --ink: #e7ecf3; }
-body { background: var(--bg); color: var(--ink); }
-html { color-scheme: light; }
-:root[data-aidocs-theme="dark"] { color-scheme: dark; }
+:root {
+  --bg: #fff;
+  --ink: #111;
+}
+:root[data-aidocs-theme="dark"] {
+  --bg: #0b0d12;
+  --ink: #e7ecf3;
+}
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+html {
+  color-scheme: light;
+}
+:root[data-aidocs-theme="dark"] {
+  color-scheme: dark;
+}
 ```
 
 Notes:
+
 - `system` is resolved to a concrete `light`/`dark` before it reaches you,
   and the attribute updates live when the reader toggles — CSS reacts on
   its own.
