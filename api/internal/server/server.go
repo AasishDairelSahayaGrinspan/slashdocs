@@ -136,6 +136,9 @@ func (s *Server) routes(deps dependencies) {
 	h := handlers{deps: deps}
 	s.engine.GET("/.well-known/aidocs.json", h.discovery)
 	s.engine.GET("/commit.txt", h.commitTXT)
+	s.engine.GET("/version.json", h.versionJSON)
+	s.engine.GET("/install.sh", h.installScript)
+	s.engine.GET("/cli/:os/:arch", h.downloadCLI)
 	registerAPIDocsRoutes(s.engine)
 	s.engine.GET("/v/:id/:version_id", h.renderVersion)
 	registerFrontendRoutes(s.engine, deps.appOrigin)

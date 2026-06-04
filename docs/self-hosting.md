@@ -411,7 +411,7 @@ Once you've shipped a release, users (and their agents) install the CLI
 with:
 
 ```bash
-brew install anuragrao04/tap/aidocs
+curl -fsSL https://aidocs.example.com/install.sh | bash
 aidocs auth login https://aidocs.example.com
 ```
 

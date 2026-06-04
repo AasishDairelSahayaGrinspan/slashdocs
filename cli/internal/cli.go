@@ -71,7 +71,7 @@ func NewRoot(out io.Writer) *cobra.Command {
 	root.PersistentFlags().BoolVar(&g.json, "json", false, "JSON output")
 	root.PersistentFlags().BoolVarP(&g.quiet, "quiet", "q", false, "quiet")
 	root.PersistentFlags().BoolVarP(&g.verbose, "verbose", "v", false, "verbose")
-	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out))
+	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out), versionCmd(out))
 	return root
 }
 
@@ -100,7 +100,11 @@ func run(g *globals, out io.Writer, fn func(*Client) ([]byte, error)) error {
 	if err != nil {
 		return err
 	}
-	return render(out, g, b)
+	if err := render(out, g, b); err != nil {
+		return err
+	}
+	maybeNudgeUpdate(g, c)
+	return nil
 }
 
 func ExitCode(err error) int {

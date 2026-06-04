@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/ui/misc";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 
-const INSTALL_SNIPPET = `brew install anuragrao04/tap/aidocs
+const INSTALL_SNIPPET = `curl -fsSL https://aidocs.concierge.razorpay.com/install.sh | bash
 
 aidocs auth login
 aidocs docs create report.html`;
@@ -129,7 +129,7 @@ function Install() {
             Install in seconds
           </h2>
           <p className="mt-2 text-[var(--color-fg-muted)]">
-            One command via Homebrew.
+            One command for macOS and Linux.
           </p>
         </div>
         <CodeBlock>{INSTALL_SNIPPET}</CodeBlock>

@@ -251,7 +251,10 @@ func (h handlers) config(c *gin.Context) {
 // @Success 200 {string} string
 // @Router /commit.txt [get]
 func (h handlers) commitTXT(c *gin.Context) {
-	sha := os.Getenv("AIDOCS_COMMIT_SHA")
+	sha := releaseCommit()
+	if sha == "" {
+		sha = os.Getenv("AIDOCS_COMMIT_SHA")
+	}
 	if sha == "" {
 		sha = os.Getenv("COMMIT_SHA")
 	}

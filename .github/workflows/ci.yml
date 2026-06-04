@@ -1,13 +1,17 @@
 name: aidocs CI
 
 on:
-  push:
-    branches:
-      - master
   pull_request:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
 
 permissions:
   contents: read
+
+env:
+  RELEASE_VERSION: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || format('pr-{0}', github.sha) }}
 
 jobs:
   test:
@@ -43,15 +47,14 @@ jobs:
         run: go test -tags testfixtures ./...
 
   docker:
-    name: Build and push Docker image
+    name: Build Docker image
     runs-on: [k8s-runner, linux-amd64]
     needs: test
-    if: github.event_name == 'push'
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
 
-      - name: Build and Push Docker Image For aidocs
+      - name: Build Docker Image For aidocs
         uses: razorpay/actions/docker-image-build-push@master
         with:
           username: ${{ secrets.HARBOR_DOCKER_USERNAME }}
@@ -59,11 +62,14 @@ jobs:
           registry: c.rzp.io
           repository: aidocs
           enable-login: true
-          push: true
+          push: ${{ github.event_name == 'push' && github.ref_type == 'tag' }}
           context: .
           file: Dockerfile
+          tag: ${{ env.RELEASE_VERSION }}
+          tags: ${{ env.RELEASE_VERSION }}
           use-default-caching: true
           cache-registry-username: ${{ secrets.HARBOR_CACHE_DOCKER_USERNAME }}
           cache-registry-password: ${{ secrets.HARBOR_CACHE_DOCKER_PASSWORD }}
           build-args: |
+            AIDOCS_VERSION=${{ env.RELEASE_VERSION }}
             AIDOCS_COMMIT_SHA=${{ github.sha }}

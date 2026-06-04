@@ -134,25 +134,10 @@ export function StartPage() {
             calls this CLI under the hood — you won't need to use it
             directly.
           </p>
-          <CodeBlock>{`brew install anuragrao04/tap/aidocs`}</CodeBlock>
-          <details className="mt-3 text-xs">
-            <summary className="cursor-pointer text-[var(--color-fg-muted)]">
-              Not on macOS?
-            </summary>
-            <div className="mt-2 text-[var(--color-fg-muted)]">
-              See alternative install methods for Linux and Windows in
-              the{" "}
-              <a
-                className="text-[var(--color-fg)] underline-offset-2 hover:underline"
-                href="https://github.com/razorpay/aidocs"
-                target="_blank"
-                rel="noreferrer"
-              >
-                GitHub repo
-              </a>
-              .
-            </div>
-          </details>
+          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash`}</CodeBlock>
+          <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
+            Works on macOS and Linux.
+          </p>
         </Step>
 
         <Step
