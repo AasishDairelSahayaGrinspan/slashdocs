@@ -1,197 +1,142 @@
-# Go Foundation v2 - Golang Service Template
+# aidocs
 
-A production-ready Golang service template for Razorpay developers. This template provides a standardized foundation for building microservices following Domain-Driven Design (DDD) principles.
+Give your agents the power to publish beautiful, reviewable documents.
 
-## What's Included
+`aidocs` is a Google-Docs-like review layer for AI-generated HTML artifacts. Agents create rich, self-contained HTML reports, specs, dashboards, diagrams, and decision docs; humans review them in the browser with comments, versions, and sharing.
 
-- Complete service architecture with gRPC and HTTP endpoints
-- Protocol Buffers integration with automatic code generation
-- Database integration with migrations and health checks
-- Containerized build system using Docker and Make
-- CI/CD workflows with GitHub Actions
-- Production-ready patterns (logging, metrics, error handling)
-- Example user service demonstrating best practices
+Instead of pasting giant reports into chat, let agents push a document, iterate on feedback, and keep a durable review trail.
 
-## Prerequisites
+## What you can build with it
 
-- Go 1.25+
-- Docker and Docker Compose
-- Git with access to Razorpay repositories
-- Make utility
+- Agent-generated architecture reviews
+- Incident reports and postmortems
+- Product specs and launch plans
+- Data analysis reports
+- Design proposals with Mermaid/SVG diagrams
+- QA findings and browser-test reports
+- Internal dashboards captured as portable HTML
 
-## Quick Start
+## Features
 
-### 1. Review Documentation First
+- One self-contained HTML file per document
+- Browser review UI with sandboxed rendering
+- Anchored comments and resolve/reopen workflow
+- Immutable versions with optimistic concurrency
+- Google OAuth for human users
+- Native service accounts for headless/agent workflows
+- Go CLI with compact default output and JSON mode
+- Generated OpenAPI/Swagger docs
+- Self-hostable Go server with embedded React frontend
+- Dockerfile for container deployments
 
-Before making any changes, it's highly recommended that you review the [documentation](docs/README.md) to understand the Foundation framework and how services should be modeled. Start with the [Example Service](docs/example-service.md) to see the architecture in action.
+## Why one HTML file?
 
-### 2. Clone and Rename
+A single HTML artifact is easy for agents to generate, easy to version, easy to archive, and easy to move through a CLI. Images can be embedded with base64 data URLs, and diagrams can be Mermaid, inline SVG, or rendered HTML/CSS.
 
-```bash
-# Rename the service
-make rename NAME=my-new-service
+```html
+<img src="data:image/png;base64,..." alt="embedded screenshot" />
 ```
 
-The `make rename` command updates:
-- Go module path in `go.mod`
-- Import statements in all `.go` files
-- Git remote origin URL
+No separate image hosting is required for v1.
 
-### 3. Update Dependencies
+## Install from source
 
 ```bash
-# Update Go dependencies
-go mod tidy
-
-# Verify everything builds
+git clone https://github.com/anuragrao04/aidocs.git
+cd aidocs
 make build
 ```
 
-### 4. Configure Protocol Buffers
+Binaries are written to:
 
-Proto source files are committed to the repository for version control and reproducibility. You only need to fetch and generate when updating to newer proto versions:
-
-```bash
-# Fetch latest proto files from central repository (when you need updates)
-make proto-fetch
-
-# Generate Go code from proto files (automatically done in Docker builds)
-make proto-generate
-
-# Commit the updated proto files
-git add proto/
-git commit -m "chore: update proto files"
+```text
+bin/aidocs-server
+bin/aidocs
 ```
 
-**Note:** Docker builds automatically generate RPC code from committed proto files - no manual proto-fetch needed for building!
+## Run with Docker
 
-### 5. Post-Rename Configuration
-
-Manually update these files with service-specific values:
-- `.github/workflows/*.yaml` - Update image names and repository references
-- `Dockerfile.*` - Update any hardcoded references
-- `Makefile` - Update `BINS` and `IMAGE_PREFIX` variables
-
-## Essential Commands
-
-### Build and Test
+Multi-arch release images (`linux/amd64`, `linux/arm64`) are published to both
+GitHub Container Registry and Docker Hub:
 
 ```bash
-# Build locally (faster for development)
-make build ENV=local
+docker pull ghcr.io/anuragrao04/aidocs:latest   # GHCR
+docker pull anuragrao04/aidocs:latest           # Docker Hub
+```
 
-# Build using Docker (default for CI/CD)
+Copy [`.env.example`](.env.example) to `.env`, fill it in, and run (pin an exact
+tag or digest in production rather than `:latest`):
+
+```bash
+docker run --rm -p 8080:8080 --env-file .env ghcr.io/anuragrao04/aidocs:latest
+```
+
+See [Self-hosting](docs/self-hosting.md) for production setup and all environment variables. A Kubernetes Helm chart is available in [`charts/aidocs`](charts/aidocs).
+
+## CLI quickstart
+
+```bash
+aidocs auth login localhost:8080
+aidocs auth whoami
+
+aidocs docs create report.html --title "Agent report"
+aidocs docs list
+aidocs docs pull doc_123 --out report.html
+aidocs docs push doc_123 report.html --summary "Update findings"
+
+aidocs docs comments list doc_123
+aidocs docs comments create doc_123 --quote "important text" --body "Please clarify this."
+aidocs docs comments resolve doc_123 cmt_123
+```
+
+Use `--json` for structured output:
+
+```bash
+aidocs --json docs list
+```
+
+## Development
+
+```bash
 make build
-
-# Run tests
-make test ENV=local
-
-# Lint code
-make lint ENV=local
+make swagger
+go test ./...
+npm run build --prefix frontend
 ```
 
-### Proto Management
+Useful targets:
 
-```bash
-# Fetch latest proto files (updates proto/ directory)
-make proto-fetch
-
-# Generate Go code from protos (creates rpc/ directory)
-make proto-generate
-
-# Lint proto files
-make proto-lint
-
-# Complete proto refresh (fetch + generate)
-make proto-refresh
-
-# Commit proto updates to version control
-git add proto/
-git commit -m "chore: update proto files"
+```text
+make build          build server and CLI
+make build-backend  build API server
+make build-cli      build CLI
+make build-frontend build embedded frontend assets
+make swagger        regenerate OpenAPI docs
 ```
 
-**Important:** Proto source files (`proto/`) are committed to git for reproducibility. Generated code (`rpc/`) is excluded from git and auto-generated during builds.
+## Project layout
 
-### Docker Commands
-
-```bash
-# Run services locally
-docker-compose up
-
-# Build and push Docker images
-make push
+```text
+api/       Go API server and embedded frontend assets
+cli/       Go CLI
+frontend/  React + Vite frontend
+docs/      Self-hosting and operator docs
 ```
 
-## Project Structure
+## API docs
 
-```
-cmd/                      # Service entry points
-├── user/                # Example user service
-└── user_migration/      # Database migration tool
+When the server is running:
 
-internal/                # Private application code
-└── user/               # Example domain logic
-    ├── server.go       # gRPC server implementation
-    ├── handler.go      # Handler registration
-    ├── service/        # Business logic layer
-    ├── repo/           # Data access layer
-    ├── model/          # Domain models
-    └── migrations/     # Database migrations
-
-config/                  # Configuration files
-proto/                   # Protocol buffer definitions (committed)
-rpc/                     # Generated proto code (auto-generated, not committed)
-scripts/                 # Build system makefiles
+```text
+/openapi.json
+/api-docs
+/commit.txt
 ```
 
-## Key Makefile Targets
+## Security model
 
-Update these variables in the root `Makefile`:
+Uploaded HTML should be treated as untrusted content. `aidocs` renders documents in a sandboxed frame. For production, deploy with separate app and render origins when possible.
 
-```makefile
-BINS ?= user user_migration    # Your service binaries
-IMAGE_PREFIX ?= fnd-           # Docker image prefix
-```
+## License
 
-Common targets:
-- `make build` - Build binaries
-- `make test` - Run tests
-- `make lint` - Lint code
-- `make clean` - Clean artifacts
-- `make help` - Show all targets
-
-## Documentation
-
-Detailed documentation is available in the `docs/` directory:
-
-- **[Example Service](docs/example-service.md)** - Architecture and patterns of the included User Service
-- **[Migration Guide](docs/migration-guide.md)** - Step-by-step guide to transition from example to your custom service
-- **[Best Practices](docs/best-practices.md)** - Coding standards and architectural guidelines
-- **[Build System](docs/build-system.md)** - Makefile structure and Docker build process
-- **[Proto Management](docs/proto-management.md)** - Protocol Buffers workflow and central repository integration
-
-## GitHub Actions Workflows
-
-The template includes automated CI/CD workflows:
-
-- **Build Workflow**: Multi-architecture builds, Docker image publishing
-- **Lint Workflow**: Code formatting and linting checks
-- **Security Workflows**: Automated security scanning
-
-After renaming your service, update workflow files in `.github/workflows/` with your service name and image references.
-
-## Additional Resources
-
-- [Razorpay Go Style Guide](https://github.com/razorpay/styleguide/blob/master/go/style.md)
-- [Foundation Library Documentation](https://github.com/razorpay/foundation)
-- [Proto Repository](https://github.com/razorpay/proto)
-
-## Acknowledgments
-
-This template builds upon:
-- [upi-switch](https://github.com/razorpay/upi-switch/) - Foundation patterns
-- [thockin/go-build-template](https://github.com/thockin/go-build-template) - Build system inspiration
-
----
-
-For questions or support, reach out to the Developer Experience Engineering team on slack [(#developer-experience)](https://razorpay.enterprise.slack.com/archives/C08DS8AE7T8)
+Apache-2.0

@@ -1,3 +1,25 @@
 .git
+.github
+bin
+
+# Non-build inputs: keep these out of the build context so changing them never
+# invalidates the Docker layer cache (the build only needs go.mod/sum, api/,
+# cli/, and frontend/).
+docs
+charts
+monitoring
+skills
+*.md
+LICENSE
+.goreleaser.yaml
+.env.example
+Dockerfile
 .dockerignore
-.tools
+
+frontend/node_modules
+frontend/dist
+frontend/*.tsbuildinfo
+api/internal/server/frontend_dist
+.DS_Store
+.env
+.env.*

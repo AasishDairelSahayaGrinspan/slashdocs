@@ -1,0 +1,424 @@
+# Self-hosting aidocs
+
+`aidocs` ships as a single Go binary that embeds the web UI. You provide
+Postgres, S3-compatible blob storage, and Google OAuth credentials.
+
+This guide covers three deployment paths:
+
+- [Docker](#docker)
+- [Kubernetes with Helm](#kubernetes-with-helm)
+- [Bare metal / systemd](#bare-metal--systemd)
+
+It also documents [every environment variable](#environment-variables)
+the binary understands.
+
+## Requirements
+
+- Postgres 14+
+- S3-compatible object storage (AWS S3, MinIO, Cloudflare R2, etc.)
+- A Google OAuth web client
+- A public HTTPS origin for production
+
+For production, use **separate app and render origins** when possible:
+
+```text
+AIDOCS_APP_ORIGIN=https://aidocs.example.com
+AIDOCS_RENDER_ORIGIN=https://render.aidocs.example.com
+```
+
+The render origin serves uploaded HTML inside a sandboxed iframe. Putting
+it on a different host isolates untrusted user-supplied HTML from your
+authenticated application origin.
+
+## Configure Google OAuth
+
+aidocs authenticates humans with Google. You need an OAuth **web** client; its
+client ID and secret become `GOOGLE_OAUTH_CLIENT_ID` /
+`GOOGLE_OAUTH_CLIENT_SECRET`.
+
+### Step by step (Google Cloud Console)
+
+1. **Pick or create a project.** Go to
+   [console.cloud.google.com](https://console.cloud.google.com/), open the
+   project picker (top bar), and create a project (e.g. `aidocs`) or select an
+   existing one. Everything below lives inside this project.
+2. **Configure the OAuth consent screen** (APIs & Services → OAuth consent
+   screen). Choose the user type:
+   - **Internal** — only accounts in your Google Workspace organization can
+     sign in. This is the right choice for an `org` deployment (see below) and
+     skips Google's app-verification review.
+   - **External** — any Google account can sign in. Use this for a `public`
+     deployment. While the app is in "Testing" only listed test users can log
+     in; click **Publish app** to open it to everyone.
+
+   Fill in the app name, support email, and developer contact. You do **not**
+   need any sensitive/restricted scopes — aidocs only reads basic profile and
+   email, which are covered by the default non-sensitive scopes.
+3. **Create the OAuth client** (APIs & Services → Credentials → Create
+   credentials → OAuth client ID). Application type: **Web application**. Give
+   it a name (e.g. `aidocs web`).
+4. **Add the authorized redirect URI** — this must exactly match your
+   deployment's origin plus `/v1/auth/google/callback`:
+
+   ```text
+   https://aidocs.example.com/v1/auth/google/callback
+   ```
+
+   For local testing also add:
+
+   ```text
+   http://localhost:8080/v1/auth/google/callback
+   ```
+
+   You can list multiple redirect URIs on one client (e.g. prod + local). The
+   host must match `AIDOCS_APP_ORIGIN` exactly — scheme, host, and no trailing
+   slash. (No "Authorized JavaScript origins" are required; aidocs uses the
+   server-side redirect flow.)
+5. **Copy the credentials.** After creating the client, copy the **Client ID**
+   and **Client secret** into `GOOGLE_OAUTH_CLIENT_ID` and
+   `GOOGLE_OAUTH_CLIENT_SECRET` (or your secret store / Helm secret ref).
+
+Optionally restrict logins to specific email domains with
+`ALLOWED_OAUTH_DOMAINS=example.com,company.com` (public deployments only).
+
+### Deployment type: public vs org
+
+aidocs runs in one of two modes, set by `AIDOCS_DEPLOYMENT`:
+
+- **`public`** (default) — anyone with a Google account can sign in. Sharing a
+  document with "everyone" means *anyone with the link*.
+- **`org`** — Google login is gated to your organization's domains
+  (`AIDOCS_ORG_DOMAINS`, a comma-separated list that supports multiple domains
+  for acquisitions). Sharing with "everyone" then means *anyone in the org*,
+  because only org members can authenticate. Set `AIDOCS_ORG_NAME` to label the
+  org in the UI (e.g. "Anyone in Acme").
+
+On an org deployment the org domains are the login gate, so you do not also
+need `ALLOWED_OAUTH_DOMAINS`. The document permission model is identical in both
+modes; only the login gate and the wording differ.
+
+> For an `org` deployment, set the OAuth consent screen to **Internal** so
+> Google itself restricts sign-in to your Workspace organization, and set
+> `AIDOCS_ORG_DOMAINS` to the same email domain(s). The two together ensure
+> only org members can authenticate.
+
+```text
+AIDOCS_DEPLOYMENT=org
+AIDOCS_ORG_DOMAINS=acme.com,acme-labs.io
+AIDOCS_ORG_NAME=Acme
+```
+
+## Docker
+
+Build the image from source, or pull the prebuilt image from GHCR.
+
+Release images are multi-arch (`linux/amd64`, `linux/arm64`) and published to
+both GitHub Container Registry and Docker Hub. Pull from whichever your network
+allows (e.g. a Harbor `proxy_dockerhub` mirror reaches the Docker Hub copy):
+
+```bash
+# Build locally
+docker build -t aidocs:local .
+
+# GitHub Container Registry
+docker pull ghcr.io/anuragrao04/aidocs:latest
+
+# Docker Hub
+docker pull anuragrao04/aidocs:latest
+```
+
+Pin an exact tag or digest in production rather than `:latest`.
+
+Run it, pointing at your Postgres and S3-compatible storage. Copy
+[`.env.example`](../.env.example) to `.env`, fill it in, and pass it through:
+
+```bash
+docker run --rm -p 8080:8080 --env-file .env \
+  ghcr.io/anuragrao04/aidocs:latest
+```
+
+Open <http://localhost:8080>. See `.env.example` for every variable; the
+reference tables below document them too.
+
+For production, sit aidocs behind a TLS-terminating reverse proxy (nginx,
+Caddy, Cloudflare, ALB, etc.) and set `AIDOCS_APP_ORIGIN` / `AIDOCS_RENDER_ORIGIN` to
+the public HTTPS URLs.
+
+## Kubernetes with Helm
+
+A Helm chart lives at [`charts/aidocs/`](../charts/aidocs/). It deploys
+one Deployment, a Service, optional Ingress, and a PodDisruptionBudget.
+You bring your own Postgres and S3.
+
+### Quick start
+
+```bash
+helm upgrade --install aidocs ./charts/aidocs \
+  --namespace aidocs \
+  --create-namespace \
+  -f my-values.yaml
+```
+
+Start by copying the bundled values file:
+
+```bash
+cp charts/aidocs/values.yaml my-values.yaml
+```
+
+### Minimal `my-values.yaml`
+
+```yaml
+image:
+  repository: ghcr.io/anuragrao04/aidocs
+  tag: "0.1.0"
+
+origins:
+  app: https://aidocs.example.com
+  render: https://render.aidocs.example.com
+
+googleOAuth:
+  clientID: "your-google-client-id"
+  clientSecret: "your-google-client-secret"
+
+session:
+  # At least 32 random bytes. Generate with: openssl rand -hex 32
+  secret: "replace-with-at-least-32-random-bytes"
+
+database:
+  url: "postgres://aidocs:pass@postgres.aidocs.svc:5432/aidocs?sslmode=require"
+
+blob:
+  bucket: "aidocs-prod"
+  region: "us-east-1"
+  accessKeyID: "AKIA..."
+  secretAccessKey: "..."
+
+ingress:
+  enabled: true
+  className: "nginx"
+  hosts:
+    - host: aidocs.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+    - host: render.aidocs.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: aidocs-tls
+      hosts:
+        - aidocs.example.com
+        - render.aidocs.example.com
+
+allowedOAuthDomains: "example.com"
+```
+
+### Using existing Secrets
+
+To avoid putting credentials in `values.yaml`, reference pre-created
+Kubernetes Secrets via the `existingSecret` fields:
+
+```yaml
+googleOAuth:
+  existingSecret: aidocs-google-oauth
+  clientIDKey: client-id
+  clientSecretKey: client-secret
+
+session:
+  existingSecret: aidocs-session
+  secretKey: secret
+
+database:
+  existingSecret: aidocs-db
+  urlKey: url
+
+blob:
+  bucket: aidocs-prod
+  region: us-east-1
+  existingSecret: aidocs-blob
+  accessKeyIDKey: access-key-id
+  secretAccessKeyKey: secret-access-key
+```
+
+Then create those Secrets in your cluster with `kubectl create secret`
+or your preferred secrets manager (External Secrets Operator, SOPS,
+Sealed Secrets, etc.).
+
+### Useful chart values
+
+| Path | Purpose |
+|------|---------|
+| `replicaCount` | Number of pod replicas. |
+| `image.{repository,tag,pullPolicy}` | Container image. |
+| `origins.{app,render}` | Public URLs. `app` is injected into the served frontend. |
+| `database.{url,migrate}` | Postgres DSN; `migrate: false` skips startup migrations. |
+| `blob.{bucket,region,endpoint,forcePathStyle,accessKeyID,secretAccessKey}` | S3 settings. |
+| `googleOAuth.{clientID,clientSecret}` | OAuth credentials. |
+| `session.secret` | At least 32 random bytes. |
+| `allowedOAuthDomains` | Comma-separated email domain allowlist. |
+| `commitSha` | Optional revision surfaced at `/commit.txt`. |
+| `ingress` | Standard ingress block; supports multiple hosts. |
+| `extraEnv` / `extraEnvFrom` | Append arbitrary env vars / envFrom sources. |
+| `resources` | CPU/memory requests and limits. |
+| `livenessProbe` / `readinessProbe` | HTTP probes against `/commit.txt` and `/openapi.json`. |
+| `podDisruptionBudget` | Optional PDB for safer upgrades. |
+
+See [`charts/aidocs/values.yaml`](../charts/aidocs/values.yaml) for the
+full schema with defaults.
+
+## Bare metal / systemd
+
+```bash
+git clone https://github.com/anuragrao04/aidocs.git
+cd aidocs
+make build              # produces bin/aidocs-server and bin/aidocs
+
+# Place the binary and create an env file
+sudo install -m 0755 bin/aidocs-server /usr/local/bin/aidocs-server
+sudo install -m 0640 -o root -g root /dev/stdin /etc/aidocs/env <<'EOF'
+DATABASE_URL=postgres://aidocs:pass@localhost:5432/aidocs?sslmode=disable
+BLOB_BUCKET=aidocs-prod
+BLOB_REGION=us-east-1
+BLOB_ACCESS_KEY_ID=AKIA...
+BLOB_SECRET_ACCESS_KEY=...
+AIDOCS_APP_ORIGIN=https://aidocs.example.com
+AIDOCS_RENDER_ORIGIN=https://render.aidocs.example.com
+GOOGLE_OAUTH_CLIENT_ID=...
+GOOGLE_OAUTH_CLIENT_SECRET=...
+SESSION_SECRET=...
+EOF
+
+sudo tee /etc/systemd/system/aidocs.service > /dev/null <<'EOF'
+[Unit]
+Description=aidocs
+After=network.target
+
+[Service]
+EnvironmentFile=/etc/aidocs/env
+ExecStart=/usr/local/bin/aidocs-server
+Restart=on-failure
+DynamicUser=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable --now aidocs
+```
+
+Terminate TLS at nginx, Caddy, or any reverse proxy of your choice.
+
+## Environment variables
+
+### Required
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Postgres connection string. Auto-runs migrations at startup unless disabled. |
+| `BLOB_BUCKET` | S3-compatible bucket name for stored HTML versions. |
+| `AIDOCS_APP_ORIGIN` | Public URL where the web UI is served. Also injected into the served `index.html` so the frontend can render correct copy-paste commands (CLI, curl, agent prompts). |
+| `AIDOCS_RENDER_ORIGIN` | Public URL where uploaded HTML is sandbox-rendered. May equal `AIDOCS_APP_ORIGIN` for non-production. |
+| `GOOGLE_OAUTH_CLIENT_ID` | Google OAuth web client ID. |
+| `GOOGLE_OAUTH_CLIENT_SECRET` | Google OAuth web client secret. |
+| `SESSION_SECRET` | Session signing key. At least 32 random bytes. |
+
+### Optional
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AIDOCS_PORT` | `8080` | Public app/API listen port. |
+| `AIDOCS_METRICS_PORT` | `9090` | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain. |
+| `AIDOCS_MIGRATE` | `true` | Run database migrations on boot. Set `false` to skip. |
+| `AIDOCS_COMMIT_SHA` / `COMMIT_SHA` | unset | Build revision exposed at `/commit.txt`. |
+| `ALLOWED_OAUTH_DOMAINS` | unset | Comma-separated email-domain allowlist for OAuth logins (public deployments). |
+| `AIDOCS_DEPLOYMENT` | `public` | `public` or `org`. An org deployment gates login to `AIDOCS_ORG_DOMAINS`. |
+| `AIDOCS_ORG_DOMAINS` | unset | Comma-separated org domains. Required when `AIDOCS_DEPLOYMENT=org`; also the login gate. |
+| `AIDOCS_ORG_NAME` | unset | Org display name used in share UI copy (e.g. "Anyone in Acme"). |
+| `BLOB_REGION` | `us-east-1` | AWS region for the S3 client. |
+| `BLOB_ENDPOINT` | unset | Custom S3 endpoint (MinIO, R2, etc.). |
+| `BLOB_ACCESS_KEY_ID` | unset | Override AWS-SDK default credential chain. |
+| `BLOB_SECRET_ACCESS_KEY` | unset | Override AWS-SDK default credential chain. |
+| `BLOB_FORCE_PATH_STYLE` | `false` | Set to `true` for MinIO and most non-AWS S3 implementations. |
+
+If `BLOB_ACCESS_KEY_ID` and `BLOB_SECRET_ACCESS_KEY` are omitted, the
+AWS SDK default credential chain is used (IRSA, instance profile,
+shared config, etc.).
+
+## Health and metadata endpoints
+
+```text
+GET /openapi.json              OpenAPI 3 spec
+GET /api-docs                  Swagger UI
+GET /commit.txt                Build revision (controlled by AIDOCS_COMMIT_SHA)
+GET /livez                     Liveness JSON: {"status":"ok"}
+GET /readyz                    Readiness JSON with dependency checks
+GET /.well-known/aidocs.json   Deployment discovery
+GET /onboarding/sample.html    Bundled sample report used by the in-app
+                               setup guide. Downloadable, no auth.
+```
+
+## How the frontend gets its public URL
+
+When the server returns `index.html`, it substitutes the `AIDOCS_APP_ORIGIN`
+value into a placeholder so the React app can read it synchronously at
+boot. This drives copy-paste-correct commands in the UI:
+
+- The `curl` in the **Try it end-to-end** step of the setup guide.
+- The `curl` examples on the **Developers** page.
+- The bearer-token CLI snippet in the **Service accounts** detail
+  panel.
+
+No extra API call is made; the value comes from the same env you already
+configured for the server.
+
+## Storage notes
+
+`aidocs` stores uploaded HTML versions in blob storage and metadata,
+comments, grants, sessions, and OAuth state in Postgres. Documents are
+versioned immutably; each push creates a new version.
+
+For v1, each document should be one self-contained HTML file. If a
+document needs images, embed them as data URLs:
+
+```html
+<img src="data:image/png;base64,..." alt="diagram" />
+```
+
+## Upgrading
+
+Postgres migrations are applied automatically at startup unless
+`AIDOCS_MIGRATE=false`. The chart and Docker image both honor this. To
+roll back, deploy the previous image tag and pre-apply any matching
+down-migration manually if needed; the binary does not auto-rollback.
+
+## Production checklist
+
+- [ ] `AIDOCS_APP_ORIGIN` and `AIDOCS_RENDER_ORIGIN` on different hostnames.
+- [ ] HTTPS everywhere (TLS at the proxy/ingress).
+- [ ] `SESSION_SECRET` rotated to a fresh 32+ byte value, stored in a
+      secret manager.
+- [ ] Google OAuth callback URLs match `AIDOCS_APP_ORIGIN`.
+- [ ] `ALLOWED_OAUTH_DOMAINS` set if you don't want public sign-ups.
+- [ ] Postgres backups configured.
+- [ ] Blob storage versioning / lifecycle rules configured.
+- [ ] `AIDOCS_COMMIT_SHA` baked into your image so `/commit.txt`
+      reports the running build.
+- [ ] Monitoring scraping `/metrics` on the metrics port (`AIDOCS_METRICS_PORT`,
+      default `9090`). Keep this port private — do not expose it publicly.
+- [ ] PodDisruptionBudget enabled (`podDisruptionBudget.enabled: true`)
+      for at least 1 minAvailable.
+
+## CLI installation for users
+
+Once you've shipped a release, users (and their agents) install the CLI
+with:
+
+```bash
+brew install anuragrao04/tap/aidocs
+aidocs auth login https://aidocs.example.com
+```
+
+For self-hosted instances, pass the URL to `aidocs auth login` so the
+CLI knows which server to authenticate against.
