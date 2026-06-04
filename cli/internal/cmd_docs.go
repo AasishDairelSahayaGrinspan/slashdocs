@@ -1,15 +1,99 @@
 package internal
 
 import (
+	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"html"
 	"io"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
+
+//go:embed scaffold/*.html
+var scaffoldFS embed.FS
+
+// scaffoldTypes lists the document types `aidocs docs new` can start from. Each
+// has a body fragment at scaffold/<type>.html.
+func scaffoldTypes() []string {
+	return []string{"report", "comparison", "pr-review", "explainer", "deck"}
+}
+
+// assembleScaffold builds a full, self-contained starter document: the doctype
+// and <head> (with the canonical theme block from guidelines/razorpay-theme.md)
+// plus the per-type body, with the title substituted for {{TITLE}}.
+func assembleScaffold(typ, title string) (string, error) {
+	known := false
+	for _, t := range scaffoldTypes() {
+		if t == typ {
+			known = true
+		}
+	}
+	if !known {
+		return "", fmt.Errorf("unknown type %q; choose one of: %s", typ, strings.Join(scaffoldTypes(), ", "))
+	}
+	body, err := scaffoldFS.ReadFile("scaffold/" + typ + ".html")
+	if err != nil {
+		return "", err
+	}
+	style, err := themeStyleBlock()
+	if err != nil {
+		return "", err
+	}
+	if title == "" {
+		title = "Untitled"
+	}
+	esc := html.EscapeString(title)
+	return fmt.Sprintf(`<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>%s</title>
+%s
+</head>
+<body>
+%s
+</body>
+</html>
+`, esc, style, strings.ReplaceAll(string(body), "{{TITLE}}", esc)), nil
+}
+
+func docsNewCmd(g *globals, out io.Writer) *cobra.Command {
+	var typ, title string
+	var force bool
+	cmd := &cobra.Command{
+		Use:          "new <file>",
+		Short:        "Write a Blade-themed starter HTML document (offline; no upload)",
+		Long:         "Create a local starter .html for a document type, then edit it and publish with 'aidocs docs create'.\nThis runs offline — it does not contact the server.\nTypes: " + strings.Join(scaffoldTypes(), ", "),
+		Example:      "  aidocs docs new rca.html --type report --title 'Q3 RCA'",
+		Args:         exactArgs(1),
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			path := args[0]
+			if _, err := os.Stat(path); err == nil && !force {
+				return fmt.Errorf("%s already exists; pass --force to overwrite", path)
+			}
+			doc, err := assembleScaffold(typ, title)
+			if err != nil {
+				return err
+			}
+			if err := os.WriteFile(path, []byte(doc), 0o644); err != nil {
+				return err
+			}
+			confirm(out, g, fmt.Sprintf("Wrote %s starter to %s. Edit it, run 'aidocs guidelines %s', then 'aidocs docs create %s'.", typ, path, typ, path))
+			return nil
+		},
+	}
+	cmd.Flags().StringVar(&typ, "type", "report", "document type: "+strings.Join(scaffoldTypes(), ", "))
+	cmd.Flags().StringVar(&title, "title", "", "document title (sets <title> and the H1)")
+	cmd.Flags().BoolVar(&force, "force", false, "overwrite the file if it exists")
+	return cmd
+}
 
 func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
@@ -45,7 +129,7 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	}}
 	update.Flags().StringVar(&ut, "title", "", "new document title")
 	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
-	c.AddCommand(simple(g, out, "list", "GET", "/v1/documents", 0), create, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out))
+	c.AddCommand(docsNewCmd(g, out), simple(g, out, "list", "GET", "/v1/documents", 0), create, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out))
 	return c
 }
 

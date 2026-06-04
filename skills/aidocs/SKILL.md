@@ -18,8 +18,10 @@ diagrams, and timelines that Markdown flattens.
    for the document type you're writing (`report`, `comparison`, `pr-review`,
    `explainer`, `deck`, plus `overview`, `theme`, `writing-voice`). Don't guess
    the constraints — read them.
-2. Write the artifact as one self-contained HTML file, starting from the default
-   Razorpay/Blade theme (`aidocs guidelines theme`).
+2. Write the artifact as one self-contained HTML file. Fastest correct start:
+   `aidocs docs new <file> --type <category>` scaffolds a themed, anchor-safe
+   starter offline (no upload). Otherwise begin from the default Razorpay/Blade
+   theme (`aidocs guidelines theme`).
 3. Make it follow the reader's theme (see below) and keep its text anchorable.
 4. **Humanize the prose** with `aidocs guidelines writing-voice` so it doesn't
    read as machine-generated.

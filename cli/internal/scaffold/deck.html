@@ -1,0 +1,26 @@
+<style>
+  .slide{position:fixed;inset:0;display:none;place-content:center;padding:8vmin;text-align:center}
+  .slide.is-active{display:grid}
+  .slide h1{font-size:var(--rzp-fs-700)} .slide h2{font-size:var(--rzp-fs-500)}
+  .counter{position:fixed;right:24px;bottom:16px;color:var(--rzp-muted);font-family:var(--rzp-font-mono)}
+  @media print{.slide{display:grid !important;position:static;min-height:100vh}}
+</style>
+<section class="slide is-active"><h1>{{TITLE}}</h1></section>
+<section class="slide"><h2>One idea per slide</h2></section>
+<section class="slide"><h2>Keep words minimal</h2></section>
+<div class="counter"><span id="i">1</span> / <span id="n">3</span></div>
+<script>
+  // All slides stay in the DOM (CSS show/hide) so anchored comments survive.
+  var s = Array.prototype.slice.call(document.querySelectorAll('.slide'));
+  var i = 0;
+  function show(n){
+    i = Math.max(0, Math.min(s.length - 1, n));
+    s.forEach(function(el, k){ el.classList.toggle('is-active', k === i); });
+    document.getElementById('i').textContent = i + 1;
+  }
+  document.getElementById('n').textContent = s.length;
+  addEventListener('keydown', function(e){
+    if (e.key === 'ArrowRight' || e.key === ' ') show(i + 1);
+    if (e.key === 'ArrowLeft') show(i - 1);
+  });
+</script>
