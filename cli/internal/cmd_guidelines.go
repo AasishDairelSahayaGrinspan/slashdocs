@@ -34,6 +34,22 @@ func readGuideline(name string) (string, error) {
 	return string(b), err
 }
 
+// themeStyleBlock returns the canonical <style>…</style> theme block, extracted
+// from guidelines/razorpay-theme.md so there is exactly one definition of the
+// theme (the AA-contrast test guards that file, and so this output).
+func themeStyleBlock() (string, error) {
+	body, err := readGuideline("razorpay-theme.md")
+	if err != nil {
+		return "", err
+	}
+	start := strings.Index(body, "<style>")
+	end := strings.LastIndex(body, "</style>")
+	if start < 0 || end < 0 || end < start {
+		return "", fmt.Errorf("razorpay-theme.md: no <style> block found")
+	}
+	return body[start : end+len("</style>")], nil
+}
+
 func categoryList() string {
 	keys := make([]string, 0, len(categories))
 	for k := range categories {
