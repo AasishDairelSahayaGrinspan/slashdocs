@@ -1,65 +1,72 @@
 package internal
 
 import (
+	"embed"
 	"fmt"
 	"io"
+	"sort"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
 
-// guidelinesText is authoring guidance for the agents that produce the HTML
-// documents aidocs hosts. It is intentionally plain text so an agent can read
-// it straight from `aidocs guidelines` before writing a document.
-const guidelinesText = `aidocs document authoring guidelines
+// guidelinesFS holds the authoring guidance shipped with the binary. The core
+// contract and every category playbook live as markdown so an agent can read
+// them straight from `aidocs guidelines [category]` before writing a document.
+//
+//go:embed guidelines/*.md
+var guidelinesFS embed.FS
 
-A document is ONE HTML file.
-  - Anything that fits in a single .html file is fine, including external
-    stylesheets, fonts, scripts, and other CDN assets.
-  - aidocs does NOT host assets for you. There is no image/file hosting,
-    so embed your own images as base64 data URLs (data:image/png;base64,...)
-    or reference them from a URL you already control.
+// categories maps the `aidocs guidelines <category>` arg to its embedded file.
+var categories = map[string]string{
+	"deck":          "deck.md",
+	"pr-review":     "pr-and-code-review.md",
+	"comparison":    "comparison-and-options.md",
+	"report":        "reports-and-rca.md",
+	"explainer":     "explainer-and-diagrams.md",
+	"writing-voice": "writing-voice.md",
+	"theme":         "razorpay-theme.md",
+}
 
-Theme: follow the reader's aidocs theme.
-  The viewer chooses light or dark in the aidocs UI. The render bridge sets
-  this attribute on <html> inside your document and keeps it in sync:
+func readGuideline(name string) (string, error) {
+	b, err := guidelinesFS.ReadFile("guidelines/" + name)
+	return string(b), err
+}
 
-    <html data-aidocs-theme="light">
-    <html data-aidocs-theme="dark">
-
-  Opt in by defining your palette against the attribute and driving the page
-  from variables:
-
-    :root[data-aidocs-theme="dark"] {
-      --bg: #0b0d12; --ink: #e7ecf3;
-    }
-    :root { --bg: #fff; --ink: #111; }
-    body { background: var(--bg); color: var(--ink); }
-    html { color-scheme: light; }
-    :root[data-aidocs-theme="dark"] { color-scheme: dark; }
-
-  Notes:
-  - "system" is resolved to a concrete light/dark before it reaches you.
-  - The value updates live when the reader toggles; CSS reacts automatically.
-  - For JS, listen for the event on your own window:
-      window.addEventListener('aidocs:theme', e => {
-        // e.detail.theme is "light" or "dark"
-      });
-  - Do NOT ship your own theme toggle. The aidocs UI is the single control.
-  - A document that never references data-aidocs-theme keeps its hard-coded
-    look, so theming is strictly opt-in.
-
-Publishing:
-  aidocs docs create report.html --title 'Report' --visibility private
-  aidocs docs push <doc_id> report.html --summary 'Address comments'
-`
+func categoryList() string {
+	keys := make([]string, 0, len(categories))
+	for k := range categories {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return strings.Join(keys, ", ")
+}
 
 func guidelinesCmd(_ *globals, out io.Writer) *cobra.Command {
 	return &cobra.Command{
-		Use:   "guidelines",
-		Short: "Print HTML authoring guidelines (single-file, images, theme)",
-		Args:  exactArgs(0),
-		RunE: func(_ *cobra.Command, _ []string) error {
-			fmt.Fprint(out, guidelinesText)
+		Use:          "guidelines [category]",
+		Short:        "Print HTML authoring guidelines (core, or a category playbook)",
+		Long:         "Run with no args for the core contract. Pass a category for its playbook.\nCategories: " + categoryList(),
+		Args:         cobra.MaximumNArgs(1),
+		SilenceUsage: true,
+		RunE: func(_ *cobra.Command, args []string) error {
+			if len(args) == 0 {
+				core, err := readGuideline("core.md")
+				if err != nil {
+					return err
+				}
+				fmt.Fprint(out, core)
+				return nil
+			}
+			file, ok := categories[args[0]]
+			if !ok {
+				return fmt.Errorf("unknown category %q; choose one of: %s", args[0], categoryList())
+			}
+			body, err := readGuideline(file)
+			if err != nil {
+				return err
+			}
+			fmt.Fprint(out, body)
 			return nil
 		},
 	}
