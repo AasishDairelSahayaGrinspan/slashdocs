@@ -30,7 +30,11 @@ session:
   secret: "replace-with-at-least-32-random-bytes"
 
 database:
-  url: "postgres://user:pass@postgres:5432/aidocs?sslmode=require"
+  host: postgres
+  user: aidocs
+  password: replace-me
+  name: aidocs
+  sslMode: require
 
 blob:
   bucket: aidocs
@@ -75,7 +79,10 @@ session:
 
 database:
   existingSecret: aidocs-database
-  urlKey: database-url
+  hostKey: DATABASE_HOST
+  userKey: DATABASE_USER
+  passwordKey: DATABASE_PASSWORD
+  nameKey: DATABASE_NAME
 
 blob:
   existingSecret: aidocs-blob

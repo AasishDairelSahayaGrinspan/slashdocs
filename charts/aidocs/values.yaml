@@ -22,6 +22,7 @@ serviceAccount:
   create: true
   annotations: {}
   name: ""
+  imagePullSecrets: []
 
 podAnnotations: {}
 podLabels: {}
@@ -46,11 +47,26 @@ service:
 
 containerPort: 8080
 
+metrics:
+  port: 9090
+  service:
+    enabled: true
+
+# Deployment mode. `public` allows any Google login (optionally gated by
+# allowedOAuthDomains); `org` gates login to deployment.orgDomains and labels
+# "everyone" sharing as the org.
+deployment:
+  mode: org
+  # Comma-separated org domains. Required when mode=org; also the login gate.
+  orgDomains: "razorpay.com"
+  # Org display name used in share UI copy (e.g. "Anyone in Acme").
+  orgName: "Razorpay"
+
 # Public origins. In production, prefer a separate render origin to isolate
 # untrusted uploaded HTML from the authenticated application.
 origins:
-  app: https://aidocs.example.com
-  render: https://render.aidocs.example.com
+  app: https://aidocs.dev.razorpay.in
+  render: https://render.aidocs.razorpay.in
 
 # Google OAuth web client. Configure the callback URL in Google Cloud as:
 #   https://aidocs.example.com/v1/auth/google/callback
@@ -67,11 +83,21 @@ session:
   existingSecret: ""
   secretKey: SESSION_SECRET
 
-# Postgres connection string.
+# Postgres connection. The component values are read from the secret into
+# env vars, then `url` is composed from them at runtime via Kubernetes
+# $(VAR) env expansion
 database:
-  url: ""
   existingSecret: ""
-  urlKey: database-url
+  host: ""
+  user: ""
+  password: ""
+  name: ""
+  hostKey: DATABASE_HOST
+  userKey: DATABASE_USER
+  passwordKey: DATABASE_PASSWORD
+  nameKey: DATABASE_NAME
+  port: 5432
+  sslMode: require
   migrate: true
 
 # S3-compatible blob storage for immutable HTML versions.
@@ -87,7 +113,7 @@ blob:
   secretAccessKeyKey: blob-secret-access-key
 
 # Optional comma-separated domain allowlist for Google OAuth login.
-allowedOAuthDomains: ""
+allowedOAuthDomains: "razorpay.com"
 
 # Optional runtime revision surfaced at /commit.txt.
 commitSha: ""
@@ -135,6 +161,19 @@ ingress:
   # - secretName: aidocs-tls
   #   hosts:
   #     - aidocs.example.com
+
+# Traefik IngressRoute (used by clusters that run Traefik CRDs instead of
+# native Ingress). Routes the app host (and optionally a separate render host)
+# to the app port; the metrics port is never routed here.
+ingressRoute:
+  enabled: false
+  host: ""
+  # Optional separate origin for sandbox-rendered HTML. Leave empty to serve
+  # render on the same host (acceptable for non-production only).
+  renderHost: ""
+  entryPoints:
+    - http
+  annotations: {}
 
 nodeSelector: {}
 tolerations: []

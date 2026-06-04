@@ -40,13 +40,28 @@ spec:
             - name: http
               containerPort: {{ .Values.containerPort }}
               protocol: TCP
+            - name: metrics
+              containerPort: {{ .Values.metrics.port }}
+              protocol: TCP
           env:
             - name: AIDOCS_PORT
               value: {{ .Values.containerPort | quote }}
+            - name: AIDOCS_METRICS_PORT
+              value: {{ .Values.metrics.port | quote }}
             - name: AIDOCS_APP_ORIGIN
               value: {{ required "origins.app is required" .Values.origins.app | quote }}
             - name: AIDOCS_RENDER_ORIGIN
               value: {{ required "origins.render is required" .Values.origins.render | quote }}
+            - name: AIDOCS_DEPLOYMENT
+              value: {{ .Values.deployment.mode | quote }}
+            {{- if eq .Values.deployment.mode "org" }}
+            - name: AIDOCS_ORG_DOMAINS
+              value: {{ required "deployment.orgDomains is required when deployment.mode=org" .Values.deployment.orgDomains | quote }}
+            {{- if .Values.deployment.orgName }}
+            - name: AIDOCS_ORG_NAME
+              value: {{ .Values.deployment.orgName | quote }}
+            {{- end }}
+            {{- end }}
             - name: AIDOCS_MIGRATE
               value: {{ ternary "true" "false" .Values.database.migrate | quote }}
             - name: BLOB_BUCKET
@@ -67,11 +82,31 @@ spec:
             - name: AIDOCS_COMMIT_SHA
               value: {{ .Values.commitSha | quote }}
             {{- end }}
-            - name: DATABASE_URL
+            # Component credentials from the secret; DATABASE_URL is composed
+            # from them at runtime via $(VAR) expansion (see database.url).
+            - name: DATABASE_HOST
               valueFrom:
                 secretKeyRef:
                   name: {{ default (include "aidocs.secretName" .) .Values.database.existingSecret }}
-                  key: {{ .Values.database.urlKey }}
+                  key: {{ .Values.database.hostKey }}
+            - name: DATABASE_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.database.existingSecret }}
+                  key: {{ .Values.database.userKey }}
+            - name: DATABASE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.database.existingSecret }}
+                  key: {{ .Values.database.passwordKey }}
+            - name: DATABASE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.database.existingSecret }}
+                  key: {{ .Values.database.nameKey }}
+            - name: DATABASE_URL
+              # nosemgrep: generic_postgres_string
+              value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):{{ .Values.database.port }}/$(DATABASE_NAME)?sslmode={{ .Values.database.sslMode }}"
             - name: GOOGLE_OAUTH_CLIENT_ID
               valueFrom:
                 secretKeyRef:

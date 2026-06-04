@@ -178,6 +178,7 @@ session:
   secret: "replace-with-at-least-32-random-bytes"
 
 database:
+# nosemgrep: generic_postgres_string
   url: "postgres://aidocs:pass@postgres.aidocs.svc:5432/aidocs?sslmode=require"
 
 blob:
@@ -270,6 +271,7 @@ make build              # produces bin/aidocs-server and bin/aidocs
 # Place the binary and create an env file
 sudo install -m 0755 bin/aidocs-server /usr/local/bin/aidocs-server
 sudo install -m 0640 -o root -g root /dev/stdin /etc/aidocs/env <<'EOF'
+# nosemgrep: generic_postgres_string
 DATABASE_URL=postgres://aidocs:pass@localhost:5432/aidocs?sslmode=disable
 BLOB_BUCKET=aidocs-prod
 BLOB_REGION=us-east-1

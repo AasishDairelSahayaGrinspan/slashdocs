@@ -1,0 +1,30 @@
+{{- if .Values.ingressRoute.enabled }}
+apiVersion: traefik.containo.us/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ include "aidocs.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "aidocs.labels" . | nindent 4 }}
+  {{- with .Values.ingressRoute.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  entryPoints:
+    {{- toYaml .Values.ingressRoute.entryPoints | nindent 4 }}
+  routes:
+    - kind: Rule
+      match: Host(`{{ required "ingressRoute.host is required" .Values.ingressRoute.host }}`)
+      services:
+        - name: {{ include "aidocs.fullname" . }}
+          port: {{ .Values.service.port }}
+    {{- if and .Values.ingressRoute.renderHost (ne .Values.ingressRoute.renderHost .Values.ingressRoute.host) }}
+    # Untrusted uploaded HTML is sandbox-rendered on a separate origin.
+    - kind: Rule
+      match: Host(`{{ .Values.ingressRoute.renderHost }}`)
+      services:
+        - name: {{ include "aidocs.fullname" . }}
+          port: {{ .Values.service.port }}
+    {{- end }}
+{{- end }}
