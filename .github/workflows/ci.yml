@@ -3,15 +3,11 @@ name: aidocs CI
 on:
   pull_request:
   push:
-    tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-*"
+    branches:
+      - master
 
 permissions:
   contents: read
-
-env:
-  BUILD_VERSION: ${{ github.event_name == 'push' && github.ref_type == 'tag' && github.ref_name || github.sha }}
 
 jobs:
   test:
@@ -53,8 +49,28 @@ jobs:
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Resolve build metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          version="${GITHUB_SHA}"
+          should_build="true"
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            version="$(git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' | sort -V | tail -1)"
+            if [[ -z "${version}" ]]; then
+              should_build="false"
+              version="${GITHUB_SHA}"
+            fi
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "should_build=${should_build}" >> "$GITHUB_OUTPUT"
 
       - name: Build Docker Image For aidocs
+        if: ${{ steps.meta.outputs.should_build == 'true' }}
         uses: razorpay/actions/docker-image-build-push@master
         with:
           username: ${{ secrets.HARBOR_DOCKER_USERNAME }}
@@ -62,13 +78,10 @@ jobs:
           registry: c.rzp.io
           repository: aidocs
           enable-login: true
-          push: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'tag') }}
+          push: true
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
-          use-default-caching: true
-          cache-registry-username: ${{ secrets.HARBOR_CACHE_DOCKER_USERNAME }}
-          cache-registry-password: ${{ secrets.HARBOR_CACHE_DOCKER_PASSWORD }}
           build-args: |
-            AIDOCS_VERSION=${{ env.BUILD_VERSION }}
+            AIDOCS_VERSION=${{ steps.meta.outputs.version }}
             AIDOCS_COMMIT_SHA=${{ github.sha }}
