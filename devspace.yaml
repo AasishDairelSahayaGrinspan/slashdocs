@@ -1,0 +1,92 @@
+# =============================================================================
+# DevSpace Configuration for Foundation Service
+# =============================================================================
+# This file configures DevSpace for hot-reload development against remote pods.
+# The pod runs CompileDaemon which watches for synced file changes and
+# automatically recompiles and restarts the service.
+#
+# Usage:
+#   1. Update the vars section with your devstack_label and service details
+#   2. Run: devspace dev --kube-context dev-serve --no-warn
+#
+# Prerequisites:
+#   - kubectl configured with devstack cluster access (context: dev-serve)
+#   - DevSpace CLI installed (https://devspace.sh)
+#   - Service deployed via helmfile with your devstack_label
+# =============================================================================
+
+version: v2beta1
+name: foundation-service
+
+# =============================================================================
+# Variables - Update these for your environment
+# =============================================================================
+vars:
+  # Your devstack label (must match kube-manifests deployment)
+  DEVSTACK_LABEL:
+    value: "your-devstack-label"
+
+  # Kubernetes namespace
+  NAMESPACE:
+    value: "foundation-service"
+
+  # Application name (used in pod labels)
+  APP_NAME:
+    value: "foundation-service"
+
+dev:
+  # ---------------------------------------------------------------------------
+  # API/Web Pod - file sync + log streaming
+  # ---------------------------------------------------------------------------
+  foundation-service-${DEVSTACK_LABEL}:
+    labelSelector:
+      name: ${APP_NAME}-${DEVSTACK_LABEL}
+    namespace: ${NAMESPACE}
+
+    # Sync local source files into the running pod.
+    # CompileDaemon (running in the pod) detects changes and recompiles.
+    sync:
+      - path: ./
+        excludePaths:
+          - .git/
+          - .idea/
+          - .vscode/
+          - bin/
+          - tmp/
+          - vendor/
+          - "*.log"
+        uploadExcludePaths:
+          - Dockerfile*
+          - .dockerignore
+          - devspace.yaml
+        downloadExcludePaths:
+          - "*"
+
+    logs:
+      enabled: true
+
+  # ---------------------------------------------------------------------------
+  # Worker Pod - uncomment to enable worker hot-reload
+  # ---------------------------------------------------------------------------
+  # foundation-service-worker-${DEVSTACK_LABEL}:
+  #   labelSelector:
+  #     name: ${APP_NAME}-worker-${DEVSTACK_LABEL}
+  #   namespace: ${NAMESPACE}
+  #   sync:
+  #     - path: ./
+  #       excludePaths:
+  #         - .git/
+  #         - .idea/
+  #         - .vscode/
+  #         - bin/
+  #         - tmp/
+  #         - vendor/
+  #         - "*.log"
+  #       uploadExcludePaths:
+  #         - Dockerfile*
+  #         - .dockerignore
+  #         - devspace.yaml
+  #       downloadExcludePaths:
+  #         - "*"
+  #   logs:
+  #     enabled: true
