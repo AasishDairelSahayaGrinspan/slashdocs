@@ -26,6 +26,7 @@ describe("DocBar", () => {
             id: "ver_2",
             number: 2,
             change_summary: "Updated",
+            // nosemgrep: generic.secrets.security.detected-google-gcm-service-account.detected-google-gcm-service-account
             created_by: { type: "service_account", id: "sa_1" },
           },
         ]}
