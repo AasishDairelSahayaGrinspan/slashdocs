@@ -61,6 +61,16 @@ func asUsageError(err error) error {
 func NewRoot(out io.Writer) *cobra.Command {
 	g := &globals{}
 	root := &cobra.Command{Use: "aidocs", Short: "CLI for aidocs HTML document review", Long: "CLI for aidocs HTML document review.\n\nDefault output is compact, agent-friendly key=value text. Use --json for machine-readable JSON.", SilenceUsage: true, SilenceErrors: true}
+	root.PersistentPostRun = func(cmd *cobra.Command, args []string) {
+		if cmd.CommandPath() == "aidocs update" || cmd.CommandPath() == "aidocs version" {
+			return
+		}
+		c, err := client(g)
+		if err != nil {
+			return
+		}
+		maybeNudgeUpdate(g, c)
+	}
 	root.SetOut(out)
 	root.SetErr(os.Stderr)
 	root.SetFlagErrorFunc(func(cmd *cobra.Command, err error) error {
@@ -71,7 +81,7 @@ func NewRoot(out io.Writer) *cobra.Command {
 	root.PersistentFlags().BoolVar(&g.json, "json", false, "JSON output")
 	root.PersistentFlags().BoolVarP(&g.quiet, "quiet", "q", false, "quiet")
 	root.PersistentFlags().BoolVarP(&g.verbose, "verbose", "v", false, "verbose")
-	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out), versionCmd(out))
+	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out), versionCmd(out), updateCmd(g, out))
 	return root
 }
 
@@ -103,7 +113,6 @@ func run(g *globals, out io.Writer, fn func(*Client) ([]byte, error)) error {
 	if err := render(out, g, b); err != nil {
 		return err
 	}
-	maybeNudgeUpdate(g, c)
 	return nil
 }
 
