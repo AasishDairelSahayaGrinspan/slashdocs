@@ -8,6 +8,9 @@ on:
 
 permissions:
   contents: read
+  issues: write
+  pull-requests: write
+  statuses: write
 
 jobs:
   test:
@@ -16,6 +19,21 @@ jobs:
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
+
+      - name: Mark unit test status pending
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request?.head.sha || context.sha;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: "pending",
+              context: "aidocs/unit-test-coverage",
+              description: "Frontend and backend tests are running",
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -31,21 +49,33 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
 
       - name: Install frontend dependencies
+        id: frontend_install
+        continue-on-error: true
         run: npm ci --prefix frontend
 
       - name: Typecheck frontend
+        id: frontend_typecheck
+        continue-on-error: true
         run: cd frontend && npx tsc --noEmit
 
       - name: Run frontend unit tests with coverage
+        id: frontend_unit_tests
+        continue-on-error: true
         run: npm run test:coverage --prefix frontend
 
       - name: Build frontend test assets
+        id: frontend_build
+        continue-on-error: true
         run: npm run build --prefix frontend
 
       - name: Run backend tests
+        id: backend_tests
+        continue-on-error: true
         run: go test -tags testfixtures ./...
 
       - name: Run backend unit coverage gate
+        id: backend_coverage
+        continue-on-error: true
         run: |
           set -euo pipefail
           mkdir -p coverage
@@ -58,14 +88,157 @@ jobs:
           go tool cover -html=coverage/backend-unit.out -o coverage/backend-unit.html
           awk '/^total:/ { gsub("%", "", $3); if ($3 + 0 < 60) { printf("backend unit coverage %.1f%% is below 60%%\n", $3); exit 1 } }' coverage/backend-unit.txt
 
+      - name: Comment PR test status and coverage
+        if: always() && github.event_name == 'pull_request'
+        uses: actions/github-script@v7
+        env:
+          FRONTEND_INSTALL: ${{ steps.frontend_install.outcome }}
+          FRONTEND_TYPECHECK: ${{ steps.frontend_typecheck.outcome }}
+          FRONTEND_UNIT_TESTS: ${{ steps.frontend_unit_tests.outcome }}
+          FRONTEND_BUILD: ${{ steps.frontend_build.outcome }}
+          BACKEND_TESTS: ${{ steps.backend_tests.outcome }}
+          BACKEND_COVERAGE: ${{ steps.backend_coverage.outcome }}
+        with:
+          script: |
+            const fs = require("fs");
+            const marker = "<!-- aidocs-unit-test-coverage-report -->";
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const outcome = (value) => value || "skipped";
+            const label = (value) => outcome(value) === "success" ? "passed" : "failed";
+            const row = (name, value) => `| ${name} | ${label(value)} (${outcome(value)}) |`;
+            const rows = [
+              row("Install frontend dependencies", process.env.FRONTEND_INSTALL),
+              row("Frontend typecheck", process.env.FRONTEND_TYPECHECK),
+              row("Frontend unit coverage", process.env.FRONTEND_UNIT_TESTS),
+              row("Frontend build", process.env.FRONTEND_BUILD),
+              row("Backend tests", process.env.BACKEND_TESTS),
+              row("Backend coverage gate", process.env.BACKEND_COVERAGE),
+            ].join("\n");
+
+            let frontendCoverage = "Not available";
+            try {
+              const summary = JSON.parse(fs.readFileSync("frontend/coverage/coverage-summary.json", "utf8"));
+              const total = summary.total;
+              frontendCoverage = [
+                `Statements ${total.statements.pct}%`,
+                `Branches ${total.branches.pct}%`,
+                `Functions ${total.functions.pct}%`,
+                `Lines ${total.lines.pct}%`,
+              ].join(", ");
+            } catch (error) {}
+
+            let backendCoverage = "Not available";
+            try {
+              const text = fs.readFileSync("coverage/backend-unit.txt", "utf8");
+              const match = text.match(/total:\s+\(statements\)\s+([\d.]+)%/);
+              if (match) backendCoverage = `Statements ${match[1]}%`;
+            } catch (error) {}
+
+            const failed = [
+              process.env.FRONTEND_INSTALL,
+              process.env.FRONTEND_TYPECHECK,
+              process.env.FRONTEND_UNIT_TESTS,
+              process.env.FRONTEND_BUILD,
+              process.env.BACKEND_TESTS,
+              process.env.BACKEND_COVERAGE,
+            ].some((value) => outcome(value) !== "success");
+            const verdict = failed ? "failed" : "passed";
+            const body = [
+              marker,
+              `## aidocs test status: ${verdict}`,
+              "",
+              "| Gate | Status |",
+              "| --- | --- |",
+              rows,
+              "",
+              "| Coverage | Result |",
+              "| --- | --- |",
+              `| Frontend | ${frontendCoverage} |`,
+              `| Backend unit surface | ${backendCoverage} |`,
+              "",
+              `Coverage artifacts are attached to the workflow run: ${runUrl}`,
+            ].join("\n");
+
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find((comment) =>
+              comment.user?.type === "Bot" && comment.body?.includes(marker)
+            );
+            if (previous) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
+
+      - name: Update unit test status check
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          FRONTEND_INSTALL: ${{ steps.frontend_install.outcome }}
+          FRONTEND_TYPECHECK: ${{ steps.frontend_typecheck.outcome }}
+          FRONTEND_UNIT_TESTS: ${{ steps.frontend_unit_tests.outcome }}
+          FRONTEND_BUILD: ${{ steps.frontend_build.outcome }}
+          BACKEND_TESTS: ${{ steps.backend_tests.outcome }}
+          BACKEND_COVERAGE: ${{ steps.backend_coverage.outcome }}
+        with:
+          script: |
+            const outcome = (value) => value || "skipped";
+            const failed = [
+              process.env.FRONTEND_INSTALL,
+              process.env.FRONTEND_TYPECHECK,
+              process.env.FRONTEND_UNIT_TESTS,
+              process.env.FRONTEND_BUILD,
+              process.env.BACKEND_TESTS,
+              process.env.BACKEND_COVERAGE,
+            ].some((value) => outcome(value) !== "success");
+            const sha = context.payload.pull_request?.head.sha || context.sha;
+            await github.rest.repos.createCommitStatus({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              sha,
+              state: failed ? "failure" : "success",
+              context: "aidocs/unit-test-coverage",
+              description: failed ? "Frontend or backend test gate failed" : "Frontend and backend tests passed",
+              target_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
+            });
+
       - name: Upload coverage reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: coverage-reports
+          if-no-files-found: warn
           path: |
             coverage/
             frontend/coverage/
+
+      - name: Fail if any test gate failed
+        if: >-
+          ${{
+            always() && (
+              steps.frontend_install.outcome != 'success' ||
+              steps.frontend_typecheck.outcome != 'success' ||
+              steps.frontend_unit_tests.outcome != 'success' ||
+              steps.frontend_build.outcome != 'success' ||
+              steps.backend_tests.outcome != 'success' ||
+              steps.backend_coverage.outcome != 'success'
+            )
+          }}
+        run: exit 1
 
   docker:
     name: Build Docker image
