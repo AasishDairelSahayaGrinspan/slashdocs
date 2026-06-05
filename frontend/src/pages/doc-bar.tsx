@@ -8,6 +8,8 @@ import {
   ExternalLink,
   GitBranch,
   MoreHorizontal,
+  PanelRightClose,
+  PanelRightOpen,
   Share2,
   Trash2,
 } from "lucide-react";
@@ -44,6 +46,8 @@ export function DocBar({
   latest,
   versions,
   onSelectVersion,
+  commentsOpen,
+  onToggleComments,
 }: {
   title: string;
   docId: string;
@@ -53,6 +57,8 @@ export function DocBar({
   latest: string;
   versions: Version[];
   onSelectVersion: (versionID: string) => void;
+  commentsOpen: boolean;
+  onToggleComments: () => void;
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
@@ -104,6 +110,19 @@ export function DocBar({
           <ShareSheet docId={docId} />
         </Sheet>
       ) : null}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onToggleComments}
+        aria-label={commentsOpen ? "Hide comments" : "Show comments"}
+        className="hidden md:inline-flex"
+      >
+        {commentsOpen ? (
+          <PanelRightClose className="h-4 w-4" />
+        ) : (
+          <PanelRightOpen className="h-4 w-4" />
+        )}
+      </Button>
       <Dropdown>
         <DropdownTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="More">
