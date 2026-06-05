@@ -127,4 +127,27 @@ describe("Comments", () => {
     expect(screen.getByText("Done")).toBeInTheDocument();
     expect(screen.getAllByText("resolved").length).toBeGreaterThan(1);
   });
+
+  it("does not allow whitespace-only new comments", async () => {
+    const writes: unknown[] = [];
+    server.use(
+      http.post("/v1/documents/doc_1/comments", async ({ request }) => {
+        writes.push(await request.json());
+        return HttpResponse.json({ id: "cmt_new", status: "open" });
+      }),
+    );
+
+    renderComments({
+      selection: {
+        quote: "selected phrase",
+        anchor: { prefix: "before", suffix: "after", dom_path: "p[1]" },
+      },
+    });
+
+    await userEvent.type(screen.getByPlaceholderText(/Add a comment/i), "   ");
+    expect(screen.getByRole("button", { name: /^Comment/i })).toBeDisabled();
+
+    await userEvent.click(screen.getByRole("button", { name: /^Comment/i }));
+    expect(writes).toEqual([]);
+  });
 });

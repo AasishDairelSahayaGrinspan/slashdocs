@@ -190,3 +190,115 @@ func TestMemoryRepositoryOwnershipTransfers(t *testing.T) {
 		t.Fatalf("DeclineOwnershipTransfer missing = %v, want ErrNotFound", err)
 	}
 }
+
+func TestMemoryRepositoryServiceAccountListsKeysAndRevokesTokens(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemory()
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_owner", Email: "owner@example.com"}
+
+	sa, err := store.CreateServiceAccount(ctx, owner, "release@ops.bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyID, err := store.CreateServiceAccountKey(ctx, sa.ID, "deploy", "token_hash")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got, err := store.ListServiceAccounts(ctx, owner); err != nil || len(got) != 1 || got[0].ID != sa.ID {
+		t.Errorf("ListServiceAccounts = %+v %v, want created service account", got, err)
+	}
+	if got, err := store.ListServiceAccountKeys(ctx, sa.ID); err != nil || len(got) != 1 || got[0].ID != keyID || got[0].Name != "deploy" {
+		t.Errorf("ListServiceAccountKeys = %+v %v, want created key", got, err)
+	}
+	if _, err := store.ResolveBearerToken(ctx, "token_hash"); err != nil {
+		t.Fatalf("ResolveBearerToken before revoke = %v, want nil", err)
+	}
+	if err := store.RevokeServiceAccountKey(ctx, sa.ID, keyID); err != nil {
+		t.Fatalf("RevokeServiceAccountKey = %v, want nil", err)
+	}
+	if _, err := store.ResolveBearerToken(ctx, "token_hash"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("ResolveBearerToken after revoke = %v, want ErrNotFound", err)
+	}
+	if got, err := store.ListServiceAccountKeys(ctx, sa.ID); err != nil || len(got) != 0 {
+		t.Errorf("ListServiceAccountKeys after revoke = %+v %v, want empty", got, err)
+	}
+}
+
+func TestMemoryRepositoryOwnershipTransferListsAndMovesServiceAccountOwner(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemory()
+	from := auth.Principal{Type: auth.PrincipalUser, ID: "usr_from", Email: "from@example.com"}
+	to, err := store.EnsureUserByEmail(ctx, "to@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa, err := store.CreateServiceAccount(ctx, from, "worker@ops.bot")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	xfer, err := store.CreateOwnershipTransfer(ctx, sa.ID, from, to.Email)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, err := store.ListOwnershipTransfers(ctx, from); err != nil || len(got) != 1 || got[0].ID != xfer.ID {
+		t.Errorf("ListOwnershipTransfers for sender = %+v %v, want transfer", got, err)
+	}
+	if got, err := store.ListOwnershipTransfers(ctx, to); err != nil || len(got) != 1 || got[0].ID != xfer.ID {
+		t.Errorf("ListOwnershipTransfers for recipient = %+v %v, want transfer", got, err)
+	}
+
+	accepted, err := store.AcceptOwnershipTransfer(ctx, xfer.ID, to)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if accepted.Status != StatusAccepted {
+		t.Fatalf("accepted transfer status = %q, want accepted", accepted.Status)
+	}
+	moved, err := store.GetServiceAccount(ctx, sa.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.Owner.ID != to.ID {
+		t.Errorf("service account owner after accept = %q, want %q", moved.Owner.ID, to.ID)
+	}
+}
+
+func TestMemoryRepositoryDeleteDocumentCascadesDependents(t *testing.T) {
+	ctx := context.Background()
+	store := NewMemory()
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_owner", Email: "owner@example.com"}
+	viewer := auth.Principal{Type: auth.PrincipalUser, ID: "usr_viewer", Email: "viewer@example.com"}
+	doc, ver, err := store.CreateDocument(ctx, owner, "Plan", []byte("<html></html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := store.CreateGrant(ctx, doc.ID, viewer, RoleViewer, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := store.CreateComment(ctx, doc.ID, ver.ID, "Looks good", Anchor{Quote: "Plan"}, viewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.DeleteDocument(ctx, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := store.GetVersion(ctx, ver.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetVersion after document delete = %v, want ErrNotFound", err)
+	}
+	if got, err := store.ListVersions(ctx, doc.ID); err != nil || len(got) != 0 {
+		t.Errorf("ListVersions after document delete = %+v %v, want empty", got, err)
+	}
+	if got, err := store.ListGrants(ctx, doc.ID); err != nil || len(got) != 0 {
+		t.Errorf("ListGrants after document delete = %+v %v, want empty", got, err)
+	}
+	if _, err := store.GetComment(ctx, comment.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("GetComment after document delete = %v, want ErrNotFound", err)
+	}
+	if err := store.DeleteGrant(ctx, doc.ID, grant.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DeleteGrant after document delete = %v, want ErrNotFound", err)
+	}
+}

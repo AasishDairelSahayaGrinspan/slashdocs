@@ -74,4 +74,26 @@ describe("ServiceAccountsPage", () => {
       expect(payloads).toEqual([{ label: "n8n", domain: "ops.bot" }]),
     );
   });
+
+  it("blocks bot labels that the backend rejects", async () => {
+    const payloads: unknown[] = [];
+    server.use(
+      http.get("/v1/service-accounts", () => HttpResponse.json({ items: [] })),
+      http.post("/v1/service-accounts", async ({ request }) => {
+        payloads.push(await request.json());
+        return HttpResponse.json(
+          { error: { code: "bad_request", message: "invalid label" } },
+          { status: 400 },
+        );
+      }),
+    );
+
+    renderWithProviders(<ServiceAccountsPage />);
+    await userEvent.click(screen.getByRole("button", { name: /New bot/i }));
+    await userEvent.type(screen.getByPlaceholderText(/n8n-prod/i), "DeployBot");
+
+    expect(screen.getByRole("button", { name: /Create bot/i })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /Create bot/i }));
+    expect(payloads).toEqual([]);
+  });
 });
