@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    name: Test aidocs
+    name: Frontend and backend tests
     runs-on: [k8s-runner, linux-amd64]
     steps:
       - name: Checkout Codebase
@@ -36,11 +36,36 @@ jobs:
       - name: Typecheck frontend
         run: cd frontend && npx tsc --noEmit
 
+      - name: Run frontend unit tests with coverage
+        run: npm run test:coverage --prefix frontend
+
       - name: Build frontend test assets
         run: npm run build --prefix frontend
 
-      - name: Test Go
+      - name: Run backend tests
         run: go test -tags testfixtures ./...
+
+      - name: Run backend unit coverage gate
+        run: |
+          set -euo pipefail
+          mkdir -p coverage
+          go test -tags testfixtures \
+            -covermode=count \
+            -coverpkg=./api/internal/auth,./api/internal/blob,./api/internal/bots,./api/internal/repo,./api/internal/server \
+            -coverprofile=coverage/backend-unit.out \
+            ./api/internal/auth ./api/internal/blob ./api/internal/bots ./api/internal/repo ./api/internal/server
+          go tool cover -func=coverage/backend-unit.out | tee coverage/backend-unit.txt
+          go tool cover -html=coverage/backend-unit.out -o coverage/backend-unit.html
+          awk '/^total:/ { gsub("%", "", $3); if ($3 + 0 < 60) { printf("backend unit coverage %.1f%% is below 60%%\n", $3); exit 1 } }' coverage/backend-unit.txt
+
+      - name: Upload coverage reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-reports
+          path: |
+            coverage/
+            frontend/coverage/
 
   docker:
     name: Build Docker image
