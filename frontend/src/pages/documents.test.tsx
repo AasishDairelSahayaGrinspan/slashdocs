@@ -40,6 +40,7 @@ describe("DocumentsPage", () => {
                   {
                     id: "doc_2",
                     title: "Roadmap",
+                    // nosemgrep: generic.secrets.security.detected-google-gcm-service-account.detected-google-gcm-service-account
                     owner: { type: "service_account", id: "sa_1" },
                   },
                 ]
