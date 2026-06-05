@@ -57,6 +57,7 @@ export function LoginPage() {
             </p>
           </div>
           <Button asChild size="lg" className="w-full">
+            {/* nosemgrep: typescript.react.react-href-url.react-href-url - api.loginURL always returns a same-origin relative path and URL-encodes next as a query parameter. */}
             <a href={url} onClick={() => setFrontendSignedOut(false)}>
               <GoogleIcon /> Continue with Google
             </a>

@@ -49,6 +49,7 @@ func (h handlers) googleStart(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host - google.Endpoint fixes the redirect host; state is encoded as an OAuth query parameter.
 	c.Redirect(http.StatusFound, h.deps.googleOAuth.AuthCodeURL(state, oauth2.AccessTypeOffline))
 }
 
@@ -96,6 +97,10 @@ func (h handlers) googleCallback(c *gin.Context) {
 		st.UserID = p.ID
 		if err := h.deps.stateStore.PutCode(c.Request.Context(), code, st); err != nil {
 			internalErr(c, err)
+			return
+		}
+		if !auth.LoopbackRedirectAllowed(st.CLIRedirect) {
+			badRequest(c, "invalid cli oauth parameters")
 			return
 		}
 		u, _ := url.Parse(st.CLIRedirect)
