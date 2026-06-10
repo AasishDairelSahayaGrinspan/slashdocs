@@ -118,8 +118,10 @@ func humanize(hint string, x any) string {
 			return compactRow(mergeMaps(p, u))
 		}
 		// Service accounts get the same treatment as users: merge the identity
-		// object onto the principal so the bot's name (its address, e.g.
-		// n8n-prod@brave.otter.bot) and status show, not just type=service_account.
+		// object onto the principal so the bot's name (its address) and status
+		// show, not just type=service_account. Example address shape:
+		// nosemgrep: detected-google-gcm-service-account - aidocs bot address (label@*.bot), not a Google credential.
+		// n8n-prod@brave.otter.bot
 		if sa, ok := m["service_account"].(map[string]any); ok {
 			return compactRow(mergeMaps(p, sa))
 		}
