@@ -219,6 +219,98 @@ func TestJSONOutputStaysMachineReadable(t *testing.T) {
 	}
 }
 
+// TestJSONIncludesDocumentURL locks in that --json carries the same canonical
+// document URL the human output prints, so agents never have to construct one.
+func TestJSONIncludesDocumentURL(t *testing.T) {
+	srv := httptest.NewServer(e2eMux(t))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AIDOCS_NO_BROWSER", "1")
+	html := filepath.Join(t.TempDir(), "x.html")
+	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+
+	cases := []struct {
+		args    []string
+		wantURL string
+	}{
+		{[]string{"--json", "docs", "create", html}, srv.URL + "/app/d/doc_new"},
+		{[]string{"--json", "docs", "push", "doc_1", html, "--base-version", "ver_1"}, srv.URL + "/app/d/doc_1"},
+	}
+	for _, tc := range cases {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			got, err := Execute(tc.args)
+			if err != nil {
+				t.Fatalf("%v", err)
+			}
+			var m map[string]any
+			if json.Unmarshal([]byte(got), &m) != nil {
+				t.Fatalf("--json output is not valid JSON: %q", got)
+			}
+			if m["url"] != tc.wantURL {
+				t.Fatalf("url = %v, want %v (output %q)", m["url"], tc.wantURL, got)
+			}
+		})
+	}
+}
+
+// TestWhoamiServiceAccountParity locks in that whoami renders a service
+// account's name (its bot address) and status, matching the detail shown for
+// human users rather than collapsing to a bare type=service_account row.
+func TestCreateWithoutIDDoesNotPrintBrokenURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/documents" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		requireMultipart(t, r)
+		json.NewEncoder(w).Encode(map[string]any{"current_version_id": "ver_new"})
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	html := filepath.Join(t.TempDir(), "x.html")
+	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+
+	got, err := Execute([]string{"docs", "create", html})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if strings.Contains(got, "%3Cnil%3E") || strings.Contains(got, "/app/d/") {
+		t.Fatalf("create without id printed broken URL: %q", got)
+	}
+	if !strings.Contains(got, "Document URL unavailable") {
+		t.Fatalf("create without id should explain missing URL, got %q", got)
+	}
+}
+
+func TestWhoamiServiceAccountParity(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/me" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		json.NewEncoder(w).Encode(map[string]any{
+			"principal":       map[string]any{"type": "service_account", "id": "sa_1"},
+			"service_account": map[string]any{"id": "sa_1", "name": "n8n-prod@brave.otter.bot", "disabled": false, "owner": map[string]any{"id": "usr_1", "email": "owner@example.com", "name": "Owner"}},
+		})
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+
+	got, err := Execute([]string{"auth", "whoami"})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	for _, w := range []string{"n8n-prod@brave.otter.bot", "sa_1", "server=" + srv.URL} {
+		if !strings.Contains(got, w) {
+			t.Fatalf("whoami output %q missing %q", got, w)
+		}
+	}
+}
+
 func TestLogoutRevokeCallsServer(t *testing.T) {
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

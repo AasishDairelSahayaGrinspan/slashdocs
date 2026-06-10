@@ -26,12 +26,36 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		return action(g, out, func(c *Client) ([]byte, error) {
-			return c.multipart("/v1/documents", map[string]string{"title": title}, "file", fn, data)
-		}, func(m map[string]any) string {
-			id := fmt.Sprint(value(m, "id"))
-			return fmt.Sprintf("Created document %q (%s). Review it at %s", title, id, browserURL(cl.Base, "/documents/%s", id))
-		})
+		b, err := cl.multipart("/v1/documents", map[string]string{"title": title}, "file", fn, data)
+		if err != nil {
+			return err
+		}
+		if g.quiet {
+			return nil
+		}
+		var m map[string]any
+		if json.Unmarshal(b, &m) != nil {
+			return render(out, g, b)
+		}
+		id := fmt.Sprint(value(m, "id"))
+		if id == "" || id == "<nil>" {
+			if g.json {
+				return render(out, g, b)
+			}
+			confirm(out, g, fmt.Sprintf("Created document %q. Document URL unavailable: response did not include id.", title))
+			return nil
+		}
+		docURL := browserURL(cl.Base, "/app/d/%s", id)
+		if g.json {
+			m["url"] = docURL
+			nb, err := json.Marshal(m)
+			if err != nil {
+				return err
+			}
+			return render(out, g, nb)
+		}
+		confirm(out, g, fmt.Sprintf("Created document %q (%s). Review it at %s", title, id, docURL))
+		return nil
 	}}
 	create.Flags().StringVar(&title, "title", "", "document title (defaults to the file name)")
 	var ut string
@@ -316,7 +340,7 @@ func openCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		u := browserURL(c.Base, "/documents/%s", args[0])
+		u := browserURL(c.Base, "/app/d/%s", args[0])
 		if err := openBrowserErr(u); err != nil {
 			return err
 		}

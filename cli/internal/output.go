@@ -89,16 +89,24 @@ func printPushedVersion(out io.Writer, g *globals, docID, server string, b []byt
 	if g.quiet {
 		return nil
 	}
-	if g.json {
-		return render(out, g, b)
-	}
 	var m map[string]any
 	if json.Unmarshal(b, &m) != nil {
 		return render(out, g, b)
 	}
+	url := browserURL(server, "/app/d/%s", docID)
+	if g.json {
+		m["url"] = url
+		if value(m, "document_id") == nil {
+			m["document_id"] = docID
+		}
+		nb, err := json.Marshal(m)
+		if err != nil {
+			return err
+		}
+		return render(out, g, nb)
+	}
 	num := fmt.Sprint(value(m, "number"))
 	id := fmt.Sprint(value(m, "id"))
-	url := browserURL(server, "/documents/%s", docID)
 	confirm(out, g, fmt.Sprintf("Pushed version %s (%s) to %s. Review it at %s", num, id, docID, url))
 	return nil
 }
@@ -108,6 +116,13 @@ func humanize(hint string, x any) string {
 	if p, ok := m["principal"].(map[string]any); ok {
 		if u, ok := m["user"].(map[string]any); ok {
 			return compactRow(mergeMaps(p, u))
+		}
+		// Service accounts get the same treatment as users: merge the identity
+		// object onto the principal so the bot's name (its address) and status
+		// nosemgrep: generic.secrets.security.detected-google-gcm-service-account.detected-google-gcm-service-account - aidocs service-account principal type, not a Google credential.
+		// show, not just type=service_account.
+		if sa, ok := m["service_account"].(map[string]any); ok {
+			return compactRow(mergeMaps(p, sa))
 		}
 		return compactRow(p)
 	}
