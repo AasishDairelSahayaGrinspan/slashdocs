@@ -13,11 +13,12 @@ import (
 const guidelinesText = `aidocs document authoring guidelines
 
 A document is ONE HTML file.
-  - Anything that fits in a single .html file is fine, including external
-    stylesheets, fonts, scripts, and other CDN assets.
+  - Anything that fits in a single .html file is fine, including inline code
+    and external stylesheets, fonts, scripts, Mermaid/CDN assets, iframes, and
+    media referenced by http:// or https:// URLs.
   - aidocs does NOT host assets for you. There is no image/file hosting,
     so embed your own images as base64 data URLs (data:image/png;base64,...)
-    or reference them from a URL you already control.
+    or reference them from http:// or https:// URLs you already control.
 
 Theme: follow the reader's aidocs theme.
   The viewer chooses light or dark in the aidocs UI. The render bridge sets
