@@ -17,7 +17,7 @@ import (
 func e2eMux(t *testing.T) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/me", jsonH(map[string]any{"principal": map[string]any{"type": "user", "id": "usr_1"}, "user": map[string]any{"id": "usr_1", "email": "me@example.com", "name": "Me"}}))
-	mux.HandleFunc("/v1/config", jsonH(map[string]any{"deployment": "public", "org_name": "", "everyone_label": "Anyone with the link"}))
+	mux.HandleFunc("/v1/config", jsonH(map[string]any{"deployment": "org", "org_name": "Razorpay", "everyone_label": "Razorpay"}))
 	mux.HandleFunc("/v1/documents", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
@@ -81,6 +81,25 @@ func e2eMux(t *testing.T) *http.ServeMux {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "gr_1", "role": "viewer"}}})
+	})
+	mux.HandleFunc("/v1/documents/doc_new/grants", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+			return
+		}
+		if r.Method != "POST" {
+			t.Fatalf("new doc grant used wrong method: %s", r.Method)
+		}
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if in["role"] != "viewer" {
+			t.Fatalf("new doc grant used wrong role: %#v", in)
+		}
+		p, _ := in["principal"].(map[string]any)
+		if p["type"] != "anyone" {
+			t.Fatalf("new doc grant used wrong principal: %#v", in)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"id": "gr_new"})
 	})
 	mux.HandleFunc("/v1/documents/doc_1/grants/gr_1", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "DELETE" {
@@ -161,7 +180,7 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 		want []string
 	}{
 		{[]string{"auth", "whoami"}, []string{"me@example.com", "server=" + srv.URL}},
-		{[]string{"docs", "create", html}, []string{"Created document", "doc_new"}},
+		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Give org-wide read-only access", "Razorpay", "aidocs docs grants add doc_new --everyone --role viewer"}},
 		{[]string{"docs", "update", "doc_1", "--title", "New"}, []string{"Renamed document", "doc_1"}},
 		{[]string{"docs", "pull", "doc_1", "--out", out}, []string{"Pulled version", "doc_1"}},
 		{[]string{"docs", "push", "doc_1", html}, []string{"Pushed version", "ver_2"}},
@@ -221,7 +240,7 @@ func TestJSONOutputStaysMachineReadable(t *testing.T) {
 
 // TestJSONIncludesDocumentURL locks in that --json carries the same canonical
 // document URL the human output prints, so agents never have to construct one.
-func TestJSONIncludesDocumentURL(t *testing.T) {
+func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 	srv := httptest.NewServer(e2eMux(t))
 	defer srv.Close()
 	t.Setenv("AIDOCS_TOKEN", "tok")
@@ -251,7 +270,53 @@ func TestJSONIncludesDocumentURL(t *testing.T) {
 			if m["url"] != tc.wantURL {
 				t.Fatalf("url = %v, want %v (output %q)", m["url"], tc.wantURL, got)
 			}
+			if strings.Join(tc.args, " ") == "--json docs create "+html && !strings.Contains(fmt.Sprint(m["message"]), "aidocs docs grants add doc_new --everyone --role viewer") {
+				t.Fatalf("create JSON missing org-wide nudge message: %q", got)
+			}
 		})
+	}
+}
+
+func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
+	granted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents":
+			requireMultipart(t, r)
+			json.NewEncoder(w).Encode(map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents/doc_new/grants":
+			granted = true
+			var in map[string]any
+			_ = json.NewDecoder(r.Body).Decode(&in)
+			if in["role"] != "viewer" {
+				t.Fatalf("grant role = %v, want viewer", in["role"])
+			}
+			p, _ := in["principal"].(map[string]any)
+			if p["type"] != "anyone" {
+				t.Fatalf("grant principal = %#v, want anyone", p)
+			}
+			json.NewEncoder(w).Encode(map[string]any{"id": "gr_new"})
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv(orgWideViewerEnv, "1")
+	html := filepath.Join(t.TempDir(), "x.html")
+	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+
+	got, err := Execute([]string{"docs", "create", html})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if !granted {
+		t.Fatal("create did not grant org-wide viewer access")
+	}
+	if !strings.Contains(got, "Gave org-wide read-only access") || strings.Contains(got, "Give org-wide read-only access?") {
+		t.Fatalf("unexpected output %q", got)
 	}
 }
 

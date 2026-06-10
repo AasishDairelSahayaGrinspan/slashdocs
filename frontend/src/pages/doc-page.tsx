@@ -14,6 +14,23 @@ const MIN_PANEL_WIDTH = 240;
 const MAX_PANEL_WIDTH = 640;
 const DEFAULT_PANEL_WIDTH = 380;
 
+function DocumentErrorState({
+  title,
+  description,
+}: {
+  title: string;
+  description: string;
+}) {
+  return (
+    <Center>
+      <div className="max-w-md text-center">
+        <h1 className="text-lg font-semibold text-[var(--color-fg)]">{title}</h1>
+        <p className="mt-2 text-sm text-[var(--color-fg-muted)]">{description}</p>
+      </div>
+    </Center>
+  );
+}
+
 export function DocumentPage() {
   const { id = "" } = useParams();
   const doc = useQuery({
@@ -104,22 +121,30 @@ export function DocumentPage() {
     );
   }
   if (doc.error) {
-    if (doc.error instanceof APIError && doc.error.status === 403) {
-      return (
-        <Center>
-          <div className="max-w-md text-center">
-            <h1 className="text-lg font-semibold text-[var(--color-fg)]">
-              You don't have access to this document
-            </h1>
-            <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
-              Ask the document owner to share it with you, or sign in with an account
-              that already has access.
-            </p>
-          </div>
-        </Center>
-      );
+    if (doc.error instanceof APIError) {
+      if (doc.error.status === 403) {
+        return (
+          <DocumentErrorState
+            title="You don't have access to this document"
+            description="Please ask the document owner to grant you access."
+          />
+        );
+      }
+      if (doc.error.status === 404) {
+        return (
+          <DocumentErrorState
+            title="Document not found"
+            description="This document may have been deleted, or the link may be incorrect."
+          />
+        );
+      }
     }
-    return <Center>Could not load document.</Center>;
+    return (
+      <DocumentErrorState
+        title="Could not load document"
+        description="Something went wrong while loading this document. Please try again."
+      />
+    );
   }
   if (!doc.data) return null;
 
