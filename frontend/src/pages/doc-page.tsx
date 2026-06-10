@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, currentVersionID, docTitle, versionID } from "@/api";
@@ -39,14 +39,10 @@ export function DocumentPage() {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
+  const versionItems = versions.data?.items || [];
   const latest =
-    currentVersionID(doc.data || {}) || versionID(versions.data?.items?.[0] || {});
+    currentVersionID(doc.data || {}) || versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || latest;
-
-  useEffect(() => {
-    if (!latest) return;
-    setSelectedVersion((prev) => prev || latest);
-  }, [latest]);
 
   const ctx = useMemo(
     () => ({
