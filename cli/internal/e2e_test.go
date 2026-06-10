@@ -258,6 +258,33 @@ func TestJSONIncludesDocumentURL(t *testing.T) {
 // TestWhoamiServiceAccountParity locks in that whoami renders a service
 // account's name (its bot address) and status, matching the detail shown for
 // human users rather than collapsing to a bare type=service_account row.
+func TestCreateWithoutIDDoesNotPrintBrokenURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/documents" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		requireMultipart(t, r)
+		json.NewEncoder(w).Encode(map[string]any{"current_version_id": "ver_new"})
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	html := filepath.Join(t.TempDir(), "x.html")
+	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+
+	got, err := Execute([]string{"docs", "create", html})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if strings.Contains(got, "%3Cnil%3E") || strings.Contains(got, "/app/d/") {
+		t.Fatalf("create without id printed broken URL: %q", got)
+	}
+	if !strings.Contains(got, "Document URL unavailable") {
+		t.Fatalf("create without id should explain missing URL, got %q", got)
+	}
+}
+
 func TestWhoamiServiceAccountParity(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/me" {

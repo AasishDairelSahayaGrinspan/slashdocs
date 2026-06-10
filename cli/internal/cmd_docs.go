@@ -38,11 +38,16 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 			return render(out, g, b)
 		}
 		id := fmt.Sprint(value(m, "id"))
+		if id == "" || id == "<nil>" {
+			if g.json {
+				return render(out, g, b)
+			}
+			confirm(out, g, fmt.Sprintf("Created document %q. Document URL unavailable: response did not include id.", title))
+			return nil
+		}
 		docURL := browserURL(cl.Base, "/app/d/%s", id)
 		if g.json {
-			if id != "" && id != "<nil>" {
-				m["url"] = docURL
-			}
+			m["url"] = docURL
 			nb, err := json.Marshal(m)
 			if err != nil {
 				return err
