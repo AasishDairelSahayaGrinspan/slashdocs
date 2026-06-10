@@ -64,7 +64,12 @@ func confirm(out io.Writer, g *globals, text string) {
 // action performs a mutating call and reports it conversationally. With --json
 // it prints the raw payload (machine-readable); with --quiet it prints nothing;
 // otherwise it prints the confirmation built from the decoded response.
-func action(g *globals, out io.Writer, fn func(*Client) ([]byte, error), msg func(m map[string]any) string) error {
+type actionOptions struct {
+	after      func()
+	jsonFields func() map[string]any
+}
+
+func action(g *globals, out io.Writer, fn func(*Client) ([]byte, error), msg func(m map[string]any) string, opts ...actionOptions) error {
 	c, err := client(g)
 	if err != nil {
 		return err
@@ -77,11 +82,27 @@ func action(g *globals, out io.Writer, fn func(*Client) ([]byte, error), msg fun
 		return nil
 	}
 	if g.json {
+		if len(opts) > 0 && opts[0].jsonFields != nil {
+			var m map[string]any
+			if json.Unmarshal(b, &m) == nil {
+				for k, v := range opts[0].jsonFields() {
+					m[k] = v
+				}
+				nb, err := json.Marshal(m)
+				if err != nil {
+					return err
+				}
+				b = nb
+			}
+		}
 		return render(out, g, b)
 	}
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
 	confirm(out, g, msg(m))
+	if len(opts) > 0 && opts[0].after != nil {
+		opts[0].after()
+	}
 	return nil
 }
 
@@ -96,6 +117,7 @@ func printPushedVersion(out io.Writer, g *globals, docID, server string, b []byt
 	url := browserURL(server, "/app/d/%s", docID)
 	if g.json {
 		m["url"] = url
+		m["message"] = orgWideViewerNudge(g, docID)
 		if value(m, "document_id") == nil {
 			m["document_id"] = docID
 		}
@@ -108,6 +130,7 @@ func printPushedVersion(out io.Writer, g *globals, docID, server string, b []byt
 	num := fmt.Sprint(value(m, "number"))
 	id := fmt.Sprint(value(m, "id"))
 	confirm(out, g, fmt.Sprintf("Pushed version %s (%s) to %s. Review it at %s", num, id, docID, url))
+	printOrgWideViewerNudge(out, g, docID)
 	return nil
 }
 

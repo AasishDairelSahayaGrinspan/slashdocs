@@ -86,12 +86,14 @@ func (h handlers) listDocuments(c *gin.Context) {
 // @Success 200 {object} repo.Document
 // @Router /v1/documents/{id} [get]
 func (h handlers) getDocument(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
-		return
-	}
 	d, err := h.deps.repository.GetDocument(c.Request.Context(), c.Param("id"))
 	if err != nil {
 		notFound(c)
+		return
+	}
+	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), d.ID)
+	if !atLeast(role, repo.RoleViewer) {
+		forbidden(c, "viewer role required")
 		return
 	}
 	// Opening a document adds it to the viewer's workspace, so a broadly-shared

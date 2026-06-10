@@ -2,7 +2,9 @@ package internal
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -28,20 +30,77 @@ func configCmd(g *globals, out io.Writer) *cobra.Command {
 // if the server is unreachable or pre-dates the endpoint, so sharing still
 // reports something sensible.
 func everyoneLabelFor(g *globals) string {
-	const fallback = "everyone on this server"
+	cfg := serverConfigFor(g)
+	if cfg.EveryoneLabel == "" {
+		return "everyone on this server"
+	}
+	return cfg.EveryoneLabel
+}
+
+type serverConfig struct {
+	OrgName       string `json:"org_name"`
+	EveryoneLabel string `json:"everyone_label"`
+}
+
+func serverConfigFor(g *globals) serverConfig {
 	cl, err := client(g)
 	if err != nil {
-		return fallback
+		return serverConfig{}
 	}
 	b, err := cl.do("GET", "/v1/config", nil, "")
 	if err != nil {
-		return fallback
+		return serverConfig{}
 	}
-	var cfg struct {
-		EveryoneLabel string `json:"everyone_label"`
+	var cfg serverConfig
+	_ = json.Unmarshal(b, &cfg)
+	return cfg
+}
+
+func maybeGrantOrgWideViewer(c *Client, docID string) (bool, error) {
+	if os.Getenv(orgWideViewerEnv) == "" {
+		return false, nil
 	}
-	if json.Unmarshal(b, &cfg) != nil || cfg.EveryoneLabel == "" {
-		return fallback
+	_, err := c.doJSON("POST", apiPath("/v1/documents/%s/grants", docID), map[string]any{
+		"principal": map[string]any{"type": "anyone"},
+		"role":      "viewer",
+	})
+	return true, err
+}
+
+func orgWideViewerNudge(g *globals, docID string) string {
+	if documentHasGrants(g, docID) {
+		return ""
 	}
-	return cfg.EveryoneLabel
+	org := serverConfigFor(g).OrgName
+	if org == "" {
+		org = "your org"
+	}
+	return fmt.Sprintf("Give org-wide read-only access? We are transparent here at %s. You can do it with: aidocs docs grants add %s --everyone --role viewer", org, docID)
+}
+
+func printOrgWideViewerNudge(out io.Writer, g *globals, docID string) {
+	if g.quiet || g.json {
+		return
+	}
+	if nudge := orgWideViewerNudge(g, docID); nudge != "" {
+		fmt.Fprintln(out, nudge)
+	}
+}
+
+func documentHasGrants(g *globals, docID string) bool {
+	cl, err := client(g)
+	if err != nil {
+		return true
+	}
+	b, err := cl.do("GET", apiPath("/v1/documents/%s/grants", docID), nil, "")
+	if err != nil {
+		return true
+	}
+	var resp struct {
+		Items []any `json:"items"`
+	}
+	if json.Unmarshal(b, &resp) != nil {
+		return true
+	}
+	return len(resp.Items) > 0
 }
