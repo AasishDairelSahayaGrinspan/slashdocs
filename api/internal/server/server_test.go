@@ -531,8 +531,22 @@ func TestRenderCSPAllowsConfiguredAppOrigin(t *testing.T) {
 
 	rr := do(t, h, http.MethodGet, "/v/doc_1/ver_1?token="+tok.Token, "", nil)
 	assertStatus(t, rr, http.StatusOK)
-	if got := rr.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors https://app.example") {
-		t.Fatalf("CSP = %q, want frame-ancestors for configured app origin", got)
+	csp := rr.Header().Get("Content-Security-Policy")
+	for _, want := range []string{
+		"img-src * data: blob:",
+		"media-src * data: blob:",
+		"font-src * data: blob:",
+		"style-src * 'unsafe-inline'",
+		"script-src * 'unsafe-inline' 'unsafe-eval'",
+		"connect-src *",
+		"frame-src *",
+		"worker-src * blob:",
+		"object-src 'none'",
+		"frame-ancestors https://app.example",
+	} {
+		if !strings.Contains(csp, want) {
+			t.Fatalf("CSP = %q, want %q", csp, want)
+		}
 	}
 }
 
