@@ -38,7 +38,8 @@ const qc = new QueryClient({
     },
   },
   queryCache: new QueryCache({
-    onError: (e) => {
+    onError: (e, query) => {
+      if (query.meta?.suppressGlobalError) return;
       if (e instanceof APIError && e.status === 401) return;
       toast.error(errorMessage(e));
     },

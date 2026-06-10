@@ -2,7 +2,7 @@ import { useTitle } from "@/lib/use-title";
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api, currentVersionID, docTitle, versionID } from "@/api";
+import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { DocProvider, type PendingSelection } from "./doc-context";
@@ -19,18 +19,22 @@ export function DocumentPage() {
   const doc = useQuery({
     queryKey: queryKeys.document(id),
     queryFn: () => api.getDocument(id),
+    meta: { suppressGlobalError: true },
   });
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const versions = useQuery({
     queryKey: queryKeys.versions(id),
     queryFn: () => api.listVersions(id),
+    enabled: !!id && !doc.error,
+    meta: { suppressGlobalError: true },
   });
   // One comments query feeds both the paint overlay and the side panel so they
   // stay in sync.
   const comments = useQuery({
     queryKey: queryKeys.comments(id),
     queryFn: () => api.listComments(id),
-    enabled: !!id,
+    enabled: !!id && !doc.error,
+    meta: { suppressGlobalError: true },
   });
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
@@ -99,7 +103,24 @@ export function DocumentPage() {
       </div>
     );
   }
-  if (doc.error) return <Center>Could not load document.</Center>;
+  if (doc.error) {
+    if (doc.error instanceof APIError && doc.error.status === 403) {
+      return (
+        <Center>
+          <div className="max-w-md text-center">
+            <h1 className="text-lg font-semibold text-[var(--color-fg)]">
+              You don't have access to this document
+            </h1>
+            <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
+              Ask the document owner to share it with you, or sign in with an account
+              that already has access.
+            </p>
+          </div>
+        </Center>
+      );
+    }
+    return <Center>Could not load document.</Center>;
+  }
   if (!doc.data) return null;
 
   return (
