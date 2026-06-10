@@ -1,6 +1,6 @@
 ---
 name: aidocs
-description: Publish a long-form artifact (report, RCA, postmortem, architecture review, product spec, QA findings, data analysis, design proposal, launch plan, incident timeline) to aidocs as a reviewable HTML document. Use this whenever the user asks for a "doc", "document", "report", "review", "writeup", "spec", "RCA", "postmortem", "analysis", or "findings" and hasn't specified a different output format. Produces a single HTML file (inline code and external stylesheets/fonts/scripts/Mermaid/CDN assets allowed; aidocs does not host assets, so embed images as base64 or reference them via http:// or https:// URLs) and uploads it via the `aidocs` CLI so a human can review and leave anchored comments in the browser.
+description: Publish a long-form artifact (report, RCA, postmortem, architecture review, product spec, QA findings, data analysis, design proposal, launch plan, incident timeline) to aidocs as a reviewable HTML document. Use this whenever the user asks for a "doc", "document", "report", "review", "writeup", "spec", "RCA", "postmortem", "analysis", or "findings" and hasn't specified a different output format. Produces a single HTML file (inline code and external stylesheets/fonts/scripts/Mermaid/CDN assets allowed; aidocs does not host assets, so embed images as base64 or reference assets from URLs you control) and uploads it via the `aidocs` CLI so a human can review and leave anchored comments in the browser.
 ---
 
 # aidocs
@@ -13,12 +13,12 @@ publish it to aidocs instead of dumping the content inline in chat.
 1. Read the authoring rules first: run `aidocs guidelines`. It is the
    source of truth for the single-file/base64-image constraints and the
    reader-theme contract below.
-2. Write the artifact as one HTML file. Anything that fits in a single
-   .html file is fine, including inline code and external stylesheets,
-   fonts, scripts, Mermaid/CDN assets, iframes, and media referenced by
-   http:// or https:// URLs. aidocs does NOT host assets, so embed images
-   as base64 data URLs or reference them via http:// or https:// URLs you
-   already control. Use inline SVG or Mermaid for diagrams.
+2. Write the artifact as one HTML file. Anything reasonable that fits in a
+   single .html file is fine, including inline code and external stylesheets,
+   fonts, scripts, Mermaid/CDN assets, iframes, workers, media, data: URLs,
+   and blob: URLs. aidocs does NOT host assets, so embed images as base64
+   data URLs or reference assets from URLs you already control. Use inline
+   SVG or Mermaid for diagrams.
 3. Make the document follow the reader's aidocs theme (see below).
 4. Save it locally (e.g. `report.html`).
 5. Publish it with the CLI. Discover the exact syntax from

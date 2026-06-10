@@ -533,10 +533,15 @@ func TestRenderCSPAllowsConfiguredAppOrigin(t *testing.T) {
 	assertStatus(t, rr, http.StatusOK)
 	csp := rr.Header().Get("Content-Security-Policy")
 	for _, want := range []string{
-		"img-src data: http: https:",
-		"font-src data: http: https:",
-		"style-src 'unsafe-inline' http: https:",
-		"script-src 'unsafe-inline' http: https:",
+		"img-src * data: blob:",
+		"media-src * data: blob:",
+		"font-src * data: blob:",
+		"style-src * 'unsafe-inline'",
+		"script-src * 'unsafe-inline' 'unsafe-eval'",
+		"connect-src *",
+		"frame-src *",
+		"worker-src * blob:",
+		"object-src 'none'",
 		"frame-ancestors https://app.example",
 	} {
 		if !strings.Contains(csp, want) {
