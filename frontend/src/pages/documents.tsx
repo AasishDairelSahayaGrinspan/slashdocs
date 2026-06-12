@@ -8,11 +8,13 @@ import { errorMessage } from "@/lib/errors";
 import {
   FileText,
   MoreHorizontal,
+  Pin,
   Search,
   Sparkles,
   Trash2,
   Upload,
 } from "lucide-react";
+import { usePins, togglePin } from "@/lib/pins";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Avatar, Center, Skeleton, EmptyState } from "@/components/ui/misc";
@@ -72,7 +74,16 @@ export function DocumentsPage() {
       autoMarkFirstDoc();
     }
   }, [docs.data]);
-  const items = useMemo(() => docs.data?.items || [], [docs.data]);
+  const allItems = useMemo(() => docs.data?.items || [], [docs.data]);
+  const pins = usePins();
+  const items = useMemo(
+    () => ({
+      pinned: allItems.filter((d) => pins.has(d.id)),
+      rest: allItems.filter((d) => !pins.has(d.id)),
+      all: allItems,
+    }),
+    [allItems, pins],
+  );
 
   if (docs.isLoading) {
     return (
@@ -85,7 +96,7 @@ export function DocumentsPage() {
   if (docs.error) return <Center>Could not load documents.</Center>;
 
   const searching = debouncedQ.length > 0;
-  const empty = !searching && (docs.data?.items || []).length === 0;
+  const empty = !searching && items.all.length === 0;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -121,16 +132,24 @@ export function DocumentsPage() {
 
       {empty ? (
         <EmptyDocs />
-      ) : items.length === 0 ? (
-        <EmptyState title="No matches" description={`Nothing matches “${q}”.`} />
+      ) : items.all.length === 0 ? (
+        <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
       ) : (
-        <DocTable items={items} principal={me.data?.principal} />
+        <DocTable pinned={items.pinned} rest={items.rest} principal={me.data?.principal} />
       )}
     </div>
   );
 }
 
-function DocTable({ items, principal }: { items: Document[]; principal?: Principal }) {
+function DocTable({
+  pinned,
+  rest,
+  principal,
+}: {
+  pinned: Document[];
+  rest: Document[];
+  principal?: Principal;
+}) {
   return (
     <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <table className="w-full text-sm">
@@ -138,14 +157,48 @@ function DocTable({ items, principal }: { items: Document[]; principal?: Princip
           <tr>
             <th className="px-4 py-2.5 text-left font-medium">Title</th>
             <th className="px-4 py-2.5 text-left font-medium">Owner</th>
-            <th className="w-12 px-2 py-2.5"></th>
+            <th className="w-20 px-2 py-2.5"></th>
           </tr>
         </thead>
         <tbody>
-          {items.map((d) => (
+          {pinned.length > 0 && (
+            <>
+              <tr>
+                <td
+                  colSpan={3}
+                  className="bg-[var(--color-accent-muted)]/30 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-accent)]"
+                >
+                  <span className="flex items-center gap-1.5">
+                    <Pin className="h-3 w-3" />
+                    Pinned
+                  </span>
+                </td>
+              </tr>
+              {pinned.map((d) => (
+                <DocRow
+                  key={docID(d)}
+                  doc={d}
+                  pinned
+                  canDelete={samePrincipal(principal, d.owner)}
+                />
+              ))}
+              {rest.length > 0 && (
+                <tr>
+                  <td
+                    colSpan={3}
+                    className="bg-[var(--color-surface-muted)]/30 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--color-fg-muted)]"
+                  >
+                    All documents
+                  </td>
+                </tr>
+              )}
+            </>
+          )}
+          {rest.map((d) => (
             <DocRow
               key={docID(d)}
               doc={d}
+              pinned={false}
               canDelete={samePrincipal(principal, d.owner)}
             />
           ))}
@@ -155,7 +208,15 @@ function DocTable({ items, principal }: { items: Document[]; principal?: Princip
   );
 }
 
-function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
+function DocRow({
+  doc,
+  pinned,
+  canDelete,
+}: {
+  doc: Document;
+  pinned: boolean;
+  canDelete: boolean;
+}) {
   const q = useQueryClient();
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docID(doc)),
@@ -165,11 +226,12 @@ function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
+  const id = docID(doc);
   return (
     <tr className="group border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40">
       <td className="px-4 py-3">
         <Link
-          to={`/app/d/${docID(doc)}`}
+          to={`/app/d/${id}`}
           className="flex items-center gap-2 font-medium hover:underline"
         >
           <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
@@ -180,22 +242,38 @@ function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
         <OwnerCell owner={doc.owner} />
       </td>
       <td className="px-2 py-3">
-        {canDelete ? (
-          <DeleteDocumentDialog
-            title={docTitle(doc)}
-            onConfirm={() => del.mutate()}
-            trigger={
-              <Button
-                variant="ghost"
-                size="icon"
-                className="opacity-0 transition-opacity group-hover:opacity-100"
-                aria-label="Delete document"
-              >
-                <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
-              </Button>
+        <div className="flex items-center justify-end gap-0.5">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => togglePin(id)}
+            aria-label={pinned ? "Unpin document" : "Pin document"}
+            title={pinned ? "Unpin" : "Pin to top"}
+            className={
+              pinned
+                ? "text-[var(--color-accent)]"
+                : "opacity-0 transition-opacity group-hover:opacity-100 text-[var(--color-fg-muted)]"
             }
-          />
-        ) : null}
+          >
+            <Pin className={`h-3.5 w-3.5 ${pinned ? "fill-current" : ""}`} />
+          </Button>
+          {canDelete ? (
+            <DeleteDocumentDialog
+              title={docTitle(doc)}
+              onConfirm={() => del.mutate()}
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="opacity-0 transition-opacity group-hover:opacity-100"
+                  aria-label="Delete document"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                </Button>
+              }
+            />
+          ) : null}
+        </div>
       </td>
     </tr>
   );
