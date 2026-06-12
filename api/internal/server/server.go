@@ -187,6 +187,23 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)
 	authed.DELETE("/documents/:id/comments/:comment_id", h.deleteComment)
+
+	authed.POST("/folders", h.createFolder)
+	authed.GET("/folders", h.listFolders)
+	authed.GET("/folders/:id", h.getFolder)
+	authed.PATCH("/folders/:id", h.patchFolder)
+	authed.DELETE("/folders/:id", h.deleteFolder)
+	authed.POST("/folders/:id/grants", h.createFolderGrant)
+	authed.GET("/folders/:id/grants", h.listFolderGrants)
+	authed.PATCH("/folders/:id/grants/:grant_id", h.patchFolderGrant)
+	authed.DELETE("/folders/:id/grants/:grant_id", h.deleteFolderGrant)
+	authed.POST("/folders/:id/documents", h.addDocumentToFolder)
+	authed.GET("/folders/:id/documents", h.listFolderDocuments)
+	authed.DELETE("/folders/:id/documents/:doc_id", h.removeDocumentFromFolder)
+
+	authed.GET("/pins", h.listPins)
+	authed.PUT("/pins/:resource_type/:resource_id", h.pinResource)
+	authed.DELETE("/pins/:resource_type/:resource_id", h.unpinResource)
 }
 
 type handlers struct{ deps dependencies }

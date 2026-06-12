@@ -888,3 +888,318 @@ func assertJSON(t *testing.T, got []byte, want string) {
 		t.Fatalf("json mismatch\n got: %s\nwant: %s", gotNorm, wantNorm)
 	}
 }
+
+// --- Folder tests ---
+
+func TestCreateFolder(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPost, "/v1/folders", `{"title":"My Reports"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusCreated)
+	assertJSON(t, rr.Body.Bytes(), `{
+	  "id": "fld_2",
+	  "title": "My Reports",
+	  "owner": {"type": "user", "id": "owner_1", "email": "owner@example.com", "name": "Owner"}
+	}`)
+}
+
+func TestCreateFolderRequiresTitle(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPost, "/v1/folders", `{}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusBadRequest)
+}
+
+func TestListFolders(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodGet, "/v1/folders", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := got["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 folder, got %d", len(items))
+	}
+}
+
+func TestGetFolderRequiresAccess(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodGet, "/v1/folders/fld_1", "", map[string]string{
+		"X-Test-Principal": "user:stranger:stranger@example.com:Stranger",
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
+func TestGetFolderOwnerCanAccess(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodGet, "/v1/folders/fld_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	assertJSON(t, rr.Body.Bytes(), `{
+	  "id": "fld_1",
+	  "title": "fixture folder",
+	  "owner": {"type": "user", "id": "owner_1", "email": "owner@example.com", "name": "Owner"}
+	}`)
+}
+
+func TestPatchFolderTitle(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPatch, "/v1/folders/fld_1", `{"title":"Renamed"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got["title"] != "Renamed" {
+		t.Fatalf("title = %v, want Renamed", got["title"])
+	}
+}
+
+func TestDeleteFolder(t *testing.T) {
+	h := newTestServer()
+	rr := do(t, h, http.MethodDelete, "/v1/folders/fld_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNoContent)
+
+	rr = do(t, h, http.MethodGet, "/v1/folders/fld_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNotFound)
+}
+
+func TestFolderGrants(t *testing.T) {
+	h := newTestServer()
+	// Grant viewer to editor_1 (exists in fixturePrincipals)
+	rr := do(t, h, http.MethodPost, "/v1/folders/fld_1/grants", `{
+	  "principal": {"type":"user","id":"editor_1"},
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusCreated)
+
+	// editor_1 can now view the folder
+	rr = do(t, h, http.MethodGet, "/v1/folders/fld_1", "", map[string]string{
+		"X-Test-Principal": "user:editor_1:editor@example.com:Editor",
+	})
+	assertStatus(t, rr, http.StatusOK)
+}
+
+func TestAddDocumentToFolderAndInheritedAccess(t *testing.T) {
+	h := newTestServer()
+
+	// Grant "anyone" viewer on the folder — simulates a shared/org-wide folder.
+	do(t, h, http.MethodPost, "/v1/folders/fld_1/grants", `{
+	  "principal": {"type":"anyone"},
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	// Before adding doc to folder, a stranger (no explicit doc grants) cannot access doc_1.
+	rr := do(t, h, http.MethodGet, "/v1/documents/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:stranger_1:stranger@example.com:Stranger",
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+
+	// Owner adds doc_1 to fld_1.
+	rr = do(t, h, http.MethodPost, "/v1/folders/fld_1/documents", `{"document_id":"doc_1"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+
+	// Now stranger can access doc_1 via folder's "anyone" grant inheritance.
+	rr = do(t, h, http.MethodGet, "/v1/documents/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:stranger_1:stranger@example.com:Stranger",
+	})
+	assertStatus(t, rr, http.StatusOK)
+}
+
+func TestAddDocumentToFolderGrantConflicts(t *testing.T) {
+	h := newTestServer()
+
+	// Add an explicit viewer grant on doc_1 for editor_1
+	do(t, h, http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": {"type":"user","id":"editor_1"},
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	// Grant editor_1 as editor on fld_1 (different role than viewer on doc)
+	do(t, h, http.MethodPost, "/v1/folders/fld_1/grants", `{
+	  "principal": {"type":"user","id":"editor_1"},
+	  "role": "editor"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	// Adding doc_1 to fld_1 should return a conflict
+	rr := do(t, h, http.MethodPost, "/v1/folders/fld_1/documents", `{"document_id":"doc_1"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var result map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	conflicts, _ := result["grant_conflicts"].([]any)
+	if len(conflicts) == 0 {
+		t.Fatal("expected at least one grant conflict, got none")
+	}
+}
+
+func TestListFolderDocuments(t *testing.T) {
+	h := newTestServer()
+	do(t, h, http.MethodPost, "/v1/folders/fld_1/documents", `{"document_id":"doc_1"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	rr := do(t, h, http.MethodGet, "/v1/folders/fld_1/documents", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := got["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 document in folder, got %d", len(items))
+	}
+}
+
+func TestRemoveDocumentFromFolder(t *testing.T) {
+	h := newTestServer()
+	do(t, h, http.MethodPost, "/v1/folders/fld_1/documents", `{"document_id":"doc_1"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	rr := do(t, h, http.MethodDelete, "/v1/folders/fld_1/documents/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNoContent)
+}
+
+func TestNonOwnerCannotCreateFolderGrant(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPost, "/v1/folders/fld_1/grants", `{
+	  "principal": {"type":"user","id":"attacker_1"},
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:attacker_1:attacker@example.com:Attacker",
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
+// --- Pin tests ---
+
+func TestPinAndListPins(t *testing.T) {
+	h := newTestServer()
+	rr := do(t, h, http.MethodPut, "/v1/pins/document/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNoContent)
+
+	rr = do(t, h, http.MethodGet, "/v1/pins", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := got["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 pin, got %d", len(items))
+	}
+	item, _ := items[0].(map[string]any)
+	if item["resource_type"] != "document" || item["resource_id"] != "doc_1" {
+		t.Fatalf("unexpected pin: %v", item)
+	}
+}
+
+func TestUnpinResource(t *testing.T) {
+	h := newTestServer()
+	do(t, h, http.MethodPut, "/v1/pins/document/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	rr := do(t, h, http.MethodDelete, "/v1/pins/document/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNoContent)
+
+	rr = do(t, h, http.MethodGet, "/v1/pins", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := got["items"].([]any)
+	if len(items) != 0 {
+		t.Fatalf("expected 0 pins after unpin, got %d", len(items))
+	}
+}
+
+func TestPinInvalidResourceTypeRejected(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPut, "/v1/pins/bogus/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusBadRequest)
+}
+
+func TestPinFolderResource(t *testing.T) {
+	h := newTestServer()
+	rr := do(t, h, http.MethodPut, "/v1/pins/folder/fld_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNoContent)
+
+	rr = do(t, h, http.MethodGet, "/v1/pins", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := got["items"].([]any)
+	if len(items) != 1 {
+		t.Fatalf("expected 1 pin, got %d", len(items))
+	}
+}
+
+func TestPinsArePerPrincipal(t *testing.T) {
+	h := newTestServer()
+	do(t, h, http.MethodPut, "/v1/pins/document/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	// Different user should see no pins
+	rr := do(t, h, http.MethodGet, "/v1/pins", "", map[string]string{
+		"X-Test-Principal": "user:editor_1:editor@example.com:Editor",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	items, _ := got["items"].([]any)
+	if len(items) != 0 {
+		t.Fatalf("pins should be per-principal, got %d pins for other user", len(items))
+	}
+}

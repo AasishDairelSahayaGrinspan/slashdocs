@@ -74,6 +74,31 @@ type Document struct {
 	CurrentVersionID string         `json:"current_version_id"`
 }
 
+type Folder struct {
+	ID    string         `json:"id"`
+	Title string         `json:"title"`
+	Owner auth.Principal `json:"owner"`
+}
+
+type Pin struct {
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
+}
+
+// GrantConflict describes a single grant that will change when a document
+// inherits a folder's grants. Added means the folder gives a grant the
+// document does not have; removed means the document has a grant the folder
+// does not.
+type GrantConflict struct {
+	Principal auth.Principal `json:"principal"`
+	DocRole   Role           `json:"doc_role"`
+	FolderRole Role          `json:"folder_role"`
+}
+
+type AddDocToFolderResult struct {
+	Conflicts []GrantConflict `json:"grant_conflicts"`
+}
+
 type ServiceAccount struct {
 	ID       string         `json:"id"`
 	Name     string         `json:"name"`
@@ -189,6 +214,39 @@ type Repository interface {
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)
 	UpdateComment(ctx context.Context, id, body, status string) (Comment, error)
 	DeleteComment(ctx context.Context, id string) error
+
+	// Folders
+	CreateFolder(ctx context.Context, owner auth.Principal, title string) (Folder, error)
+	GetFolder(ctx context.Context, id string) (Folder, error)
+	ListFolders(ctx context.Context, principal auth.Principal) ([]Folder, error)
+	UpdateFolder(ctx context.Context, id, title string) (Folder, error)
+	DeleteFolder(ctx context.Context, id string) error
+	RoleForFolder(ctx context.Context, principal auth.Principal, folderID string) (Role, error)
+	CreateFolderGrant(ctx context.Context, folderID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
+	ListFolderGrants(ctx context.Context, folderID string) ([]Grant, error)
+	UpdateFolderGrant(ctx context.Context, folderID, grantID string, role Role) (Grant, error)
+	DeleteFolderGrant(ctx context.Context, folderID, grantID string) error
+	AddDocumentToFolder(ctx context.Context, folderID, documentID string, addedBy auth.Principal) (AddDocToFolderResult, error)
+	RemoveDocumentFromFolder(ctx context.Context, folderID, documentID string) error
+	ListFolderDocuments(ctx context.Context, folderID string) ([]Document, error)
+	GetDocumentFolderIDs(ctx context.Context, documentID string) ([]string, error)
+
+	// Pins
+	PinResource(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error
+	UnpinResource(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error
+	ListPins(ctx context.Context, principal auth.Principal) ([]Pin, error)
+}
+
+type folderDocMembership struct {
+	folderID string
+	docID    string
+}
+
+type memPin struct {
+	principalType string
+	principalID   string
+	resourceType  string
+	resourceID    string
 }
 
 type Memory struct {
@@ -200,6 +258,7 @@ type Memory struct {
 	commentN  int
 	credN     int
 	sakN      int
+	folderN   int
 	docs      map[string]Document
 	versions  map[string]Version
 	grants    []Grant
@@ -209,6 +268,10 @@ type Memory struct {
 	sas       map[string]ServiceAccount
 	comments  map[string]Comment
 	transfers map[string]OwnershipTransfer
+	folders   map[string]Folder
+	folderGrants []Grant
+	folderDocs   []folderDocMembership
+	pins         []memPin
 
 	// Test-only fixtures, populated by NewMemorySeeded and consulted by
 	// RoleForDocument / PrincipalExists. Kept out of the users/grants stores so
@@ -229,7 +292,16 @@ type cliCredRecord struct {
 // behaves like a freshly migrated database; tests that need the canonical
 // fixture graph call NewMemorySeeded instead.
 func NewMemory() *Memory {
-	return &Memory{docs: map[string]Document{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, transfers: map[string]OwnershipTransfer{}}
+	return &Memory{
+		docs:      map[string]Document{},
+		versions:  map[string]Version{},
+		users:     map[string]auth.Principal{},
+		creds:     map[string]auth.Principal{},
+		sas:       map[string]ServiceAccount{},
+		comments:  map[string]Comment{},
+		transfers: map[string]OwnershipTransfer{},
+		folders:   map[string]Folder{},
+	}
 }
 
 func (m *Memory) ResolveBearerToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
@@ -306,39 +378,6 @@ func (m *Memory) RevokeCLICredential(ctx context.Context, userID, credentialID s
 	return ErrNotFound
 }
 
-func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, documentID string) (Role, error) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if _, ok := m.docs[documentID]; !ok {
-		// Fall through to fixture handling below for API tests that seed roles
-		// without a backing document.
-		if role, ok := m.fixtureRoles[p.ID]; ok {
-			return role, nil
-		}
-		return "", ErrNotFound
-	}
-	best := RoleNone
-	if d := m.docs[documentID]; p.Type == d.Owner.Type && p.ID == d.Owner.ID {
-		best = RoleOwner
-	}
-	for _, g := range m.grants {
-		if g.DocumentID != documentID {
-			continue
-		}
-		// An explicit grant matches this exact principal; an "anyone" grant
-		// matches every audience.
-		if (g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone {
-			best = MaxRole(best, g.Role)
-		}
-	}
-	if role, ok := m.fixtureRoles[p.ID]; ok {
-		best = MaxRole(best, role)
-	}
-	if best == RoleNone {
-		return "", ErrNotFound
-	}
-	return best, nil
-}
 
 func (m *Memory) CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error) {
 	m.mu.Lock()
@@ -753,4 +792,338 @@ func (m *Memory) DeclineOwnershipTransfer(ctx context.Context, id string, user a
 	x.Status = StatusDeclined
 	m.transfers[id] = x
 	return nil
+}
+
+// --- Folder memory implementations ---
+
+func (m *Memory) CreateFolder(ctx context.Context, owner auth.Principal, title string) (Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.folderN++
+	f := Folder{ID: fmt.Sprintf("fld_%d", m.folderN), Title: title, Owner: owner}
+	m.folders[f.ID] = f
+	return f, nil
+}
+
+func (m *Memory) GetFolder(ctx context.Context, id string) (Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.folders[id]
+	if !ok {
+		return Folder{}, ErrNotFound
+	}
+	return f, nil
+}
+
+func (m *Memory) ListFolders(ctx context.Context, principal auth.Principal) ([]Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Folder
+	for _, f := range m.folders {
+		if f.Owner.Type == principal.Type && f.Owner.ID == principal.ID {
+			out = append(out, f)
+			continue
+		}
+		for _, g := range m.folderGrants {
+			if g.DocumentID == f.ID &&
+				((g.Principal.Type == principal.Type && g.Principal.ID == principal.ID) ||
+					g.Principal.Type == auth.PrincipalAnyone) {
+				out = append(out, f)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) UpdateFolder(ctx context.Context, id, title string) (Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.folders[id]
+	if !ok {
+		return Folder{}, ErrNotFound
+	}
+	if title != "" {
+		f.Title = title
+	}
+	m.folders[id] = f
+	return f, nil
+}
+
+func (m *Memory) DeleteFolder(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.folders, id)
+	return nil
+}
+
+func (m *Memory) RoleForFolder(ctx context.Context, principal auth.Principal, folderID string) (Role, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.folders[folderID]
+	if !ok {
+		return "", ErrNotFound
+	}
+	best := RoleNone
+	if f.Owner.Type == principal.Type && f.Owner.ID == principal.ID {
+		best = RoleOwner
+	}
+	for _, g := range m.folderGrants {
+		if g.DocumentID != folderID {
+			continue
+		}
+		if (g.Principal.Type == principal.Type && g.Principal.ID == principal.ID) ||
+			g.Principal.Type == auth.PrincipalAnyone {
+			best = MaxRole(best, g.Role)
+		}
+	}
+	if best == RoleNone {
+		return "", ErrNotFound
+	}
+	return best, nil
+}
+
+func (m *Memory) CreateFolderGrant(ctx context.Context, folderID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.grantN++
+	g := Grant{ID: fmt.Sprintf("gr_%d", m.grantN), DocumentID: folderID, Principal: principal, Role: role, GrantedBy: grantedBy}
+	m.folderGrants = append(m.folderGrants, g)
+	return g, nil
+}
+
+func (m *Memory) ListFolderGrants(ctx context.Context, folderID string) ([]Grant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Grant
+	for _, g := range m.folderGrants {
+		if g.DocumentID == folderID {
+			out = append(out, g)
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) UpdateFolderGrant(ctx context.Context, folderID, grantID string, role Role) (Grant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, g := range m.folderGrants {
+		if g.ID == grantID && g.DocumentID == folderID {
+			m.folderGrants[i].Role = role
+			return m.folderGrants[i], nil
+		}
+	}
+	return Grant{}, ErrNotFound
+}
+
+func (m *Memory) DeleteFolderGrant(ctx context.Context, folderID, grantID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, g := range m.folderGrants {
+		if g.ID == grantID && g.DocumentID == folderID {
+			m.folderGrants = append(m.folderGrants[:i], m.folderGrants[i+1:]...)
+			return nil
+		}
+	}
+	return ErrNotFound
+}
+
+func (m *Memory) AddDocumentToFolder(ctx context.Context, folderID, documentID string, addedBy auth.Principal) (AddDocToFolderResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	// Compute grant conflicts between folder grants and document grants.
+	docGrants := map[string]Role{}
+	for _, g := range m.grants {
+		if g.DocumentID == documentID {
+			key := string(g.Principal.Type) + ":" + g.Principal.ID
+			docGrants[key] = MaxRole(docGrants[key], g.Role)
+		}
+	}
+	folderGrantMap := map[string]Grant{}
+	for _, g := range m.folderGrants {
+		if g.DocumentID == folderID {
+			key := string(g.Principal.Type) + ":" + g.Principal.ID
+			folderGrantMap[key] = g
+		}
+	}
+	var conflicts []GrantConflict
+	allKeys := map[string]bool{}
+	for k := range docGrants {
+		allKeys[k] = true
+	}
+	for k := range folderGrantMap {
+		allKeys[k] = true
+	}
+	for key := range allKeys {
+		docRole := docGrants[key]
+		fg, hasFolderGrant := folderGrantMap[key]
+		var folderRole Role
+		if hasFolderGrant {
+			folderRole = fg.Role
+		}
+		if docRole != folderRole {
+			var principal auth.Principal
+			if hasFolderGrant {
+				principal = fg.Principal
+			} else {
+				// Must exist in doc grants
+				for _, g := range m.grants {
+					if g.DocumentID == documentID {
+						k2 := string(g.Principal.Type) + ":" + g.Principal.ID
+						if k2 == key {
+							principal = g.Principal
+							break
+						}
+					}
+				}
+			}
+			conflicts = append(conflicts, GrantConflict{
+				Principal:  principal,
+				DocRole:    docRole,
+				FolderRole: folderRole,
+			})
+		}
+	}
+	// Add to folder
+	for _, fd := range m.folderDocs {
+		if fd.folderID == folderID && fd.docID == documentID {
+			return AddDocToFolderResult{Conflicts: conflicts}, nil // already in folder
+		}
+	}
+	m.folderDocs = append(m.folderDocs, folderDocMembership{folderID: folderID, docID: documentID})
+	return AddDocToFolderResult{Conflicts: conflicts}, nil
+}
+
+func (m *Memory) RemoveDocumentFromFolder(ctx context.Context, folderID, documentID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, fd := range m.folderDocs {
+		if fd.folderID == folderID && fd.docID == documentID {
+			m.folderDocs = append(m.folderDocs[:i], m.folderDocs[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *Memory) ListFolderDocuments(ctx context.Context, folderID string) ([]Document, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Document
+	for _, fd := range m.folderDocs {
+		if fd.folderID == folderID {
+			if d, ok := m.docs[fd.docID]; ok {
+				out = append(out, d)
+			}
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) GetDocumentFolderIDs(ctx context.Context, documentID string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []string
+	for _, fd := range m.folderDocs {
+		if fd.docID == documentID {
+			out = append(out, fd.folderID)
+		}
+	}
+	return out, nil
+}
+
+// Override RoleForDocument to also consider folder-inherited grants.
+func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, documentID string) (Role, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.docs[documentID]; !ok {
+		if role, ok := m.fixtureRoles[p.ID]; ok {
+			return role, nil
+		}
+		return "", ErrNotFound
+	}
+	best := RoleNone
+	if d := m.docs[documentID]; p.Type == d.Owner.Type && p.ID == d.Owner.ID {
+		best = RoleOwner
+	}
+	for _, g := range m.grants {
+		if g.DocumentID != documentID {
+			continue
+		}
+		if (g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone {
+			best = MaxRole(best, g.Role)
+		}
+	}
+	// Folder-inherited grants
+	for _, fd := range m.folderDocs {
+		if fd.docID != documentID {
+			continue
+		}
+		// Check if principal is folder owner
+		if f, ok := m.folders[fd.folderID]; ok {
+			if f.Owner.Type == p.Type && f.Owner.ID == p.ID {
+				best = MaxRole(best, RoleOwner)
+			}
+		}
+		for _, g := range m.folderGrants {
+			if g.DocumentID != fd.folderID {
+				continue
+			}
+			if (g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone {
+				best = MaxRole(best, g.Role)
+			}
+		}
+	}
+	if role, ok := m.fixtureRoles[p.ID]; ok {
+		best = MaxRole(best, role)
+	}
+	if best == RoleNone {
+		return "", ErrNotFound
+	}
+	return best, nil
+}
+
+// --- Pin memory implementations ---
+
+func (m *Memory) PinResource(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, p := range m.pins {
+		if p.principalType == string(principal.Type) && p.principalID == principal.ID &&
+			p.resourceType == resourceType && p.resourceID == resourceID {
+			return nil
+		}
+	}
+	m.pins = append(m.pins, memPin{
+		principalType: string(principal.Type),
+		principalID:   principal.ID,
+		resourceType:  resourceType,
+		resourceID:    resourceID,
+	})
+	return nil
+}
+
+func (m *Memory) UnpinResource(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for i, p := range m.pins {
+		if p.principalType == string(principal.Type) && p.principalID == principal.ID &&
+			p.resourceType == resourceType && p.resourceID == resourceID {
+			m.pins = append(m.pins[:i], m.pins[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *Memory) ListPins(ctx context.Context, principal auth.Principal) ([]Pin, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var out []Pin
+	for _, p := range m.pins {
+		if p.principalType == string(principal.Type) && p.principalID == principal.ID {
+			out = append(out, Pin{ResourceType: p.resourceType, ResourceID: p.resourceID})
+		}
+	}
+	return out, nil
 }

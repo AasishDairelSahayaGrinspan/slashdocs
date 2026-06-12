@@ -54,6 +54,20 @@ export type Grant = {
   principal?: Principal;
   role: string;
 };
+export type Folder = {
+  id: string;
+  title: string;
+  owner?: Principal;
+};
+export type Pin = {
+  resource_type: "document" | "folder";
+  resource_id: string;
+};
+export type GrantConflict = {
+  principal: Principal;
+  doc_role: string;
+  folder_role: string;
+};
 export type ServiceAccount = {
   id: string;
   name: string;
@@ -223,6 +237,55 @@ export const api = {
     }),
   deleteDocument: (id: string) =>
     request<void>(`/v1/documents/${id}`, { method: "DELETE" }),
+  listFolders: () => request<{ items: Folder[] }>("/v1/folders"),
+  getFolder: (id: string) => request<Folder>(`/v1/folders/${id}`),
+  createFolder: (title: string) =>
+    request<Folder>("/v1/folders", {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }),
+  updateFolder: (id: string, title: string) =>
+    request<Folder>(`/v1/folders/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ title }),
+    }),
+  deleteFolder: (id: string) =>
+    request<void>(`/v1/folders/${id}`, { method: "DELETE" }),
+  listFolderGrants: (id: string) =>
+    request<{ items: Grant[] }>(`/v1/folders/${id}/grants`),
+  createFolderGrant: (id: string, address: string, role: string) =>
+    request<Grant>(`/v1/folders/${id}/grants`, {
+      method: "POST",
+      body: JSON.stringify({ address, role }),
+    }),
+  updateFolderGrant: (id: string, grantId: string, role: string) =>
+    request<Grant>(`/v1/folders/${id}/grants/${grantId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    }),
+  deleteFolderGrant: (id: string, grantId: string) =>
+    request<void>(`/v1/folders/${id}/grants/${grantId}`, { method: "DELETE" }),
+  listFolderDocuments: (id: string) =>
+    request<{ items: Document[] }>(`/v1/folders/${id}/documents`),
+  addDocumentToFolder: (folderId: string, documentId: string) =>
+    request<{ grant_conflicts: GrantConflict[] }>(
+      `/v1/folders/${folderId}/documents`,
+      {
+        method: "POST",
+        body: JSON.stringify({ document_id: documentId }),
+      },
+    ),
+  removeDocumentFromFolder: (folderId: string, documentId: string) =>
+    request<void>(`/v1/folders/${folderId}/documents/${documentId}`, {
+      method: "DELETE",
+    }),
+  listPins: () => request<{ items: Pin[] }>("/v1/pins"),
+  pinResource: (resourceType: "document" | "folder", resourceId: string) =>
+    request<void>(`/v1/pins/${resourceType}/${resourceId}`, { method: "PUT" }),
+  unpinResource: (resourceType: "document" | "folder", resourceId: string) =>
+    request<void>(`/v1/pins/${resourceType}/${resourceId}`, {
+      method: "DELETE",
+    }),
   updateServiceAccount: (id: string, name: string, disabled: boolean) =>
     request<ServiceAccount>(`/v1/service-accounts/${id}`, {
       method: "PATCH",

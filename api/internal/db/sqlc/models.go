@@ -135,3 +135,28 @@ type Version struct {
 	ChangeSummary   string
 	CreatedAt       pgtype.Timestamptz
 }
+
+type Folder struct {
+	ID        string
+	Title     string
+	OwnerType string
+	OwnerID   string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+type FolderDocument struct {
+	FolderID    string
+	DocumentID  string
+	AddedAt     pgtype.Timestamptz
+	AddedByType string
+	AddedByID   string
+}
+
+type Pin struct {
+	PrincipalType string
+	PrincipalID   string
+	ResourceType  string
+	ResourceID    string
+	PinnedAt      pgtype.Timestamptz
+}

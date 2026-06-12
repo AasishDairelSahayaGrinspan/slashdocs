@@ -176,6 +176,30 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 	} else {
 		best = repo.MaxRole(best, role)
 	}
+	// Folder-inherited grants: check all folders this document belongs to.
+	folderGrants, err := s.q.GetDocumentFolderGrants(ctx, dbsqlc.GetDocumentFolderGrantsParams{
+		DocumentID:    documentID,
+		PrincipalType: string(p.Type),
+		PrincipalID:   p.ID,
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, fg := range folderGrants {
+		best = repo.MaxRole(best, repo.Role(fg.Role))
+	}
+	// Also check folder ownership.
+	ownedFolders, err := s.q.GetDocumentFolderOwnership(ctx, dbsqlc.GetDocumentFolderOwnershipParams{
+		DocumentID: documentID,
+		OwnerType:  string(p.Type),
+		OwnerID:    p.ID,
+	})
+	if err != nil {
+		return "", err
+	}
+	if len(ownedFolders) > 0 {
+		best = repo.MaxRole(best, repo.RoleOwner)
+	}
 	if best == repo.RoleNone {
 		return "", repo.ErrNotFound
 	}
@@ -664,6 +688,269 @@ func (s *Store) DeclineOwnershipTransfer(ctx context.Context, id string, user au
 		return repo.ErrNotFound
 	}
 	return err
+}
+
+// --- Folder postgres implementations ---
+
+func (s *Store) CreateFolder(ctx context.Context, owner auth.Principal, title string) (repo.Folder, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return repo.Folder{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.q.WithTx(tx)
+	if owner.Type == auth.PrincipalUser {
+		if err := upsertUser(ctx, q, owner); err != nil {
+			return repo.Folder{}, err
+		}
+	}
+	id := newID("fld")
+	if err := q.InsertFolder(ctx, dbsqlc.InsertFolderParams{ID: id, Title: title, OwnerType: string(owner.Type), OwnerID: owner.ID}); err != nil {
+		return repo.Folder{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return repo.Folder{}, err
+	}
+	return repo.Folder{ID: id, Title: title, Owner: owner}, nil
+}
+
+func (s *Store) GetFolder(ctx context.Context, id string) (repo.Folder, error) {
+	r, err := s.q.GetFolder(ctx, id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.Folder{}, repo.ErrNotFound
+	}
+	if err != nil {
+		return repo.Folder{}, err
+	}
+	return repo.Folder{ID: r.ID, Title: r.Title, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}, nil
+}
+
+func (s *Store) ListFolders(ctx context.Context, p auth.Principal) ([]repo.Folder, error) {
+	rows, err := s.q.ListFolders(ctx, dbsqlc.ListFoldersParams{OwnerID: p.ID, OwnerType: string(p.Type)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Folder, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, repo.Folder{ID: r.ID, Title: r.Title, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}})
+	}
+	return out, nil
+}
+
+func (s *Store) UpdateFolder(ctx context.Context, id, title string) (repo.Folder, error) {
+	if title != "" {
+		if err := s.q.UpdateFolderTitle(ctx, dbsqlc.UpdateFolderTitleParams{Title: title, ID: id}); err != nil {
+			return repo.Folder{}, err
+		}
+	}
+	return s.GetFolder(ctx, id)
+}
+
+func (s *Store) DeleteFolder(ctx context.Context, id string) error {
+	return s.q.DeleteFolder(ctx, id)
+}
+
+func (s *Store) RoleForFolder(ctx context.Context, p auth.Principal, folderID string) (repo.Role, error) {
+	owner, err := s.q.GetFolderOwner(ctx, folderID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", repo.ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	best := repo.RoleNone
+	if string(p.Type) == owner.OwnerType && p.ID == owner.OwnerID {
+		best = repo.RoleOwner
+	}
+	if role, err := s.folderGrantRole(ctx, folderID, string(p.Type), p.ID); err != nil {
+		return "", err
+	} else {
+		best = repo.MaxRole(best, role)
+	}
+	if role, err := s.folderGrantRole(ctx, folderID, string(auth.PrincipalAnyone), ""); err != nil {
+		return "", err
+	} else {
+		best = repo.MaxRole(best, role)
+	}
+	if best == repo.RoleNone {
+		return "", repo.ErrNotFound
+	}
+	return best, nil
+}
+
+func (s *Store) folderGrantRole(ctx context.Context, folderID, principalType, principalID string) (repo.Role, error) {
+	role, err := s.q.GetFolderGrantRole(ctx, dbsqlc.GetFolderGrantRoleParams{ResourceID: folderID, PrincipalType: principalType, PrincipalID: principalID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.RoleNone, nil
+	}
+	if err != nil {
+		return repo.RoleNone, err
+	}
+	return repo.Role(role), nil
+}
+
+func (s *Store) CreateFolderGrant(ctx context.Context, folderID string, principal auth.Principal, role repo.Role, grantedBy auth.Principal) (repo.Grant, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return repo.Grant{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.q.WithTx(tx)
+	if grantedBy.Type == auth.PrincipalUser {
+		if err := upsertUser(ctx, q, grantedBy); err != nil {
+			return repo.Grant{}, err
+		}
+	}
+	if principal.Type == auth.PrincipalUser {
+		if err := upsertUser(ctx, q, principal); err != nil {
+			return repo.Grant{}, err
+		}
+	}
+	id, err := q.UpsertFolderGrant(ctx, dbsqlc.UpsertFolderGrantParams{ID: newID("gr"), ResourceID: folderID, PrincipalType: string(principal.Type), PrincipalID: principal.ID, Role: string(role), GrantedByType: string(grantedBy.Type), GrantedByUserID: grantedBy.ID})
+	if err != nil {
+		return repo.Grant{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return repo.Grant{}, err
+	}
+	return repo.Grant{ID: id, DocumentID: folderID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
+}
+
+func (s *Store) ListFolderGrants(ctx context.Context, folderID string) ([]repo.Grant, error) {
+	rows, err := s.q.ListFolderGrants(ctx, folderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Grant, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, repo.Grant{ID: r.ID, DocumentID: folderID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalType(r.GrantedByType), ID: r.GrantedByUserID, Email: r.GrantedByEmail, Name: r.GrantedByName}})
+	}
+	return out, nil
+}
+
+func (s *Store) UpdateFolderGrant(ctx context.Context, folderID, grantID string, role repo.Role) (repo.Grant, error) {
+	r, err := s.q.UpdateFolderGrantRole(ctx, dbsqlc.UpdateFolderGrantRoleParams{Role: string(role), ID: grantID, ResourceID: folderID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.Grant{}, repo.ErrNotFound
+	}
+	if err != nil {
+		return repo.Grant{}, err
+	}
+	return repo.Grant{ID: r.ID, DocumentID: r.ResourceID, Principal: auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID, Email: r.PrincipalEmail, Name: r.PrincipalName, PictureURL: r.PrincipalPictureUrl}, Role: repo.Role(r.Role), GrantedBy: auth.Principal{Type: auth.PrincipalType(r.GrantedByType), ID: r.GrantedByUserID, Email: r.GrantedByEmail, Name: r.GrantedByName}}, nil
+}
+
+func (s *Store) DeleteFolderGrant(ctx context.Context, folderID, grantID string) error {
+	_, err := s.q.DeleteFolderGrant(ctx, dbsqlc.DeleteFolderGrantParams{ID: grantID, ResourceID: folderID})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.ErrNotFound
+	}
+	return err
+}
+
+func (s *Store) AddDocumentToFolder(ctx context.Context, folderID, documentID string, addedBy auth.Principal) (repo.AddDocToFolderResult, error) {
+	// Compute grant conflicts between folder grants and document grants.
+	docGrants, err := s.ListGrants(ctx, documentID)
+	if err != nil {
+		return repo.AddDocToFolderResult{}, err
+	}
+	folderGrants, err := s.ListFolderGrants(ctx, folderID)
+	if err != nil {
+		return repo.AddDocToFolderResult{}, err
+	}
+	conflicts := computeGrantConflicts(docGrants, folderGrants)
+	if err := s.q.AddDocumentToFolder(ctx, dbsqlc.AddDocumentToFolderParams{FolderID: folderID, DocumentID: documentID, AddedByType: string(addedBy.Type), AddedByID: addedBy.ID}); err != nil {
+		return repo.AddDocToFolderResult{}, err
+	}
+	return repo.AddDocToFolderResult{Conflicts: conflicts}, nil
+}
+
+// computeGrantConflicts returns conflicts between document grants and folder grants.
+func computeGrantConflicts(docGrants, folderGrants []repo.Grant) []repo.GrantConflict {
+	docMap := map[string]repo.Grant{}
+	for _, g := range docGrants {
+		key := string(g.Principal.Type) + ":" + g.Principal.ID
+		if existing, ok := docMap[key]; !ok || repo.MaxRole(existing.Role, g.Role) == g.Role {
+			docMap[key] = g
+		}
+	}
+	folderMap := map[string]repo.Grant{}
+	for _, g := range folderGrants {
+		key := string(g.Principal.Type) + ":" + g.Principal.ID
+		if existing, ok := folderMap[key]; !ok || repo.MaxRole(existing.Role, g.Role) == g.Role {
+			folderMap[key] = g
+		}
+	}
+	allKeys := map[string]bool{}
+	for k := range docMap {
+		allKeys[k] = true
+	}
+	for k := range folderMap {
+		allKeys[k] = true
+	}
+	var conflicts []repo.GrantConflict
+	for key := range allKeys {
+		dg, hasDG := docMap[key]
+		fg, hasFG := folderMap[key]
+		var docRole, folderRole repo.Role
+		if hasDG {
+			docRole = dg.Role
+		}
+		if hasFG {
+			folderRole = fg.Role
+		}
+		if docRole != folderRole {
+			principal := auth.Principal{}
+			if hasFG {
+				principal = fg.Principal
+			} else {
+				principal = dg.Principal
+			}
+			conflicts = append(conflicts, repo.GrantConflict{Principal: principal, DocRole: docRole, FolderRole: folderRole})
+		}
+	}
+	return conflicts
+}
+
+func (s *Store) RemoveDocumentFromFolder(ctx context.Context, folderID, documentID string) error {
+	return s.q.RemoveDocumentFromFolder(ctx, dbsqlc.RemoveDocumentFromFolderParams{FolderID: folderID, DocumentID: documentID})
+}
+
+func (s *Store) ListFolderDocuments(ctx context.Context, folderID string) ([]repo.Document, error) {
+	rows, err := s.q.ListFolderDocuments(ctx, folderID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Document, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}})
+	}
+	return out, nil
+}
+
+func (s *Store) GetDocumentFolderIDs(ctx context.Context, documentID string) ([]string, error) {
+	return s.q.GetDocumentFolderIDs(ctx, documentID)
+}
+
+// --- Pin postgres implementations ---
+
+func (s *Store) PinResource(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error {
+	return s.q.UpsertPin(ctx, dbsqlc.UpsertPinParams{PrincipalType: string(principal.Type), PrincipalID: principal.ID, ResourceType: resourceType, ResourceID: resourceID})
+}
+
+func (s *Store) UnpinResource(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error {
+	return s.q.DeletePin(ctx, dbsqlc.DeletePinParams{PrincipalType: string(principal.Type), PrincipalID: principal.ID, ResourceType: resourceType, ResourceID: resourceID})
+}
+
+func (s *Store) ListPins(ctx context.Context, principal auth.Principal) ([]repo.Pin, error) {
+	rows, err := s.q.ListPins(ctx, dbsqlc.ListPinsParams{PrincipalType: string(principal.Type), PrincipalID: principal.ID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Pin, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, repo.Pin{ResourceType: r.ResourceType, ResourceID: r.ResourceID})
+	}
+	return out, nil
 }
 
 func docFromGet(r dbsqlc.GetDocumentRow) repo.Document {
