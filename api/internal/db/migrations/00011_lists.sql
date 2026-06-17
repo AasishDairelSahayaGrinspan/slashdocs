@@ -14,9 +14,13 @@ CREATE TABLE list_items (
   PRIMARY KEY (list_id, document_id)
 );
 
-CREATE INDEX idx_list_items_list_id ON list_items(list_id);
+-- Fix #5: index on owner_id so ListListsByOwner avoids a full table scan
+CREATE INDEX IF NOT EXISTS idx_lists_owner_created ON lists(owner_id, created_at DESC);
+-- Fix #6: IF NOT EXISTS so re-running migration doesn't fail
+CREATE INDEX IF NOT EXISTS idx_list_items_list_id ON list_items(list_id);
 
 -- +goose Down
 DROP INDEX IF EXISTS idx_list_items_list_id;
+DROP INDEX IF EXISTS idx_lists_owner_created;
 DROP TABLE IF EXISTS list_items;
 DROP TABLE IF EXISTS lists;

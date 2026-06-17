@@ -40,7 +40,7 @@ export function ListDetailPage() {
 
   const list = useQuery({
     queryKey: queryKeys.list(id),
-    queryFn: () => api.listLists().then((r) => r.items.find((l) => l.id === id)),
+    queryFn: () => api.getList(id),
     enabled: !!id,
   });
   const docs = useQuery({

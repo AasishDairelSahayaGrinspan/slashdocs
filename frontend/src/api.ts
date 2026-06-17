@@ -245,6 +245,8 @@ export const api = {
       method: "DELETE",
     }),
   listLists: () => request<{ items: DocList[] }>("/v1/lists"),
+  // Fix #7: dedicated endpoint instead of client-side filtering of all lists
+  getList: (id: string) => request<DocList>(`/v1/lists/${id}`),
   createList: (name: string) =>
     request<DocList>("/v1/lists", {
       method: "POST",

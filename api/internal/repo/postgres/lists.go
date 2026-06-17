@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/jackc/pgx/v5"
 
@@ -32,7 +33,12 @@ func (s *Store) GetList(ctx context.Context, id string) (repo.List, error) {
 	if err != nil {
 		return repo.List{}, err
 	}
-	u, _ := s.ResolveUser(ctx, row.OwnerID)
+	// Fix #2: propagate ResolveUser error instead of silently discarding it.
+	// A zero-value owner would make requireListOwner deny every real caller.
+	u, err := s.ResolveUser(ctx, row.OwnerID)
+	if err != nil {
+		return repo.List{}, fmt.Errorf("GetList resolve owner %s: %w", row.OwnerID, err)
+	}
 	return repo.List{ID: row.ID, Name: row.Name, Owner: u}, nil
 }
 
@@ -56,7 +62,11 @@ func (s *Store) UpdateList(ctx context.Context, id, name string) (repo.List, err
 	if err != nil {
 		return repo.List{}, err
 	}
-	u, _ := s.ResolveUser(ctx, row.OwnerID)
+	// Fix #2 (same): propagate ResolveUser error for UpdateList as well.
+	u, err := s.ResolveUser(ctx, row.OwnerID)
+	if err != nil {
+		return repo.List{}, fmt.Errorf("UpdateList resolve owner %s: %w", row.OwnerID, err)
+	}
 	return repo.List{ID: row.ID, Name: row.Name, Owner: u}, nil
 }
 

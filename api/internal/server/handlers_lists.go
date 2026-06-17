@@ -131,7 +131,16 @@ func (h handlers) listDocumentsByList(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": docs})
+	// Fix #3: re-check access on each document; a grant may have been revoked
+	// after the document was added to the list.
+	accessible := make([]repo.Document, 0, len(docs))
+	for _, d := range docs {
+		role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), d.ID)
+		if atLeast(role, repo.RoleViewer) {
+			accessible = append(accessible, d)
+		}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": accessible})
 }
 
 // addDocumentToList godoc
@@ -154,9 +163,17 @@ func (h handlers) addDocumentToList(c *gin.Context) {
 		badRequest(c, "document_id is required")
 		return
 	}
-	// Verify caller can at least view the document before adding it.
+	// Fix #4: distinguish 404 (document not found) from 403 (no access).
 	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), in.DocumentID)
-	if err != nil || !atLeast(role, repo.RoleViewer) {
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+		} else {
+			internalErr(c, err)
+		}
+		return
+	}
+	if !atLeast(role, repo.RoleViewer) {
 		forbidden(c, "viewer role required on document")
 		return
 	}
@@ -200,7 +217,12 @@ func (h handlers) requireListOwner(c *gin.Context) (repo.List, bool) {
 		}
 		return repo.List{}, false
 	}
+	// Fix #1: guard against nil principal (auth middleware not in chain).
 	p := current(c)
+	if p == nil {
+		internalErr(c, errors.New("missing principal"))
+		return repo.List{}, false
+	}
 	if l.Owner.Type != p.Type || l.Owner.ID != p.ID {
 		forbidden(c, "owner role required")
 		return repo.List{}, false
