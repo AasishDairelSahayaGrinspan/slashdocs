@@ -117,7 +117,7 @@ export function DocBar({
         trigger={
           <Button variant="outline" size="sm" aria-label="Add to list">
             <ListPlus className="h-4 w-4" />
-            <span className="hidden sm:inline">Save to list</span>
+            <span className="hidden sm:inline">Add to list</span>
           </Button>
         }
       />
