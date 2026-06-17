@@ -49,6 +49,15 @@ definitions:
       role:
         $ref: '#/definitions/repo.Role'
     type: object
+  repo.List:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+      owner:
+        $ref: '#/definitions/auth.Principal'
+    type: object
   repo.OwnershipTransfer:
     properties:
       from_user_id:
@@ -715,6 +724,158 @@ paths:
       summary: Create render token
       tags:
       - versions
+  /v1/lists:
+    get:
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: List lists
+      tags:
+      - lists
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: List name
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/repo.List'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Create list
+      tags:
+      - lists
+  /v1/lists/{id}:
+    delete:
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Delete list
+      tags:
+      - lists
+    get:
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/repo.List'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Get list
+      tags:
+      - lists
+    patch:
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/repo.List'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Update list
+      tags:
+      - lists
+  /v1/lists/{id}/items:
+    get:
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: List documents in a list
+      tags:
+      - lists
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Add document to list
+      tags:
+      - lists
+  /v1/lists/{id}/items/{doc_id}:
+    delete:
+      parameters:
+      - description: List ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Document ID
+        in: path
+        name: doc_id
+        required: true
+        type: string
+      responses:
+        "204":
+          description: No Content
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Remove document from list
+      tags:
+      - lists
   /v1/me:
     get:
       produces:
