@@ -28,6 +28,10 @@ func (h handlers) createList(c *gin.Context) {
 		return
 	}
 	l, err := h.deps.repository.CreateList(c.Request.Context(), *current(c), in.Name)
+	if errors.Is(err, repo.ErrConflict) {
+		c.JSON(http.StatusConflict, errorResponse("list_name_taken", "You already have a list called \""+in.Name+"\". Please choose a different name.", nil))
+		return
+	}
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -88,6 +92,10 @@ func (h handlers) updateList(c *gin.Context) {
 		return
 	}
 	l, err := h.deps.repository.UpdateList(c.Request.Context(), c.Param("id"), in.Name)
+	if errors.Is(err, repo.ErrConflict) {
+		c.JSON(http.StatusConflict, errorResponse("list_name_taken", "You already have a list called \""+in.Name+"\". Please choose a different name.", nil))
+		return
+	}
 	if err != nil {
 		internalErr(c, err)
 		return

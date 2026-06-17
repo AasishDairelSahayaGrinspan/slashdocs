@@ -785,6 +785,11 @@ func (m *Memory) DeclineOwnershipTransfer(ctx context.Context, id string, user a
 func (m *Memory) CreateList(ctx context.Context, owner auth.Principal, name string) (List, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	for _, l := range m.lists {
+		if l.Owner.Type == owner.Type && l.Owner.ID == owner.ID && strings.EqualFold(l.Name, name) {
+			return List{}, ErrConflict
+		}
+	}
 	m.listN++
 	l := List{ID: fmt.Sprintf("lst_%d", m.listN), Name: name, Owner: owner}
 	m.lists[l.ID] = l
@@ -822,6 +827,11 @@ func (m *Memory) UpdateList(ctx context.Context, id, name string) (List, error) 
 		return List{}, ErrNotFound
 	}
 	if name != "" {
+		for _, existing := range m.lists {
+			if existing.ID != id && existing.Owner.Type == l.Owner.Type && existing.Owner.ID == l.Owner.ID && strings.EqualFold(existing.Name, name) {
+				return List{}, ErrConflict
+			}
+		}
 		l.Name = name
 	}
 	m.lists[id] = l

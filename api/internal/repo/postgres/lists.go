@@ -6,11 +6,18 @@ import (
 	"fmt"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	dbsqlc "github.com/razorpay/aidocs/api/internal/db/sqlc"
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
+
+// isUniqueViolation reports whether err is a Postgres unique-constraint violation.
+func isUniqueViolation(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "23505"
+}
 
 func (s *Store) CreateList(ctx context.Context, owner auth.Principal, name string) (repo.List, error) {
 	id := newID("lst")
@@ -19,6 +26,9 @@ func (s *Store) CreateList(ctx context.Context, owner auth.Principal, name strin
 		Name:    name,
 		OwnerID: owner.ID,
 	})
+	if isUniqueViolation(err) {
+		return repo.List{}, repo.ErrConflict
+	}
 	if err != nil {
 		return repo.List{}, err
 	}
@@ -58,6 +68,9 @@ func (s *Store) UpdateList(ctx context.Context, id, name string) (repo.List, err
 	row, err := s.q.UpdateList(ctx, dbsqlc.UpdateListParams{ID: id, Name: name})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repo.List{}, repo.ErrNotFound
+	}
+	if isUniqueViolation(err) {
+		return repo.List{}, repo.ErrConflict
 	}
 	if err != nil {
 		return repo.List{}, err
