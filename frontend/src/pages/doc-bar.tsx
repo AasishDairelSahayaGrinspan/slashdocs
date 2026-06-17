@@ -7,6 +7,7 @@ import {
   Check,
   ExternalLink,
   GitBranch,
+  ListPlus,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
@@ -36,6 +37,7 @@ import { api, type Principal, type Version } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { ShareSheet } from "./doc-share-sheet";
 import { UploadVersionItem } from "./doc-upload-version";
+import { AddToListDialog } from "@/pages/lists";
 
 export function DocBar({
   title,
@@ -110,6 +112,15 @@ export function DocBar({
           <ShareSheet docId={docId} />
         </Sheet>
       ) : null}
+      <AddToListDialog
+        documentId={docId}
+        trigger={
+          <Button variant="outline" size="sm" aria-label="Add to list">
+            <ListPlus className="h-4 w-4" />
+            <span className="hidden sm:inline">Save to list</span>
+          </Button>
+        }
+      />
       <Button
         variant="ghost"
         size="icon"
