@@ -61,6 +61,11 @@ export type ServiceAccount = {
   owner?: Principal;
 };
 export type ServiceAccountKey = { id: string; name: string };
+export type DocList = {
+  id: string;
+  name: string;
+  owner?: Principal;
+};
 
 export class APIError extends Error {
   constructor(
@@ -239,6 +244,28 @@ export const api = {
     request<void>(`/v1/service-accounts/${id}/keys/${key}`, {
       method: "DELETE",
     }),
+  listLists: () => request<{ items: DocList[] }>("/v1/lists"),
+  createList: (name: string) =>
+    request<DocList>("/v1/lists", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    }),
+  updateList: (id: string, name: string) =>
+    request<DocList>(`/v1/lists/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ name }),
+    }),
+  deleteList: (id: string) =>
+    request<void>(`/v1/lists/${id}`, { method: "DELETE" }),
+  getListDocuments: (id: string) =>
+    request<{ items: Document[] }>(`/v1/lists/${id}/items`),
+  addDocumentToList: (listId: string, documentId: string) =>
+    request<void>(`/v1/lists/${listId}/items`, {
+      method: "POST",
+      body: JSON.stringify({ document_id: documentId }),
+    }),
+  removeDocumentFromList: (listId: string, docId: string) =>
+    request<void>(`/v1/lists/${listId}/items/${docId}`, { method: "DELETE" }),
 };
 
 export const docID = (d: Partial<Document>) => d.id || "";

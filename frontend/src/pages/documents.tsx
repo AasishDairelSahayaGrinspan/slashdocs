@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
 import {
   FileText,
+  ListPlus,
   MoreHorizontal,
   Search,
   Sparkles,
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { HtmlFileInput, useStagedFile } from "@/components/ui/upload";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
+import { AddToListDialog } from "@/pages/lists";
 import { api, docID, docTitle, type Document, type Principal } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 
@@ -180,22 +182,36 @@ function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
         <OwnerCell owner={doc.owner} />
       </td>
       <td className="px-2 py-3">
-        {canDelete ? (
-          <DeleteDocumentDialog
-            title={docTitle(doc)}
-            onConfirm={() => del.mutate()}
+        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+          <AddToListDialog
+            documentId={docID(doc)}
             trigger={
               <Button
                 variant="ghost"
                 size="icon"
-                className="opacity-0 transition-opacity group-hover:opacity-100"
-                aria-label="Delete document"
+                aria-label="Add to list"
+                title="Add to list"
               >
-                <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                <ListPlus className="h-3.5 w-3.5 text-[var(--color-fg-muted)]" />
               </Button>
             }
           />
-        ) : null}
+          {canDelete && (
+            <DeleteDocumentDialog
+              title={docTitle(doc)}
+              onConfirm={() => del.mutate()}
+              trigger={
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="Delete document"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                </Button>
+              }
+            />
+          )}
+        </div>
       </td>
     </tr>
   );

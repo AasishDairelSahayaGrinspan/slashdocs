@@ -10,4 +10,7 @@ export const queryKeys = {
   grants: (doc: string) => ["grants", doc] as const,
   serviceAccounts: () => ["service-accounts"] as const,
   serviceAccountKeys: (id: string) => ["service-account-keys", id] as const,
+  lists: () => ["lists"] as const,
+  list: (id: string) => ["list", id] as const,
+  listDocuments: (id: string) => ["list-documents", id] as const,
 };

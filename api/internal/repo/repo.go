@@ -139,6 +139,12 @@ type Comment struct {
 	Replies         []Comment      `json:"replies,omitempty"`
 }
 
+type List struct {
+	ID    string `json:"id"`
+	Name  string `json:"name"`
+	Owner auth.Principal `json:"owner"`
+}
+
 // Repository is the application persistence boundary. The real implementation
 // will wrap sqlc-generated queries. API tests can provide fakes.
 type Repository interface {
@@ -189,6 +195,14 @@ type Repository interface {
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)
 	UpdateComment(ctx context.Context, id, body, status string) (Comment, error)
 	DeleteComment(ctx context.Context, id string) error
+	CreateList(ctx context.Context, owner auth.Principal, name string) (List, error)
+	GetList(ctx context.Context, id string) (List, error)
+	ListLists(ctx context.Context, owner auth.Principal) ([]List, error)
+	UpdateList(ctx context.Context, id, name string) (List, error)
+	DeleteList(ctx context.Context, id string) error
+	AddDocumentToList(ctx context.Context, listID, documentID string) error
+	RemoveDocumentFromList(ctx context.Context, listID, documentID string) error
+	ListDocumentsByList(ctx context.Context, listID string) ([]Document, error)
 }
 
 type Memory struct {
@@ -200,6 +214,7 @@ type Memory struct {
 	commentN  int
 	credN     int
 	sakN      int
+	listN     int
 	docs      map[string]Document
 	versions  map[string]Version
 	grants    []Grant
@@ -209,6 +224,8 @@ type Memory struct {
 	sas       map[string]ServiceAccount
 	comments  map[string]Comment
 	transfers map[string]OwnershipTransfer
+	lists     map[string]List
+	listItems map[string][]string // listID -> []documentID
 
 	// Test-only fixtures, populated by NewMemorySeeded and consulted by
 	// RoleForDocument / PrincipalExists. Kept out of the users/grants stores so
@@ -229,7 +246,17 @@ type cliCredRecord struct {
 // behaves like a freshly migrated database; tests that need the canonical
 // fixture graph call NewMemorySeeded instead.
 func NewMemory() *Memory {
-	return &Memory{docs: map[string]Document{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, transfers: map[string]OwnershipTransfer{}}
+	return &Memory{
+		docs:      map[string]Document{},
+		versions:  map[string]Version{},
+		users:     map[string]auth.Principal{},
+		creds:     map[string]auth.Principal{},
+		sas:       map[string]ServiceAccount{},
+		comments:  map[string]Comment{},
+		transfers: map[string]OwnershipTransfer{},
+		lists:     map[string]List{},
+		listItems: map[string][]string{},
+	}
 }
 
 func (m *Memory) ResolveBearerToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
@@ -753,4 +780,98 @@ func (m *Memory) DeclineOwnershipTransfer(ctx context.Context, id string, user a
 	x.Status = StatusDeclined
 	m.transfers[id] = x
 	return nil
+}
+
+func (m *Memory) CreateList(ctx context.Context, owner auth.Principal, name string) (List, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.listN++
+	l := List{ID: fmt.Sprintf("lst_%d", m.listN), Name: name, Owner: owner}
+	m.lists[l.ID] = l
+	m.listItems[l.ID] = []string{}
+	return l, nil
+}
+
+func (m *Memory) GetList(ctx context.Context, id string) (List, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	l, ok := m.lists[id]
+	if !ok {
+		return List{}, ErrNotFound
+	}
+	return l, nil
+}
+
+func (m *Memory) ListLists(ctx context.Context, owner auth.Principal) ([]List, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []List{}
+	for _, l := range m.lists {
+		if l.Owner.Type == owner.Type && l.Owner.ID == owner.ID {
+			out = append(out, l)
+		}
+	}
+	return out, nil
+}
+
+func (m *Memory) UpdateList(ctx context.Context, id, name string) (List, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	l, ok := m.lists[id]
+	if !ok {
+		return List{}, ErrNotFound
+	}
+	if name != "" {
+		l.Name = name
+	}
+	m.lists[id] = l
+	return l, nil
+}
+
+func (m *Memory) DeleteList(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.lists, id)
+	delete(m.listItems, id)
+	return nil
+}
+
+func (m *Memory) AddDocumentToList(ctx context.Context, listID, documentID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.lists[listID]; !ok {
+		return ErrNotFound
+	}
+	for _, d := range m.listItems[listID] {
+		if d == documentID {
+			return nil // already present
+		}
+	}
+	m.listItems[listID] = append(m.listItems[listID], documentID)
+	return nil
+}
+
+func (m *Memory) RemoveDocumentFromList(ctx context.Context, listID, documentID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	items := m.listItems[listID]
+	for i, d := range items {
+		if d == documentID {
+			m.listItems[listID] = append(items[:i], items[i+1:]...)
+			return nil
+		}
+	}
+	return nil
+}
+
+func (m *Memory) ListDocumentsByList(ctx context.Context, listID string) ([]Document, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Document{}
+	for _, docID := range m.listItems[listID] {
+		if d, ok := m.docs[docID]; ok {
+			out = append(out, d)
+		}
+	}
+	return out, nil
 }

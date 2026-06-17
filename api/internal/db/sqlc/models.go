@@ -135,3 +135,17 @@ type Version struct {
 	ChangeSummary   string
 	CreatedAt       pgtype.Timestamptz
 }
+
+type List struct {
+	ID        string
+	Name      string
+	OwnerID   string
+	CreatedAt pgtype.Timestamptz
+	UpdatedAt pgtype.Timestamptz
+}
+
+type ListItem struct {
+	ListID     string
+	DocumentID string
+	AddedAt    pgtype.Timestamptz
+}

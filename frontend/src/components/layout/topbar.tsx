@@ -1,6 +1,7 @@
 import { Link, useNavigate } from "react-router-dom";
 import {
   Check,
+  List,
   LogOut,
   Monitor,
   Moon,
@@ -38,6 +39,23 @@ export function TopBar({
         <img src="/favicon.svg" alt="" className="h-10 w-10" />
         aidocs
       </Link>
+      <nav className="hidden items-center gap-1 sm:flex">
+        <Link
+          to="/app/documents"
+          className="rounded-md px-3 py-1.5 text-sm text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+        >
+          Documents
+        </Link>
+        <Link
+          to="/app/lists"
+          className="rounded-md px-3 py-1.5 text-sm text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+        >
+          <span className="flex items-center gap-1.5">
+            <List className="h-3.5 w-3.5" />
+            Lists
+          </span>
+        </Link>
+      </nav>
       <div className="flex items-center gap-2">
         <GetStartedPill />
         <Dropdown>

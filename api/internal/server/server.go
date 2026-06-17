@@ -187,6 +187,14 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)
 	authed.DELETE("/documents/:id/comments/:comment_id", h.deleteComment)
+	authed.POST("/lists", h.createList)
+	authed.GET("/lists", h.listLists)
+	authed.GET("/lists/:id", h.getList)
+	authed.PATCH("/lists/:id", h.updateList)
+	authed.DELETE("/lists/:id", h.deleteList)
+	authed.GET("/lists/:id/items", h.listDocumentsByList)
+	authed.POST("/lists/:id/items", h.addDocumentToList)
+	authed.DELETE("/lists/:id/items/:doc_id", h.removeDocumentFromList)
 }
 
 type handlers struct{ deps dependencies }
