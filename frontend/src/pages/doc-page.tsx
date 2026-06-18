@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
@@ -60,9 +60,15 @@ export function DocumentPage() {
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
+  const handleDocCommentClick = useCallback((commentId: string) => {
+    setActiveComment(commentId);
+    setPanelOpen(true);
+  }, []);
+
   const versionItems = versions.data?.items || [];
   const latest =
-    currentVersionID(doc.data || {}) || versionID(versionItems[versionItems.length - 1] || {});
+    currentVersionID(doc.data || {}) ||
+    versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || latest;
 
   const ctx = useMemo(
@@ -77,6 +83,7 @@ export function DocumentPage() {
       setSelection,
       activeComment,
       setActiveComment,
+      handleDocCommentClick,
     }),
     [
       id,
@@ -87,6 +94,8 @@ export function DocumentPage() {
       me.data,
       selection,
       activeComment,
+      setActiveComment,
+      handleDocCommentClick,
     ],
   );
 
@@ -99,7 +108,9 @@ export function DocumentPage() {
 
     const onMove = (ev: PointerEvent) => {
       const delta = startX - ev.clientX;
-      setPanelWidth(Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + delta)));
+      setPanelWidth(
+        Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + delta)),
+      );
     };
 
     const onUp = (ev: PointerEvent) => {

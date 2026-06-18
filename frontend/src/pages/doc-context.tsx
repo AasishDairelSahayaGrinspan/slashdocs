@@ -19,6 +19,7 @@ export type DocContextValue = {
   setSelection: (s: PendingSelection | null) => void;
   activeComment?: string;
   setActiveComment: (id?: string) => void;
+  handleDocCommentClick: (id: string) => void;
 };
 
 const DocContext = createContext<DocContextValue | null>(null);
