@@ -758,6 +758,76 @@ func TestRenderRouteReturnsWrapperNotRawHTML(t *testing.T) {
 	}
 }
 
+// TestDriveRender_WrapsHTML posts client-fetched Drive HTML to the wrap
+// endpoint and asserts it comes back inside the sandbox iframe wrapper with
+// the user HTML HTML-entity-escaped in the srcdoc attribute. The HTML is never
+// persisted; only the doc id is consulted to confirm the doc is Drive-backed.
+func TestDriveRender_WrapsHTML(t *testing.T) {
+	repo := repo.NewMemory()
+	h := server.New(server.Config{Environment: "test", AppOrigin: "https://app.example", SessionSecret: "test-secret"},
+		server.WithRepository(repo), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "owner_1", Email: "owner@example.com", Name: "Owner"}
+	doc, err := repo.UpsertDriveDocument(context.Background(), owner, "file-abc", "", "Drive document")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"document_id":"` + doc.ID + `","html":"<h1>hi</h1>"}`
+	rr := do(t, h, http.MethodPost, "/v1/drive/render", body, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	out := rr.Body.String()
+	if !strings.Contains(out, `<iframe id="aidocs-doc"`) {
+		t.Fatalf("wrapper iframe missing: %s", out[:200])
+	}
+	if !strings.Contains(out, "&lt;h1&gt;hi&lt;/h1&gt;") {
+		t.Fatalf("posted HTML must appear escaped in srcdoc: %s", out[:200])
+	}
+	// Same security headers as the native render path.
+	csp := rr.Header().Get("Content-Security-Policy")
+	if !strings.Contains(csp, "frame-ancestors https://app.example") {
+		t.Fatalf("CSP = %q, want frame-ancestors https://app.example", csp)
+	}
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+}
+
+// TestDriveRender_RequiresSession confirms a valid session is required so the
+// endpoint is not an open HTML-wrapping proxy.
+func TestDriveRender_RequiresSession(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", SessionSecret: "test-secret"})
+	rr := do(t, h, http.MethodPost, "/v1/drive/render", `{"document_id":"doc_1","html":"<h1>hi</h1>"}`, map[string]string{
+		"Content-Type": "application/json",
+	})
+	assertStatus(t, rr, http.StatusUnauthorized)
+}
+
+// TestDriveRender_RejectsNonDriveDoc confirms a native (non-Drive) document id
+// is refused — only Drive-backed docs are wrappable here.
+func TestDriveRender_RejectsNonDriveDoc(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", SessionSecret: "test-secret"})
+	// doc_1 is a native fixture document (SourceNative), not SourceDrive.
+	rr := do(t, h, http.MethodPost, "/v1/drive/render", `{"document_id":"doc_1","html":"<h1>hi</h1>"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNotFound)
+}
+
+// TestDriveRender_RejectsUnknownDoc confirms a missing document id yields 404.
+func TestDriveRender_RejectsUnknownDoc(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", SessionSecret: "test-secret"})
+	rr := do(t, h, http.MethodPost, "/v1/drive/render", `{"document_id":"nope","html":"<h1>hi</h1>"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusNotFound)
+}
+
 func TestServiceAccountWithoutGrantCannotReadDocument(t *testing.T) {
 	rr := do(t, newTestServer(), http.MethodGet, "/v1/documents/doc_1", "", map[string]string{
 		"X-Test-Principal": "service_account:sa_1",

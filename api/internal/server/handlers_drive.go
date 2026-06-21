@@ -7,6 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 // resolveSession is the non-aborting counterpart of requireAuth. It attempts to
@@ -71,4 +72,45 @@ func driveLoginURL(rawState string) string {
 	q.Set("mode", authModeWeb)
 	q.Set("redirect", "/drive/open?"+target.Encode())
 	return "/v1/auth/google/start?" + q.Encode()
+}
+
+// driveRender wraps client-fetched Google Drive HTML in aidocs' sandbox
+// renderer. The browser fetches the file bytes directly from Drive (no server
+// token is ever involved) and POSTs them here; this endpoint merely confirms
+// the document id refers to a Drive-backed doc and returns the wrapper page.
+//
+// The posted HTML is never persisted. Access is intentionally NOT gated by
+// RoleForDocument: Drive ACLs gate the fetch (a user who can retrieve the bytes
+// from Drive is authorised to view them), and aidocs grants are inert for Drive
+// docs (Global Constraint). Requiring a valid session (the route is on the
+// authed group) prevents this from being an open HTML-wrapping proxy.
+func (h handlers) driveRender(c *gin.Context) {
+	p := current(c)
+	if p == nil {
+		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "login required", nil))
+		return
+	}
+	var in struct {
+		DocumentID string `json:"document_id"`
+		HTML       string `json:"html"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || in.DocumentID == "" {
+		badRequest(c, "invalid render request")
+		return
+	}
+	doc, err := h.deps.repository.GetDocument(c.Request.Context(), in.DocumentID)
+	if err != nil || doc.Source != repo.SourceDrive {
+		notFound(c)
+		return
+	}
+	appOrigin := h.deps.appOrigin
+	if appOrigin == "" {
+		appOrigin = "'self'"
+	}
+	// Same CSP / X-Content-Type-Options headers as renderVersion
+	// (handlers_versions.go) — keep them byte-identical for the Drive path.
+	c.Header("Content-Security-Policy", "default-src 'none'; img-src * data: blob:; media-src * data: blob:; font-src * data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; frame-src *; worker-src * blob:; object-src 'none'; frame-ancestors "+appOrigin)
+	c.Header("X-Content-Type-Options", "nosniff")
+	observeHTML("drive_render", len(in.HTML))
+	c.Data(http.StatusOK, "text/html; charset=utf-8", renderWrapperHTML([]byte(in.HTML), appOrigin))
 }

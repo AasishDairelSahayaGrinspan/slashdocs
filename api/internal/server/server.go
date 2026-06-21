@@ -173,6 +173,10 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/service-accounts/transfers/:id/accept", h.acceptOwnershipTransfer)
 	authed.POST("/service-accounts/transfers/:id/decline", h.declineOwnershipTransfer)
 	authed.POST("/documents", h.createDocument)
+	// /drive/render wraps client-fetched Drive HTML (the browser fetches the
+	// file bytes from Drive and POSTs them) in the sandbox renderer. Requires a
+	// session so it is not an open HTML-wrapping proxy; Drive ACLs gate access.
+	authed.POST("/drive/render", h.driveRender)
 	authed.GET("/documents", h.listDocuments)
 	authed.GET("/documents/:id", h.getDocument)
 	authed.PATCH("/documents/:id", h.patchDocument)
