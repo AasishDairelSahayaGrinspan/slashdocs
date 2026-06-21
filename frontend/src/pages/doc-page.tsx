@@ -176,7 +176,11 @@ export function DocumentPage() {
         />
         <div className="flex flex-1 overflow-hidden">
           <section className="relative flex-1 bg-[var(--color-surface-muted)]">
-            {current ? <RenderFrame /> : <Center>No version available.</Center>}
+            {current || doc.data.source === "drive" ? (
+              <RenderFrame doc={doc.data} />
+            ) : (
+              <Center>No version available.</Center>
+            )}
           </section>
           {panelOpen && (
             <aside

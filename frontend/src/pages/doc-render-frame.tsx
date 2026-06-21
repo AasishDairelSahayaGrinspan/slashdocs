@@ -1,16 +1,30 @@
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type Anchor } from "@/api";
+import { api, type Anchor, type Document } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { COMMENT_STATUS } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
+import { useConfig } from "@/lib/useConfig";
+import {
+  DriveAccessError,
+  fetchDriveFile,
+  getDriveAccessToken,
+} from "@/lib/drive";
 import { useDoc } from "./doc-context";
 
 // Renders the sandboxed document iframe and exchanges selection and paint
 // messages with the in-iframe bridge. Message origins are validated on both
 // ends, and painting is driven by the bridge's ready signal.
-export function RenderFrame() {
+//
+// Native docs load a backend render-token URL into the iframe `src`. Drive
+// docs have no version/blob: the browser fetches the file HTML live from
+// Drive, POSTs it to /v1/drive/render for sandbox wrapping, and sets the
+// wrapper as the iframe `srcdoc`. The postMessage bridge wiring is identical
+// for both paths; only `src` vs `srcdoc` and the validated `frameOrigin`
+// differ (Drive srcdoc content shares the app origin, so frameOrigin is the
+// app origin rather than a token URL origin).
+export function RenderFrame({ doc }: { doc: Document }) {
   const {
     docId,
     version,
@@ -22,12 +36,35 @@ export function RenderFrame() {
   const ref = useRef<HTMLIFrameElement>(null);
   const readyRef = useRef(false);
   const theme = useResolvedTheme();
+  const isDrive = doc.source === "drive";
+
+  const cfg = useConfig();
 
   const token = useQuery({
     queryKey: queryKeys.render(version),
     queryFn: () => api.renderToken(docId, version),
     staleTime: 4 * 60_000,
-    enabled: !!version,
+    enabled: !!version && !isDrive,
+  });
+
+  // Drive docs have no version/blob: fetch the file HTML client-side, then
+  // wrap it through the backend sandbox wrapper. Enabled only for drive docs
+  // once the OAuth client id is known.
+  const driveQuery = useQuery({
+    queryKey: ["drive-render", doc.id],
+    enabled: isDrive && !!cfg.data?.google_oauth_client_id,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const accessToken = await getDriveAccessToken(
+        cfg.data!.google_oauth_client_id,
+      );
+      const html = await fetchDriveFile(
+        doc.drive_file_id!,
+        accessToken,
+        doc.drive_resource_key,
+      );
+      return api.driveRender(doc.id, html);
+    },
   });
 
   const paintPayload = useMemo(
@@ -44,23 +81,27 @@ export function RenderFrame() {
     [comments],
   );
 
+  // For native docs the frame origin is the render-token URL's origin. For
+  // Drive srcdoc content the origin is the embedding app origin (sandbox
+  // allows same-origin), so validate messages against window.location.origin.
   const frameOrigin = useMemo(() => {
+    if (isDrive) return window.location.origin;
     if (!token.data?.url) return null;
     try {
       return new URL(token.data.url, window.location.href).origin;
     } catch {
       return null;
     }
-  }, [token.data]);
+  }, [isDrive, token.data]);
 
   // Reset readiness whenever we load a different frame.
   useEffect(() => {
     readyRef.current = false;
-  }, [frameOrigin, token.data?.url]);
+  }, [frameOrigin, token.data?.url, driveQuery.data]);
 
   // The resolved theme is baked into the iframe URL so the bridge can apply
   // it before the document's first paint (no flash); live toggles are pushed
-  // over postMessage below.
+  // over postMessage below. (Drive srcdoc has no URL query to bake into.)
   const frameSrc = useMemo(() => {
     const url = token.data?.url;
     if (!url) return undefined;
@@ -116,8 +157,30 @@ export function RenderFrame() {
     paint();
   }, [paint]);
 
-  // The parent (DocPage) only mounts RenderFrame when a current version
-  // exists, so version is always set here.
+  if (isDrive) {
+    if (driveQuery.isLoading) return <Center>Loading from Google Drive…</Center>;
+    if (driveQuery.error instanceof DriveAccessError) {
+      if (driveQuery.error.status === 403)
+        return <Center>You don't have access to this file in Google Drive.</Center>;
+      if (driveQuery.error.status === 404)
+        return <Center>This file no longer exists in Drive.</Center>;
+    }
+    if (driveQuery.error)
+      return <Center>Could not render this Drive document.</Center>;
+    return (
+      <iframe
+        ref={ref}
+        title="Rendered document"
+        className="h-full w-full"
+        style={{ background: theme === "dark" ? "#0b0d12" : "#fff" }}
+        srcDoc={driveQuery.data}
+        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      />
+    );
+  }
+
+  // The parent (DocPage) only mounts RenderFrame for native docs when a
+  // current version exists, so version is always set on this path.
   if (token.isLoading) return <Center>Preparing secure render…</Center>;
   if (token.error) return <Center>Could not create render token.</Center>;
   return (

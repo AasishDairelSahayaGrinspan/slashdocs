@@ -151,6 +151,14 @@ export const api = {
       `/v1/documents/${doc}/versions/${version}/render-token`,
       { method: "POST" },
     ),
+  // driveRender wraps client-fetched Drive HTML through the backend sandbox
+  // wrapper. `request` returns the response as text (the endpoint replies
+  // text/html, not JSON), giving us the wrapper page to use as iframe srcdoc.
+  driveRender: (documentId: string, html: string) =>
+    request<string>("/v1/drive/render", {
+      method: "POST",
+      body: JSON.stringify({ document_id: documentId, html }),
+    }),
   listComments: (doc: string, version?: string) =>
     request<{ items: Comment[] }>(
       `/v1/documents/${doc}/comments${version ? `?version_id=${encodeURIComponent(version)}` : ""}`,
