@@ -16,11 +16,13 @@ import { api } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROLES, DEFAULT_ROLE, GENERAL_ACCESS_NONE } from "@/lib/constants";
 
-export function ShareSheet({ docId }: { docId: string }) {
+export function ShareSheet({ docId, resourceType = "document", resourceId }: { docId?: string; resourceType?: "document" | "folder"; resourceId?: string }) {
+  const id = resourceId || docId || "";
+  const isFolder = resourceType === "folder";
   const q = useQueryClient();
   const grants = useQuery({
-    queryKey: queryKeys.grants(docId),
-    queryFn: () => api.listGrants(docId),
+    queryKey: isFolder ? queryKeys.folderGrants(id) : queryKeys.grants(id),
+    queryFn: () => isFolder ? api.listFolderGrants(id) : api.listGrants(id),
   });
   const config = useQuery({
     queryKey: ["config"],
@@ -30,7 +32,7 @@ export function ShareSheet({ docId }: { docId: string }) {
   const [address, setAddress] = useState("");
   const [debouncedAddress, setDebouncedAddress] = useState("");
   const [role, setRole] = useState(DEFAULT_ROLE);
-  const shareURL = `${window.location.origin}/app/d/${docId}`;
+  const shareURL = `${window.location.origin}/app/${isFolder ? "folders" : "d"}/${id}`;
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedAddress(address.trim()), 250);
     return () => window.clearTimeout(t);
@@ -43,11 +45,11 @@ export function ShareSheet({ docId }: { docId: string }) {
   });
   const userSuggestions = userSearch.data?.items || [];
   const m = useMutation({
-    mutationFn: () => api.createGrant(docId, address.trim(), role),
+    mutationFn: () => isFolder ? api.createFolderGrant(id, address.trim(), role) : api.createGrant(id, address.trim(), role),
     onSuccess: () => {
       setAddress("");
       toast.success("Access granted.");
-      q.invalidateQueries({ queryKey: queryKeys.grants(docId) });
+      q.invalidateQueries({ queryKey: isFolder ? queryKeys.folderGrants(id) : queryKeys.grants(id) });
     },
     onError: (e) => toast.error(errorMessage(e, "Couldn't share.")),
   });
@@ -59,39 +61,43 @@ export function ShareSheet({ docId }: { docId: string }) {
     config.data?.deployment === "public" ? "user@gmail.com" : "user@org.example";
   const updateGrant = useMutation({
     mutationFn: ({ grantId, nextRole }: { grantId: string; nextRole: string }) =>
-      api.updateGrant(docId, grantId, nextRole),
+      isFolder ? api.updateFolderGrant(id, grantId, nextRole) : api.updateGrant(id, grantId, nextRole),
     onSuccess: () => {
       toast.success("Access updated.");
-      q.invalidateQueries({ queryKey: queryKeys.grants(docId) });
+      q.invalidateQueries({ queryKey: isFolder ? queryKeys.folderGrants(id) : queryKeys.grants(id) });
     },
     onError: (e) => toast.error(errorMessage(e, "Couldn't update access.")),
   });
   const revokeGrant = useMutation({
-    mutationFn: (grantId: string) => api.deleteGrant(docId, grantId),
+    mutationFn: (grantId: string) => isFolder ? api.deleteFolderGrant(id, grantId) : api.deleteGrant(id, grantId),
     onSuccess: () => {
       toast.success("Access revoked.");
-      q.invalidateQueries({ queryKey: queryKeys.grants(docId) });
+      q.invalidateQueries({ queryKey: isFolder ? queryKeys.folderGrants(id) : queryKeys.grants(id) });
     },
     onError: (e) => toast.error(errorMessage(e, "Couldn't revoke access.")),
   });
   const general = useMutation({
     mutationFn: async (next: string) => {
       if (next === GENERAL_ACCESS_NONE) {
-        if (anyoneGrant) await api.deleteGrant(docId, anyoneGrant.id);
+        if (anyoneGrant) {
+          if (isFolder) await api.deleteFolderGrant(id, anyoneGrant.id);
+          else await api.deleteGrant(id, anyoneGrant.id);
+        }
         return;
       }
-      await api.setGeneralAccess(docId, next);
+      if (isFolder) await api.createFolderGrant(id, "", next);
+      else await api.setGeneralAccess(id, next);
     },
     onSuccess: () => {
       toast.success("General access updated.");
-      q.invalidateQueries({ queryKey: queryKeys.grants(docId) });
+      q.invalidateQueries({ queryKey: isFolder ? queryKeys.folderGrants(id) : queryKeys.grants(id) });
     },
     onError: (e) => toast.error(errorMessage(e, "Couldn't update general access.")),
   });
   return (
     <SheetContent>
       <SheetHeader>
-        <SheetTitle>Share document</SheetTitle>
+        <SheetTitle>Share {isFolder ? "folder" : "document"}</SheetTitle>
       </SheetHeader>
       <SheetBody>
         <form

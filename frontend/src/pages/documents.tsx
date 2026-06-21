@@ -199,7 +199,7 @@ export function DocumentsPage() {
               <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--color-fg-muted)]">
                 <FolderIcon className="h-3.5 w-3.5" /> Folders
               </h2>
-              <FolderGrid folders={folders} />
+              {viewMode === "list" ? <FolderTable folders={folders} /> : <FolderGrid folders={folders} />}
             </section>
           )}
 
@@ -267,35 +267,95 @@ function FolderGrid({ folders }: { folders: Folder[] }) {
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {folders.map((f) => (
-        <Link key={f.id} to={`/app/folders/${f.id}`} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
-          <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
+        <Link key={f.id} to={`/app/folders/${f.id}`} className="group relative flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
+          <FolderIcon className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
           <span className="truncate">{f.title}</span>
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100">
+            <MoreHorizontal className="h-3.5 w-3.5 text-[var(--color-fg-muted)]" />
+          </span>
         </Link>
       ))}
     </div>
   );
 }
 
+function FolderTable({ folders }: { folders: Folder[] }) {
+  return (
+    <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <table className="w-full text-sm">
+        <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
+          <tr>
+            <th className="px-4 py-2.5 text-left font-medium">Title</th>
+            <th className="px-4 py-2.5 text-left font-medium">Owner</th>
+          </tr>
+        </thead>
+        <tbody>
+          {folders.map((f) => (
+            <tr key={f.id} className="border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40">
+              <td className="px-4 py-3">
+                <Link to={`/app/folders/${f.id}`} className="flex items-center gap-2 font-medium hover:underline">
+                  <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
+                  {f.title}
+                </Link>
+              </td>
+              <td className="px-4 py-3">
+                <OwnerCell owner={f.owner} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function DocGrid({ items }: { items: Document[] }) {
+  const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
+  const qc = useQueryClient();
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {items.map((d) => (
-        <Link
-          key={docID(d)}
-          to={`/app/d/${docID(d)}`}
-          className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:bg-[var(--color-surface-muted)]"
-        >
-          <div className="flex h-20 items-center justify-center rounded-md bg-[var(--color-surface-muted)]/60">
-            <FileText className="h-8 w-8 text-[var(--color-fg-muted)]/40" />
+      {items.map((d) => {
+        const canDelete = samePrincipal(me.data?.principal, d.owner);
+        return (
+          <div key={docID(d)} className="group relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-muted)]">
+            <Link to={`/app/d/${docID(d)}`} className="flex flex-col gap-2 p-3">
+              <div className="flex h-20 items-center justify-center rounded-md bg-[var(--color-surface-muted)]/60">
+                <FileText className="h-8 w-8 text-[var(--color-fg-muted)]/40" />
+              </div>
+              <div className="min-w-0">
+                <div className="truncate text-sm font-medium">{docTitle(d)}</div>
+                <div className="truncate text-xs text-[var(--color-fg-muted)]">
+                  {d.owner?.name || d.owner?.email || ""}
+                </div>
+              </div>
+            </Link>
+            {canDelete && (
+              <DocGridActions docId={docID(d)} title={docTitle(d)} qc={qc} />
+            )}
           </div>
-          <div className="min-w-0">
-            <div className="truncate text-sm font-medium">{docTitle(d)}</div>
-            <div className="truncate text-xs text-[var(--color-fg-muted)]">
-              {d.owner?.name || d.owner?.email || ""}
-            </div>
-          </div>
-        </Link>
-      ))}
+        );
+      })}
+    </div>
+  );
+}
+
+function DocGridActions({ docId, title, qc }: { docId: string; title: string; qc: ReturnType<typeof useQueryClient> }) {
+  const del = useMutation({
+    mutationFn: () => api.deleteDocument(docId),
+    onSuccess: () => { toast.success("Deleted."); qc.invalidateQueries({ queryKey: queryKeys.documents() }); },
+    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
+  });
+  return (
+    <div className="absolute right-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
+      <DeleteDocumentDialog
+        title={title}
+        onConfirm={() => del.mutate()}
+        trigger={
+          <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Delete">
+            <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+          </Button>
+        }
+      />
     </div>
   );
 }

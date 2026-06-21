@@ -49,7 +49,7 @@ import {
   type Document,
 } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { FolderShareSheet } from "@/pages/folder-share-sheet";
+import { ShareSheet } from "@/pages/doc-share-sheet";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 
 export function FolderPage() {
@@ -178,7 +178,7 @@ export function FolderPage() {
                 <Share2 className="mr-1.5 h-3.5 w-3.5" /> Share
               </Button>
             </SheetTrigger>
-            <FolderShareSheet folderId={id} />
+            <ShareSheet resourceType="folder" resourceId={id} />
           </Sheet>
           <Dropdown>
             <DropdownTrigger asChild>
