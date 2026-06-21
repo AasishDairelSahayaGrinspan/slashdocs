@@ -65,6 +65,26 @@ func TestDiscovery(t *testing.T) {
 	}`)
 }
 
+func TestConfig_ExposesGoogleClientIDAndRenderOrigin(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{
+		Environment:  "test",
+		RenderOrigin: "https://render.example",
+		GoogleOAuth:  auth.GoogleOAuth{ClientID: "cid.apps.googleusercontent.com"},
+	})
+	rr := do(t, h, http.MethodGet, "/v1/config", "", nil)
+	assertStatus(t, rr, http.StatusOK)
+	var body map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("config response is not JSON: %v", err)
+	}
+	if got := body["google_oauth_client_id"]; got != "cid.apps.googleusercontent.com" {
+		t.Fatalf("google_oauth_client_id = %v, want cid.apps.googleusercontent.com", got)
+	}
+	if got := body["render_origin"]; got != "https://render.example" {
+		t.Fatalf("render_origin = %v, want https://render.example", got)
+	}
+}
+
 func TestMetricsEndpoint(t *testing.T) {
 	h := newTestServer()
 	_ = do(t, h, http.MethodGet, "/v1/me", "", nil)
@@ -592,7 +612,9 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	assertJSON(t, public.Body.Bytes(), `{
 	  "deployment": "public",
 	  "org_name": "",
-	  "everyone_label": "Anyone with the link"
+	  "everyone_label": "Anyone with the link",
+	  "google_oauth_client_id": "",
+	  "render_origin": ""
 	}`)
 
 	org := newConfiguredTestServer(server.Config{Environment: "test", Deployment: "org", OrgName: "Acme"})
@@ -601,7 +623,9 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	assertJSON(t, rr.Body.Bytes(), `{
 	  "deployment": "org",
 	  "org_name": "Acme",
-	  "everyone_label": "Anyone in Acme"
+	  "everyone_label": "Anyone in Acme",
+	  "google_oauth_client_id": "",
+	  "render_origin": ""
 	}`)
 }
 
