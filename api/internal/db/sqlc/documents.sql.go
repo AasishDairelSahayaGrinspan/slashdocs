@@ -21,7 +21,7 @@ func (q *Queries) DeleteDocument(ctx context.Context, id string) error {
 }
 
 const getDocument = `-- name: GetDocument :one
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.source,d.drive_file_id,d.drive_resource_key,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -38,6 +38,9 @@ type GetDocumentRow struct {
 	CurrentVersionID pgtype.Text
 	OwnerType        string
 	OwnerID          string
+	Source           string
+	DriveFileID      pgtype.Text
+	DriveResourceKey pgtype.Text
 	OwnerEmail       string
 	OwnerName        string
 }
@@ -52,6 +55,9 @@ func (q *Queries) GetDocument(ctx context.Context, id string) (GetDocumentRow, e
 		&i.CurrentVersionID,
 		&i.OwnerType,
 		&i.OwnerID,
+		&i.Source,
+		&i.DriveFileID,
+		&i.DriveResourceKey,
 		&i.OwnerEmail,
 		&i.OwnerName,
 	)
@@ -130,7 +136,7 @@ func (q *Queries) InsertDocument(ctx context.Context, arg InsertDocumentParams) 
 }
 
 const listDocuments = `-- name: ListDocuments :many
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.source,d.drive_file_id,d.drive_resource_key,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -175,6 +181,9 @@ type ListDocumentsRow struct {
 	CurrentVersionID pgtype.Text
 	OwnerType        string
 	OwnerID          string
+	Source           string
+	DriveFileID      pgtype.Text
+	DriveResourceKey pgtype.Text
 	OwnerEmail       string
 	OwnerName        string
 }
@@ -204,6 +213,9 @@ func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([
 			&i.CurrentVersionID,
 			&i.OwnerType,
 			&i.OwnerID,
+			&i.Source,
+			&i.DriveFileID,
+			&i.DriveResourceKey,
 			&i.OwnerEmail,
 			&i.OwnerName,
 		); err != nil {
@@ -237,7 +249,7 @@ func (q *Queries) RecordWorkspaceEntry(ctx context.Context, arg RecordWorkspaceE
 }
 
 const searchDocumentsByTitle = `-- name: SearchDocumentsByTitle :many
-SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.source,d.drive_file_id,d.drive_resource_key,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -284,6 +296,9 @@ type SearchDocumentsByTitleRow struct {
 	CurrentVersionID pgtype.Text
 	OwnerType        string
 	OwnerID          string
+	Source           string
+	DriveFileID      pgtype.Text
+	DriveResourceKey pgtype.Text
 	OwnerEmail       string
 	OwnerName        string
 }
@@ -310,6 +325,9 @@ func (q *Queries) SearchDocumentsByTitle(ctx context.Context, arg SearchDocument
 			&i.CurrentVersionID,
 			&i.OwnerType,
 			&i.OwnerID,
+			&i.Source,
+			&i.DriveFileID,
+			&i.DriveResourceKey,
 			&i.OwnerEmail,
 			&i.OwnerName,
 		); err != nil {
@@ -349,4 +367,58 @@ type UpdateDocumentTitleParams struct {
 func (q *Queries) UpdateDocumentTitle(ctx context.Context, arg UpdateDocumentTitleParams) error {
 	_, err := q.db.Exec(ctx, updateDocumentTitle, arg.Title, arg.ID)
 	return err
+}
+
+const upsertDriveDocument = `-- name: UpsertDriveDocument :one
+INSERT INTO documents (id, title, owner_type, owner_id, source, drive_file_id, drive_resource_key)
+VALUES ($1, $2, $3, $4, 'drive', $5, $6)
+ON CONFLICT (drive_file_id) WHERE drive_file_id IS NOT NULL
+DO UPDATE SET title = EXCLUDED.title, drive_resource_key = EXCLUDED.drive_resource_key, updated_at = now()
+RETURNING id, title, current_version_id, owner_type, owner_id, source, drive_file_id, drive_resource_key
+`
+
+type UpsertDriveDocumentParams struct {
+	ID               string
+	Title            string
+	OwnerType        string
+	OwnerID          string
+	DriveFileID      pgtype.Text
+	DriveResourceKey pgtype.Text
+}
+
+type UpsertDriveDocumentRow struct {
+	ID               string
+	Title            string
+	CurrentVersionID pgtype.Text
+	OwnerType        string
+	OwnerID          string
+	Source           string
+	DriveFileID      pgtype.Text
+	DriveResourceKey pgtype.Text
+}
+
+// One aidocs document per Drive file: insert a thin pointer (no versioned HTML)
+// or, on conflict by drive_file_id, refresh the title and resource key. Drive
+// resource keys can rotate, so we always overwrite rather than coalesce.
+func (q *Queries) UpsertDriveDocument(ctx context.Context, arg UpsertDriveDocumentParams) (UpsertDriveDocumentRow, error) {
+	row := q.db.QueryRow(ctx, upsertDriveDocument,
+		arg.ID,
+		arg.Title,
+		arg.OwnerType,
+		arg.OwnerID,
+		arg.DriveFileID,
+		arg.DriveResourceKey,
+	)
+	var i UpsertDriveDocumentRow
+	err := row.Scan(
+		&i.ID,
+		&i.Title,
+		&i.CurrentVersionID,
+		&i.OwnerType,
+		&i.OwnerID,
+		&i.Source,
+		&i.DriveFileID,
+		&i.DriveResourceKey,
+	)
+	return i, err
 }

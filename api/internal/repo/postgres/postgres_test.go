@@ -236,3 +236,87 @@ func (b *cancelAfterPutBlob) Delete(ctx context.Context, key string) error {
 	b.deletedKey = key
 	return nil
 }
+
+// TestPostgresUpsertDriveDocument verifies that re-opening the same Drive file
+// reuses its aidocs document (deduped by drive_file_id), refreshes the title
+// and resource key, and that the drive fields round-trip through GetDocument.
+func TestPostgresUpsertDriveDocument(t *testing.T) {
+	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
+	}
+	if err := db.Migrate(url); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pgrepo.Connect(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_drive_owner", Email: "pg-drive-owner@example.com", Name: "Owner"}
+
+	d1, err := store.UpsertDriveDocument(ctx, owner, "drv-1", "rk-1", "Spec")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d1.Source != repo.SourceDrive || d1.DriveFileID != "drv-1" || d1.DriveResourceKey != "rk-1" || d1.CurrentVersionID != "" {
+		t.Fatalf("unexpected first drive doc: %+v", d1)
+	}
+
+	d2, err := store.UpsertDriveDocument(ctx, owner, "drv-1", "rk-1b", "Spec 2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d2.ID != d1.ID {
+		t.Fatalf("expected dedupe by file id, got %s vs %s", d2.ID, d1.ID)
+	}
+	if d2.Title != "Spec 2" {
+		t.Fatalf("expected title updated, got %q", d2.Title)
+	}
+	if d2.DriveResourceKey != "rk-1b" {
+		t.Fatalf("expected resource key updated, got %q", d2.DriveResourceKey)
+	}
+
+	got, err := store.GetDocument(ctx, d1.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != repo.SourceDrive || got.DriveFileID != "drv-1" || got.DriveResourceKey != "rk-1b" {
+		t.Fatalf("drive fields not round-tripped: %+v", got)
+	}
+}
+
+// TestPostgresCreateDocumentSetsNativeSource confirms the native path stamps
+// Source=native so reads distinguish native docs from Drive pointers.
+func TestPostgresCreateDocumentSetsNativeSource(t *testing.T) {
+	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
+	}
+	if err := db.Migrate(url); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pgrepo.Connect(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_native_owner", Email: "pg-native-owner@example.com", Name: "Owner"}
+
+	doc, _, err := store.CreateDocument(ctx, owner, "Native doc", []byte("<html>v1</html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if doc.Source != repo.SourceNative {
+		t.Fatalf("expected native source on create, got %q", doc.Source)
+	}
+	got, err := store.GetDocument(ctx, doc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Source != repo.SourceNative || got.DriveFileID != "" {
+		t.Fatalf("native source not round-tripped: %+v", got)
+	}
+}

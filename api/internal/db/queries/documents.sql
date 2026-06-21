@@ -7,11 +7,21 @@ SELECT role FROM resource_grants WHERE resource_type='document' AND resource_id=
 -- name: InsertDocument :exec
 INSERT INTO documents(id,title,owner_type,owner_id) VALUES($1,$2,$3,$4);
 
+-- name: UpsertDriveDocument :one
+-- One aidocs document per Drive file: insert a thin pointer (no versioned HTML)
+-- or, on conflict by drive_file_id, refresh the title and resource key. Drive
+-- resource keys can rotate, so we always overwrite rather than coalesce.
+INSERT INTO documents (id, title, owner_type, owner_id, source, drive_file_id, drive_resource_key)
+VALUES ($1, $2, $3, $4, 'drive', $5, $6)
+ON CONFLICT (drive_file_id) WHERE drive_file_id IS NOT NULL
+DO UPDATE SET title = EXCLUDED.title, drive_resource_key = EXCLUDED.drive_resource_key, updated_at = now()
+RETURNING id, title, current_version_id, owner_type, owner_id, source, drive_file_id, drive_resource_key;
+
 -- name: UpdateDocumentCurrentVersion :exec
 UPDATE documents SET current_version_id=$1, updated_at=now() WHERE id=$2;
 
 -- name: GetDocument :one
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.source,d.drive_file_id,d.drive_resource_key,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -42,7 +52,7 @@ ON CONFLICT(document_id,principal_type,principal_id) DO NOTHING;
 -- A bare "anyone" grant alone does NOT list the document: broad access grants
 -- access via discovery/link, it does not place the document in every user's
 -- workspace until they open it.
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.source,d.drive_file_id,d.drive_resource_key,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -80,7 +90,7 @@ LIMIT 25;
 UPDATE documents SET title=$1,updated_at=now() WHERE id=$2;
 
 -- name: SearchDocumentsByTitle :many
-SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.source,d.drive_file_id,d.drive_resource_key,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d

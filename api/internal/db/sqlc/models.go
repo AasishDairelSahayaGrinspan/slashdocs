@@ -55,6 +55,9 @@ type Document struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	OwnerType        string
+	Source           string
+	DriveFileID      pgtype.Text
+	DriveResourceKey pgtype.Text
 }
 
 type DocumentWorkspaceEntry struct {

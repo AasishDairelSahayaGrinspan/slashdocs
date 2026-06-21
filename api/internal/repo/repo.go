@@ -160,6 +160,12 @@ type Repository interface {
 	RevokeCLICredential(ctx context.Context, userID, credentialID string) error
 	RoleForDocument(ctx context.Context, principal auth.Principal, documentID string) (Role, error)
 	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
+	// UpsertDriveDocument returns the existing Drive-backed document for fileID
+	// if one exists (refreshing its title and resource key), otherwise creates a
+	// new document with Source=SourceDrive, an empty CurrentVersionID, and the
+	// given owner. Drive docs carry no versioned HTML; they are thin pointers to
+	// a Google Drive file.
+	UpsertDriveDocument(ctx context.Context, owner auth.Principal, fileID, resourceKey, title string) (Document, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
 	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
 	// RecordDocumentOpened notes that a principal opened a document, so a
@@ -355,11 +361,36 @@ func (m *Memory) CreateDocument(ctx context.Context, owner auth.Principal, title
 	defer m.mu.Unlock()
 	m.docN++
 	m.verN++
-	d := Document{ID: fmt.Sprintf("doc_%d", m.docN), Title: title, Owner: owner, CurrentVersionID: fmt.Sprintf("ver_%d", m.verN)}
+	d := Document{ID: fmt.Sprintf("doc_%d", m.docN), Title: title, Owner: owner, Source: SourceNative, CurrentVersionID: fmt.Sprintf("ver_%d", m.verN)}
 	v := Version{ID: d.CurrentVersionID, Number: 1, DocumentID: d.ID, CreatedBy: owner, SHA256: fmt.Sprintf("sha_%d", m.verN)}
 	m.docs[d.ID] = d
 	m.versions[v.ID] = v
 	return d, v, nil
+}
+
+func (m *Memory) UpsertDriveDocument(ctx context.Context, owner auth.Principal, fileID, resourceKey, title string) (Document, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, d := range m.docs {
+		if d.Source == SourceDrive && d.DriveFileID == fileID {
+			d.Title = title
+			d.DriveResourceKey = resourceKey
+			m.docs[id] = d
+			return d, nil
+		}
+	}
+	m.docN++
+	id := fmt.Sprintf("doc_%d", m.docN)
+	d := Document{
+		ID:               id,
+		Title:            title,
+		Owner:            owner,
+		Source:           SourceDrive,
+		DriveFileID:      fileID,
+		DriveResourceKey: resourceKey,
+	}
+	m.docs[id] = d
+	return d, nil
 }
 
 func (m *Memory) GetDocument(ctx context.Context, id string) (Document, error) {

@@ -231,7 +231,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 		return repo.Document{}, repo.Version{}, err
 	}
 	committed = true
-	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum}, nil
+	return repo.Document{ID: docID, Title: title, Owner: owner, Source: repo.SourceNative, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum}, nil
 }
 func (s *Store) GetDocument(ctx context.Context, id string) (repo.Document, error) {
 	r, err := s.q.GetDocument(ctx, id)
@@ -242,6 +242,50 @@ func (s *Store) GetDocument(ctx context.Context, id string) (repo.Document, erro
 		return repo.Document{}, err
 	}
 	return docFromGet(r), nil
+}
+
+// UpsertDriveDocument creates or refreshes the thin pointer row for a Google
+// Drive file. It mirrors CreateDocument's owner handling (upserting the owner
+// user row so the owner_id FK is satisfied) and id generation, but writes no
+// versioned HTML: a Drive doc has an empty CurrentVersionID until a version is
+// later attached. On conflict by drive_file_id it returns the existing row,
+// updating title and resource key.
+func (s *Store) UpsertDriveDocument(ctx context.Context, owner auth.Principal, fileID, resourceKey, title string) (repo.Document, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return repo.Document{}, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.q.WithTx(tx)
+	if owner.Type == auth.PrincipalUser {
+		if err := upsertUser(ctx, q, owner); err != nil {
+			return repo.Document{}, err
+		}
+	}
+	docID := newID("doc")
+	r, err := q.UpsertDriveDocument(ctx, dbsqlc.UpsertDriveDocumentParams{
+		ID:               docID,
+		Title:            title,
+		OwnerType:        string(owner.Type),
+		OwnerID:          owner.ID,
+		DriveFileID:      pgtype.Text{String: fileID, Valid: fileID != ""},
+		DriveResourceKey: pgtype.Text{String: resourceKey, Valid: resourceKey != ""},
+	})
+	if err != nil {
+		return repo.Document{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return repo.Document{}, err
+	}
+	return repo.Document{
+		ID:               r.ID,
+		Title:            r.Title,
+		Owner:            owner,
+		CurrentVersionID: r.CurrentVersionID.String,
+		Source:           r.Source,
+		DriveFileID:      r.DriveFileID.String,
+		DriveResourceKey: r.DriveResourceKey.String,
+	}, nil
 }
 
 func (s *Store) CreateServiceAccount(ctx context.Context, owner auth.Principal, name string) (repo.ServiceAccount, error) {
@@ -667,13 +711,13 @@ func (s *Store) DeclineOwnershipTransfer(ctx context.Context, id string, user au
 }
 
 func docFromGet(r dbsqlc.GetDocumentRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}, Source: r.Source, DriveFileID: r.DriveFileID.String, DriveResourceKey: r.DriveResourceKey.String}
 }
 func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}, Source: r.Source, DriveFileID: r.DriveFileID.String, DriveResourceKey: r.DriveResourceKey.String}
 }
 func docFromSearch(r dbsqlc.SearchDocumentsByTitleRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}, Source: r.Source, DriveFileID: r.DriveFileID.String, DriveResourceKey: r.DriveResourceKey.String}
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
 	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
