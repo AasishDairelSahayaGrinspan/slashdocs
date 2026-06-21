@@ -67,11 +67,21 @@ const (
 	StatusDeclined = "declined"
 )
 
+// Document source identifies whether a document is stored natively (as
+// versioned HTML blobs) or is a thin pointer to a Google Drive file.
+const (
+	SourceNative = "native"
+	SourceDrive  = "drive"
+)
+
 type Document struct {
 	ID               string         `json:"id"`
 	Title            string         `json:"title"`
 	Owner            auth.Principal `json:"owner"`
 	CurrentVersionID string         `json:"current_version_id"`
+	Source           string         `json:"source"`
+	DriveFileID      string         `json:"drive_file_id,omitempty"`
+	DriveResourceKey string         `json:"drive_resource_key,omitempty"`
 }
 
 type ServiceAccount struct {
