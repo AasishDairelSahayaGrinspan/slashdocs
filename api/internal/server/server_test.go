@@ -1087,3 +1087,72 @@ func TestDriveOpenRejectsInvalidState(t *testing.T) {
 		assertStatus(t, rr, http.StatusBadRequest)
 	}
 }
+
+// TestDriveDocNonOwnerCanViewAndCommentButNotDelete is the C1 handler-level
+// regression test. A Drive-backed document's first opener (user A) becomes its
+// owner; a SECOND Workspace member (user B) who opens the same shared Drive
+// file is deduped to that doc. Drive ACLs gate access, so aidocs grants must be
+// inert: user B can view (GET) and comment (POST) on the Drive doc, but cannot
+// perform owner-only operations (DELETE). The doc and an anchoring version are
+// seeded directly via the repository (mirroring TestDriveRender_WrapsHTML) so
+// the test isolates the role-gate behaviour rather than Drive-doc version
+// creation semantics.
+func TestDriveDocNonOwnerCanViewAndCommentButNotDelete(t *testing.T) {
+	r := repo.NewMemory()
+	h := server.New(server.Config{Environment: "test", SessionSecret: "test-secret"},
+		server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+	ownerA := auth.Principal{Type: auth.PrincipalUser, ID: "owner_a", Email: "a@example.com", Name: "OwnerA"}
+	doc, err := r.UpsertDriveDocument(context.Background(), ownerA, "file-shared-1", "", "Shared Drive doc")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Attach a version so comments have an anchor. The owner (RoleOwner >=
+	// RoleEditor) is permitted to create it; a base_version_id of "" matches the
+	// Drive doc's empty CurrentVersionID.
+	ver, err := r.CreateVersion(context.Background(), doc.ID, "", "initial", []byte("<html></html>"), ownerA)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	userB := "user:user_b:b@example.com:UserB"
+
+	// user B (a different principal than the owner) can VIEW the Drive doc.
+	rr := do(t, h, http.MethodGet, "/v1/documents/"+doc.ID, "", map[string]string{
+		"X-Test-Principal": userB,
+	})
+	assertStatus(t, rr, http.StatusOK)
+
+	// user B can COMMENT on the Drive doc (commenter floor).
+	rr = do(t, h, http.MethodPost, "/v1/documents/"+doc.ID+"/comments", `{
+	  "version_id": "`+ver.ID+`",
+	  "body": "Second opener can comment.",
+	  "anchor": { "quote": "Shared Drive doc" }
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": userB,
+	})
+	assertStatus(t, rr, http.StatusCreated)
+
+	// user B CANNOT delete the Drive doc: the commenter floor is strictly below
+	// RoleOwner, so owner-only operations remain gated.
+	rr = do(t, h, http.MethodDelete, "/v1/documents/"+doc.ID, "", map[string]string{
+		"X-Test-Principal": userB,
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
+// TestNativeDocNonOwnerStillBlocked is the handler-level regression guard: the
+// Drive viewer/commenter floor must apply ONLY to Drive-backed documents. On a
+// native doc (the seeded doc_1, owned by owner_1), a principal with no grant
+// (attacker_1) is still denied a view (403), so native access control is
+// unchanged by the C1 fix.
+func TestNativeDocNonOwnerStillBlocked(t *testing.T) {
+	h := newTestServer()
+	// doc_1 is a native fixture document owned by owner_1; attacker_1 has no
+	// seeded role and no grant.
+	rr := do(t, h, http.MethodGet, "/v1/documents/doc_1", "", map[string]string{
+		"X-Test-Principal": "user:attacker_1:attacker@example.com:Attacker",
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+}

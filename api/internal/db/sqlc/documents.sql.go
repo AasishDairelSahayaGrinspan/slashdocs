@@ -97,6 +97,19 @@ func (q *Queries) GetDocumentOwner(ctx context.Context, id string) (GetDocumentO
 	return i, err
 }
 
+const getDocumentSource = `-- name: GetDocumentSource :one
+SELECT source FROM documents WHERE id=$1
+`
+
+// Minimal lookup used by RoleForDocument to decide whether aidocs grants are
+// inert (Drive-backed docs are gated by Drive ACLs, not aidocs grants).
+func (q *Queries) GetDocumentSource(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, getDocumentSource, id)
+	var source string
+	err := row.Scan(&source)
+	return source, err
+}
+
 const getDocumentVersionForUpdate = `-- name: GetDocumentVersionForUpdate :one
 SELECT current_version_id, COALESCE((SELECT max(number)+1 FROM versions WHERE document_id=$1),1)::int AS next_number
 FROM documents WHERE id=$1 FOR UPDATE

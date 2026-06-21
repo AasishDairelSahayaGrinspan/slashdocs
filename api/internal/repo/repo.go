@@ -22,6 +22,14 @@ const (
 
 var roleRank = map[Role]int{RoleViewer: 1, RoleCommenter: 2, RoleEditor: 3, RoleOwner: 4}
 
+// DriveViewerFloor is the minimum role any authenticated session holds for a
+// Drive-backed document. Drive ACLs (not aidocs grants) gate who can view or
+// comment, so a non-owner who reached aidocs via /drive/open is treated as at
+// least a commenter. It is deliberately below RoleEditor and RoleOwner so
+// version creation, delete, patch/rename, grant management, and ownership
+// transfer remain owner-gated; only viewing and comment create/reply open up.
+const DriveViewerFloor = RoleCommenter
+
 // MaxRole returns whichever role grants more access. RoleNone ("") ranks below
 // every real role, so MaxRole(RoleNone, x) == x.
 func MaxRole(a, b Role) Role {
@@ -325,7 +333,8 @@ func (m *Memory) RevokeCLICredential(ctx context.Context, userID, credentialID s
 func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, documentID string) (Role, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if _, ok := m.docs[documentID]; !ok {
+	d, docExists := m.docs[documentID]
+	if !docExists {
 		// Fall through to fixture handling below for API tests that seed roles
 		// without a backing document.
 		if role, ok := m.fixtureRoles[p.ID]; ok {
@@ -334,7 +343,7 @@ func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, document
 		return "", ErrNotFound
 	}
 	best := RoleNone
-	if d := m.docs[documentID]; p.Type == d.Owner.Type && p.ID == d.Owner.ID {
+	if p.Type == d.Owner.Type && p.ID == d.Owner.ID {
 		best = RoleOwner
 	}
 	for _, g := range m.grants {
@@ -349,6 +358,15 @@ func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, document
 	}
 	if role, ok := m.fixtureRoles[p.ID]; ok {
 		best = MaxRole(best, role)
+	}
+	// Drive-backed documents are gated by Google Drive per-viewer ACLs, not
+	// aidocs grants (Global Constraint): any authenticated session may view and
+	// comment. Floor the computed role at the minimum that permits both
+	// (RoleCommenter) so a non-owner viewer is not blocked by aidocs' own grant
+	// system, while owner-only operations (delete/patch/grants/transfer) stay
+	// gated since the floor is strictly below RoleOwner (and RoleEditor).
+	if d.Source == SourceDrive {
+		best = MaxRole(best, DriveViewerFloor)
 	}
 	if best == RoleNone {
 		return "", ErrNotFound

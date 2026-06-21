@@ -1,6 +1,11 @@
 -- name: GetDocumentOwner :one
 SELECT owner_type, owner_id FROM documents WHERE id=$1;
 
+-- name: GetDocumentSource :one
+-- Minimal lookup used by RoleForDocument to decide whether aidocs grants are
+-- inert (Drive-backed docs are gated by Drive ACLs, not aidocs grants).
+SELECT source FROM documents WHERE id=$1;
+
 -- name: GetDocumentGrantRole :one
 SELECT role FROM resource_grants WHERE resource_type='document' AND resource_id=$1 AND principal_type=$2 AND principal_id=$3 AND revoked_at IS NULL;
 

@@ -160,6 +160,15 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 	if err != nil {
 		return "", err
 	}
+	// Drive-backed documents are gated by Google Drive per-viewer ACLs, not
+	// aidocs grants (Global Constraint). Fetching the source here (a single
+	// scalar lookup) lets us floor the computed role at the minimum that permits
+	// viewing and commenting for any authenticated session, while keeping
+	// owner-only operations (delete/patch/grants/transfer) gated.
+	source, err := s.q.GetDocumentSource(ctx, documentID)
+	if err != nil {
+		return "", err
+	}
 	best := repo.RoleNone
 	if string(p.Type) == owner.OwnerType && p.ID == owner.OwnerID {
 		best = repo.RoleOwner
@@ -175,6 +184,9 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 		return "", err
 	} else {
 		best = repo.MaxRole(best, role)
+	}
+	if source == repo.SourceDrive {
+		best = repo.MaxRole(best, repo.DriveViewerFloor)
 	}
 	if best == repo.RoleNone {
 		return "", repo.ErrNotFound
