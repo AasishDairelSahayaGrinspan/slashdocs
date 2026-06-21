@@ -239,26 +239,26 @@ export function DocumentsPage() {
 }
 
 function PinnedGrid({ items, documents, folders }: { items: PinType[]; documents: Document[]; folders: Folder[] }) {
+  type PinCard = { key: string; to: string; icon: "folder" | "document"; title: string };
+  const resolved: PinCard[] = [];
+  for (const pin of items) {
+    if (pin.resource_type === "folder") {
+      const f = folders.find((x) => x.id === pin.resource_id);
+      if (f) resolved.push({ key: `pin:folder:${f.id}`, to: `/app/folders/${f.id}`, icon: "folder", title: f.title });
+    } else {
+      const d = documents.find((x) => x.id === pin.resource_id);
+      if (d) resolved.push({ key: `pin:doc:${d.id}`, to: `/app/d/${d.id}`, icon: "document", title: docTitle(d) });
+    }
+  }
+  if (resolved.length === 0) return null;
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {items.map((pin) => {
-        if (pin.resource_type === "folder") {
-          const f = folders.find((x) => x.id === pin.resource_id);
-          return (
-            <Link key={`pin:${pin.resource_type}:${pin.resource_id}`} to={`/app/folders/${pin.resource_id}`} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
-              <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
-              <span className="truncate">{f?.title || pin.resource_id}</span>
-            </Link>
-          );
-        }
-        const d = documents.find((x) => x.id === pin.resource_id);
-        return (
-          <Link key={`pin:${pin.resource_type}:${pin.resource_id}`} to={`/app/d/${pin.resource_id}`} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
-            <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
-            <span className="truncate">{d?.title || pin.resource_id}</span>
-          </Link>
-        );
-      })}
+      {resolved.map((item) => (
+        <Link key={item.key} to={item.to} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
+          {item.icon === "folder" ? <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" /> : <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />}
+          <span className="truncate">{item.title}</span>
+        </Link>
+      ))}
     </div>
   );
 }

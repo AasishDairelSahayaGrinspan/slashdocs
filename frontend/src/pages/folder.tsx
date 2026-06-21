@@ -9,6 +9,7 @@ import {
   FileText,
   Folder as FolderIcon,
   MoreHorizontal,
+  Pencil,
   Pin,
   PinOff,
   Plus,
@@ -24,6 +25,16 @@ import {
   DropdownItem,
   DropdownTrigger,
 } from "@/components/ui/dropdown";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
@@ -89,6 +100,8 @@ export function FolderPage() {
 
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderTitle, setNewFolderTitle] = useState("");
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
   const createSub = useMutation({
     mutationFn: () => api.createFolder(newFolderTitle, id),
     onSuccess: () => {
@@ -99,6 +112,15 @@ export function FolderPage() {
     },
     onError: (e) => toast.error(errorMessage(e, "Create failed")),
   });
+  const renameFolder = useMutation({
+    mutationFn: () => api.updateFolder(id, renameTitle),
+    onSuccess: () => {
+      setRenameOpen(false);
+      qc.invalidateQueries({ queryKey: queryKeys.folder(id) });
+      toast.success("Renamed.");
+    },
+    onError: (e) => toast.error(errorMessage(e, "Rename failed")),
+  });
 
   if (folder.isLoading || contents.isLoading) {
     return (
@@ -108,7 +130,7 @@ export function FolderPage() {
       </div>
     );
   }
-  if (folder.error) return <Center>Could not load folder.</Center>;
+  if (folder.error || contents.error) return <Center>Could not load folder.</Center>;
 
   const f = folder.data!;
   const items = contents.data?.items || [];
@@ -165,15 +187,31 @@ export function FolderPage() {
               </Button>
             </DropdownTrigger>
             <DropdownContent>
+              <DropdownItem onSelect={() => { setRenameTitle(f.title); setRenameOpen(true); }}>
+                <Pencil className="h-4 w-4" /> Rename
+              </DropdownItem>
               <DropdownItem onSelect={() => setNewFolderOpen(true)}>
                 <Plus className="h-4 w-4" /> New subfolder
               </DropdownItem>
-              <DropdownItem
-                onSelect={() => delFolder.mutate()}
-                className="text-[var(--color-danger)]"
-              >
-                <Trash2 className="h-4 w-4" /> Delete folder
-              </DropdownItem>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <DropdownItem onSelect={(e) => e.preventDefault()} className="text-[var(--color-danger)]">
+                    <Trash2 className="h-4 w-4" /> Delete folder
+                  </DropdownItem>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogTitle>Delete "{f.title}"?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This will delete all subfolders. Documents inside will be detached, not deleted.
+                  </AlertDialogDescription>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction onClick={() => delFolder.mutate()}>
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </DropdownContent>
           </Dropdown>
         </div>
@@ -234,6 +272,35 @@ export function FolderPage() {
                 disabled={!newFolderTitle.trim() || createSub.isPending}
               >
                 Create
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+
+      {/* Rename dialog */}
+      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Rename folder</DialogTitle>
+          </DialogHeader>
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (renameTitle.trim()) renameFolder.mutate();
+            }}
+          >
+            <Input
+              value={renameTitle}
+              onChange={(e) => setRenameTitle(e.target.value)}
+              autoFocus
+            />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="ghost" onClick={() => setRenameOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!renameTitle.trim() || renameFolder.isPending}>
+                Rename
               </Button>
             </DialogFooter>
           </form>
