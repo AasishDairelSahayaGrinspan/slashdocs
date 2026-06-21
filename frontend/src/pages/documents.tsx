@@ -7,7 +7,10 @@ import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
 import {
   FileText,
+  Folder as FolderIcon,
   MoreHorizontal,
+  Pin,
+  Plus,
   Search,
   Sparkles,
   Trash2,
@@ -33,8 +36,13 @@ import {
 } from "@/components/ui/dialog";
 import { HtmlFileInput, useStagedFile } from "@/components/ui/upload";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
-import { api, docID, docTitle, type Document, type Principal } from "@/api";
+import { api, docID, docTitle, type Document, type Folder, type FolderEntry, type Pin as PinType, type Principal } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { createPersistentStore } from "@/lib/persistent-store";
+import { LayoutGrid, List } from "lucide-react";
+
+type ViewMode = "list" | "gallery";
+const viewModeStore = createPersistentStore<ViewMode>("aidocs:view-mode", "gallery");
 
 export function DocumentsPage() {
   useTitle("Documents");
@@ -49,14 +57,17 @@ export function DocumentsPage() {
     queryKey: [...queryKeys.documents(), debouncedQ],
     queryFn: () => api.listDocuments(debouncedQ || undefined),
   });
+  const pins = useQuery({
+    queryKey: queryKeys.pins(),
+    queryFn: api.listPins,
+  });
+  const rootFolders = useQuery({
+    queryKey: queryKeys.folders(),
+    queryFn: () => api.listFolders(),
+  });
   const { state: onb } = useOnboarding();
   const nav = useNavigate();
   useEffect(() => {
-    // First-time visitor (fresh onboarding state, no required steps done) →
-    // send them to the setup guide. This is purely local: a new login on a
-    // new browser sees the tutorial; whatever is already in their workspace
-    // (e.g. a doc shared with them before signup) is irrelevant. They can
-    // skip the tutorial at any time.
     if (
       onb.status === "active" &&
       !onb.steps.cli_installed &&
@@ -67,12 +78,30 @@ export function DocumentsPage() {
     }
   }, [onb, nav]);
   useEffect(() => {
-    // Once the user has at least one document, mark the onboarding step.
     if (docs.data && (docs.data.items || []).length > 0) {
       autoMarkFirstDoc();
     }
   }, [docs.data]);
   const items = useMemo(() => docs.data?.items || [], [docs.data]);
+  const pinnedItems = pins.data?.items || [];
+  const folders = (rootFolders.data?.items || [])
+    .filter((e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder)
+    .map((e) => e.folder);
+
+  const viewMode = viewModeStore.useStore();
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderTitle, setNewFolderTitle] = useState("");
+  const qc = useQueryClient();
+  const createFolder = useMutation({
+    mutationFn: () => api.createFolder(newFolderTitle),
+    onSuccess: () => {
+      setNewFolderOpen(false);
+      setNewFolderTitle("");
+      qc.invalidateQueries({ queryKey: queryKeys.folders() });
+      toast.success("Created folder.");
+    },
+    onError: (e) => toast.error(errorMessage(e, "Create failed")),
+  });
 
   if (docs.isLoading) {
     return (
@@ -85,7 +114,7 @@ export function DocumentsPage() {
   if (docs.error) return <Center>Could not load documents.</Center>;
 
   const searching = debouncedQ.length > 0;
-  const empty = !searching && (docs.data?.items || []).length === 0;
+  const empty = !searching && (docs.data?.items || []).length === 0 && folders.length === 0;
 
   return (
     <div className="mx-auto max-w-6xl px-6 py-10">
@@ -106,6 +135,26 @@ export function DocumentsPage() {
               className="w-56 pl-8"
             />
           </div>
+          <div className="flex rounded-md border border-[var(--color-border)]">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`rounded-r-none ${viewMode === "gallery" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              onClick={() => viewModeStore.write("gallery")}
+              aria-label="Gallery view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`rounded-l-none border-l border-[var(--color-border)] ${viewMode === "list" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              onClick={() => viewModeStore.write("list")}
+              aria-label="List view"
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
           <Dropdown>
             <DropdownTrigger asChild>
               <Button variant="outline" size="icon" aria-label="More">
@@ -113,6 +162,9 @@ export function DocumentsPage() {
               </Button>
             </DropdownTrigger>
             <DropdownContent>
+              <DropdownItem onSelect={() => setNewFolderOpen(true)}>
+                <Plus className="h-4 w-4" /> New folder
+              </DropdownItem>
               <UploadBackupItem />
             </DropdownContent>
           </Dropdown>
@@ -121,11 +173,129 @@ export function DocumentsPage() {
 
       {empty ? (
         <EmptyDocs />
-      ) : items.length === 0 ? (
-        <EmptyState title="No matches" description={`Nothing matches “${q}”.`} />
+      ) : searching ? (
+        items.length === 0 ? (
+          <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
+        ) : viewMode === "list" ? (
+          <DocTable items={items} principal={me.data?.principal} />
+        ) : (
+          <DocGrid items={items} />
+        )
       ) : (
-        <DocTable items={items} principal={me.data?.principal} />
+        <div className="space-y-8">
+          {/* Pinned section */}
+          {pinnedItems.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--color-fg-muted)]">
+                <Pin className="h-3.5 w-3.5" /> Pinned
+              </h2>
+              <PinnedGrid items={pinnedItems} documents={items} folders={folders} />
+            </section>
+          )}
+
+          {/* Folders section */}
+          {folders.length > 0 && (
+            <section>
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--color-fg-muted)]">
+                <FolderIcon className="h-3.5 w-3.5" /> Folders
+              </h2>
+              <FolderGrid folders={folders} />
+            </section>
+          )}
+
+          {/* All documents */}
+          {items.length > 0 && (
+            <section>
+              <h2 className="mb-3 text-sm font-medium text-[var(--color-fg-muted)]">
+                All documents
+              </h2>
+              {viewMode === "list" ? (
+                <DocTable items={items} principal={me.data?.principal} />
+              ) : (
+                <DocGrid items={items} />
+              )}
+            </section>
+          )}
+        </div>
       )}
+
+      {/* New folder dialog */}
+      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>New folder</DialogTitle>
+          </DialogHeader>
+          <form onSubmit={(e) => { e.preventDefault(); if (newFolderTitle.trim()) createFolder.mutate(); }}>
+            <Input placeholder="Folder name" value={newFolderTitle} onChange={(e) => setNewFolderTitle(e.target.value)} autoFocus />
+            <DialogFooter className="mt-4">
+              <Button type="button" variant="ghost" onClick={() => setNewFolderOpen(false)}>Cancel</Button>
+              <Button type="submit" disabled={!newFolderTitle.trim() || createFolder.isPending}>Create</Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
+    </div>
+  );
+}
+
+function PinnedGrid({ items, documents, folders }: { items: PinType[]; documents: Document[]; folders: Folder[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {items.map((pin) => {
+        if (pin.resource_type === "folder") {
+          const f = folders.find((x) => x.id === pin.resource_id);
+          return (
+            <Link key={`pin:${pin.resource_type}:${pin.resource_id}`} to={`/app/folders/${pin.resource_id}`} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
+              <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
+              <span className="truncate">{f?.title || pin.resource_id}</span>
+            </Link>
+          );
+        }
+        const d = documents.find((x) => x.id === pin.resource_id);
+        return (
+          <Link key={`pin:${pin.resource_type}:${pin.resource_id}`} to={`/app/d/${pin.resource_id}`} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
+            <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
+            <span className="truncate">{d?.title || pin.resource_id}</span>
+          </Link>
+        );
+      })}
+    </div>
+  );
+}
+
+function FolderGrid({ folders }: { folders: Folder[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {folders.map((f) => (
+        <Link key={f.id} to={`/app/folders/${f.id}`} className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
+          <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
+          <span className="truncate">{f.title}</span>
+        </Link>
+      ))}
+    </div>
+  );
+}
+
+function DocGrid({ items }: { items: Document[] }) {
+  return (
+    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+      {items.map((d) => (
+        <Link
+          key={docID(d)}
+          to={`/app/d/${docID(d)}`}
+          className="flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:bg-[var(--color-surface-muted)]"
+        >
+          <div className="flex h-20 items-center justify-center rounded-md bg-[var(--color-surface-muted)]/60">
+            <FileText className="h-8 w-8 text-[var(--color-fg-muted)]/40" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">{docTitle(d)}</div>
+            <div className="truncate text-xs text-[var(--color-fg-muted)]">
+              {d.owner?.name || d.owner?.email || ""}
+            </div>
+          </div>
+        </Link>
+      ))}
     </div>
   );
 }

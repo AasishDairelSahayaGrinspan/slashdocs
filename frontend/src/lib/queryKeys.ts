@@ -10,4 +10,10 @@ export const queryKeys = {
   grants: (doc: string) => ["grants", doc] as const,
   serviceAccounts: () => ["service-accounts"] as const,
   serviceAccountKeys: (id: string) => ["service-account-keys", id] as const,
+  folders: (folderId?: string) => ["folders", folderId || "root"] as const,
+  folder: (id: string) => ["folder", id] as const,
+  folderGrants: (id: string) => ["folder-grants", id] as const,
+  folderAccess: (id: string) => ["folder-access", id] as const,
+  documentAccess: (id: string) => ["document-access", id] as const,
+  pins: () => ["pins"] as const,
 };
