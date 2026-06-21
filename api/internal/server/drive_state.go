@@ -3,7 +3,6 @@ package server
 import (
 	"encoding/json"
 	"errors"
-	"net/url"
 )
 
 // driveOpenState is the payload Google Drive sends in the `state` query
@@ -17,19 +16,17 @@ type driveOpenState struct {
 	ResourceKeys map[string]string `json:"resourceKeys"`
 }
 
-// parseDriveState URL-decodes and JSON-unmarshals the raw `state` value. It
+// parseDriveState JSON-unmarshals the `state` value. The caller passes
+// c.Query("state"), which Gin has already URL-decoded, so we must NOT decode
+// again — a second decode turns '+' into a space and errors on a stray '%'. It
 // requires at least one non-empty file id; other fields are optional. The
 // `action` field is returned verbatim (the handler checks it == "open").
 func parseDriveState(raw string) (driveOpenState, error) {
 	if raw == "" {
 		return driveOpenState{}, errors.New("empty state")
 	}
-	decoded, err := url.QueryUnescape(raw)
-	if err != nil {
-		return driveOpenState{}, err
-	}
 	var st driveOpenState
-	if err := json.Unmarshal([]byte(decoded), &st); err != nil {
+	if err := json.Unmarshal([]byte(raw), &st); err != nil {
 		return driveOpenState{}, err
 	}
 	if len(st.IDs) == 0 || st.IDs[0] == "" {

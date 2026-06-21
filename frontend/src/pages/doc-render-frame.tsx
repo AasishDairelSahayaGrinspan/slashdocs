@@ -54,6 +54,9 @@ export function RenderFrame({ doc }: { doc: Document }) {
     queryKey: ["drive-render", doc.id],
     enabled: isDrive && !!cfg.data?.google_oauth_client_id,
     staleTime: 60_000,
+    // Drive errors (403/404, GIS popup dismissal) are deterministic; retrying
+    // only delays the message and can re-pop the consent popup.
+    retry: false,
     queryFn: async () => {
       const accessToken = await getDriveAccessToken(
         cfg.data!.google_oauth_client_id,
@@ -158,7 +161,10 @@ export function RenderFrame({ doc }: { doc: Document }) {
   }, [paint]);
 
   if (isDrive) {
-    if (driveQuery.isLoading) return <Center>Loading from Google Drive…</Center>;
+    // isPending (not isLoading) so the placeholder also shows while the query
+    // is disabled waiting on config — isLoading is false when disabled, which
+    // would otherwise render a blank iframe (srcDoc=undefined).
+    if (driveQuery.isPending) return <Center>Loading from Google Drive…</Center>;
     if (driveQuery.error instanceof DriveAccessError) {
       if (driveQuery.error.status === 403)
         return <Center>You don't have access to this file in Google Drive.</Center>;

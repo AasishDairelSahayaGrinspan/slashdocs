@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"html/template"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 //go:embed bridge.js
@@ -40,4 +42,18 @@ func renderWrapperHTML(userHTML []byte, appOrigin string) []byte {
 		return []byte("<!doctype html><html><body>render error</body></html>")
 	}
 	return []byte(sb.String())
+}
+
+// renderSecurityHeaders sets the sandbox CSP + nosniff headers shared by the
+// native (renderVersion) and Drive (driveRender) render paths, and returns the
+// resolved app origin (defaulting to 'self' when unset) for use as the
+// wrapper's frame-ancestors / postMessage target. Keeping a single source for
+// the CSP avoids the two paths silently diverging.
+func renderSecurityHeaders(c *gin.Context, appOrigin string) string {
+	if appOrigin == "" {
+		appOrigin = "'self'"
+	}
+	c.Header("Content-Security-Policy", "default-src 'none'; img-src * data: blob:; media-src * data: blob:; font-src * data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; frame-src *; worker-src * blob:; object-src 'none'; frame-ancestors "+appOrigin)
+	c.Header("X-Content-Type-Options", "nosniff")
+	return appOrigin
 }

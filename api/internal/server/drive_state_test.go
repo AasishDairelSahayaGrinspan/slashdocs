@@ -3,7 +3,8 @@ package server
 import "testing"
 
 func TestParseDriveState(t *testing.T) {
-	raw := `%7B%22ids%22%3A%5B%22FILE1%22%5D%2C%22action%22%3A%22open%22%2C%22userId%22%3A%22112233%22%7D`
+	// parseDriveState receives the value Gin has already URL-decoded, i.e. raw JSON.
+	raw := `{"ids":["FILE1"],"action":"open","userId":"112233"}`
 	st, err := parseDriveState(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -14,8 +15,7 @@ func TestParseDriveState(t *testing.T) {
 }
 
 func TestParseDriveState_ResourceKeys(t *testing.T) {
-	// {"ids":["F2"],"action":"open","userId":"u","resourceKeys":{"F2":"rk-1"}}
-	raw := `%7B%22ids%22%3A%5B%22F2%22%5D%2C%22action%22%3A%22open%22%2C%22userId%22%3A%22u%22%2C%22resourceKeys%22%3A%7B%22F2%22%3A%22rk-1%22%7D%7D`
+	raw := `{"ids":["F2"],"action":"open","userId":"u","resourceKeys":{"F2":"rk-1"}}`
 	st, err := parseDriveState(raw)
 	if err != nil {
 		t.Fatal(err)
@@ -26,7 +26,7 @@ func TestParseDriveState_ResourceKeys(t *testing.T) {
 }
 
 func TestParseDriveState_Rejects(t *testing.T) {
-	for _, raw := range []string{"", "not-json", `%7B%22action%22%3A%22open%22%7D`} { // missing ids
+	for _, raw := range []string{"", "not-json", `{"action":"open"}`} { // missing ids
 		if _, err := parseDriveState(raw); err == nil {
 			t.Fatalf("expected error for %q", raw)
 		}

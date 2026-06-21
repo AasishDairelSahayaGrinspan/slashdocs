@@ -160,15 +160,6 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 	if err != nil {
 		return "", err
 	}
-	// Drive-backed documents are gated by Google Drive per-viewer ACLs, not
-	// aidocs grants (Global Constraint). Fetching the source here (a single
-	// scalar lookup) lets us floor the computed role at the minimum that permits
-	// viewing and commenting for any authenticated session, while keeping
-	// owner-only operations (delete/patch/grants/transfer) gated.
-	source, err := s.q.GetDocumentSource(ctx, documentID)
-	if err != nil {
-		return "", err
-	}
 	best := repo.RoleNone
 	if string(p.Type) == owner.OwnerType && p.ID == owner.OwnerID {
 		best = repo.RoleOwner
@@ -185,7 +176,12 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 	} else {
 		best = repo.MaxRole(best, role)
 	}
-	if source == repo.SourceDrive {
+	// Drive-backed documents are gated by Google Drive per-viewer ACLs, not
+	// aidocs grants (Global Constraint): floor the computed role at the minimum
+	// that permits viewing and commenting for any authenticated session, while
+	// keeping owner-only operations (delete/patch/grants/transfer) gated. source
+	// comes from the same GetDocumentOwner row, so this adds no round-trip.
+	if owner.Source == repo.SourceDrive {
 		best = repo.MaxRole(best, repo.DriveViewerFloor)
 	}
 	if best == repo.RoleNone {
@@ -292,7 +288,9 @@ func (s *Store) UpsertDriveDocument(ctx context.Context, owner auth.Principal, f
 	return repo.Document{
 		ID:               r.ID,
 		Title:            r.Title,
-		Owner:            owner,
+		// Return the row's actual owner (the first opener, on the ON CONFLICT
+		// dedupe path) rather than the caller, matching the Memory impl.
+		Owner:            auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID},
 		CurrentVersionID: r.CurrentVersionID.String,
 		Source:           r.Source,
 		DriveFileID:      r.DriveFileID.String,

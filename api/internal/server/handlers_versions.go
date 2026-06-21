@@ -109,12 +109,7 @@ func (h handlers) renderVersion(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	appOrigin := h.deps.appOrigin
-	if appOrigin == "" {
-		appOrigin = "'self'"
-	}
-	c.Header("Content-Security-Policy", "default-src 'none'; img-src * data: blob:; media-src * data: blob:; font-src * data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; frame-src *; worker-src * blob:; object-src 'none'; frame-ancestors "+appOrigin)
-	c.Header("X-Content-Type-Options", "nosniff")
+	appOrigin := renderSecurityHeaders(c, h.deps.appOrigin)
 	observeHTML("render", len(b))
 	incRender("rendered", "success")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", renderWrapperHTML(b, appOrigin))

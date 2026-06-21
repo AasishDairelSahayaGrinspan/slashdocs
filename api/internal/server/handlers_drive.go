@@ -46,6 +46,7 @@ func (h handlers) driveOpen(c *gin.Context) {
 	// exact URL after a successful web login.
 	p := current(c)
 	if p == nil {
+		// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host - driveLoginURL builds a fixed path-relative target ("/v1/auth/google/start?..."); the state is only a query value and googleStart re-validates the nested redirect via safeWebRedirect.
 		c.Redirect(http.StatusFound, driveLoginURL(c.Query("state")))
 		return
 	}
@@ -57,6 +58,7 @@ func (h handlers) driveOpen(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host - doc.ID is a server-generated id; the target is a fixed path-relative app URL with no attacker-controlled host.
 	c.Redirect(http.StatusFound, "/app/d/"+doc.ID)
 }
 
@@ -85,11 +87,8 @@ func driveLoginURL(rawState string) string {
 // docs (Global Constraint). Requiring a valid session (the route is on the
 // authed group) prevents this from being an open HTML-wrapping proxy.
 func (h handlers) driveRender(c *gin.Context) {
-	p := current(c)
-	if p == nil {
-		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "login required", nil))
-		return
-	}
+	// Mounted on the authed group, so requireAuth has already rejected any
+	// unauthenticated request; no need to re-check the session here.
 	var in struct {
 		DocumentID string `json:"document_id"`
 		HTML       string `json:"html"`
@@ -103,14 +102,8 @@ func (h handlers) driveRender(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	appOrigin := h.deps.appOrigin
-	if appOrigin == "" {
-		appOrigin = "'self'"
-	}
-	// Same CSP / X-Content-Type-Options headers as renderVersion
-	// (handlers_versions.go) — keep them byte-identical for the Drive path.
-	c.Header("Content-Security-Policy", "default-src 'none'; img-src * data: blob:; media-src * data: blob:; font-src * data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; frame-src *; worker-src * blob:; object-src 'none'; frame-ancestors "+appOrigin)
-	c.Header("X-Content-Type-Options", "nosniff")
+	// Same sandbox CSP / nosniff headers as the native render path.
+	appOrigin := renderSecurityHeaders(c, h.deps.appOrigin)
 	observeHTML("drive_render", len(in.HTML))
 	c.Data(http.StatusOK, "text/html; charset=utf-8", renderWrapperHTML([]byte(in.HTML), appOrigin))
 }

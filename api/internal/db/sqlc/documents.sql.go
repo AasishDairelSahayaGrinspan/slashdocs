@@ -82,32 +82,23 @@ func (q *Queries) GetDocumentGrantRole(ctx context.Context, arg GetDocumentGrant
 }
 
 const getDocumentOwner = `-- name: GetDocumentOwner :one
-SELECT owner_type, owner_id FROM documents WHERE id=$1
+SELECT owner_type, owner_id, source FROM documents WHERE id=$1
 `
 
 type GetDocumentOwnerRow struct {
 	OwnerType string
 	OwnerID   string
+	Source    string
 }
 
+// Returns owner + source in one row so RoleForDocument can attribute ownership
+// and decide whether aidocs grants are inert (Drive-backed docs are gated by
+// Drive ACLs, not aidocs grants) without a second round-trip.
 func (q *Queries) GetDocumentOwner(ctx context.Context, id string) (GetDocumentOwnerRow, error) {
 	row := q.db.QueryRow(ctx, getDocumentOwner, id)
 	var i GetDocumentOwnerRow
-	err := row.Scan(&i.OwnerType, &i.OwnerID)
+	err := row.Scan(&i.OwnerType, &i.OwnerID, &i.Source)
 	return i, err
-}
-
-const getDocumentSource = `-- name: GetDocumentSource :one
-SELECT source FROM documents WHERE id=$1
-`
-
-// Minimal lookup used by RoleForDocument to decide whether aidocs grants are
-// inert (Drive-backed docs are gated by Drive ACLs, not aidocs grants).
-func (q *Queries) GetDocumentSource(ctx context.Context, id string) (string, error) {
-	row := q.db.QueryRow(ctx, getDocumentSource, id)
-	var source string
-	err := row.Scan(&source)
-	return source, err
 }
 
 const getDocumentVersionForUpdate = `-- name: GetDocumentVersionForUpdate :one

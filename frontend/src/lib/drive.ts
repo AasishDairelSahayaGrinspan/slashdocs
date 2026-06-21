@@ -23,6 +23,10 @@ export function getDriveAccessToken(clientId: string): Promise<string> {
         if (resp.access_token) resolve(resp.access_token);
         else reject(new Error(resp.error || "token-failed"));
       },
+      // Fires when the consent popup is dismissed or fails to open; without it
+      // the promise (and the Drive render query) would hang forever.
+      error_callback: (err: { type?: string }) =>
+        reject(new Error(err?.type || "token-popup-failed")),
     });
     client.requestAccessToken();
   });
