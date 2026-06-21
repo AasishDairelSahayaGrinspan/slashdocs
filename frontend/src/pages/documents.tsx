@@ -177,9 +177,9 @@ export function DocumentsPage() {
         items.length === 0 ? (
           <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
         ) : viewMode === "list" ? (
-          <DocTable items={items} principal={me.data?.principal} />
+          <UnifiedTable folders={[]} documents={items} principal={me.data?.principal} />
         ) : (
-          <DocGrid items={items} />
+          <UnifiedGrid folders={[]} documents={items} />
         )
       ) : (
         <div className="space-y-8">
@@ -193,26 +193,13 @@ export function DocumentsPage() {
             </section>
           )}
 
-          {/* Folders section */}
-          {folders.length > 0 && (
+          {/* Unified file browser: folders first, then documents */}
+          {(folders.length > 0 || items.length > 0) && (
             <section>
-              <h2 className="mb-3 flex items-center gap-2 text-sm font-medium text-[var(--color-fg-muted)]">
-                <FolderIcon className="h-3.5 w-3.5" /> Folders
-              </h2>
-              {viewMode === "list" ? <FolderTable folders={folders} /> : <FolderGrid folders={folders} />}
-            </section>
-          )}
-
-          {/* All documents */}
-          {items.length > 0 && (
-            <section>
-              <h2 className="mb-3 text-sm font-medium text-[var(--color-fg-muted)]">
-                All documents
-              </h2>
               {viewMode === "list" ? (
-                <DocTable items={items} principal={me.data?.principal} />
+                <UnifiedTable folders={folders} documents={items} principal={me.data?.principal} />
               ) : (
-                <DocGrid items={items} />
+                <UnifiedGrid folders={folders} documents={items} />
               )}
             </section>
           )}
@@ -263,61 +250,28 @@ function PinnedGrid({ items, documents, folders }: { items: PinType[]; documents
   );
 }
 
-function FolderGrid({ folders }: { folders: Folder[] }) {
-  return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {folders.map((f) => (
-        <Link key={f.id} to={`/app/folders/${f.id}`} className="group relative flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2.5 text-sm font-medium transition-colors hover:bg-[var(--color-surface-muted)]">
-          <FolderIcon className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
-          <span className="truncate">{f.title}</span>
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 transition-opacity group-hover:opacity-100">
-            <MoreHorizontal className="h-3.5 w-3.5 text-[var(--color-fg-muted)]" />
-          </span>
-        </Link>
-      ))}
-    </div>
-  );
-}
-
-function FolderTable({ folders }: { folders: Folder[] }) {
-  return (
-    <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
-          <tr>
-            <th className="px-4 py-2.5 text-left font-medium">Title</th>
-            <th className="px-4 py-2.5 text-left font-medium">Owner</th>
-          </tr>
-        </thead>
-        <tbody>
-          {folders.map((f) => (
-            <tr key={f.id} className="border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40">
-              <td className="px-4 py-3">
-                <Link to={`/app/folders/${f.id}`} className="flex items-center gap-2 font-medium hover:underline">
-                  <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
-                  {f.title}
-                </Link>
-              </td>
-              <td className="px-4 py-3">
-                <OwnerCell owner={f.owner} />
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function DocGrid({ items }: { items: Document[] }) {
+function UnifiedGrid({ folders, documents }: { folders: Folder[]; documents: Document[] }) {
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const qc = useQueryClient();
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {items.map((d) => {
+      {folders.map((f) => (
+        <Link key={`f:${f.id}`} to={`/app/folders/${f.id}`} className="group relative flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 transition-colors hover:bg-[var(--color-surface-muted)]">
+          <div className="flex h-20 items-center justify-center rounded-md bg-[var(--color-accent-muted)]/30">
+            <FolderIcon className="h-8 w-8 text-[var(--color-accent)]/60" />
+          </div>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-medium">{f.title}</div>
+            <div className="truncate text-xs text-[var(--color-fg-muted)]">
+              {f.owner?.name || f.owner?.email || "Folder"}
+            </div>
+          </div>
+        </Link>
+      ))}
+      {documents.map((d) => {
         const canDelete = samePrincipal(me.data?.principal, d.owner);
         return (
-          <div key={docID(d)} className="group relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-muted)]">
+          <div key={`d:${docID(d)}`} className="group relative rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-muted)]">
             <Link to={`/app/d/${docID(d)}`} className="flex flex-col gap-2 p-3">
               <div className="flex h-20 items-center justify-center rounded-md bg-[var(--color-surface-muted)]/60">
                 <FileText className="h-8 w-8 text-[var(--color-fg-muted)]/40" />
@@ -329,9 +283,7 @@ function DocGrid({ items }: { items: Document[] }) {
                 </div>
               </div>
             </Link>
-            {canDelete && (
-              <DocGridActions docId={docID(d)} title={docTitle(d)} qc={qc} />
-            )}
+            {canDelete && <GridDeleteAction docId={docID(d)} title={docTitle(d)} qc={qc} />}
           </div>
         );
       })}
@@ -339,7 +291,40 @@ function DocGrid({ items }: { items: Document[] }) {
   );
 }
 
-function DocGridActions({ docId, title, qc }: { docId: string; title: string; qc: ReturnType<typeof useQueryClient> }) {
+function UnifiedTable({ folders, documents, principal }: { folders: Folder[]; documents: Document[]; principal?: Principal }) {
+  return (
+    <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <table className="w-full text-sm">
+        <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
+          <tr>
+            <th className="px-4 py-2.5 text-left font-medium">Name</th>
+            <th className="px-4 py-2.5 text-left font-medium">Owner</th>
+            <th className="w-12 px-2 py-2.5"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {folders.map((f) => (
+            <tr key={`f:${f.id}`} className="group border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40">
+              <td className="px-4 py-3">
+                <Link to={`/app/folders/${f.id}`} className="flex items-center gap-2 font-medium hover:underline">
+                  <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
+                  {f.title}
+                </Link>
+              </td>
+              <td className="px-4 py-3"><OwnerCell owner={f.owner} /></td>
+              <td className="px-2 py-3"></td>
+            </tr>
+          ))}
+          {documents.map((d) => (
+            <DocRow key={docID(d)} doc={d} canDelete={samePrincipal(principal, d.owner)} />
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function GridDeleteAction({ docId, title, qc }: { docId: string; title: string; qc: ReturnType<typeof useQueryClient> }) {
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => { toast.success("Deleted."); qc.invalidateQueries({ queryKey: queryKeys.documents() }); },
@@ -360,30 +345,6 @@ function DocGridActions({ docId, title, qc }: { docId: string; title: string; qc
   );
 }
 
-function DocTable({ items, principal }: { items: Document[]; principal?: Principal }) {
-  return (
-    <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
-          <tr>
-            <th className="px-4 py-2.5 text-left font-medium">Title</th>
-            <th className="px-4 py-2.5 text-left font-medium">Owner</th>
-            <th className="w-12 px-2 py-2.5"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map((d) => (
-            <DocRow
-              key={docID(d)}
-              doc={d}
-              canDelete={samePrincipal(principal, d.owner)}
-            />
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 
 function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
   const q = useQueryClient();
