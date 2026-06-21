@@ -10,11 +10,16 @@ export type Document = {
   title: string;
   owner?: Principal;
   current_version_id?: string;
+  source: "native" | "drive";
+  drive_file_id?: string;
+  drive_resource_key?: string;
 };
 export type ServerConfig = {
   deployment: "public" | "org";
   org_name: string;
   everyone_label: string;
+  google_oauth_client_id: string;
+  render_origin: string;
 };
 export type Version = {
   id: string;

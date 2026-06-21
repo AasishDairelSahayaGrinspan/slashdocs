@@ -15,6 +15,7 @@ import {
 import { api } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { ROLES, DEFAULT_ROLE, GENERAL_ACCESS_NONE } from "@/lib/constants";
+import { useConfig } from "@/lib/useConfig";
 
 export function ShareSheet({ docId }: { docId: string }) {
   const q = useQueryClient();
@@ -22,11 +23,7 @@ export function ShareSheet({ docId }: { docId: string }) {
     queryKey: queryKeys.grants(docId),
     queryFn: () => api.listGrants(docId),
   });
-  const config = useQuery({
-    queryKey: ["config"],
-    queryFn: () => api.getConfig(),
-    staleTime: Infinity,
-  });
+  const config = useConfig();
   const [address, setAddress] = useState("");
   const [debouncedAddress, setDebouncedAddress] = useState("");
   const [role, setRole] = useState(DEFAULT_ROLE);

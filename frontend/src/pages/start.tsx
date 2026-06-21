@@ -1,6 +1,5 @@
 import { useTitle } from "@/lib/use-title";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -12,8 +11,8 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { api } from "@/api";
 import { publicURL } from "@/lib/config";
+import { useConfig } from "@/lib/useConfig";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/misc";
@@ -40,11 +39,7 @@ const AGENT_TARGETS = [
 export function StartPage() {
   useTitle("Get started");
   const { state, setStep, skip } = useOnboarding();
-  const config = useQuery({
-    queryKey: ["config"],
-    queryFn: () => api.getConfig(),
-    staleTime: Infinity,
-  });
+  const config = useConfig();
   // Self-hosted/org instances aren't the CLI's hosted default, so the login
   // command must name this server.
   const loginCmd =
