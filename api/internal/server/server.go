@@ -141,6 +141,10 @@ func (s *Server) routes(deps dependencies) {
 	s.engine.GET("/cli/:os/:arch", h.downloadCLI)
 	registerAPIDocsRoutes(s.engine)
 	s.engine.GET("/v/:id/:version_id", h.renderVersion)
+	// /drive/open is public (a logged-out user clicking "Open with" from Drive
+	// must reach it and be bounced to login) but still recognises an existing
+	// session via the non-aborting resolveSession middleware.
+	s.engine.GET("/drive/open", resolveSession(deps.authenticator), h.driveOpen)
 	registerFrontendRoutes(s.engine, deps.appOrigin)
 
 	s.engine.GET("/livez", h.livez)

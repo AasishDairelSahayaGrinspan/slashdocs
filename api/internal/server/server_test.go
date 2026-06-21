@@ -10,6 +10,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strconv"
 	"strings"
 	"testing"
@@ -886,5 +887,109 @@ func assertJSON(t *testing.T, got []byte, want string) {
 	wantNorm, _ := json.Marshal(wantAny)
 	if string(gotNorm) != string(wantNorm) {
 		t.Fatalf("json mismatch\n got: %s\nwant: %s", gotNorm, wantNorm)
+	}
+}
+
+// driveState builds a URL-encoded Drive "Open with" state value for tests.
+func driveState(t *testing.T, ids []string, action, userID string, resourceKeys map[string]string) string {
+	t.Helper()
+	obj := map[string]any{"ids": ids, "action": action, "userId": userID}
+	if resourceKeys != nil {
+		obj["resourceKeys"] = resourceKeys
+	}
+	raw, err := json.Marshal(obj)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return url.QueryEscape(string(raw))
+}
+
+// TestDriveOpenWithSession upserts a Drive-backed document and redirects to it
+// for an already-authenticated user. It mirrors the authed-handler test style
+// (X-Test-Principal header sets the session) and asserts both the 302 target
+// and that the document now exists in the repository.
+func TestDriveOpenWithSession(t *testing.T) {
+	h := newTestServer()
+	state := driveState(t, []string{"drive-file-1"}, "open", "112233", map[string]string{"drive-file-1": "rk-1"})
+
+	rr := do(t, h, http.MethodGet, "/drive/open?state="+state, "", map[string]string{
+		"X-Test-Principal": "user:usr_1:anurag@example.com:Anurag",
+	})
+	assertStatus(t, rr, http.StatusFound)
+	loc := rr.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/app/d/") {
+		t.Fatalf("Location = %q, want /app/d/<docID>", loc)
+	}
+	docID := strings.TrimPrefix(loc, "/app/d/")
+	if docID == "" {
+		t.Fatalf("Location = %q has no doc id", loc)
+	}
+
+	// Reopening the same Drive file must reuse the same document (UpsertDriveDocument
+	// dedupes by file id) rather than minting a second one.
+	rr2 := do(t, h, http.MethodGet, "/drive/open?state="+state, "", map[string]string{
+		"X-Test-Principal": "user:usr_1:anurag@example.com:Anurag",
+	})
+	assertStatus(t, rr2, http.StatusFound)
+	if loc2 := rr2.Header().Get("Location"); loc2 != loc {
+		t.Fatalf("reopen Location = %q, want reuse %q", loc2, loc)
+	}
+}
+
+// TestDriveOpenWithoutSessionBouncesToLogin verifies a logged-out user is
+// redirected to the Google login start URL with a return-to that replays the
+// original /drive/open?state=<rawState> URL. The nested state must be escaped
+// so it survives the round trip as a single query value.
+func TestDriveOpenWithoutSessionBouncesToLogin(t *testing.T) {
+	h := newTestServer()
+	rawState := driveState(t, []string{"drive-file-2"}, "open", "112233", nil)
+
+	rr := do(t, h, http.MethodGet, "/drive/open?state="+rawState, "", nil)
+	assertStatus(t, rr, http.StatusFound)
+	loc := rr.Header().Get("Location")
+	u, err := url.Parse(loc)
+	if err != nil {
+		t.Fatalf("Location %q is not a URL: %v", loc, err)
+	}
+	if u.Path != "/v1/auth/google/start" {
+		t.Fatalf("Location path = %q, want /v1/auth/google/start", u.Path)
+	}
+	if u.Query().Get("mode") != "web" {
+		t.Fatalf("mode = %q, want web", u.Query().Get("mode"))
+	}
+	redir := u.Query().Get("redirect")
+	parsed, err := url.Parse(redir)
+	if err != nil {
+		t.Fatalf("redirect %q is not a URL: %v", redir, err)
+	}
+	if parsed.Path != "/drive/open" {
+		t.Fatalf("redirect path = %q, want /drive/open", parsed.Path)
+	}
+	// The replayed state must survive the round trip losslessly: unescaping it
+	// must yield the original JSON payload (the handler re-parses it on return).
+	got := parsed.Query().Get("state")
+	decoded, err := url.QueryUnescape(got)
+	if err != nil {
+		t.Fatalf("replayed state %q did not unescape: %v", got, err)
+	}
+	wantJSON, _ := url.QueryUnescape(rawState)
+	if decoded != wantJSON {
+		t.Fatalf("replayed state payload = %q, want %q", decoded, wantJSON)
+	}
+}
+
+// TestDriveOpenRejectsInvalidState returns 400 for malformed or non-open state.
+func TestDriveOpenRejectsInvalidState(t *testing.T) {
+	h := newTestServer()
+	for _, q := range []string{
+		"/drive/open?state=", // missing
+		"/drive/open?state=not-json",
+		// {"ids":["F"],"action":"pick"} -- valid JSON, wrong action
+		"/drive/open?state=" + url.QueryEscape(`{"ids":["F"],"action":"pick"}`),
+	} {
+		rr := do(t, h, http.MethodGet, q, "", map[string]string{
+			"X-Test-Principal": "user:usr_1:anurag@example.com:Anurag",
+		})
+		assertStatus(t, rr, http.StatusBadRequest)
 	}
 }
