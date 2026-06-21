@@ -18,7 +18,11 @@ type GoogleOAuth struct {
 }
 
 func NewGoogleOAuth(clientID, clientSecret, redirectURL string) GoogleOAuth {
-	return GoogleOAuth{ClientID: clientID, Config: &oauth2.Config{ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL, Scopes: []string{"openid", "email", "profile"}, Endpoint: google.Endpoint}}
+	return GoogleOAuth{ClientID: clientID, Config: &oauth2.Config{ClientID: clientID, ClientSecret: clientSecret, RedirectURL: redirectURL, Scopes: []string{
+			"openid", "email", "profile",
+			"https://www.googleapis.com/auth/drive.install",
+			"https://www.googleapis.com/auth/drive.readonly",
+		}, Endpoint: google.Endpoint}}
 }
 
 func (g GoogleOAuth) AuthCodeURL(state string, opts ...oauth2.AuthCodeOption) string {

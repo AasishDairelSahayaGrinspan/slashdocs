@@ -67,3 +67,18 @@ func TestDBAuthenticatorSignedSession(t *testing.T) {
 		t.Fatalf("principal=%+v", p)
 	}
 }
+
+func TestNewGoogleOAuth_RequestsDriveScopes(t *testing.T) {
+	g := auth.NewGoogleOAuth("cid", "secret", "https://app/cb")
+	want := map[string]bool{
+		"openid": true, "email": true, "profile": true,
+		"https://www.googleapis.com/auth/drive.install":  true,
+		"https://www.googleapis.com/auth/drive.readonly": true,
+	}
+	for _, s := range g.Config.Scopes {
+		delete(want, s)
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing scopes: %v", want)
+	}
+}
