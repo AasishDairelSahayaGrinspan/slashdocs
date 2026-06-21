@@ -88,8 +88,44 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		})
 	}}
 	update.Flags().StringVar(&ut, "title", "", "new document title")
+	driveOpen := &cobra.Command{Use: "drive <url>", Short: "Open a Google Drive HTML file in aidocs by link", Long: "Register a Google Drive HTML file (by share link or file id) as an aidocs document and print its review URL.\n\nThe file stays in Drive; aidocs renders it live. Native Google Docs/Sheets/Slides are not supported.", Example: "  aidocs docs drive 'https://drive.google.com/file/d/ABC123/view'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		cl, err := client(g)
+		if err != nil {
+			return err
+		}
+		b, err := cl.doJSON("POST", "/v1/drive/documents", map[string]any{"url": args[0]})
+		if err != nil {
+			return err
+		}
+		if g.quiet {
+			return nil
+		}
+		var m map[string]any
+		if json.Unmarshal(b, &m) != nil {
+			return render(out, g, b)
+		}
+		id := fmt.Sprint(value(m, "id"))
+		if id == "" || id == "<nil>" {
+			if g.json {
+				return render(out, g, b)
+			}
+			confirm(out, g, "Created Drive document. URL unavailable: response did not include id.")
+			return nil
+		}
+		docURL := browserURL(cl.Base, "/app/d/%s", id)
+		if g.json {
+			m["url"] = docURL
+			nb, err := json.Marshal(m)
+			if err != nil {
+				return err
+			}
+			return render(out, g, nb)
+		}
+		confirm(out, g, fmt.Sprintf("Opened Drive document (%s). Review it at %s", id, docURL))
+		return nil
+	}}
 	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
-	c.AddCommand(simple(g, out, "list", "GET", "/v1/documents", 0), create, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out))
+	c.AddCommand(simple(g, out, "list", "GET", "/v1/documents", 0), create, driveOpen, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out))
 	return c
 }
 

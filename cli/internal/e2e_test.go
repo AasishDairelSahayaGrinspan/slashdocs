@@ -29,6 +29,19 @@ func e2eMux(t *testing.T) *http.ServeMux {
 			w.WriteHeader(405)
 		}
 	})
+	mux.HandleFunc("/v1/drive/documents", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != "POST" {
+			w.WriteHeader(405)
+			return
+		}
+		var in map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		if in["url"] != "https://drive.google.com/file/d/ABC123/view" {
+			t.Fatalf("drive create used wrong url payload: %#v", in)
+		}
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(map[string]any{"id": "doc_drive"})
+	})
 	mux.HandleFunc("/v1/documents/doc_1", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]any{"id": "doc_1", "title": "Doc", "current_version_id": "ver_1"})
 	})
@@ -148,7 +161,7 @@ func TestCLICommandsE2E(t *testing.T) {
 	html := filepath.Join(t.TempDir(), "x.html")
 	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
 	out := filepath.Join(t.TempDir(), "out.html")
-	cmds := [][]string{{"auth", "whoami"}, {"docs", "list"}, {"docs", "create", html}, {"docs", "show", "doc_1"}, {"docs", "update", "doc_1", "--title", "New"}, {"docs", "versions", "list", "doc_1"}, {"docs", "versions", "show", "doc_1", "ver_1"}, {"docs", "versions", "html", "doc_1", "ver_1"}, {"docs", "pull", "doc_1", "--out", out}, {"docs", "push", "doc_1", html}, {"docs", "comments", "list", "doc_1"}, {"docs", "comments", "create", "doc_1", "--body", "hi", "--quote", "x", "--version", "ver_1"}, {"docs", "comments", "reply", "doc_1", "cmt_1", "--body", "reply"}, {"docs", "comments", "update", "doc_1", "cmt_1", "--status", "resolved"}, {"docs", "comments", "delete", "doc_1", "cmt_1"}, {"docs", "comments", "resolve", "doc_1", "cmt_1"}, {"docs", "comments", "reopen", "doc_1", "cmt_1"}, {"docs", "grants", "list", "doc_1"}, {"docs", "grants", "add", "doc_1", "--principal", "user:a@b.com", "--role", "viewer"}, {"docs", "grants", "update", "doc_1", "gr_1", "--role", "editor"}, {"docs", "grants", "revoke", "doc_1", "gr_1"}, {"sa", "list"}, {"sa", "create", "bot"}, {"sa", "update", "sa_1", "--disable"}, {"sa", "key", "list", "sa_1"}, {"sa", "key", "create", "sa_1"}, {"sa", "key", "revoke", "sa_1", "sak_1"}, {"sa", "transfer", "sa_1", "--to", "new@example.com"}, {"sa", "transfers", "list"}, {"sa", "transfer", "accept", "xfer_1"}, {"sa", "transfer", "decline", "xfer_1"}, {"context", "list"}, {"context", "use", srv.URL}, {"open", "doc_1"}}
+	cmds := [][]string{{"auth", "whoami"}, {"docs", "list"}, {"docs", "create", html}, {"docs", "drive", "https://drive.google.com/file/d/ABC123/view"}, {"docs", "show", "doc_1"}, {"docs", "update", "doc_1", "--title", "New"}, {"docs", "versions", "list", "doc_1"}, {"docs", "versions", "show", "doc_1", "ver_1"}, {"docs", "versions", "html", "doc_1", "ver_1"}, {"docs", "pull", "doc_1", "--out", out}, {"docs", "push", "doc_1", html}, {"docs", "comments", "list", "doc_1"}, {"docs", "comments", "create", "doc_1", "--body", "hi", "--quote", "x", "--version", "ver_1"}, {"docs", "comments", "reply", "doc_1", "cmt_1", "--body", "reply"}, {"docs", "comments", "update", "doc_1", "cmt_1", "--status", "resolved"}, {"docs", "comments", "delete", "doc_1", "cmt_1"}, {"docs", "comments", "resolve", "doc_1", "cmt_1"}, {"docs", "comments", "reopen", "doc_1", "cmt_1"}, {"docs", "grants", "list", "doc_1"}, {"docs", "grants", "add", "doc_1", "--principal", "user:a@b.com", "--role", "viewer"}, {"docs", "grants", "update", "doc_1", "gr_1", "--role", "editor"}, {"docs", "grants", "revoke", "doc_1", "gr_1"}, {"sa", "list"}, {"sa", "create", "bot"}, {"sa", "update", "sa_1", "--disable"}, {"sa", "key", "list", "sa_1"}, {"sa", "key", "create", "sa_1"}, {"sa", "key", "revoke", "sa_1", "sak_1"}, {"sa", "transfer", "sa_1", "--to", "new@example.com"}, {"sa", "transfers", "list"}, {"sa", "transfer", "accept", "xfer_1"}, {"sa", "transfer", "decline", "xfer_1"}, {"context", "list"}, {"context", "use", srv.URL}, {"open", "doc_1"}}
 	for _, c := range cmds {
 		t.Run(strings.Join(c, " "), func(t *testing.T) {
 			if _, err := Execute(c); err != nil {
@@ -181,6 +194,7 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 	}{
 		{[]string{"auth", "whoami"}, []string{"me@example.com", "server=" + srv.URL}},
 		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Give org-wide read-only access", "Razorpay", "aidocs docs grants add doc_new --everyone --role viewer"}},
+		{[]string{"docs", "drive", "https://drive.google.com/file/d/ABC123/view"}, []string{"Opened Drive document", "doc_drive", "Review it at", "/app/d/doc_drive"}},
 		{[]string{"docs", "update", "doc_1", "--title", "New"}, []string{"Renamed document", "doc_1"}},
 		{[]string{"docs", "pull", "doc_1", "--out", out}, []string{"Pulled version", "doc_1"}},
 		{[]string{"docs", "push", "doc_1", html}, []string{"Pushed version", "ver_2"}},
@@ -256,6 +270,7 @@ func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 	}{
 		{[]string{"--json", "docs", "create", html}, srv.URL + "/app/d/doc_new"},
 		{[]string{"--json", "docs", "push", "doc_1", html, "--base-version", "ver_1"}, srv.URL + "/app/d/doc_1"},
+		{[]string{"--json", "docs", "drive", "https://drive.google.com/file/d/ABC123/view"}, srv.URL + "/app/d/doc_drive"},
 	}
 	for _, tc := range cases {
 		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
