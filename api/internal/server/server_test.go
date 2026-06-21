@@ -828,6 +828,38 @@ func TestDriveRender_RejectsUnknownDoc(t *testing.T) {
 	assertStatus(t, rr, http.StatusNotFound)
 }
 
+// TestCreateDriveDocument registers a Drive-backed document from a pasted Drive
+// link. A valid Drive file URL returns 201 with {"id": "<docID>"}; a native
+// Google Docs link is rejected with 400 and the parser's message. Auth uses the
+// X-Test-Principal header, matching the other authed-handler tests.
+func TestCreateDriveDocument(t *testing.T) {
+	h := newTestServer()
+
+	// Valid Drive file link -> 201 + id.
+	rr := do(t, h, http.MethodPost, "/v1/drive/documents", `{"url":"https://drive.google.com/file/d/ABC123/view"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:usr_1:anurag@example.com:Anurag",
+	})
+	assertStatus(t, rr, http.StatusCreated)
+	var got map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("response is not JSON: %v; body=%s", err, rr.Body.String())
+	}
+	if id, _ := got["id"].(string); id == "" {
+		t.Fatalf("missing/empty id: %v", got)
+	}
+
+	// Native Google Docs link -> 400 with the parser's message.
+	rr2 := do(t, h, http.MethodPost, "/v1/drive/documents", `{"url":"https://docs.google.com/document/d/DOCID/edit"}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:usr_1:anurag@example.com:Anurag",
+	})
+	assertStatus(t, rr2, http.StatusBadRequest)
+	if !strings.Contains(rr2.Body.String(), "Google Docs") {
+		t.Fatalf("expected parser message about Google Docs, got %s", rr2.Body.String())
+	}
+}
+
 func TestServiceAccountWithoutGrantCannotReadDocument(t *testing.T) {
 	rr := do(t, newTestServer(), http.MethodGet, "/v1/documents/doc_1", "", map[string]string{
 		"X-Test-Principal": "service_account:sa_1",

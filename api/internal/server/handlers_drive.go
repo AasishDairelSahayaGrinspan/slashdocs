@@ -53,13 +53,50 @@ func (h handlers) driveOpen(c *gin.Context) {
 
 	fileID := st.IDs[0]
 	rk := st.ResourceKeys[fileID]
-	doc, err := h.deps.repository.UpsertDriveDocument(c.Request.Context(), *p, fileID, rk, "Drive document")
+	doc, err := h.upsertDriveDoc(c, *p, fileID, rk)
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
 	// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host - doc.ID is a server-generated id; the target is a fixed path-relative app URL with no attacker-controlled host.
 	c.Redirect(http.StatusFound, "/app/d/"+doc.ID)
+}
+
+// upsertDriveDoc creates (or dedupe-returns) the Drive-backed document for the
+// given file id on behalf of the principal. Shared by driveOpen and
+// createDriveDocument so there is a single path for minting Drive-backed docs.
+func (h handlers) upsertDriveDoc(c *gin.Context, p auth.Principal, fileID, resourceKey string) (repo.Document, error) {
+	return h.deps.repository.UpsertDriveDocument(c.Request.Context(), p, fileID, resourceKey, "Drive document")
+}
+
+// createDriveDocument registers a Drive-backed document from a pasted Drive
+// link. Authed; the body is {"url": "<drive link or file id>"}. On success it
+// returns 201 {"id": "<docID>"}; an unparseable or native Google Docs URL is
+// rejected with 400 and the parser's message.
+func (h handlers) createDriveDocument(c *gin.Context) {
+	p := current(c)
+	if p == nil {
+		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "login required", nil))
+		return
+	}
+	var in struct {
+		URL string `json:"url"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil {
+		badRequest(c, "invalid request body")
+		return
+	}
+	fileID, rk, err := parseDriveFileRef(in.URL)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	doc, err := h.upsertDriveDoc(c, *p, fileID, rk)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, gin.H{"id": doc.ID})
 }
 
 // driveLoginURL builds the Google login start URL whose post-login redirect

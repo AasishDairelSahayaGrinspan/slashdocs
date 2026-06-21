@@ -177,6 +177,8 @@ func (s *Server) routes(deps dependencies) {
 	// file bytes from Drive and POSTs them) in the sandbox renderer. Requires a
 	// session so it is not an open HTML-wrapping proxy; Drive ACLs gate access.
 	authed.POST("/drive/render", h.driveRender)
+	// /drive/documents creates a Drive-backed document from a pasted Drive link.
+	authed.POST("/drive/documents", h.createDriveDocument)
 	authed.GET("/documents", h.listDocuments)
 	authed.GET("/documents/:id", h.getDocument)
 	authed.PATCH("/documents/:id", h.patchDocument)
