@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
 import {
   FileText,
+  Link2,
   MoreHorizontal,
   Search,
   Sparkles,
@@ -33,7 +34,7 @@ import {
 } from "@/components/ui/dialog";
 import { HtmlFileInput, useStagedFile } from "@/components/ui/upload";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
-import { api, docID, docTitle, type Document, type Principal } from "@/api";
+import { api, APIError, docID, docTitle, type Document, type Principal } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 
 export function DocumentsPage() {
@@ -113,6 +114,7 @@ export function DocumentsPage() {
               </Button>
             </DropdownTrigger>
             <DropdownContent>
+              <OpenDriveLinkItem />
               <UploadBackupItem />
             </DropdownContent>
           </Dropdown>
@@ -264,6 +266,71 @@ function UploadBackupItem() {
         </DropdownItem>
       }
     />
+  );
+}
+
+function OpenDriveLinkItem() {
+  return (
+    <OpenDriveLinkDialog
+      trigger={
+        <DropdownItem onSelect={(e) => e.preventDefault()}>
+          <Link2 className="h-4 w-4" /> Open from Google Drive
+        </DropdownItem>
+      }
+    />
+  );
+}
+
+function OpenDriveLinkDialog({ trigger }: { trigger: React.ReactNode }) {
+  const nav = useNavigate();
+  const [url, setUrl] = useState("");
+  const [open, setOpen] = useState(false);
+  const m = useMutation({
+    mutationFn: () => api.createDriveDocument(url.trim()),
+    onSuccess: (res) => {
+      setOpen(false);
+      setUrl("");
+      nav(`/app/d/${res.id}`);
+    },
+  });
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>{trigger}</DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Open from Google Drive</DialogTitle>
+          <DialogDescription>Paste a link to an HTML file in Drive.</DialogDescription>
+        </DialogHeader>
+        <form
+          className="space-y-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (url.trim()) m.mutate();
+          }}
+        >
+          <Input
+            placeholder="https://drive.google.com/file/d/…/view"
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+          />
+          {m.error instanceof APIError ? (
+            <p className="text-sm text-[var(--color-danger)]">{m.error.message}</p>
+          ) : m.isError ? (
+            <p className="text-sm text-[var(--color-danger)]">
+              Could not open that link. Check it is an HTML file in Drive.
+            </p>
+          ) : null}
+          <DialogFooter>
+            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled={!url.trim() || m.isPending}>
+              {m.isPending ? "Opening…" : "Open"}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

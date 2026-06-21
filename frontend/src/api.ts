@@ -134,6 +134,11 @@ export const api = {
       { method: "POST", body: fd },
     );
   },
+  createDriveDocument: (url: string) =>
+    request<{ id: string }>("/v1/drive/documents", {
+      method: "POST",
+      body: JSON.stringify({ url }),
+    }),
   listVersions: (doc: string) =>
     request<{ items: Version[] }>(`/v1/documents/${doc}/versions`),
   createVersion: (doc: string, base: string, summary: string, file: File) => {
