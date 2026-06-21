@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -887,4 +889,127 @@ func assertJSON(t *testing.T, got []byte, want string) {
 	if string(gotNorm) != string(wantNorm) {
 		t.Fatalf("json mismatch\n got: %s\nwant: %s", gotNorm, wantNorm)
 	}
+}
+
+func TestFoldersStage1MemoryBackend(t *testing.T) {
+	ctx := context.Background()
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "u_owner"}
+	other := auth.Principal{Type: auth.PrincipalUser, ID: "u_other"}
+	third := auth.Principal{Type: auth.PrincipalUser, ID: "u_third"}
+
+	t.Run("additive inheritance", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", []byte("x"))
+		_, _ = r.CreateGrant(ctx, root.ID, other, repo.RoleViewer, owner)
+		_, _ = r.AddDocumentToFolder(ctx, owner, root.ID, doc.ID)
+		role, err := r.RoleForDocument(ctx, other, doc.ID)
+		if err != nil || role != repo.RoleViewer {
+			t.Fatalf("role=%q err=%v", role, err)
+		}
+	})
+	t.Run("nested inheritance", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		child, _ := r.CreateFolder(ctx, owner, "Child", root.ID)
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.CreateGrant(ctx, root.ID, other, repo.RoleCommenter, owner)
+		_, _ = r.AddDocumentToFolder(ctx, owner, child.ID, doc.ID)
+		role, err := r.RoleForDocument(ctx, other, doc.ID)
+		if err != nil || role != repo.RoleCommenter {
+			t.Fatalf("role=%q err=%v", role, err)
+		}
+	})
+	t.Run("monotonic invariant", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		child, _ := r.CreateFolder(ctx, owner, "Child", root.ID)
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.CreateGrant(ctx, root.ID, other, repo.RoleEditor, owner)
+		_, _ = r.CreateGrant(ctx, doc.ID, other, repo.RoleViewer, owner)
+		_, _ = r.AddDocumentToFolder(ctx, owner, child.ID, doc.ID)
+		role, _ := r.RoleForDocument(ctx, other, doc.ID)
+		if role != repo.RoleEditor {
+			t.Fatalf("role=%q", role)
+		}
+	})
+	t.Run("reduce via ancestor provenance sources", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.CreateGrant(ctx, root.ID, other, repo.RoleViewer, owner)
+		_, _ = r.AddDocumentToFolder(ctx, owner, root.ID, doc.ID)
+		items, _ := r.ListEffectiveAccess(ctx, "document", doc.ID)
+		found := false
+		for _, it := range items {
+			if it.Principal.ID == other.ID {
+				for _, s := range it.Sources {
+					if s.ResourceType == "folder" && s.ResourceID == root.ID {
+						found = true
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("missing folder provenance: %#v", items)
+		}
+	})
+	t.Run("cycle prevention", func(t *testing.T) {
+		r := repo.NewMemory()
+		a, _ := r.CreateFolder(ctx, owner, "A", "")
+		b, _ := r.CreateFolder(ctx, owner, "B", a.ID)
+		_, err := r.UpdateFolder(ctx, a.ID, "", &b.ID)
+		if !errors.Is(err, repo.ErrConflict) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("depth limit", func(t *testing.T) {
+		r := repo.NewMemory()
+		p := ""
+		var err error
+		for i := 0; i < 5; i++ {
+			f, e := r.CreateFolder(ctx, owner, fmt.Sprintf("L%d", i), p)
+			if e != nil {
+				t.Fatal(e)
+			}
+			p = f.ID
+		}
+		_, err = r.CreateFolder(ctx, owner, "TooDeep", p)
+		if !errors.Is(err, repo.ErrConflict) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("sibling title uniqueness", func(t *testing.T) {
+		r := repo.NewMemory()
+		_, _ = r.CreateFolder(ctx, owner, "A", "")
+		_, err := r.CreateFolder(ctx, owner, "a", "")
+		if !errors.Is(err, repo.ErrConflict) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("pin access validation", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.AddDocumentToFolder(ctx, owner, root.ID, doc.ID)
+		if role, _ := r.RoleForDocument(ctx, third, doc.ID); role != repo.RoleNone {
+			t.Fatalf("unexpected role %q", role)
+		}
+		_, _ = r.CreateGrant(ctx, root.ID, third, repo.RoleViewer, owner)
+		if role, _ := r.RoleForDocument(ctx, third, doc.ID); role != repo.RoleViewer {
+			t.Fatalf("inherited role %q", role)
+		}
+		if err := r.PutPin(ctx, third, "document", doc.ID); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("per principal pin isolation", func(t *testing.T) {
+		r := repo.NewMemory()
+		_ = r.PutPin(ctx, owner, "folder", "f1")
+		_ = r.PutPin(ctx, other, "folder", "f2")
+		pins, _ := r.ListPins(ctx, owner)
+		if len(pins) != 1 || pins[0].ResourceID != "f1" {
+			t.Fatalf("pins=%#v", pins)
+		}
+	})
 }

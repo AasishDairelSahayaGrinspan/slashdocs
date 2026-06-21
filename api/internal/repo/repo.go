@@ -72,6 +72,37 @@ type Document struct {
 	Title            string         `json:"title"`
 	Owner            auth.Principal `json:"owner"`
 	CurrentVersionID string         `json:"current_version_id"`
+	ParentFolderID   string         `json:"parent_folder_id,omitempty"`
+}
+
+type Folder struct {
+	ID             string         `json:"id"`
+	Title          string         `json:"title"`
+	Owner          auth.Principal `json:"owner"`
+	ParentFolderID string         `json:"parent_folder_id,omitempty"`
+}
+
+type FolderEntry struct {
+	Type     string    `json:"type"`
+	Folder   *Folder   `json:"folder,omitempty"`
+	Document *Document `json:"document,omitempty"`
+}
+
+type Pin struct {
+	ResourceType string `json:"resource_type"`
+	ResourceID   string `json:"resource_id"`
+}
+
+type AccessSource struct {
+	ResourceType  string `json:"resource_type"`
+	ResourceID    string `json:"resource_id"`
+	ResourceTitle string `json:"resource_title"`
+	Role          Role   `json:"role"`
+}
+type EffectiveAccessItem struct {
+	Principal     auth.Principal `json:"principal"`
+	EffectiveRole Role           `json:"effective_role"`
+	Sources       []AccessSource `json:"sources"`
 }
 
 type ServiceAccount struct {
@@ -95,11 +126,13 @@ type OwnershipTransfer struct {
 }
 
 type Grant struct {
-	ID         string         `json:"id"`
-	DocumentID string         `json:"document_id"`
-	Principal  auth.Principal `json:"principal"`
-	Role       Role           `json:"role"`
-	GrantedBy  auth.Principal `json:"granted_by"`
+	ID           string         `json:"id"`
+	DocumentID   string         `json:"document_id,omitempty"`
+	ResourceType string         `json:"resource_type,omitempty"`
+	ResourceID   string         `json:"resource_id,omitempty"`
+	Principal    auth.Principal `json:"principal"`
+	Role         Role           `json:"role"`
+	GrantedBy    auth.Principal `json:"granted_by"`
 }
 
 type Version struct {
@@ -149,6 +182,7 @@ type Repository interface {
 	ListCLICredentials(ctx context.Context, userID string) ([]CLICredential, error)
 	RevokeCLICredential(ctx context.Context, userID, credentialID string) error
 	RoleForDocument(ctx context.Context, principal auth.Principal, documentID string) (Role, error)
+	RoleForFolder(ctx context.Context, principal auth.Principal, folderID string) (Role, error)
 	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
 	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
@@ -189,6 +223,18 @@ type Repository interface {
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)
 	UpdateComment(ctx context.Context, id, body, status string) (Comment, error)
 	DeleteComment(ctx context.Context, id string) error
+	CreateFolder(ctx context.Context, owner auth.Principal, title, parentFolderID string) (Folder, error)
+	ListFolder(ctx context.Context, principal auth.Principal, folderID, path string) ([]FolderEntry, bool, *Folder, error)
+	GetFolder(ctx context.Context, id string) (Folder, error)
+	UpdateFolder(ctx context.Context, id, title string, parentFolderID *string) (Folder, error)
+	DeleteFolder(ctx context.Context, id string) error
+	AddDocumentToFolder(ctx context.Context, principal auth.Principal, folderID, documentID string) (bool, error)
+	RemoveDocumentFromFolder(ctx context.Context, folderID, documentID string) error
+	ListFolderDocuments(ctx context.Context, principal auth.Principal, folderID string) ([]Document, error)
+	ListEffectiveAccess(ctx context.Context, resourceType, resourceID string) ([]EffectiveAccessItem, error)
+	ListPins(ctx context.Context, principal auth.Principal) ([]Pin, error)
+	PutPin(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error
+	DeletePin(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error
 }
 
 type Memory struct {
@@ -200,7 +246,10 @@ type Memory struct {
 	commentN  int
 	credN     int
 	sakN      int
+	folderN   int
 	docs      map[string]Document
+	folders   map[string]Folder
+	pins      map[string]Pin
 	versions  map[string]Version
 	grants    []Grant
 	users     map[string]auth.Principal
@@ -229,7 +278,7 @@ type cliCredRecord struct {
 // behaves like a freshly migrated database; tests that need the canonical
 // fixture graph call NewMemorySeeded instead.
 func NewMemory() *Memory {
-	return &Memory{docs: map[string]Document{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, transfers: map[string]OwnershipTransfer{}}
+	return &Memory{docs: map[string]Document{}, folders: map[string]Folder{}, pins: map[string]Pin{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, transfers: map[string]OwnershipTransfer{}}
 }
 
 func (m *Memory) ResolveBearerToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
@@ -321,12 +370,14 @@ func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, document
 	if d := m.docs[documentID]; p.Type == d.Owner.Type && p.ID == d.Owner.ID {
 		best = RoleOwner
 	}
+	ids := map[string]bool{documentID: true}
+	for fid := m.docs[documentID].ParentFolderID; fid != ""; fid = m.folders[fid].ParentFolderID {
+		ids[fid] = true
+	}
 	for _, g := range m.grants {
-		if g.DocumentID != documentID {
+		if !ids[g.ResourceID] && !ids[g.DocumentID] {
 			continue
 		}
-		// An explicit grant matches this exact principal; an "anyone" grant
-		// matches every audience.
 		if (g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone {
 			best = MaxRole(best, g.Role)
 		}
@@ -451,7 +502,11 @@ func (m *Memory) CreateGrant(ctx context.Context, documentID string, principal a
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.grantN++
-	g := Grant{ID: fmt.Sprintf("gr_%d", m.grantN), DocumentID: documentID, Principal: principal, Role: role, GrantedBy: grantedBy}
+	rt := "document"
+	if strings.HasPrefix(documentID, "fld_") {
+		rt = "folder"
+	}
+	g := Grant{ID: fmt.Sprintf("gr_%d", m.grantN), DocumentID: documentID, ResourceType: rt, ResourceID: documentID, Principal: principal, Role: role, GrantedBy: grantedBy}
 	m.grants = append(m.grants, g)
 	return g, nil
 }
@@ -601,33 +656,33 @@ func (m *Memory) ListServiceAccountKeys(ctx context.Context, saID string) ([]Ser
 	return []ServiceAccountKey{}, nil
 }
 func (m *Memory) RevokeServiceAccountKey(ctx context.Context, saID, keyID string) error { return nil }
-func (m *Memory) ListGrants(ctx context.Context, documentID string) ([]Grant, error) {
+func (m *Memory) ListGrants(ctx context.Context, resourceID string) ([]Grant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := []Grant{}
 	for _, g := range m.grants {
-		if g.DocumentID == documentID {
+		if g.ResourceID == resourceID || g.DocumentID == resourceID {
 			out = append(out, g)
 		}
 	}
 	return out, nil
 }
-func (m *Memory) UpdateGrant(ctx context.Context, documentID, grantID string, role Role) (Grant, error) {
+func (m *Memory) UpdateGrant(ctx context.Context, resourceID, grantID string, role Role) (Grant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, g := range m.grants {
-		if g.ID == grantID && g.DocumentID == documentID {
+		if g.ID == grantID && (g.ResourceID == resourceID || g.DocumentID == resourceID) {
 			m.grants[i].Role = role
 			return m.grants[i], nil
 		}
 	}
 	return Grant{}, ErrNotFound
 }
-func (m *Memory) DeleteGrant(ctx context.Context, documentID, grantID string) error {
+func (m *Memory) DeleteGrant(ctx context.Context, resourceID, grantID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for i, g := range m.grants {
-		if g.ID == grantID && g.DocumentID == documentID {
+		if g.ID == grantID && (g.ResourceID == resourceID || g.DocumentID == resourceID) {
 			m.grants = append(m.grants[:i], m.grants[i+1:]...)
 			return nil
 		}
@@ -752,5 +807,313 @@ func (m *Memory) DeclineOwnershipTransfer(ctx context.Context, id string, user a
 	}
 	x.Status = StatusDeclined
 	m.transfers[id] = x
+	return nil
+}
+
+func (m *Memory) folderDepthLocked(parent string) int {
+	d := 0
+	for parent != "" {
+		d++
+		parent = m.folders[parent].ParentFolderID
+	}
+	return d
+}
+func (m *Memory) subtreeHeightLocked(id string) int {
+	h := 1
+	for _, f := range m.folders {
+		if f.ParentFolderID == id {
+			if ch := 1 + m.subtreeHeightLocked(f.ID); ch > h {
+				h = ch
+			}
+		}
+	}
+	return h
+}
+func (m *Memory) folderConflictLocked(owner auth.Principal, parent, title, except string) bool {
+	for _, f := range m.folders {
+		if f.ID != except && f.Owner.Type == owner.Type && f.Owner.ID == owner.ID && f.ParentFolderID == parent && strings.EqualFold(f.Title, title) {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Memory) CreateFolder(ctx context.Context, owner auth.Principal, title, parentFolderID string) (Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if parentFolderID != "" {
+		if _, ok := m.folders[parentFolderID]; !ok {
+			return Folder{}, ErrNotFound
+		}
+	}
+	if m.folderDepthLocked(parentFolderID)+1 > 5 {
+		return Folder{}, ErrConflict
+	}
+	if m.folderConflictLocked(owner, parentFolderID, title, "") {
+		return Folder{}, ErrConflict
+	}
+	m.folderN++
+	f := Folder{ID: fmt.Sprintf("fld_%d", m.folderN), Title: title, Owner: owner, ParentFolderID: parentFolderID}
+	m.folders[f.ID] = f
+	return f, nil
+}
+func (m *Memory) GetFolder(ctx context.Context, id string) (Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.folders[id]
+	if !ok {
+		return Folder{}, ErrNotFound
+	}
+	return f, nil
+}
+func (m *Memory) RoleForFolder(ctx context.Context, p auth.Principal, folderID string) (Role, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.folders[folderID]
+	if !ok {
+		return "", ErrNotFound
+	}
+	best := RoleNone
+	if f.Owner.Type == p.Type && f.Owner.ID == p.ID {
+		best = RoleOwner
+	}
+	ids := map[string]bool{}
+	for fid := folderID; fid != ""; fid = m.folders[fid].ParentFolderID {
+		ids[fid] = true
+	}
+	for _, g := range m.grants {
+		if ids[g.ResourceID] && ((g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone) {
+			best = MaxRole(best, g.Role)
+		}
+	}
+	if best == RoleNone {
+		return "", ErrNotFound
+	}
+	return best, nil
+}
+func (m *Memory) ListFolder(ctx context.Context, p auth.Principal, folderID, path string) ([]FolderEntry, bool, *Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	parent := folderID
+	if path != "" && path != "/" {
+		parts := strings.Split(strings.Trim(path, "/"), "/")
+		for _, part := range parts {
+			found := ""
+			for _, f := range m.folders {
+				if f.ParentFolderID == parent && f.Title == part {
+					found = f.ID
+					break
+				}
+			}
+			if found == "" {
+				return nil, false, nil, ErrNotFound
+			}
+			parent = found
+		}
+	}
+	var cur *Folder
+	if parent != "" {
+		f := m.folders[parent]
+		cur = &f
+	}
+	out := []FolderEntry{}
+	has := false
+	for _, f := range m.folders {
+		if f.ParentFolderID == parent {
+			if parent == "" && len(out) >= 50 {
+				has = true
+				continue
+			}
+			out = append(out, FolderEntry{Type: "folder", Folder: &f})
+		}
+	}
+	if parent != "" {
+		for _, d := range m.docs {
+			if d.ParentFolderID == parent {
+				dd := d
+				out = append(out, FolderEntry{Type: "document", Document: &dd})
+			}
+		}
+	}
+	return out, has, cur, nil
+}
+func (m *Memory) UpdateFolder(ctx context.Context, id, title string, parent *string) (Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	f, ok := m.folders[id]
+	if !ok {
+		return Folder{}, ErrNotFound
+	}
+	np := f.ParentFolderID
+	if parent != nil {
+		np = *parent
+		if np == id {
+			return Folder{}, ErrConflict
+		}
+		for x := np; x != ""; x = m.folders[x].ParentFolderID {
+			if x == id {
+				return Folder{}, ErrConflict
+			}
+		}
+		if np != "" {
+			if _, ok := m.folders[np]; !ok {
+				return Folder{}, ErrNotFound
+			}
+		}
+		if m.folderDepthLocked(np)+m.subtreeHeightLocked(id) > 5 {
+			return Folder{}, ErrConflict
+		}
+	}
+	nt := f.Title
+	if title != "" {
+		nt = title
+	}
+	if m.folderConflictLocked(f.Owner, np, nt, id) {
+		return Folder{}, ErrConflict
+	}
+	f.Title = nt
+	f.ParentFolderID = np
+	m.folders[id] = f
+	return f, nil
+}
+func (m *Memory) DeleteFolder(ctx context.Context, id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var del func(string)
+	del = func(fid string) {
+		for _, d := range m.docs {
+			if d.ParentFolderID == fid {
+				d.ParentFolderID = ""
+				m.docs[d.ID] = d
+			}
+		}
+		for _, f := range m.folders {
+			if f.ParentFolderID == fid {
+				del(f.ID)
+			}
+		}
+		delete(m.folders, fid)
+	}
+	if _, ok := m.folders[id]; !ok {
+		return ErrNotFound
+	}
+	del(id)
+	return nil
+}
+func (m *Memory) AddDocumentToFolder(ctx context.Context, p auth.Principal, folderID, docID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.docs[docID]
+	if !ok {
+		return false, ErrNotFound
+	}
+	if _, ok := m.folders[folderID]; !ok {
+		return false, ErrNotFound
+	}
+	shared := false
+	for _, g := range m.grants {
+		if g.ResourceID == folderID {
+			shared = true
+		}
+	}
+	d.ParentFolderID = folderID
+	m.docs[docID] = d
+	return shared, nil
+}
+func (m *Memory) RemoveDocumentFromFolder(ctx context.Context, folderID, docID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	d, ok := m.docs[docID]
+	if !ok || d.ParentFolderID != folderID {
+		return ErrNotFound
+	}
+	d.ParentFolderID = ""
+	m.docs[docID] = d
+	return nil
+}
+func (m *Memory) ListFolderDocuments(ctx context.Context, p auth.Principal, folderID string) ([]Document, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Document{}
+	for _, d := range m.docs {
+		if d.ParentFolderID == folderID {
+			out = append(out, d)
+		}
+	}
+	return out, nil
+}
+func (m *Memory) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]EffectiveAccessItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	titles := map[string]string{}
+	ids := []string{rid}
+	if rt == "document" {
+		d := m.docs[rid]
+		titles[rid] = d.Title
+		for fid := d.ParentFolderID; fid != ""; fid = m.folders[fid].ParentFolderID {
+			ids = append(ids, fid)
+			titles[fid] = m.folders[fid].Title
+		}
+	} else {
+		for fid := rid; fid != ""; fid = m.folders[fid].ParentFolderID {
+			if fid != rid {
+				ids = append(ids, fid)
+			}
+			titles[fid] = m.folders[fid].Title
+		}
+	}
+	by := map[string]*EffectiveAccessItem{}
+	add := func(p auth.Principal, src AccessSource) {
+		k := string(p.Type) + ":" + p.ID
+		if by[k] == nil {
+			by[k] = &EffectiveAccessItem{Principal: p}
+		}
+		by[k].EffectiveRole = MaxRole(by[k].EffectiveRole, src.Role)
+		by[k].Sources = append(by[k].Sources, src)
+	}
+	if rt == "document" {
+		d := m.docs[rid]
+		add(d.Owner, AccessSource{ResourceType: "document", ResourceID: rid, ResourceTitle: d.Title, Role: RoleOwner})
+	} else {
+		f := m.folders[rid]
+		add(f.Owner, AccessSource{ResourceType: "folder", ResourceID: rid, ResourceTitle: f.Title, Role: RoleOwner})
+	}
+	okid := map[string]bool{}
+	for _, id := range ids {
+		okid[id] = true
+	}
+	for _, g := range m.grants {
+		if okid[g.ResourceID] {
+			add(g.Principal, AccessSource{ResourceType: g.ResourceType, ResourceID: g.ResourceID, ResourceTitle: titles[g.ResourceID], Role: g.Role})
+		}
+	}
+	out := []EffectiveAccessItem{}
+	for _, v := range by {
+		out = append(out, *v)
+	}
+	return out, nil
+}
+func (m *Memory) ListPins(ctx context.Context, p auth.Principal) ([]Pin, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Pin{}
+	pref := string(p.Type) + ":" + p.ID + ":"
+	for k, pin := range m.pins {
+		if strings.HasPrefix(k, pref) {
+			out = append(out, pin)
+		}
+	}
+	return out, nil
+}
+func (m *Memory) PutPin(ctx context.Context, p auth.Principal, rt, rid string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.pins[string(p.Type)+":"+p.ID+":"+rt+":"+rid] = Pin{ResourceType: rt, ResourceID: rid}
+	return nil
+}
+func (m *Memory) DeletePin(ctx context.Context, p auth.Principal, rt, rid string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.pins, string(p.Type)+":"+p.ID+":"+rt+":"+rid)
 	return nil
 }

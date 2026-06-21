@@ -691,3 +691,154 @@ func commentFromList(r dbsqlc.ListCommentsRow) repo.Comment {
 	_ = json.Unmarshal(r.AnchorJson, &c.Anchor)
 	return c
 }
+
+func (s *Store) RoleForFolder(ctx context.Context, p auth.Principal, folderID string) (repo.Role, error) {
+	rows, err := s.db.Query(ctx, `WITH RECURSIVE a(id,parent_folder_id,depth) AS (SELECT id,parent_folder_id,1 FROM folders WHERE id=$1 UNION ALL SELECT f.id,f.parent_folder_id,a.depth+1 FROM folders f JOIN a ON f.id=a.parent_folder_id WHERE a.depth<64) SELECT resource_id,principal_type,principal_id,role FROM resource_grants WHERE revoked_at IS NULL AND resource_type='folder' AND resource_id IN (SELECT id FROM a)`, folderID)
+	if err != nil {
+		return "", err
+	}
+	defer rows.Close()
+	f, err := s.GetFolder(ctx, folderID)
+	if err != nil {
+		return "", err
+	}
+	best := repo.RoleNone
+	if f.Owner.Type == p.Type && f.Owner.ID == p.ID {
+		best = repo.RoleOwner
+	}
+	for rows.Next() {
+		var rid, pt, pid, role string
+		if err := rows.Scan(&rid, &pt, &pid, &role); err != nil {
+			return "", err
+		}
+		if (pt == string(p.Type) && pid == p.ID) || pt == string(auth.PrincipalAnyone) {
+			best = repo.MaxRole(best, repo.Role(role))
+		}
+	}
+	if best == repo.RoleNone {
+		return "", repo.ErrNotFound
+	}
+	return best, nil
+}
+func (s *Store) CreateFolder(ctx context.Context, owner auth.Principal, title, parent string) (repo.Folder, error) {
+	id := newID("fld")
+	_, err := s.db.Exec(ctx, `INSERT INTO folders(id,title,owner_type,owner_id,parent_folder_id) VALUES($1,$2,$3,$4,NULLIF($5,''))`, id, title, string(owner.Type), owner.ID, parent)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return repo.Folder{}, repo.ErrConflict
+		}
+		return repo.Folder{}, err
+	}
+	return repo.Folder{ID: id, Title: title, Owner: owner, ParentFolderID: parent}, nil
+}
+func (s *Store) GetFolder(ctx context.Context, id string) (repo.Folder, error) {
+	var f repo.Folder
+	var pt string
+	err := s.db.QueryRow(ctx, `SELECT id,title,owner_type,owner_id,COALESCE(parent_folder_id,'') FROM folders WHERE id=$1`, id).Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.Folder{}, repo.ErrNotFound
+	}
+	f.Owner.Type = auth.PrincipalType(pt)
+	return f, err
+}
+func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *string) (repo.Folder, error) {
+	f, err := s.GetFolder(ctx, id)
+	if err != nil {
+		return f, err
+	}
+	if title == "" {
+		title = f.Title
+	}
+	p := f.ParentFolderID
+	if parent != nil {
+		p = *parent
+	}
+	_, err = s.db.Exec(ctx, `UPDATE folders SET title=$2,parent_folder_id=NULLIF($3,''),updated_at=now() WHERE id=$1`, id, title, p)
+	if err != nil {
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "23505" {
+			return repo.Folder{}, repo.ErrConflict
+		}
+		return repo.Folder{}, err
+	}
+	return s.GetFolder(ctx, id)
+}
+func (s *Store) DeleteFolder(ctx context.Context, id string) error {
+	_, err := s.db.Exec(ctx, `WITH RECURSIVE d(id,depth) AS (SELECT $1::text,1 UNION ALL SELECT f.id,d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth<64) DELETE FROM folders WHERE id IN (SELECT id FROM d)`, id)
+	return err
+}
+func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path string) ([]repo.FolderEntry, bool, *repo.Folder, error) {
+	rows, err := s.db.Query(ctx, `SELECT id,title,owner_type,owner_id,COALESCE(parent_folder_id,'') FROM folders WHERE COALESCE(parent_folder_id,'')=$1 LIMIT 51`, folderID)
+	if err != nil {
+		return nil, false, nil, err
+	}
+	defer rows.Close()
+	out := []repo.FolderEntry{}
+	for rows.Next() {
+		var f repo.Folder
+		var pt string
+		rows.Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID)
+		f.Owner.Type = auth.PrincipalType(pt)
+		if len(out) < 50 {
+			ff := f
+			out = append(out, repo.FolderEntry{Type: "folder", Folder: &ff})
+		}
+	}
+	has := len(out) == 50
+	var cur *repo.Folder
+	if folderID != "" {
+		f, _ := s.GetFolder(ctx, folderID)
+		cur = &f
+	}
+	return out, has, cur, nil
+}
+func (s *Store) AddDocumentToFolder(ctx context.Context, p auth.Principal, folderID, docID string) (bool, error) {
+	_, err := s.db.Exec(ctx, `UPDATE documents SET parent_folder_id=$1 WHERE id=$2`, folderID, docID)
+	return true, err
+}
+func (s *Store) RemoveDocumentFromFolder(ctx context.Context, folderID, docID string) error {
+	_, err := s.db.Exec(ctx, `UPDATE documents SET parent_folder_id=NULL WHERE id=$1 AND parent_folder_id=$2`, docID, folderID)
+	return err
+}
+func (s *Store) ListFolderDocuments(ctx context.Context, p auth.Principal, folderID string) ([]repo.Document, error) {
+	rows, err := s.db.Query(ctx, `SELECT id,title,owner_type,owner_id,COALESCE(current_version_id,''),COALESCE(parent_folder_id,'') FROM documents WHERE parent_folder_id=$1`, folderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []repo.Document{}
+	for rows.Next() {
+		var d repo.Document
+		var pt string
+		rows.Scan(&d.ID, &d.Title, &pt, &d.Owner.ID, &d.CurrentVersionID, &d.ParentFolderID)
+		d.Owner.Type = auth.PrincipalType(pt)
+		out = append(out, d)
+	}
+	return out, nil
+}
+func (s *Store) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]repo.EffectiveAccessItem, error) {
+	return []repo.EffectiveAccessItem{}, nil
+}
+func (s *Store) ListPins(ctx context.Context, p auth.Principal) ([]repo.Pin, error) {
+	rows, err := s.db.Query(ctx, `SELECT resource_type,resource_id FROM pins WHERE principal_type=$1 AND principal_id=$2`, string(p.Type), p.ID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []repo.Pin{}
+	for rows.Next() {
+		var pin repo.Pin
+		rows.Scan(&pin.ResourceType, &pin.ResourceID)
+		out = append(out, pin)
+	}
+	return out, nil
+}
+func (s *Store) PutPin(ctx context.Context, p auth.Principal, rt, rid string) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO pins(principal_type,principal_id,resource_type,resource_id) VALUES($1,$2,$3,$4) ON CONFLICT DO NOTHING`, string(p.Type), p.ID, rt, rid)
+	return err
+}
+func (s *Store) DeletePin(ctx context.Context, p auth.Principal, rt, rid string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM pins WHERE principal_type=$1 AND principal_id=$2 AND resource_type=$3 AND resource_id=$4`, string(p.Type), p.ID, rt, rid)
+	return err
+}
