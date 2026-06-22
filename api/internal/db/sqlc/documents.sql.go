@@ -21,7 +21,7 @@ func (q *Queries) DeleteDocument(ctx context.Context, id string) error {
 }
 
 const getDocument = `-- name: GetDocument :one
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -38,6 +38,7 @@ type GetDocumentRow struct {
 	CurrentVersionID pgtype.Text
 	OwnerType        string
 	OwnerID          string
+	Tags             []string
 	OwnerEmail       string
 	OwnerName        string
 }
@@ -52,6 +53,7 @@ func (q *Queries) GetDocument(ctx context.Context, id string) (GetDocumentRow, e
 		&i.CurrentVersionID,
 		&i.OwnerType,
 		&i.OwnerID,
+		&i.Tags,
 		&i.OwnerEmail,
 		&i.OwnerName,
 	)
@@ -109,7 +111,7 @@ func (q *Queries) GetDocumentVersionForUpdate(ctx context.Context, documentID st
 }
 
 const insertDocument = `-- name: InsertDocument :exec
-INSERT INTO documents(id,title,owner_type,owner_id) VALUES($1,$2,$3,$4)
+INSERT INTO documents(id,title,owner_type,owner_id,tags) VALUES($1,$2,$3,$4,$5)
 `
 
 type InsertDocumentParams struct {
@@ -117,6 +119,7 @@ type InsertDocumentParams struct {
 	Title     string
 	OwnerType string
 	OwnerID   string
+	Tags      []string
 }
 
 func (q *Queries) InsertDocument(ctx context.Context, arg InsertDocumentParams) error {
@@ -125,12 +128,13 @@ func (q *Queries) InsertDocument(ctx context.Context, arg InsertDocumentParams) 
 		arg.Title,
 		arg.OwnerType,
 		arg.OwnerID,
+		arg.Tags,
 	)
 	return err
 }
 
 const listDocuments = `-- name: ListDocuments :many
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -175,6 +179,7 @@ type ListDocumentsRow struct {
 	CurrentVersionID pgtype.Text
 	OwnerType        string
 	OwnerID          string
+	Tags             []string
 	OwnerEmail       string
 	OwnerName        string
 }
@@ -204,12 +209,151 @@ func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([
 			&i.CurrentVersionID,
 			&i.OwnerType,
 			&i.OwnerID,
+			&i.Tags,
 			&i.OwnerEmail,
 			&i.OwnerName,
 		); err != nil {
 			return nil, err
 		}
 		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDocumentsByTag = `-- name: ListDocumentsByTag :many
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
+       COALESCE(u.email,'') AS owner_email,
+       COALESCE(u.name,sa.name,'') AS owner_name
+FROM documents d
+LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+WHERE $1 = ANY(d.tags)
+  AND (
+    (d.owner_type=$3 AND d.owner_id=$2)
+    OR EXISTS (
+      SELECT 1 FROM resource_grants g
+      WHERE g.resource_type='document'
+        AND g.resource_id=d.id
+        AND g.revoked_at IS NULL
+        AND g.principal_type=$3 AND g.principal_id=$2
+    )
+    OR (
+      EXISTS (
+          SELECT 1 FROM document_workspace_entries w
+          WHERE w.document_id=d.id
+            AND w.principal_type=$3 AND w.principal_id=$2
+      )
+      AND EXISTS (
+          SELECT 1 FROM resource_grants g
+          WHERE g.resource_type='document'
+            AND g.resource_id=d.id
+            AND g.revoked_at IS NULL
+            AND g.principal_type='anyone'
+      )
+    )
+  )
+ORDER BY d.updated_at DESC
+LIMIT 100
+`
+
+type ListDocumentsByTagParams struct {
+	Tag       string
+	OwnerID   string
+	OwnerType string
+}
+
+type ListDocumentsByTagRow struct {
+	ID               string
+	Title            string
+	CurrentVersionID pgtype.Text
+	OwnerType        string
+	OwnerID          string
+	Tags             []string
+	OwnerEmail       string
+	OwnerName        string
+}
+
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+func (q *Queries) ListDocumentsByTag(ctx context.Context, arg ListDocumentsByTagParams) ([]ListDocumentsByTagRow, error) {
+	rows, err := q.db.Query(ctx, listDocumentsByTag, arg.Tag, arg.OwnerID, arg.OwnerType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDocumentsByTagRow
+	for rows.Next() {
+		var i ListDocumentsByTagRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.CurrentVersionID,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.Tags,
+			&i.OwnerEmail,
+			&i.OwnerName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listAllDocumentTags = `-- name: ListAllDocumentTags :many
+SELECT DISTINCT unnest(d.tags) AS tag
+FROM documents d
+WHERE (d.owner_type=$2 AND d.owner_id=$1)
+   OR EXISTS (
+       SELECT 1 FROM resource_grants g
+       WHERE g.resource_type='document'
+         AND g.resource_id=d.id
+         AND g.revoked_at IS NULL
+         AND g.principal_type=$2 AND g.principal_id=$1
+   )
+   OR (
+       EXISTS (
+           SELECT 1 FROM document_workspace_entries w
+           WHERE w.document_id=d.id
+             AND w.principal_type=$2 AND w.principal_id=$1
+       )
+       AND EXISTS (
+           SELECT 1 FROM resource_grants g
+           WHERE g.resource_type='document'
+             AND g.resource_id=d.id
+             AND g.revoked_at IS NULL
+             AND g.principal_type='anyone'
+       )
+   )
+ORDER BY tag
+`
+
+type ListAllDocumentTagsParams struct {
+	OwnerID   string
+	OwnerType string
+}
+
+func (q *Queries) ListAllDocumentTags(ctx context.Context, arg ListAllDocumentTagsParams) ([]string, error) {
+	rows, err := q.db.Query(ctx, listAllDocumentTags, arg.OwnerID, arg.OwnerType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var tag string
+		if err := rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		items = append(items, tag)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -237,7 +381,7 @@ func (q *Queries) RecordWorkspaceEntry(ctx context.Context, arg RecordWorkspaceE
 }
 
 const searchDocumentsByTitle = `-- name: SearchDocumentsByTitle :many
-SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -284,6 +428,7 @@ type SearchDocumentsByTitleRow struct {
 	CurrentVersionID pgtype.Text
 	OwnerType        string
 	OwnerID          string
+	Tags             []string
 	OwnerEmail       string
 	OwnerName        string
 }
@@ -310,6 +455,7 @@ func (q *Queries) SearchDocumentsByTitle(ctx context.Context, arg SearchDocument
 			&i.CurrentVersionID,
 			&i.OwnerType,
 			&i.OwnerID,
+			&i.Tags,
 			&i.OwnerEmail,
 			&i.OwnerName,
 		); err != nil {
@@ -348,5 +494,19 @@ type UpdateDocumentTitleParams struct {
 
 func (q *Queries) UpdateDocumentTitle(ctx context.Context, arg UpdateDocumentTitleParams) error {
 	_, err := q.db.Exec(ctx, updateDocumentTitle, arg.Title, arg.ID)
+	return err
+}
+
+const updateDocumentTags = `-- name: UpdateDocumentTags :exec
+UPDATE documents SET tags=$1,updated_at=now() WHERE id=$2
+`
+
+type UpdateDocumentTagsParams struct {
+	Tags []string
+	ID   string
+}
+
+func (q *Queries) UpdateDocumentTags(ctx context.Context, arg UpdateDocumentTagsParams) error {
+	_, err := q.db.Exec(ctx, updateDocumentTags, arg.Tags, arg.ID)
 	return err
 }

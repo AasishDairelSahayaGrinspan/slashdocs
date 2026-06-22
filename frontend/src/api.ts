@@ -10,6 +10,7 @@ export type Document = {
   title: string;
   owner?: Principal;
   current_version_id?: string;
+  tags?: string[];
 };
 export type ServerConfig = {
   deployment: "public" | "org";
@@ -112,10 +113,14 @@ export const api = {
     }>("/v1/me"),
   loginURL: (redirect: string = location.pathname + location.search) =>
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
-  listDocuments: (q?: string) =>
-    request<{ items: Document[] }>(
-      `/v1/documents${q ? `?q=${encodeURIComponent(q)}` : ""}`,
-    ),
+  listDocuments: (q?: string, tag?: string) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (tag) params.set("tag", tag);
+    const qs = params.toString();
+    return request<{ items: Document[] }>(`/v1/documents${qs ? `?${qs}` : ""}`);
+  },
+  listTags: () => request<{ items: string[] }>("/v1/tags"),
   getDocument: (id: string) => request<Document>(`/v1/documents/${id}`),
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>

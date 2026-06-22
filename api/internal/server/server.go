@@ -168,6 +168,7 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/service-accounts/transfers", h.listOwnershipTransfers)
 	authed.POST("/service-accounts/transfers/:id/accept", h.acceptOwnershipTransfer)
 	authed.POST("/service-accounts/transfers/:id/decline", h.declineOwnershipTransfer)
+	authed.GET("/tags", h.listTags)
 	authed.POST("/documents", h.createDocument)
 	authed.GET("/documents", h.listDocuments)
 	authed.GET("/documents/:id", h.getDocument)

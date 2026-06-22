@@ -10,8 +10,10 @@ import {
   MoreHorizontal,
   Search,
   Sparkles,
+  Tag,
   Trash2,
   Upload,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -40,14 +42,19 @@ export function DocumentsPage() {
   useTitle("Documents");
   const [q, setQ] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
+  const [activeTag, setActiveTag] = useState<string | undefined>(undefined);
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQ(q.trim()), 250);
     return () => window.clearTimeout(t);
   }, [q]);
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const docs = useQuery({
-    queryKey: [...queryKeys.documents(), debouncedQ],
-    queryFn: () => api.listDocuments(debouncedQ || undefined),
+    queryKey: [...queryKeys.documents(), debouncedQ, activeTag],
+    queryFn: () => api.listDocuments(debouncedQ || undefined, activeTag),
+  });
+  const tags = useQuery({
+    queryKey: ["tags"],
+    queryFn: api.listTags,
   });
   const { state: onb } = useOnboarding();
   const nav = useNavigate();
@@ -73,6 +80,7 @@ export function DocumentsPage() {
     }
   }, [docs.data]);
   const items = useMemo(() => docs.data?.items || [], [docs.data]);
+  const allTags = useMemo(() => tags.data?.items || [], [tags.data]);
 
   if (docs.isLoading) {
     return (
@@ -84,7 +92,7 @@ export function DocumentsPage() {
   }
   if (docs.error) return <Center>Could not load documents.</Center>;
 
-  const searching = debouncedQ.length > 0;
+  const searching = debouncedQ.length > 0 || !!activeTag;
   const empty = !searching && (docs.data?.items || []).length === 0;
 
   return (
@@ -119,10 +127,26 @@ export function DocumentsPage() {
         </div>
       </div>
 
+      {allTags.length > 0 && (
+        <TagFilter
+          tags={allTags}
+          activeTag={activeTag}
+          onSelect={(t) => setActiveTag(t === activeTag ? undefined : t)}
+          onClear={() => setActiveTag(undefined)}
+        />
+      )}
+
       {empty ? (
         <EmptyDocs />
       ) : items.length === 0 ? (
-        <EmptyState title="No matches" description={`Nothing matches “${q}”.`} />
+        <EmptyState
+          title="No matches"
+          description={
+            activeTag
+              ? `No documents tagged "${activeTag}".`
+              : `Nothing matches "${q}".`
+          }
+        />
       ) : (
         <DocTable items={items} principal={me.data?.principal} />
       )}
@@ -130,13 +154,56 @@ export function DocumentsPage() {
   );
 }
 
+function TagFilter({
+  tags,
+  activeTag,
+  onSelect,
+  onClear,
+}: {
+  tags: string[];
+  activeTag?: string;
+  onSelect: (tag: string) => void;
+  onClear: () => void;
+}) {
+  return (
+    <div className="mb-4 flex flex-wrap items-center gap-1.5">
+      <Tag className="h-3.5 w-3.5 shrink-0 text-[var(--color-fg-muted)]" />
+      {tags.map((t) => (
+        <button
+          key={t}
+          onClick={() => onSelect(t)}
+          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+            activeTag === t
+              ? "bg-[var(--color-accent)] text-white"
+              : "bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-fg)]"
+          }`}
+        >
+          {t}
+        </button>
+      ))}
+      {activeTag && (
+        <button
+          onClick={onClear}
+          className="ml-1 inline-flex items-center gap-0.5 text-xs text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+        >
+          <X className="h-3 w-3" /> Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
 function DocTable({ items, principal }: { items: Document[]; principal?: Principal }) {
+  const hasTags = items.some((d) => (d.tags || []).length > 0);
   return (
     <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
       <table className="w-full text-sm">
         <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
           <tr>
             <th className="px-4 py-2.5 text-left font-medium">Title</th>
+            {hasTags && (
+              <th className="px-4 py-2.5 text-left font-medium">Tags</th>
+            )}
             <th className="px-4 py-2.5 text-left font-medium">Owner</th>
             <th className="w-12 px-2 py-2.5"></th>
           </tr>
@@ -146,6 +213,7 @@ function DocTable({ items, principal }: { items: Document[]; principal?: Princip
             <DocRow
               key={docID(d)}
               doc={d}
+              showTags={hasTags}
               canDelete={samePrincipal(principal, d.owner)}
             />
           ))}
@@ -155,13 +223,22 @@ function DocTable({ items, principal }: { items: Document[]; principal?: Princip
   );
 }
 
-function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
+function DocRow({
+  doc,
+  showTags,
+  canDelete,
+}: {
+  doc: Document;
+  showTags: boolean;
+  canDelete: boolean;
+}) {
   const q = useQueryClient();
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docID(doc)),
     onSuccess: () => {
       toast.success("Deleted.");
       q.invalidateQueries({ queryKey: queryKeys.documents() });
+      q.invalidateQueries({ queryKey: ["tags"] });
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
@@ -176,6 +253,11 @@ function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
           {docTitle(doc)}
         </Link>
       </td>
+      {showTags && (
+        <td className="px-4 py-3">
+          <TagList tags={doc.tags || []} />
+        </td>
+      )}
       <td className="px-4 py-3">
         <OwnerCell owner={doc.owner} />
       </td>
@@ -198,6 +280,22 @@ function DocRow({ doc, canDelete }: { doc: Document; canDelete: boolean }) {
         ) : null}
       </td>
     </tr>
+  );
+}
+
+function TagList({ tags }: { tags: string[] }) {
+  if (!tags.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {tags.map((t) => (
+        <span
+          key={t}
+          className="inline-flex items-center rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)]"
+        >
+          {t}
+        </span>
+      ))}
+    </div>
   );
 }
 

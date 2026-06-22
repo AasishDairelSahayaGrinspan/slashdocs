@@ -5,13 +5,13 @@ SELECT owner_type, owner_id FROM documents WHERE id=$1;
 SELECT role FROM resource_grants WHERE resource_type='document' AND resource_id=$1 AND principal_type=$2 AND principal_id=$3 AND revoked_at IS NULL;
 
 -- name: InsertDocument :exec
-INSERT INTO documents(id,title,owner_type,owner_id) VALUES($1,$2,$3,$4);
+INSERT INTO documents(id,title,owner_type,owner_id,tags) VALUES($1,$2,$3,$4,$5);
 
 -- name: UpdateDocumentCurrentVersion :exec
 UPDATE documents SET current_version_id=$1, updated_at=now() WHERE id=$2;
 
 -- name: GetDocument :one
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -42,7 +42,7 @@ ON CONFLICT(document_id,principal_type,principal_id) DO NOTHING;
 -- A bare "anyone" grant alone does NOT list the document: broad access grants
 -- access via discovery/link, it does not place the document in every user's
 -- workspace until they open it.
-SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -79,8 +79,11 @@ LIMIT 25;
 -- name: UpdateDocumentTitle :exec
 UPDATE documents SET title=$1,updated_at=now() WHERE id=$2;
 
+-- name: UpdateDocumentTags :exec
+UPDATE documents SET tags=$1,updated_at=now() WHERE id=$2;
+
 -- name: SearchDocumentsByTitle :many
-SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
        COALESCE(u.email,'') AS owner_email,
        COALESCE(u.name,sa.name,'') AS owner_name
 FROM documents d
@@ -112,6 +115,73 @@ WHERE d.title ILIKE '%' || $1 || '%'
   )
 ORDER BY d.title
 LIMIT $5;
+
+-- name: ListDocumentsByTag :many
+-- Returns documents accessible to the principal that have a given tag.
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,d.tags,
+       COALESCE(u.email,'') AS owner_email,
+       COALESCE(u.name,sa.name,'') AS owner_name
+FROM documents d
+LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+WHERE $1 = ANY(d.tags)
+  AND (
+    (d.owner_type=$3 AND d.owner_id=$2)
+    OR EXISTS (
+      SELECT 1 FROM resource_grants g
+      WHERE g.resource_type='document'
+        AND g.resource_id=d.id
+        AND g.revoked_at IS NULL
+        AND g.principal_type=$3 AND g.principal_id=$2
+    )
+    OR (
+      EXISTS (
+          SELECT 1 FROM document_workspace_entries w
+          WHERE w.document_id=d.id
+            AND w.principal_type=$3 AND w.principal_id=$2
+      )
+      AND EXISTS (
+          SELECT 1 FROM resource_grants g
+          WHERE g.resource_type='document'
+            AND g.resource_id=d.id
+            AND g.revoked_at IS NULL
+            AND g.principal_type='anyone'
+      )
+    )
+  )
+ORDER BY d.updated_at DESC
+LIMIT 100;
+
+-- name: ListAllDocumentTags :many
+-- Returns all distinct tags on documents accessible to the principal, sorted.
+SELECT DISTINCT unnest(d.tags) AS tag
+FROM documents d
+WHERE (d.owner_type=$2 AND d.owner_id=$1)
+   OR EXISTS (
+       SELECT 1 FROM resource_grants g
+       WHERE g.resource_type='document'
+         AND g.resource_id=d.id
+         AND g.revoked_at IS NULL
+         AND g.principal_type=$2 AND g.principal_id=$1
+   )
+   OR (
+       EXISTS (
+           SELECT 1 FROM document_workspace_entries w
+           WHERE w.document_id=d.id
+             AND w.principal_type=$2 AND w.principal_id=$1
+       )
+       AND EXISTS (
+           SELECT 1 FROM resource_grants g
+           WHERE g.resource_type='document'
+             AND g.resource_id=d.id
+             AND g.revoked_at IS NULL
+             AND g.principal_type='anyone'
+       )
+   )
+ORDER BY tag;
 
 -- name: DeleteDocument :exec
 DELETE FROM documents WHERE id=$1;

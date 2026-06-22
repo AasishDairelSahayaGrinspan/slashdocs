@@ -55,6 +55,7 @@ type Document struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	OwnerType        string
+	Tags             []string
 }
 
 type DocumentWorkspaceEntry struct {

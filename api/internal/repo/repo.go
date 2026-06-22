@@ -72,6 +72,7 @@ type Document struct {
 	Title            string         `json:"title"`
 	Owner            auth.Principal `json:"owner"`
 	CurrentVersionID string         `json:"current_version_id"`
+	Tags             []string       `json:"tags"`
 }
 
 type ServiceAccount struct {
@@ -149,15 +150,17 @@ type Repository interface {
 	ListCLICredentials(ctx context.Context, userID string) ([]CLICredential, error)
 	RevokeCLICredential(ctx context.Context, userID, credentialID string) error
 	RoleForDocument(ctx context.Context, principal auth.Principal, documentID string) (Role, error)
-	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
+	CreateDocument(ctx context.Context, owner auth.Principal, title string, tags []string, html []byte) (Document, Version, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
+	ListDocumentsByTag(ctx context.Context, principal auth.Principal, tag string) ([]Document, error)
+	ListAllDocumentTags(ctx context.Context, principal auth.Principal) ([]string, error)
 	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
 	// RecordDocumentOpened notes that a principal opened a document, so a
 	// broadly-shared ("anyone") document joins their workspace listing after
 	// first open. Idempotent.
 	RecordDocumentOpened(ctx context.Context, documentID string, principal auth.Principal) error
 	GetDocument(ctx context.Context, id string) (Document, error)
-	UpdateDocument(ctx context.Context, id, title string) (Document, error)
+	UpdateDocument(ctx context.Context, id, title string, tags *[]string) (Document, error)
 	DeleteDocument(ctx context.Context, id string) error
 	CreateServiceAccount(ctx context.Context, owner auth.Principal, name string) (ServiceAccount, error)
 	ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error)
@@ -340,12 +343,15 @@ func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, document
 	return best, nil
 }
 
-func (m *Memory) CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error) {
+func (m *Memory) CreateDocument(ctx context.Context, owner auth.Principal, title string, tags []string, html []byte) (Document, Version, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.docN++
 	m.verN++
-	d := Document{ID: fmt.Sprintf("doc_%d", m.docN), Title: title, Owner: owner, CurrentVersionID: fmt.Sprintf("ver_%d", m.verN)}
+	if tags == nil {
+		tags = []string{}
+	}
+	d := Document{ID: fmt.Sprintf("doc_%d", m.docN), Title: title, Tags: tags, Owner: owner, CurrentVersionID: fmt.Sprintf("ver_%d", m.verN)}
 	v := Version{ID: d.CurrentVersionID, Number: 1, DocumentID: d.ID, CreatedBy: owner, SHA256: fmt.Sprintf("sha_%d", m.verN)}
 	m.docs[d.ID] = d
 	m.versions[v.ID] = v
@@ -527,6 +533,35 @@ func (m *Memory) ListDocuments(ctx context.Context, principal auth.Principal) ([
 	}
 	return out, nil
 }
+func (m *Memory) ListDocumentsByTag(ctx context.Context, principal auth.Principal, tag string) ([]Document, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	out := []Document{}
+	for _, d := range m.docs {
+		for _, t := range d.Tags {
+			if t == tag {
+				out = append(out, d)
+				break
+			}
+		}
+	}
+	return out, nil
+}
+func (m *Memory) ListAllDocumentTags(ctx context.Context, principal auth.Principal) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	seen := map[string]bool{}
+	for _, d := range m.docs {
+		for _, t := range d.Tags {
+			seen[t] = true
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for t := range seen {
+		out = append(out, t)
+	}
+	return out, nil
+}
 func (m *Memory) SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -545,7 +580,7 @@ func (m *Memory) SearchDocumentsByTitle(ctx context.Context, principal auth.Prin
 func (m *Memory) RecordDocumentOpened(ctx context.Context, documentID string, principal auth.Principal) error {
 	return nil
 }
-func (m *Memory) UpdateDocument(ctx context.Context, id, title string) (Document, error) {
+func (m *Memory) UpdateDocument(ctx context.Context, id, title string, tags *[]string) (Document, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	d, ok := m.docs[id]
@@ -554,6 +589,9 @@ func (m *Memory) UpdateDocument(ctx context.Context, id, title string) (Document
 	}
 	if title != "" {
 		d.Title = title
+	}
+	if tags != nil {
+		d.Tags = *tags
 	}
 	m.docs[id] = d
 	return d, nil

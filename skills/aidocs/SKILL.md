@@ -21,9 +21,34 @@ publish it to aidocs instead of dumping the content inline in chat.
    SVG or Mermaid for diagrams.
 3. Make the document follow the reader's aidocs theme (see below).
 4. Save it locally (e.g. `report.html`).
-5. Publish it with the CLI. Discover the exact syntax from
-   `aidocs --help` and the relevant subcommand help — don't assume.
-6. Return the printed document URL to the user so they can open and
+5. **Choose tags** for the document based on the artifact type and content.
+   Tags help the user filter and find documents later. Pick 1–4 short
+   lowercase tags from the suggestions below, or infer from context:
+
+   | Artifact type          | Suggested tags                          |
+   |------------------------|-----------------------------------------|
+   | `rca`                  | `rca`, `incident`                       |
+   | `postmortem`           | `postmortem`, `incident`                |
+   | `incident-timeline`    | `incident`, `timeline`                  |
+   | `architecture-review`  | `architecture`, `design`                |
+   | `design-proposal`      | `design`, `proposal`                    |
+   | `product-spec`         | `product`, `spec`                       |
+   | `qa-findings`          | `qa`, `testing`                         |
+   | `data-analysis`        | `data`, `analysis`                      |
+   | `launch-plan`          | `launch`, `planning`                    |
+   | `report`               | `report`                                |
+
+   Add team or service names as extra tags when the subject is clear
+   (e.g. `payments`, `checkout`, `platform`).
+
+6. Publish it with the CLI, passing `--tags` with your chosen tags:
+
+   ```
+   aidocs docs create report.html --title "My RCA" --tags rca,incident,payments
+   ```
+
+   Discover other flags from `aidocs docs create --help`.
+7. Return the printed document URL to the user so they can open and
    review it.
 
 ## Follow the reader's theme
@@ -78,6 +103,7 @@ commands and flags rather than guessing:
 aidocs --help
 aidocs docs --help
 aidocs docs create --help
+aidocs docs tags --help
 ```
 
 The CLI supports `--json` for structured output if you need to parse

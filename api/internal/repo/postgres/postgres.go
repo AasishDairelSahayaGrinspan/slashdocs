@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -194,7 +195,7 @@ func (s *Store) grantRole(ctx context.Context, documentID, principalType, princi
 	return repo.Role(role), nil
 }
 
-func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (repo.Document, repo.Version, error) {
+func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title string, tags []string, html []byte) (repo.Document, repo.Version, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return repo.Document{}, repo.Version{}, err
@@ -205,6 +206,9 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 		if err := upsertUser(ctx, q, owner); err != nil {
 			return repo.Document{}, repo.Version{}, err
 		}
+	}
+	if tags == nil {
+		tags = []string{}
 	}
 	docID, verID := newID("doc"), newID("ver")
 	blobKey := fmt.Sprintf("docs/%s/%s.html", docID, verID)
@@ -218,7 +222,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 			_ = s.blobs.Delete(context.WithoutCancel(ctx), blobKey)
 		}
 	}()
-	if err := q.InsertDocument(ctx, dbsqlc.InsertDocumentParams{ID: docID, Title: title, OwnerType: string(owner.Type), OwnerID: owner.ID}); err != nil {
+	if err := q.InsertDocument(ctx, dbsqlc.InsertDocumentParams{ID: docID, Title: title, OwnerType: string(owner.Type), OwnerID: owner.ID, Tags: tags}); err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
 	if err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID}); err != nil {
@@ -231,7 +235,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 		return repo.Document{}, repo.Version{}, err
 	}
 	committed = true
-	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum}, nil
+	return repo.Document{ID: docID, Title: title, Tags: tags, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum}, nil
 }
 func (s *Store) GetDocument(ctx context.Context, id string) (repo.Document, error) {
 	r, err := s.q.GetDocument(ctx, id)
@@ -425,6 +429,27 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 	}
 	return out, nil
 }
+func (s *Store) ListDocumentsByTag(ctx context.Context, p auth.Principal, tag string) ([]repo.Document, error) {
+	rows, err := s.q.ListDocumentsByTag(ctx, dbsqlc.ListDocumentsByTagParams{Tag: tag, OwnerID: p.ID, OwnerType: string(p.Type)})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Document, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Tags: normTags(r.Tags), Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}})
+	}
+	return out, nil
+}
+func (s *Store) ListAllDocumentTags(ctx context.Context, p auth.Principal) ([]string, error) {
+	tags, err := s.q.ListAllDocumentTags(ctx, dbsqlc.ListAllDocumentTagsParams{OwnerID: p.ID, OwnerType: string(p.Type)})
+	if err != nil {
+		return nil, err
+	}
+	if tags == nil {
+		return []string{}, nil
+	}
+	return tags, nil
+}
 func (s *Store) SearchDocumentsByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Document, error) {
 	rows, err := s.q.SearchDocumentsByTitle(ctx, dbsqlc.SearchDocumentsByTitleParams{Column1: pgtype.Text{String: query, Valid: true}, OwnerID: p.ID, OwnerType: string(p.Type), Column4: includeOrgWide, Limit: limit})
 	if err != nil {
@@ -443,9 +468,15 @@ func (s *Store) RecordDocumentOpened(ctx context.Context, documentID string, p a
 		PrincipalID:   p.ID,
 	})
 }
-func (s *Store) UpdateDocument(ctx context.Context, id, title string) (repo.Document, error) {
+func (s *Store) UpdateDocument(ctx context.Context, id, title string, tags *[]string) (repo.Document, error) {
 	if title != "" {
 		if err := s.q.UpdateDocumentTitle(ctx, dbsqlc.UpdateDocumentTitleParams{Title: title, ID: id}); err != nil {
+			return repo.Document{}, err
+		}
+	}
+	if tags != nil {
+		normalized := normTags(*tags)
+		if err := s.q.UpdateDocumentTags(ctx, dbsqlc.UpdateDocumentTagsParams{Tags: normalized, ID: id}); err != nil {
 			return repo.Document{}, err
 		}
 	}
@@ -667,13 +698,28 @@ func (s *Store) DeclineOwnershipTransfer(ctx context.Context, id string, user au
 }
 
 func docFromGet(r dbsqlc.GetDocumentRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Tags: normTags(r.Tags), Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
 }
 func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Tags: normTags(r.Tags), Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
 }
 func docFromSearch(r dbsqlc.SearchDocumentsByTitleRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Tags: normTags(r.Tags), Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+}
+
+// normTags returns a non-nil slice of lowercased, trimmed, non-empty tags.
+func normTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	for _, t := range tags {
+		t = strings.ToLower(strings.TrimSpace(t))
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
 	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}

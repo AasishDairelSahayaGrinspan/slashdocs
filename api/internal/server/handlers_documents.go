@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -18,6 +19,7 @@ import (
 // @Accept multipart/form-data
 // @Produce json
 // @Param title formData string true "Document title"
+// @Param tags formData string false "Comma-separated tags (e.g. rca,incident)"
 // @Param file formData file true "Single-file HTML"
 // @Success 201 {object} map[string]interface{}
 // @Router /v1/documents [post]
@@ -33,8 +35,9 @@ func (h handlers) createDocument(c *gin.Context) {
 		badRequest(c, "invalid document upload")
 		return
 	}
+	tags := parseTags(c.PostForm("tags"))
 	observeHTML("document_create", len(html))
-	d, _, err := h.deps.repository.CreateDocument(c.Request.Context(), *p, title, html)
+	d, _, err := h.deps.repository.CreateDocument(c.Request.Context(), *p, title, tags, html)
 	if err != nil {
 		if errors.Is(err, blob.ErrStorage) {
 			c.JSON(http.StatusBadGateway, errorResponse("blob_storage_failed", "could not upload HTML to blob storage", nil))
@@ -45,7 +48,7 @@ func (h handlers) createDocument(c *gin.Context) {
 	}
 	incDocument("created", actorType(c))
 	incVersion("created_initial", actorType(c))
-	c.JSON(http.StatusCreated, gin.H{"id": d.ID, "current_version_id": d.CurrentVersionID})
+	c.JSON(http.StatusCreated, gin.H{"id": d.ID, "current_version_id": d.CurrentVersionID, "tags": d.Tags})
 }
 
 // ListDocuments godoc
@@ -55,9 +58,20 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Security cookieAuth
 // @Produce json
 // @Param q query string false "Title search query"
+// @Param tag query string false "Filter by tag"
 // @Success 200 {object} map[string]interface{}
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
+	tag := strings.TrimSpace(strings.ToLower(c.Query("tag")))
+	if tag != "" {
+		items, err := h.deps.repository.ListDocumentsByTag(c.Request.Context(), *current(c), tag)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, gin.H{"items": items})
+		return
+	}
 	q := c.Query("q")
 	if q != "" {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
@@ -119,16 +133,19 @@ func (h handlers) patchDocument(c *gin.Context) {
 	if !h.needDocRole(c, c.Param("id"), repo.RoleOwner) {
 		return
 	}
-	var in struct{ Title string }
+	var in struct {
+		Title string    `json:"title"`
+		Tags  *[]string `json:"tags"`
+	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid body")
 		return
 	}
-	if in.Title == "" {
-		badRequest(c, "nothing to update; provide a title")
+	if in.Title == "" && in.Tags == nil {
+		badRequest(c, "nothing to update; provide a title or tags")
 		return
 	}
-	d, err := h.deps.repository.UpdateDocument(c.Request.Context(), c.Param("id"), in.Title)
+	d, err := h.deps.repository.UpdateDocument(c.Request.Context(), c.Param("id"), in.Title, in.Tags)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -153,4 +170,40 @@ func (h handlers) deleteDocument(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+// ListTags godoc
+// @Summary List all tags visible to the caller
+// @Tags documents
+// @Security bearerAuth
+// @Security cookieAuth
+// @Produce json
+// @Success 200 {object} map[string]interface{}
+// @Router /v1/tags [get]
+func (h handlers) listTags(c *gin.Context) {
+	tags, err := h.deps.repository.ListAllDocumentTags(c.Request.Context(), *current(c))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if tags == nil {
+		tags = []string{}
+	}
+	c.JSON(http.StatusOK, gin.H{"items": tags})
+}
+
+// parseTags parses a comma-separated tag string into a normalized slice.
+func parseTags(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		t := strings.ToLower(strings.TrimSpace(p))
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
 }

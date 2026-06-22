@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -15,8 +16,8 @@ const orgWideViewerEnv = "AIDOCS_ORG_WIDE_VIEWER_BY_DEFAULT"
 
 func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
-	var title string
-	create := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe new document is private. Share it with people, bots, or everyone using 'aidocs docs grants add'.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	var title, tagsStr string
+	create := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe new document is private. Share it with people, bots, or everyone using 'aidocs docs grants add'.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'\n  aidocs docs create report.html --title 'RCA' --tags rca,incident", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		data, fn, err := readFileArg(args[0])
 		if err != nil {
 			return err
@@ -28,7 +29,11 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		b, err := cl.multipart("/v1/documents", map[string]string{"title": title}, "file", fn, data)
+		fields := map[string]string{"title": title}
+		if tagsStr != "" {
+			fields["tags"] = tagsStr
+		}
+		b, err := cl.multipart("/v1/documents", fields, "file", fn, data)
 		if err != nil {
 			return err
 		}
@@ -73,14 +78,24 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		return nil
 	}}
 	create.Flags().StringVar(&title, "title", "", "document title (defaults to the file name)")
-	var ut string
-	update := &cobra.Command{Use: "update <doc_id>", Short: "Update document metadata", Long: "Rename a document. Sharing is managed separately with 'aidocs docs grants'.", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		if !cmd.Flags().Changed("title") {
-			return errors.New("nothing to update; pass --title")
+	create.Flags().StringVar(&tagsStr, "tags", "", "comma-separated tags (e.g. rca,incident,team-payments)")
+	var ut, utTags string
+	update := &cobra.Command{Use: "update <doc_id>", Short: "Update document metadata", Long: "Rename a document or update its tags. Sharing is managed separately with 'aidocs docs grants'.", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		titleChanged := cmd.Flags().Changed("title")
+		tagsChanged := cmd.Flags().Changed("tags")
+		if !titleChanged && !tagsChanged {
+			return errors.New("nothing to update; pass --title and/or --tags")
+		}
+		body := map[string]any{}
+		if titleChanged {
+			body["title"] = ut
+		}
+		if tagsChanged {
+			body["tags"] = splitTags(utTags)
 		}
 		return action(g, out, func(c *Client) ([]byte, error) {
-			return c.doJSON("PATCH", apiPath("/v1/documents/%s", args[0]), map[string]any{"title": ut})
-		}, func(map[string]any) string { return "Renamed document " + args[0] + "." }, actionOptions{
+			return c.doJSON("PATCH", apiPath("/v1/documents/%s", args[0]), body)
+		}, func(map[string]any) string { return "Updated document " + args[0] + "." }, actionOptions{
 			after: func() { printOrgWideViewerNudge(out, g, args[0]) },
 			jsonFields: func() map[string]any {
 				return map[string]any{"message": orgWideViewerNudge(g, args[0])}
@@ -88,8 +103,51 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		})
 	}}
 	update.Flags().StringVar(&ut, "title", "", "new document title")
+	update.Flags().StringVar(&utTags, "tags", "", "comma-separated tags; pass empty string to clear all tags")
 	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
-	c.AddCommand(simple(g, out, "list", "GET", "/v1/documents", 0), create, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out))
+	c.AddCommand(listDocsCmd(g, out), create, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out), tagsCmd(g, out))
+	return c
+}
+
+func listDocsCmd(g *globals, out io.Writer) *cobra.Command {
+	var tagFilter string
+	cmd := &cobra.Command{Use: "list", Short: "List documents", RunE: func(cmd *cobra.Command, args []string) error {
+		path := "/v1/documents"
+		if tagFilter != "" {
+			path += "?tag=" + url.QueryEscape(tagFilter)
+		}
+		return run(g, out, func(c *Client) ([]byte, error) {
+			return c.do("GET", path, nil, "")
+		})
+	}}
+	cmd.Flags().StringVar(&tagFilter, "tag", "", "filter documents by tag")
+	return cmd
+}
+
+// splitTags splits a comma-separated tags string into a slice.
+func splitTags(s string) []string {
+	if s == "" {
+		return []string{}
+	}
+	parts := strings.Split(s, ",")
+	out := make([]string, 0, len(parts))
+	for _, p := range parts {
+		t := strings.TrimSpace(p)
+		if t != "" {
+			out = append(out, t)
+		}
+	}
+	return out
+}
+
+func tagsCmd(g *globals, out io.Writer) *cobra.Command {
+	c := &cobra.Command{Use: "tags", Short: "Manage document tags"}
+	list := &cobra.Command{Use: "list", Short: "List all tags on your documents", RunE: func(cmd *cobra.Command, args []string) error {
+		return run(g, out, func(c *Client) ([]byte, error) {
+			return c.do("GET", "/v1/tags", nil, "")
+		})
+	}}
+	c.AddCommand(list)
 	return c
 }
 
