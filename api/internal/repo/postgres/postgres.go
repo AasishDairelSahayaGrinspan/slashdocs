@@ -716,9 +716,6 @@ func normTags(tags []string) []string {
 			out = append(out, t)
 		}
 	}
-	if out == nil {
-		return []string{}
-	}
 	return out
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {

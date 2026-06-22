@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -81,6 +81,11 @@ export function DocumentsPage() {
   }, [docs.data]);
   const items = useMemo(() => docs.data?.items || [], [docs.data]);
   const allTags = useMemo(() => tags.data?.items || [], [tags.data]);
+  const handleSelectTag = useCallback(
+    (t: string) => setActiveTag((prev) => (t === prev ? undefined : t)),
+    [],
+  );
+  const handleClearTag = useCallback(() => setActiveTag(undefined), []);
 
   if (docs.isLoading) {
     return (
@@ -131,8 +136,8 @@ export function DocumentsPage() {
         <TagFilter
           tags={allTags}
           activeTag={activeTag}
-          onSelect={(t) => setActiveTag(t === activeTag ? undefined : t)}
-          onClear={() => setActiveTag(undefined)}
+          onSelect={handleSelectTag}
+          onClear={handleClearTag}
         />
       )}
 
@@ -154,6 +159,30 @@ export function DocumentsPage() {
   );
 }
 
+function TagPill({
+  tag,
+  active,
+  onSelect,
+}: {
+  tag: string;
+  active: boolean;
+  onSelect: (tag: string) => void;
+}) {
+  const handleClick = useCallback(() => onSelect(tag), [onSelect, tag]);
+  return (
+    <button
+      onClick={handleClick}
+      className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
+        active
+          ? "bg-[var(--color-accent)] text-white"
+          : "bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-fg)]"
+      }`}
+    >
+      {tag}
+    </button>
+  );
+}
+
 function TagFilter({
   tags,
   activeTag,
@@ -169,17 +198,7 @@ function TagFilter({
     <div className="mb-4 flex flex-wrap items-center gap-1.5">
       <Tag className="h-3.5 w-3.5 shrink-0 text-[var(--color-fg-muted)]" />
       {tags.map((t) => (
-        <button
-          key={t}
-          onClick={() => onSelect(t)}
-          className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium transition-colors ${
-            activeTag === t
-              ? "bg-[var(--color-accent)] text-white"
-              : "bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-fg)]"
-          }`}
-        >
-          {t}
-        </button>
+        <TagPill key={t} tag={t} active={activeTag === t} onSelect={onSelect} />
       ))}
       {activeTag && (
         <button

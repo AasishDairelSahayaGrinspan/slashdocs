@@ -63,16 +63,26 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
 	tag := strings.TrimSpace(strings.ToLower(c.Query("tag")))
+	q := c.Query("q")
 	if tag != "" {
 		items, err := h.deps.repository.ListDocumentsByTag(c.Request.Context(), *current(c), tag)
 		if err != nil {
 			internalErr(c, err)
 			return
 		}
+		if q != "" {
+			lower := strings.ToLower(q)
+			filtered := make([]repo.Document, 0, len(items))
+			for _, d := range items {
+				if strings.Contains(strings.ToLower(d.Title), lower) {
+					filtered = append(filtered, d)
+				}
+			}
+			items = filtered
+		}
 		c.JSON(http.StatusOK, gin.H{"items": items})
 		return
 	}
-	q := c.Query("q")
 	if q != "" {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
 		items, err := h.deps.repository.SearchDocumentsByTitle(c.Request.Context(), *current(c), q, includeOrgWide, 25)

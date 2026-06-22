@@ -179,7 +179,8 @@ func TestCreateDocument(t *testing.T) {
 	assertStatus(t, rr, http.StatusCreated)
 	assertJSON(t, rr.Body.Bytes(), `{
 	  "id": "doc_1",
-	  "current_version_id": "ver_1"
+	  "current_version_id": "ver_1",
+	  "tags": []
 	}`)
 }
 
@@ -193,7 +194,8 @@ func TestServiceAccountCanCreateDocument(t *testing.T) {
 	assertStatus(t, rr, http.StatusCreated)
 	assertJSON(t, rr.Body.Bytes(), `{
 	  "id": "doc_1",
-	  "current_version_id": "ver_1"
+	  "current_version_id": "ver_1",
+	  "tags": []
 	}`)
 }
 

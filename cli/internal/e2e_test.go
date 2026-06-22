@@ -181,7 +181,7 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 	}{
 		{[]string{"auth", "whoami"}, []string{"me@example.com", "server=" + srv.URL}},
 		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Give org-wide read-only access", "Razorpay", "aidocs docs grants add doc_new --everyone --role viewer"}},
-		{[]string{"docs", "update", "doc_1", "--title", "New"}, []string{"Renamed document", "doc_1"}},
+		{[]string{"docs", "update", "doc_1", "--title", "New"}, []string{"Updated document", "doc_1"}},
 		{[]string{"docs", "pull", "doc_1", "--out", out}, []string{"Pulled version", "doc_1"}},
 		{[]string{"docs", "push", "doc_1", html}, []string{"Pushed version", "ver_2"}},
 		{[]string{"docs", "comments", "create", "doc_1", "--body", "hi", "--quote", "x", "--version", "ver_1"}, []string{"Added comment"}},
@@ -229,7 +229,7 @@ func TestJSONOutputStaysMachineReadable(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if strings.Contains(got, "\u2713") || strings.Contains(got, "Renamed document") {
+	if strings.Contains(got, "\u2713") || strings.Contains(got, "Updated document") {
 		t.Fatalf("--json output should be the raw payload, got %q", got)
 	}
 	var m map[string]any
