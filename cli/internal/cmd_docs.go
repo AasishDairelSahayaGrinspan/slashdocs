@@ -190,7 +190,9 @@ func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 	}}
 	upd.Flags().StringVar(&r, "role", "viewer", "new grant role: viewer, commenter, editor, or owner")
 	revoke := mutate(g, out, "revoke <doc_id> <grant_id>", "Revoke a document grant", "DELETE", "/v1/documents/%s/grants/%s", 2, func(a []string) string { return "Revoked grant " + a[1] + " on " + a[0] + "." })
-	c.AddCommand(simplePath(g, out, "list", "GET", "/v1/documents/%s/grants"), add, upd, revoke)
+	list := simplePath(g, out, "list", "GET", "/v1/documents/%s/access")
+	list.Short = "List effective document access"
+	c.AddCommand(list, add, upd, revoke)
 	return c
 }
 

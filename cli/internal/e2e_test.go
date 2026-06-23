@@ -75,12 +75,16 @@ func e2eMux(t *testing.T) *http.ServeMux {
 		}
 		json.NewEncoder(w).Encode(map[string]any{"id": "cmt_1", "status": "ok"})
 	})
+	mux.HandleFunc("/v1/documents/doc_1/access", jsonH(map[string]any{"items": []any{map[string]any{"effective_role": "viewer", "principal": map[string]any{"type": "user", "id": "usr_2"}}}}))
 	mux.HandleFunc("/v1/documents/doc_1/grants", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "POST" {
-			json.NewEncoder(w).Encode(map[string]any{"id": "gr_1"})
+		if r.Method == "GET" {
+			json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "gr_1", "role": "viewer"}}})
+		if r.Method != "POST" {
+			t.Fatalf("doc grant collection used unexpected method: %s", r.Method)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"id": "gr_1"})
 	})
 	mux.HandleFunc("/v1/documents/doc_new/grants", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
