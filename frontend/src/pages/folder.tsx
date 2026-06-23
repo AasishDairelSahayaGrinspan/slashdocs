@@ -276,7 +276,7 @@ export function FolderPage() {
         <AlertDialogContent>
           <AlertDialogTitle>Delete "{f.title}"?</AlertDialogTitle>
           <AlertDialogDescription>
-            This will delete owned subfolders. Documents inside will be detached, not deleted.
+            This will delete this folder, its subfolders, and all documents inside them.
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

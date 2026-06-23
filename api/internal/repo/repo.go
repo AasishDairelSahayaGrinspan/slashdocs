@@ -1141,8 +1141,7 @@ func (m *Memory) DeleteFolder(ctx context.Context, id string, p auth.Principal) 
 	del = func(fid string) {
 		for _, d := range m.docs {
 			if d.ParentFolderID == fid {
-				d.ParentFolderID = ""
-				m.docs[d.ID] = d
+				delete(m.docs, d.ID)
 			}
 		}
 		for _, f := range m.folders {
