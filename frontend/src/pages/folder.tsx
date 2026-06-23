@@ -123,20 +123,21 @@ export function FolderPage() {
     onError: (e) => toast.error(errorMessage(e, "Rename failed")),
   });
 
-  const [activeDrag, setActiveDrag] = useState<{ type: "folder" | "document"; id: string; title: string } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{ type: string; id: string; title: string } | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const [accessWarning, setAccessWarning] = useState<string | null>(null);
 
   const moveMutation = useMutation({
-    mutationFn: async ({ dragType, dragId, targetFolderId }: { dragType: "folder" | "document"; dragId: string; targetFolderId: string }) => {
+    mutationFn: async ({ dragType, dragId, targetFolderId }: { dragType: string; dragId: string; targetFolderId: string }) => {
+      const isDoc = dragType === "doc" || dragType === "document";
       if (targetFolderId === "__root__") {
-        if (dragType === "document") {
+        if (isDoc) {
           return api.moveDocumentToRoot(id, dragId);
         } else {
           return api.updateFolder(dragId, undefined, null);
         }
       }
-      if (dragType === "folder") {
+      if (!isDoc) {
         return api.updateFolder(dragId, undefined, targetFolderId);
       } else {
         return api.moveDocumentToFolder(targetFolderId, dragId);
@@ -145,6 +146,8 @@ export function FolderPage() {
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["folders"] });
       qc.invalidateQueries({ queryKey: queryKeys.folders() });
+      qc.invalidateQueries({ queryKey: queryKeys.documents() });
+      qc.invalidateQueries({ queryKey: queryKeys.pins() });
       const warning = (data as Record<string, unknown>)?.permission_warning as { message?: string } | undefined;
       if (warning?.message) {
         setAccessWarning(warning.message);
@@ -171,7 +174,7 @@ export function FolderPage() {
 
   function handleDragStart(event: DragStartEvent) {
     const raw = event.active.id as string;
-    const [type, did] = raw.split(":", 2) as ["folder" | "document", string];
+    const [type, did] = raw.split(":", 2);
     const entry = items.find((e) =>
       type === "folder" ? e.folder?.id === did : e.document?.id === did,
     );
@@ -183,7 +186,7 @@ export function FolderPage() {
     setActiveDrag(null);
     const { active, over } = event;
     if (!over) return;
-    const [dragType, dragId] = (active.id as string).split(":", 2) as ["folder" | "document", string];
+    const [dragType, dragId] = (active.id as string).split(":", 2);
     const targetFolderId = (over.id as string).replace("drop:", "");
     if (dragType === "folder" && dragId === targetFolderId) return;
     if (targetFolderId === id) return;

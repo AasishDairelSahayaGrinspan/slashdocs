@@ -144,11 +144,11 @@ export function DocumentsPage() {
   });
 
   // Drag and drop
-  const [activeDrag, setActiveDrag] = useState<{ type: "folder" | "document"; id: string; title: string } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<{ type: string; id: string; title: string } | null>(null);
   const [accessWarning, setAccessWarning] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
   const moveMutation = useMutation({
-    mutationFn: async ({ dragType, dragId, targetFolderId }: { dragType: "folder" | "document"; dragId: string; targetFolderId: string }) => {
+    mutationFn: async ({ dragType, dragId, targetFolderId }: { dragType: string; dragId: string; targetFolderId: string }) => {
       if (dragType === "folder") {
         return api.updateFolder(dragId, undefined, targetFolderId);
       } else {
@@ -170,7 +170,7 @@ export function DocumentsPage() {
 
   function handleDragStart(event: DragStartEvent) {
     const raw = event.active.id as string;
-    const [type, id] = raw.split(":", 2) as ["folder" | "document", string];
+    const [type, id] = raw.split(":", 2);
     const title = type === "folder"
       ? folders.find((f) => f.id === id)?.title || "Folder"
       : docTitle(documents.find((d) => docID(d) === id)!);
@@ -180,7 +180,7 @@ export function DocumentsPage() {
     setActiveDrag(null);
     const { active, over } = event;
     if (!over) return;
-    const [dragType, dragId] = (active.id as string).split(":", 2) as ["folder" | "document", string];
+    const [dragType, dragId] = (active.id as string).split(":", 2);
     const targetFolderId = (over.id as string).replace("drop:", "");
     if (dragType === "folder" && dragId === targetFolderId) return;
     moveMutation.mutate({ dragType, dragId, targetFolderId });
