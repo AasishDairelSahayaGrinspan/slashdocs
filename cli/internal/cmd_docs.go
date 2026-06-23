@@ -89,7 +89,52 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	}}
 	update.Flags().StringVar(&ut, "title", "", "new document title")
 	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
-	c.AddCommand(simple(g, out, "list", "GET", "/v1/documents", 0), create, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out))
+
+	var moveFolderID string
+	var moveRoot bool
+	move := &cobra.Command{Use: "move <doc_id>", Short: "Move a document to a folder or back to root", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if moveRoot && moveFolderID != "" {
+			return errors.New("--folder-id and --root are mutually exclusive")
+		}
+		if !moveRoot && moveFolderID == "" {
+			return errors.New("pass --folder-id <fld_…> or --root")
+		}
+		if moveRoot {
+			cl, err := client(g)
+			if err != nil {
+				return err
+			}
+			b, err := cl.do("GET", apiPath("/v1/documents/%s", args[0]), nil, "")
+			if err != nil {
+				return err
+			}
+			var doc struct {
+				ParentFolderID string `json:"parent_folder_id"`
+			}
+			if json.Unmarshal(b, &doc) != nil || doc.ParentFolderID == "" {
+				return errors.New("document is already at root")
+			}
+			_, err = cl.do("DELETE", apiPath("/v1/folders/%s/documents/%s", doc.ParentFolderID, args[0]), nil, "")
+			if err != nil {
+				return err
+			}
+			confirm(out, g, "Moved "+args[0]+" to workspace root.")
+			return nil
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("POST", apiPath("/v1/folders/%s/documents", moveFolderID), map[string]any{"document_id": args[0]})
+		}, func(m map[string]any) string {
+			msg := "Moved " + args[0] + " to folder " + moveFolderID + "."
+			if w, ok := m["permission_warning"].(map[string]any); ok {
+				msg += " Warning: " + fmt.Sprint(value(w, "message"))
+			}
+			return msg
+		})
+	}}
+	move.Flags().StringVar(&moveFolderID, "folder-id", "", "destination folder ID")
+	move.Flags().BoolVar(&moveRoot, "root", false, "move document to workspace root")
+
+	c.AddCommand(simple(g, out, "list", "GET", "/v1/documents", 0), create, simplePath(g, out, "show", "GET", "/v1/documents/%s"), update, del, move, pullCmd(g, out), docsPushCmd(g, out), versionsCmd(g, out), commentsCmd(g, out), grantsCmd(g, out))
 	return c
 }
 

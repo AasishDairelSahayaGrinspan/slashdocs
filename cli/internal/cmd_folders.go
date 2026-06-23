@@ -50,6 +50,14 @@ func foldersCmd(g *globals, out io.Writer) *cobra.Command {
 		}
 		b, err := cl.do("GET", path, nil, "")
 		if err != nil {
+			var ae *APIError
+			if errors.As(err, &ae) && ae.Code == "ambiguous_path" {
+				if g.json {
+					fmt.Fprintln(out, ae.Body)
+					return nil
+				}
+				return renderAmbiguousPath(out, ae.Body)
+			}
 			return err
 		}
 		if g.quiet {
@@ -64,10 +72,10 @@ func foldersCmd(g *globals, out io.Writer) *cobra.Command {
 	list.Flags().StringVar(&listFolderID, "folder-id", "", "folder ID to list")
 
 	search := &cobra.Command{Use: "search <name>", Short: "Search folders by title", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		q := url.Values{}
-		q.Set("title", args[0])
+		params := url.Values{}
+		params.Set("q", args[0])
 		return run(g, out, func(c *Client) ([]byte, error) {
-			return c.do("GET", "/v1/folders?"+q.Encode(), nil, "")
+			return c.do("GET", "/v1/folders?"+params.Encode(), nil, "")
 		})
 	}}
 
@@ -151,11 +159,11 @@ func folderDocsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents in a folder"}
 	list := simplePath(g, out, "list", "GET", "/v1/folders/%s/documents")
 
-	add := &cobra.Command{Use: "add <folder_id> <doc_id>", Short: "Add a document to a folder", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	move := &cobra.Command{Use: "move <folder_id> <doc_id>", Short: "Move a document into this folder", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		return action(g, out, func(c *Client) ([]byte, error) {
 			return c.doJSON("POST", apiPath("/v1/folders/%s/documents", args[0]), map[string]any{"document_id": args[1]})
 		}, func(m map[string]any) string {
-			msg := "Added " + args[1] + " to folder " + args[0] + "."
+			msg := "Moved " + args[1] + " to folder " + args[0] + "."
 			if w, ok := m["permission_warning"].(map[string]any); ok {
 				msg += " Warning: " + fmt.Sprint(value(w, "message"))
 			}
@@ -163,9 +171,9 @@ func folderDocsCmd(g *globals, out io.Writer) *cobra.Command {
 		})
 	}}
 
-	remove := mutate(g, out, "remove <folder_id> <doc_id>", "Remove a document from a folder", "DELETE", "/v1/folders/%s/documents/%s", 2, func(a []string) string { return "Removed " + a[1] + " from folder " + a[0] + "." })
+	remove := mutate(g, out, "remove <folder_id> <doc_id>", "Move a document out of this folder to root", "DELETE", "/v1/folders/%s/documents/%s", 2, func(a []string) string { return "Moved " + a[1] + " out of folder " + a[0] + " to root." })
 
-	c.AddCommand(list, add, remove)
+	c.AddCommand(list, move, remove)
 	return c
 }
 
@@ -211,5 +219,38 @@ func renderFolderList(out io.Writer, b []byte) error {
 	if len(resp.Items) == 0 {
 		fmt.Fprintln(out, "No items.")
 	}
+	return nil
+}
+
+func renderAmbiguousPath(out io.Writer, body string) error {
+	var resp struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+		Candidates []struct {
+			ID    string `json:"id"`
+			Title string `json:"title"`
+			Owner struct {
+				Name  string `json:"name"`
+				Email string `json:"email"`
+			} `json:"owner"`
+		} `json:"candidates"`
+	}
+	if err := json.Unmarshal([]byte(body), &resp); err != nil {
+		fmt.Fprintln(out, body)
+		return nil
+	}
+	fmt.Fprintf(out, "Ambiguous path: multiple folders match.\n\n")
+	for i, c := range resp.Candidates {
+		owner := c.Owner.Name
+		if owner == "" {
+			owner = c.Owner.Email
+		}
+		if owner == "" {
+			owner = "unknown"
+		}
+		fmt.Fprintf(out, "  %d. %s (owner: %s)\n     --folder-id %s\n\n", i+1, c.Title, owner, c.ID)
+	}
+	fmt.Fprintf(out, "Re-run with --folder-id to specify which one.\n")
 	return nil
 }
