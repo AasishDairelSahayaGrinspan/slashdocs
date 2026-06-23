@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 
@@ -120,20 +121,37 @@ func (h handlers) patchFolder(c *gin.Context) {
 	if !h.needFolderRole(c, c.Param("id"), repo.RoleOwner) {
 		return
 	}
-	var in struct {
-		Title          string  `json:"title"`
-		ParentFolderID *string `json:"parent_folder_id"`
+	// Use json.RawMessage to distinguish absent field from explicit null.
+	var raw struct {
+		Title          string           `json:"title"`
+		ParentFolderID json.RawMessage  `json:"parent_folder_id"`
 	}
-	if c.ShouldBindJSON(&in) != nil {
+	if c.ShouldBindJSON(&raw) != nil {
 		badRequest(c, "invalid folder")
 		return
 	}
-	if in.ParentFolderID != nil && *in.ParentFolderID != "" {
-		if !h.needFolderRole(c, *in.ParentFolderID, repo.RoleEditor) {
+	var parentPtr *string
+	if raw.ParentFolderID != nil {
+		// Field was present in the request body
+		if string(raw.ParentFolderID) == "null" {
+			// explicit null → move to root
+			empty := ""
+			parentPtr = &empty
+		} else {
+			var pid string
+			if json.Unmarshal(raw.ParentFolderID, &pid) != nil {
+				badRequest(c, "invalid parent_folder_id")
+				return
+			}
+			parentPtr = &pid
+		}
+	}
+	if parentPtr != nil && *parentPtr != "" {
+		if !h.needFolderRole(c, *parentPtr, repo.RoleEditor) {
 			return
 		}
 	}
-	f, err := h.deps.repository.UpdateFolder(c.Request.Context(), c.Param("id"), in.Title, in.ParentFolderID)
+	f, err := h.deps.repository.UpdateFolder(c.Request.Context(), c.Param("id"), raw.Title, parentPtr)
 	if err != nil {
 		if errors.Is(err, repo.ErrConflict) {
 			c.JSON(http.StatusConflict, errorResponse("conflict", "A folder with that name already exists in the destination.", nil))
@@ -147,8 +165,8 @@ func (h handlers) patchFolder(c *gin.Context) {
 		return
 	}
 	out := gin.H{"id": f.ID, "title": f.Title, "owner": f.Owner, "parent_folder_id": f.ParentFolderID}
-	if in.ParentFolderID != nil && *in.ParentFolderID != "" {
-		if hasGrants, _ := h.deps.repository.FolderHasGrants(c.Request.Context(), *in.ParentFolderID); hasGrants {
+	if parentPtr != nil && *parentPtr != "" {
+		if hasGrants, _ := h.deps.repository.FolderHasGrants(c.Request.Context(), *parentPtr); hasGrants {
 			out["permission_warning"] = gin.H{"kind": "may_broaden_access", "message": "The destination folder has active grants — contents of the moved folder may become visible to others."}
 		}
 	}
