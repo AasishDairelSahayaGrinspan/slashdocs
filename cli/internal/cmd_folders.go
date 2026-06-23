@@ -112,7 +112,8 @@ func foldersCmd(g *globals, out io.Writer) *cobra.Command {
 
 func folderGrantsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "grants", Short: "Manage folder grants"}
-	list := simplePath(g, out, "list", "GET", "/v1/folders/%s/grants")
+	list := simplePath(g, out, "list", "GET", "/v1/folders/%s/access")
+	list.Short = "List effective folder access"
 
 	var address, role string
 	var everyone bool
@@ -145,7 +146,9 @@ func folderGrantsCmd(g *globals, out io.Writer) *cobra.Command {
 	upd := &cobra.Command{Use: "update <folder_id> <grant_id>", Short: "Update a folder grant role", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		return action(g, out, func(c *Client) ([]byte, error) {
 			return c.doJSON("PATCH", apiPath("/v1/folders/%s/grants/%s", args[0], args[1]), map[string]any{"role": updRole})
-		}, func(map[string]any) string { return "Changed grant " + args[1] + " on folder " + args[0] + " to " + updRole + "." })
+		}, func(map[string]any) string {
+			return "Changed grant " + args[1] + " on folder " + args[0] + " to " + updRole + "."
+		})
 	}}
 	upd.Flags().StringVar(&updRole, "role", "viewer", "new role")
 
