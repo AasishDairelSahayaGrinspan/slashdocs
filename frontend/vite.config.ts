@@ -9,10 +9,5 @@ export default defineConfig({
     alias: { "@": path.resolve(__dirname, "./src") },
   },
   server: {
-    proxy: {
-      "/v1": "http://localhost:8080",
-      "/openapi.json": "http://localhost:8080",
-      "/api-docs": "http://localhost:8080",
-    },
   },
 });

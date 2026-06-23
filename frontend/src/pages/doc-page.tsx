@@ -167,6 +167,7 @@ export function DocumentPage() {
           docId={id}
           owner={doc.data.owner}
           principal={me.data?.principal}
+          parentFolder={doc.data.parent_folder}
           current={current}
           latest={latest}
           versions={versions.data?.items || []}

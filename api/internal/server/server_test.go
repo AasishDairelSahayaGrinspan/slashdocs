@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -887,4 +889,334 @@ func assertJSON(t *testing.T, got []byte, want string) {
 	if string(gotNorm) != string(wantNorm) {
 		t.Fatalf("json mismatch\n got: %s\nwant: %s", gotNorm, wantNorm)
 	}
+}
+
+func TestFoldersStage1MemoryBackend(t *testing.T) {
+	ctx := context.Background()
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "u_owner"}
+	other := auth.Principal{Type: auth.PrincipalUser, ID: "u_other"}
+	third := auth.Principal{Type: auth.PrincipalUser, ID: "u_third"}
+
+	t.Run("additive inheritance", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", []byte("x"))
+		_, _ = r.CreateGrant(ctx, "folder", root.ID, other, repo.RoleViewer, owner)
+		_, _ = r.MoveDocumentToFolder(ctx, owner, root.ID, doc.ID)
+		role, err := r.RoleForDocument(ctx, other, doc.ID)
+		if err != nil || role != repo.RoleViewer {
+			t.Fatalf("role=%q err=%v", role, err)
+		}
+	})
+	t.Run("nested inheritance", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		child, _ := r.CreateFolder(ctx, owner, "Child", root.ID)
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.CreateGrant(ctx, "folder", root.ID, other, repo.RoleCommenter, owner)
+		_, _ = r.MoveDocumentToFolder(ctx, owner, child.ID, doc.ID)
+		role, err := r.RoleForDocument(ctx, other, doc.ID)
+		if err != nil || role != repo.RoleCommenter {
+			t.Fatalf("role=%q err=%v", role, err)
+		}
+	})
+	t.Run("monotonic invariant", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		child, _ := r.CreateFolder(ctx, owner, "Child", root.ID)
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.CreateGrant(ctx, "folder", root.ID, other, repo.RoleEditor, owner)
+		_, _ = r.CreateGrant(ctx, "document", doc.ID, other, repo.RoleViewer, owner)
+		_, _ = r.MoveDocumentToFolder(ctx, owner, child.ID, doc.ID)
+		role, _ := r.RoleForDocument(ctx, other, doc.ID)
+		if role != repo.RoleEditor {
+			t.Fatalf("role=%q", role)
+		}
+	})
+	t.Run("reduce via ancestor provenance sources", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.CreateGrant(ctx, "folder", root.ID, other, repo.RoleViewer, owner)
+		_, _ = r.MoveDocumentToFolder(ctx, owner, root.ID, doc.ID)
+		items, _ := r.ListEffectiveAccess(ctx, "document", doc.ID)
+		found := false
+		for _, it := range items {
+			if it.Principal.ID == other.ID {
+				for _, s := range it.Sources {
+					if s.ResourceType == "folder" && s.ResourceID == root.ID {
+						found = true
+					}
+				}
+			}
+		}
+		if !found {
+			t.Fatalf("missing folder provenance: %#v", items)
+		}
+	})
+	t.Run("cycle prevention", func(t *testing.T) {
+		r := repo.NewMemory()
+		a, _ := r.CreateFolder(ctx, owner, "A", "")
+		b, _ := r.CreateFolder(ctx, owner, "B", a.ID)
+		_, err := r.UpdateFolder(ctx, a.ID, "", &b.ID)
+		if !errors.Is(err, repo.ErrConflict) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("depth limit", func(t *testing.T) {
+		r := repo.NewMemory()
+		p := ""
+		var err error
+		for i := 0; i < 5; i++ {
+			f, e := r.CreateFolder(ctx, owner, fmt.Sprintf("L%d", i), p)
+			if e != nil {
+				t.Fatal(e)
+			}
+			p = f.ID
+		}
+		_, err = r.CreateFolder(ctx, owner, "TooDeep", p)
+		if !errors.Is(err, repo.ErrConflict) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("sibling title uniqueness", func(t *testing.T) {
+		r := repo.NewMemory()
+		_, _ = r.CreateFolder(ctx, owner, "A", "")
+		_, err := r.CreateFolder(ctx, owner, "a", "")
+		if !errors.Is(err, repo.ErrConflict) {
+			t.Fatalf("err=%v", err)
+		}
+	})
+	t.Run("pin access validation", func(t *testing.T) {
+		r := repo.NewMemory()
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		doc, _, _ := r.CreateDocument(ctx, owner, "Doc", nil)
+		_, _ = r.MoveDocumentToFolder(ctx, owner, root.ID, doc.ID)
+		if role, _ := r.RoleForDocument(ctx, third, doc.ID); role != repo.RoleNone {
+			t.Fatalf("unexpected role %q", role)
+		}
+		_, _ = r.CreateGrant(ctx, "folder", root.ID, third, repo.RoleViewer, owner)
+		if role, _ := r.RoleForDocument(ctx, third, doc.ID); role != repo.RoleViewer {
+			t.Fatalf("inherited role %q", role)
+		}
+		if err := r.PutPin(ctx, third, "document", doc.ID); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("per principal pin isolation", func(t *testing.T) {
+		r := repo.NewMemory()
+		_ = r.PutPin(ctx, owner, "folder", "f1")
+		_ = r.PutPin(ctx, other, "folder", "f2")
+		pins, _ := r.ListPins(ctx, owner)
+		if len(pins) != 1 || pins[0].ResourceID != "f1" {
+			t.Fatalf("pins=%#v", pins)
+		}
+	})
+}
+
+func TestFolderAccessControl(t *testing.T) {
+	ownerP := auth.Principal{Type: auth.PrincipalUser, ID: "u_owner", Email: "owner@example.com", Name: "Owner"}
+	otherP := auth.Principal{Type: auth.PrincipalUser, ID: "u_other", Email: "other@example.com", Name: "Other"}
+	owner := "user:u_owner:owner@example.com:Owner"
+	other := "user:u_other:other@example.com:Other"
+
+	t.Run("path browsing forbidden without viewer access", func(t *testing.T) {
+		h := newTestServer()
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Secret"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		rr = do(t, h, http.MethodGet, "/v1/folders?path=/Secret", "", map[string]string{"X-Test-Principal": other})
+		if rr.Code != http.StatusForbidden && rr.Code != http.StatusNotFound {
+			t.Fatalf("expected 403 or 404, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("folder_id browsing forbidden without viewer access", func(t *testing.T) {
+		h := newTestServer()
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Private"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var created struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &created)
+
+		rr = do(t, h, http.MethodGet, "/v1/folders?folder_id="+created.ID, "", map[string]string{"X-Test-Principal": other})
+		assertStatus(t, rr, http.StatusForbidden)
+	})
+
+	t.Run("moving doc to folder requires editor on the document", func(t *testing.T) {
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		// Other creates a folder
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Private"}`, map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var folder struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &folder)
+
+		// Owner creates a doc and grants other user only viewer
+		body, ct := multipartBody(t, map[string]string{"title": "MyDoc"}, "file", "doc.html", "<p>hi</p>")
+		rr = doRaw(t, h, http.MethodPost, "/v1/documents", body, map[string]string{"X-Test-Principal": owner, "Content-Type": ct})
+		assertStatus(t, rr, http.StatusCreated)
+		var doc struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &doc)
+
+		rr = do(t, h, http.MethodPost, "/v1/documents/"+doc.ID+"/grants",
+			`{"address":"other@example.com","role":"viewer"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		// Other user (owner of folder, viewer on doc) tries to add doc — forbidden
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/documents",
+			`{"document_id":"`+doc.ID+`"}`,
+			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusForbidden)
+	})
+
+	t.Run("moving doc to folder with editor access succeeds", func(t *testing.T) {
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		// Other creates a folder
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"MyFolder"}`, map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var folder struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &folder)
+
+		// Owner creates a doc and grants other user editor
+		body, ct := multipartBody(t, map[string]string{"title": "MyDoc"}, "file", "doc.html", "<p>hi</p>")
+		rr = doRaw(t, h, http.MethodPost, "/v1/documents", body, map[string]string{"X-Test-Principal": owner, "Content-Type": ct})
+		assertStatus(t, rr, http.StatusCreated)
+		var doc struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &doc)
+
+		rr = do(t, h, http.MethodPost, "/v1/documents/"+doc.ID+"/grants",
+			`{"address":"other@example.com","role":"editor"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		// Other user (owner of folder, editor on doc) adds doc — succeeds
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/documents",
+			`{"document_id":"`+doc.ID+`"}`,
+			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusOK)
+	})
+
+	t.Run("moving doc requires editor on doc: viewer-only blocked", func(t *testing.T) {
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		// Other creates a folder
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Trap"}`, map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var folder struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &folder)
+
+		// Owner creates a doc, grants other viewer only
+		body, ct := multipartBody(t, map[string]string{"title": "Secret"}, "file", "doc.html", "<p>secret</p>")
+		rr = doRaw(t, h, http.MethodPost, "/v1/documents", body, map[string]string{"X-Test-Principal": owner, "Content-Type": ct})
+		assertStatus(t, rr, http.StatusCreated)
+		var doc struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &doc)
+
+		rr = do(t, h, http.MethodPost, "/v1/documents/"+doc.ID+"/grants",
+			`{"address":"other@example.com","role":"viewer"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		// Moving doc with only viewer access is blocked — editor required
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/documents",
+			`{"document_id":"`+doc.ID+`"}`,
+			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusForbidden)
+	})
+
+	t.Run("delete non-existent folder returns 404", func(t *testing.T) {
+		h := newTestServer()
+		rr := do(t, h, http.MethodDelete, "/v1/folders/fld_nonexistent", "", map[string]string{"X-Test-Principal": owner})
+		if rr.Code != http.StatusForbidden && rr.Code != http.StatusNotFound {
+			t.Fatalf("expected 403 or 404, got %d: %s", rr.Code, rr.Body.String())
+		}
+	})
+
+	t.Run("move folder requires editor on destination", func(t *testing.T) {
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		// Owner creates a destination folder, grants other viewer only
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Dest"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var dest struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &dest)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+dest.ID+"/grants",
+			`{"address":"other@example.com","role":"viewer"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		// Other creates their own folder and tries to move it into Dest (viewer only on dest)
+		rr = do(t, h, http.MethodPost, "/v1/folders", `{"title":"Source"}`, map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var src struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &src)
+
+		// Move Source into Dest — other is owner of Source but only viewer on Dest
+		rr = do(t, h, http.MethodPatch, "/v1/folders/"+src.ID,
+			`{"parent_folder_id":"`+dest.ID+`"}`,
+			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusForbidden)
+	})
+
+	t.Run("ambiguous root path returns 409 with candidates", func(t *testing.T) {
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), "u_alice", "alice@example.com", "Alice", "", "")
+		r.UpsertGoogleUser(context.Background(), "u_bob", "bob@example.com", "Bob", "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		alice := "user:u_alice:alice@example.com:Alice"
+		bob := "user:u_bob:bob@example.com:Bob"
+
+		// Alice creates /Projects
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Projects"}`, map[string]string{"X-Test-Principal": alice, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var aliceFolder struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &aliceFolder)
+
+		// Share Alice's folder with Bob
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+aliceFolder.ID+"/grants",
+			`{"address":"bob@example.com","role":"viewer"}`,
+			map[string]string{"X-Test-Principal": alice, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		// Bob creates his own /Projects
+		rr = do(t, h, http.MethodPost, "/v1/folders", `{"title":"Projects"}`, map[string]string{"X-Test-Principal": bob, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		// Bob resolves /Projects — ambiguous (owns one, has grant on another)
+		rr = do(t, h, http.MethodGet, "/v1/folders?path=/Projects", "", map[string]string{"X-Test-Principal": bob})
+		assertStatus(t, rr, http.StatusConflict)
+
+		var resp struct {
+			Error struct{ Code string } `json:"error"`
+			Candidates []struct {
+				ID    string `json:"id"`
+				Title string `json:"title"`
+			} `json:"candidates"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatal(err)
+		}
+		if resp.Error.Code != "ambiguous_path" {
+			t.Fatalf("code=%q", resp.Error.Code)
+		}
+		if len(resp.Candidates) != 2 {
+			t.Fatalf("expected 2 candidates, got %d", len(resp.Candidates))
+		}
+	})
 }

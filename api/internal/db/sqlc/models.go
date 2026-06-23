@@ -55,6 +55,7 @@ type Document struct {
 	CreatedAt        pgtype.Timestamptz
 	UpdatedAt        pgtype.Timestamptz
 	OwnerType        string
+	ParentFolderID   pgtype.Text
 }
 
 type DocumentWorkspaceEntry struct {
@@ -62,6 +63,24 @@ type DocumentWorkspaceEntry struct {
 	PrincipalType string
 	PrincipalID   string
 	AddedAt       pgtype.Timestamptz
+}
+
+type Folder struct {
+	ID             string
+	Title          string
+	OwnerType      string
+	OwnerID        string
+	ParentFolderID pgtype.Text
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type FolderWorkspaceEntry struct {
+	FolderID      string
+	PrincipalType string
+	PrincipalID   string
+	AddedAt       pgtype.Timestamptz
+	LastOpenedAt  pgtype.Timestamptz
 }
 
 type OauthState struct {
@@ -80,6 +99,14 @@ type OwnershipTransfer struct {
 	InitiatedAt      pgtype.Timestamptz
 	AcceptedAt       pgtype.Timestamptz
 	Status           string
+}
+
+type Pin struct {
+	PrincipalType string
+	PrincipalID   string
+	ResourceType  string
+	ResourceID    string
+	PinnedAt      pgtype.Timestamptz
 }
 
 type ResourceGrant struct {

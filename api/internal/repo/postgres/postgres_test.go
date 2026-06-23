@@ -44,7 +44,7 @@ func TestPostgresRepositoryDocumentGrantVersionCommentFlow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = store.CreateGrant(context.Background(), doc.ID, auth.Principal{Type: auth.PrincipalServiceAccount, ID: sa.ID}, repo.RoleEditor, owner)
+	_, err = store.CreateGrant(context.Background(), "document", doc.ID, auth.Principal{Type: auth.PrincipalServiceAccount, ID: sa.ID}, repo.RoleEditor, owner)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestPostgresAnyoneGrantListsAfterOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateGrant(ctx, doc.ID, auth.Principal{Type: auth.PrincipalAnyone}, repo.RoleViewer, owner); err != nil {
+	if _, err := store.CreateGrant(ctx, "document", doc.ID, auth.Principal{Type: auth.PrincipalAnyone}, repo.RoleViewer, owner); err != nil {
 		t.Fatal(err)
 	}
 
@@ -126,7 +126,7 @@ func TestPostgresAnyoneGrantListsAfterOpen(t *testing.T) {
 
 	// A second user with an explicit grant sees it without opening.
 	invitee := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_anyone_invitee", Email: "invitee@example.com", Name: "Invitee"}
-	if _, err := store.CreateGrant(ctx, doc.ID, invitee, repo.RoleViewer, owner); err != nil {
+	if _, err := store.CreateGrant(ctx, "document", doc.ID, invitee, repo.RoleViewer, owner); err != nil {
 		t.Fatal(err)
 	}
 	if !listed(t, store, invitee, doc.ID) {
@@ -235,4 +235,67 @@ func (b *cancelAfterPutBlob) Delete(ctx context.Context, key string) error {
 	b.deletes++
 	b.deletedKey = key
 	return nil
+}
+
+func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
+	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
+	}
+	if err := db.Migrate(url); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pgrepo.Connect(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_search_folder_owner", Email: "search-folder-owner@test.com", Name: "Owner"}
+	viewer := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_search_folder_viewer", Email: "search-folder-viewer@test.com", Name: "Viewer"}
+
+	folder, err := store.CreateFolder(ctx, owner, "SearchTestFolder", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _, err := store.CreateDocument(ctx, owner, "SearchableInFolder", []byte("<html>hello</html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MoveDocumentToFolder(ctx, owner, folder.ID, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Before granting folder access, viewer cannot find the doc
+	results, err := store.SearchDocumentsByTitle(ctx, viewer, "SearchableInFolder", false, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		if r.ID == doc.ID {
+			t.Fatal("viewer found doc before folder grant")
+		}
+	}
+
+	// Grant viewer access on the folder
+	if _, err := store.CreateGrant(ctx, "folder", folder.ID, viewer, repo.RoleViewer, owner); err != nil {
+		t.Fatal(err)
+	}
+
+	// Now the viewer can find the doc via folder inheritance
+	results, err = store.SearchDocumentsByTitle(ctx, viewer, "SearchableInFolder", false, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, r := range results {
+		if r.ID == doc.ID {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatal("viewer cannot find doc after folder grant — folder-inherited search is broken")
+	}
 }
