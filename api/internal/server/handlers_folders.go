@@ -173,10 +173,14 @@ func (h handlers) patchFolder(c *gin.Context) {
 	c.JSON(http.StatusOK, out)
 }
 func (h handlers) deleteFolder(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleOwner) {
+	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
 		return
 	}
-	if err := h.deps.repository.DeleteFolder(c.Request.Context(), c.Param("id")); err != nil {
+	if err := h.deps.repository.DeleteFolder(c.Request.Context(), c.Param("id"), *current(c)); err != nil {
+		if errors.Is(err, repo.ErrForbidden) {
+			forbidden(c, "editor role required on all descendant folders")
+			return
+		}
 		notFound(c)
 		return
 	}

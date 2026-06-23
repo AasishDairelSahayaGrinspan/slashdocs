@@ -102,7 +102,9 @@ export function DocumentsPage() {
     .filter((e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder);
   const folders = folderEntries.map((e) => e.folder);
 
-  // Merge folders and documents into a single list sorted by last activity, then alphabetically
+  const pinnedIds = useMemo(() => new Set(pinnedItems.map((p) => p.resource_id)), [pinnedItems]);
+
+  // Merge folders and documents into a single list sorted by pinned status, last activity, then alphabetically
   const merged = useMemo(() => {
     const folderItems: FolderEntry[] = folderEntries.map((e) => ({
       type: "folder" as const,
@@ -115,6 +117,9 @@ export function DocumentsPage() {
       last_active: d.updated_at,
     }));
     return [...folderItems, ...docItems].sort((a, b) => {
+      const ap = pinnedIds.has(a.folder?.id || docID(a.document!));
+      const bp = pinnedIds.has(b.folder?.id || docID(b.document!));
+      if (ap !== bp) return ap ? -1 : 1;
       const ta = a.last_active || "";
       const tb = b.last_active || "";
       if (ta && tb) return tb.localeCompare(ta);
@@ -124,9 +129,7 @@ export function DocumentsPage() {
       const nb = (b.folder?.title || b.document?.title || "").toLowerCase();
       return na.localeCompare(nb);
     });
-  }, [folderEntries, documents]);
-
-  const pinnedIds = useMemo(() => new Set(pinnedItems.map((p) => p.resource_id)), [pinnedItems]);
+  }, [folderEntries, documents, pinnedIds]);
 
   const viewMode = viewModeStore.useStore();
   const [newFolderOpen, setNewFolderOpen] = useState(false);

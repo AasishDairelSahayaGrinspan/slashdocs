@@ -102,6 +102,7 @@ export function FolderPage() {
   const [newFolderOpen, setNewFolderOpen] = useState(false);
   const [newFolderTitle, setNewFolderTitle] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
   const [renameTitle, setRenameTitle] = useState("");
   const createSub = useMutation({
     mutationFn: () => api.createFolder(newFolderTitle, id),
@@ -263,29 +264,28 @@ export function FolderPage() {
               <DropdownItem onSelect={() => setNewFolderOpen(true)}>
                 <Plus className="h-4 w-4" /> New subfolder
               </DropdownItem>
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <DropdownItem onSelect={(e) => e.preventDefault()} className="text-[var(--color-danger)]">
-                    <Trash2 className="h-4 w-4" /> Delete folder
-                  </DropdownItem>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogTitle>Delete "{f.title}"?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This will delete all subfolders. Documents inside will be detached, not deleted.
-                  </AlertDialogDescription>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                    <AlertDialogAction onClick={() => delFolder.mutate()}>
-                      Delete
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+              <DropdownItem onSelect={() => setDeleteOpen(true)} className="text-[var(--color-danger)]">
+                <Trash2 className="h-4 w-4" /> Delete folder
+              </DropdownItem>
             </DropdownContent>
           </Dropdown>
         </div>
       </div>
+
+      <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+        <AlertDialogContent>
+          <AlertDialogTitle>Delete "{f.title}"?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This will delete owned subfolders. Documents inside will be detached, not deleted.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction variant="danger" onClick={() => delFolder.mutate()}>
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Contents */}
       {items.length === 0 ? (
@@ -397,13 +397,24 @@ function FolderContents({ items, pinnedIds }: { items: FolderEntry[]; pinnedIds:
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const viewMode = viewModeStore.useStore();
 
-  const folders = items.filter((e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder).map((e) => e.folder);
-  const documents = items.filter((e): e is FolderEntry & { document: Document } => e.type === "document" && !!e.document).map((e) => e.document);
+  const entries = [...items].sort((a, b) => {
+    const aid = a.folder?.id || (a.document ? docID(a.document) : "");
+    const bid = b.folder?.id || (b.document ? docID(b.document) : "");
+    const ap = pinnedIds.has(aid);
+    const bp = pinnedIds.has(bid);
+    if (ap !== bp) return ap ? -1 : 1;
+    const ta = a.last_active || "";
+    const tb = b.last_active || "";
+    if (ta && tb) return tb.localeCompare(ta);
+    if (tb) return 1;
+    if (ta) return -1;
+    return (a.folder?.title || a.document?.title || "").localeCompare(b.folder?.title || b.document?.title || "");
+  });
 
   return viewMode === "list" ? (
-    <UnifiedTable entries={[...folders.map(f => ({ type: "folder" as const, folder: f })), ...documents.map(d => ({ type: "document" as const, document: d }))]} principal={me.data?.principal} pinnedIds={pinnedIds} />
+    <UnifiedTable entries={entries} principal={me.data?.principal} pinnedIds={pinnedIds} />
   ) : (
-    <UnifiedGrid entries={[...folders.map(f => ({ type: "folder" as const, folder: f })), ...documents.map(d => ({ type: "document" as const, document: d }))]} pinnedIds={pinnedIds} />
+    <UnifiedGrid entries={entries} pinnedIds={pinnedIds} />
   );
 }
 
