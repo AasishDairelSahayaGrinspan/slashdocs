@@ -59,6 +59,16 @@ type VersionConflictError struct {
 func (e *VersionConflictError) Error() string        { return "version_conflict" }
 func (e *VersionConflictError) Is(target error) bool { return target == ErrVersionConflict }
 
+var ErrAmbiguousPath = errors.New("ambiguous_path")
+
+type AmbiguousPathError struct {
+	Segment    string
+	Candidates []Folder
+}
+
+func (e *AmbiguousPathError) Error() string        { return "ambiguous_path" }
+func (e *AmbiguousPathError) Is(target error) bool { return target == ErrAmbiguousPath }
+
 // Comment / transfer status values.
 const (
 	StatusOpen     = "open"
@@ -68,24 +78,33 @@ const (
 )
 
 type Document struct {
-	ID               string         `json:"id"`
-	Title            string         `json:"title"`
-	Owner            auth.Principal `json:"owner"`
-	CurrentVersionID string         `json:"current_version_id"`
-	ParentFolderID   string         `json:"parent_folder_id,omitempty"`
+	ID               string            `json:"id"`
+	Title            string            `json:"title"`
+	Owner            auth.Principal    `json:"owner"`
+	CurrentVersionID string            `json:"current_version_id"`
+	ParentFolderID   string            `json:"parent_folder_id,omitempty"`
+	ParentFolder     *FolderBreadcrumb `json:"parent_folder,omitempty"`
+	UpdatedAt        string            `json:"updated_at,omitempty"`
+}
+
+type FolderBreadcrumb struct {
+	ID    string `json:"id"`
+	Title string `json:"title"`
 }
 
 type Folder struct {
-	ID             string         `json:"id"`
-	Title          string         `json:"title"`
-	Owner          auth.Principal `json:"owner"`
-	ParentFolderID string         `json:"parent_folder_id,omitempty"`
+	ID             string             `json:"id"`
+	Title          string             `json:"title"`
+	Owner          auth.Principal     `json:"owner"`
+	ParentFolderID string             `json:"parent_folder_id,omitempty"`
+	Ancestors      []FolderBreadcrumb `json:"ancestors,omitempty"`
 }
 
 type FolderEntry struct {
-	Type     string    `json:"type"`
-	Folder   *Folder   `json:"folder,omitempty"`
-	Document *Document `json:"document,omitempty"`
+	Type       string    `json:"type"`
+	Folder     *Folder   `json:"folder,omitempty"`
+	Document   *Document `json:"document,omitempty"`
+	LastActive string    `json:"last_active,omitempty"`
 }
 
 type Pin struct {
@@ -98,6 +117,7 @@ type AccessSource struct {
 	ResourceID    string `json:"resource_id"`
 	ResourceTitle string `json:"resource_title"`
 	Role          Role   `json:"role"`
+	GrantID       string `json:"grant_id,omitempty"`
 }
 type EffectiveAccessItem struct {
 	Principal     auth.Principal `json:"principal"`
@@ -209,7 +229,7 @@ type Repository interface {
 	UserByEmail(ctx context.Context, email string) (auth.Principal, error)
 	SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error)
 	EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error)
-	CreateGrant(ctx context.Context, documentID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
+	CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
 	ListGrants(ctx context.Context, documentID string) ([]Grant, error)
 	UpdateGrant(ctx context.Context, documentID, grantID string, role Role) (Grant, error)
 	DeleteGrant(ctx context.Context, documentID, grantID string) error
@@ -225,11 +245,14 @@ type Repository interface {
 	DeleteComment(ctx context.Context, id string) error
 	CreateFolder(ctx context.Context, owner auth.Principal, title, parentFolderID string) (Folder, error)
 	ListFolder(ctx context.Context, principal auth.Principal, folderID, path string) ([]FolderEntry, bool, *Folder, error)
+	SearchFoldersByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Folder, error)
+	RecordFolderOpened(ctx context.Context, folderID string, principal auth.Principal) error
 	GetFolder(ctx context.Context, id string) (Folder, error)
 	UpdateFolder(ctx context.Context, id, title string, parentFolderID *string) (Folder, error)
 	DeleteFolder(ctx context.Context, id string) error
-	AddDocumentToFolder(ctx context.Context, principal auth.Principal, folderID, documentID string) (bool, error)
-	RemoveDocumentFromFolder(ctx context.Context, folderID, documentID string) error
+	FolderHasGrants(ctx context.Context, folderID string) (bool, error)
+	MoveDocumentToFolder(ctx context.Context, principal auth.Principal, folderID, documentID string) (bool, error)
+	MoveDocumentToRoot(ctx context.Context, folderID, documentID string) error
 	ListFolderDocuments(ctx context.Context, principal auth.Principal, folderID string) ([]Document, error)
 	ListEffectiveAccess(ctx context.Context, resourceType, resourceID string) ([]EffectiveAccessItem, error)
 	ListPins(ctx context.Context, principal auth.Principal) ([]Pin, error)
@@ -258,6 +281,9 @@ type Memory struct {
 	sas       map[string]ServiceAccount
 	comments  map[string]Comment
 	transfers map[string]OwnershipTransfer
+
+	docWorkspace    map[string]map[string]bool // docID -> "type:id" -> true
+	folderWorkspace map[string]map[string]bool // folderID -> "type:id" -> true
 
 	// Test-only fixtures, populated by NewMemorySeeded and consulted by
 	// RoleForDocument / PrincipalExists. Kept out of the users/grants stores so
@@ -498,15 +524,11 @@ func (m *Memory) EnsureUserByEmail(ctx context.Context, email string) (auth.Prin
 	m.users[id] = p
 	return p, nil
 }
-func (m *Memory) CreateGrant(ctx context.Context, documentID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error) {
+func (m *Memory) CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.grantN++
-	rt := "document"
-	if strings.HasPrefix(documentID, "fld_") {
-		rt = "folder"
-	}
-	g := Grant{ID: fmt.Sprintf("gr_%d", m.grantN), DocumentID: documentID, ResourceType: rt, ResourceID: documentID, Principal: principal, Role: role, GrantedBy: grantedBy}
+	g := Grant{ID: fmt.Sprintf("gr_%d", m.grantN), DocumentID: resourceID, ResourceType: resourceType, ResourceID: resourceID, Principal: principal, Role: role, GrantedBy: grantedBy}
 	m.grants = append(m.grants, g)
 	return g, nil
 }
@@ -598,6 +620,15 @@ func (m *Memory) SearchDocumentsByTitle(ctx context.Context, principal auth.Prin
 	return out, nil
 }
 func (m *Memory) RecordDocumentOpened(ctx context.Context, documentID string, principal auth.Principal) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.docWorkspace == nil {
+		m.docWorkspace = map[string]map[string]bool{}
+	}
+	if m.docWorkspace[documentID] == nil {
+		m.docWorkspace[documentID] = map[string]bool{}
+	}
+	m.docWorkspace[documentID][string(principal.Type)+":"+principal.ID] = true
 	return nil
 }
 func (m *Memory) UpdateDocument(ctx context.Context, id, title string) (Document, error) {
@@ -864,7 +895,22 @@ func (m *Memory) GetFolder(ctx context.Context, id string) (Folder, error) {
 	if !ok {
 		return Folder{}, ErrNotFound
 	}
+	f.Ancestors = m.folderAncestors(f.ParentFolderID)
 	return f, nil
+}
+
+func (m *Memory) folderAncestors(parentID string) []FolderBreadcrumb {
+	var out []FolderBreadcrumb
+	cur := parentID
+	for i := 0; i < 10 && cur != ""; i++ {
+		p, ok := m.folders[cur]
+		if !ok {
+			break
+		}
+		out = append([]FolderBreadcrumb{{ID: p.ID, Title: p.Title}}, out...)
+		cur = p.ParentFolderID
+	}
+	return out
 }
 func (m *Memory) RoleForFolder(ctx context.Context, p auth.Principal, folderID string) (Role, error) {
 	m.mu.Lock()
@@ -897,12 +943,39 @@ func (m *Memory) ListFolder(ctx context.Context, p auth.Principal, folderID, pat
 	parent := folderID
 	if path != "" && path != "/" {
 		parts := strings.Split(strings.Trim(path, "/"), "/")
-		for _, part := range parts {
+		for i, part := range parts {
 			found := ""
-			for _, f := range m.folders {
-				if f.ParentFolderID == parent && f.Title == part {
-					found = f.ID
-					break
+			if i == 0 && parent == "" {
+				var candidates []Folder
+				for _, f := range m.folders {
+					if f.ParentFolderID == "" && strings.EqualFold(f.Title, part) {
+						visible := f.Owner.Type == p.Type && f.Owner.ID == p.ID
+						if !visible {
+							for _, g := range m.grants {
+								if g.ResourceType == "folder" && g.ResourceID == f.ID {
+									visible = true
+									break
+								}
+							}
+						}
+						if visible {
+							candidates = append(candidates, f)
+						}
+					}
+				}
+				if len(candidates) == 0 {
+					return nil, false, nil, ErrNotFound
+				}
+				if len(candidates) > 1 {
+					return nil, false, nil, &AmbiguousPathError{Segment: part, Candidates: candidates}
+				}
+				found = candidates[0].ID
+			} else {
+				for _, f := range m.folders {
+					if f.ParentFolderID == parent && strings.EqualFold(f.Title, part) {
+						found = f.ID
+						break
+					}
 				}
 			}
 			if found == "" {
@@ -936,6 +1009,56 @@ func (m *Memory) ListFolder(ctx context.Context, p auth.Principal, folderID, pat
 		}
 	}
 	return out, has, cur, nil
+}
+func (m *Memory) SearchFoldersByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]Folder, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	accessible := map[string]bool{}
+	for id, f := range m.folders {
+		if f.Owner.Type == p.Type && f.Owner.ID == p.ID {
+			accessible[id] = true
+		}
+	}
+	for _, g := range m.grants {
+		if g.ResourceType == "folder" {
+			if (g.Principal.Type == p.Type && g.Principal.ID == p.ID) || (includeOrgWide && g.Principal.Type == "anyone") {
+				accessible[g.ResourceID] = true
+			}
+		}
+	}
+	changed := true
+	for changed {
+		changed = false
+		for id, f := range m.folders {
+			if !accessible[id] && accessible[f.ParentFolderID] {
+				accessible[id] = true
+				changed = true
+			}
+		}
+	}
+	q := strings.ToLower(query)
+	var out []Folder
+	for id, f := range m.folders {
+		if accessible[id] && strings.Contains(strings.ToLower(f.Title), q) {
+			out = append(out, f)
+			if int32(len(out)) >= limit {
+				break
+			}
+		}
+	}
+	return out, nil
+}
+func (m *Memory) RecordFolderOpened(_ context.Context, folderID string, p auth.Principal) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.folderWorkspace == nil {
+		m.folderWorkspace = map[string]map[string]bool{}
+	}
+	if m.folderWorkspace[folderID] == nil {
+		m.folderWorkspace[folderID] = map[string]bool{}
+	}
+	m.folderWorkspace[folderID][string(p.Type)+":"+p.ID] = true
+	return nil
 }
 func (m *Memory) UpdateFolder(ctx context.Context, id, title string, parent *string) (Folder, error) {
 	m.mu.Lock()
@@ -1000,7 +1123,25 @@ func (m *Memory) DeleteFolder(ctx context.Context, id string) error {
 	del(id)
 	return nil
 }
-func (m *Memory) AddDocumentToFolder(ctx context.Context, p auth.Principal, folderID, docID string) (bool, error) {
+func (m *Memory) FolderHasGrants(ctx context.Context, folderID string) (bool, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cur := folderID
+	for depth := 0; depth < 20 && cur != ""; depth++ {
+		for _, g := range m.grants {
+			if g.ResourceID == cur && g.ResourceType == "folder" {
+				return true, nil
+			}
+		}
+		f, ok := m.folders[cur]
+		if !ok {
+			break
+		}
+		cur = f.ParentFolderID
+	}
+	return false, nil
+}
+func (m *Memory) MoveDocumentToFolder(ctx context.Context, p auth.Principal, folderID, docID string) (bool, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	d, ok := m.docs[docID]
@@ -1020,7 +1161,7 @@ func (m *Memory) AddDocumentToFolder(ctx context.Context, p auth.Principal, fold
 	m.docs[docID] = d
 	return shared, nil
 }
-func (m *Memory) RemoveDocumentFromFolder(ctx context.Context, folderID, docID string) error {
+func (m *Memory) MoveDocumentToRoot(ctx context.Context, folderID, docID string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	d, ok := m.docs[docID]
@@ -1084,7 +1225,7 @@ func (m *Memory) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]Eff
 	}
 	for _, g := range m.grants {
 		if okid[g.ResourceID] {
-			add(g.Principal, AccessSource{ResourceType: g.ResourceType, ResourceID: g.ResourceID, ResourceTitle: titles[g.ResourceID], Role: g.Role})
+			add(g.Principal, AccessSource{ResourceType: g.ResourceType, ResourceID: g.ResourceID, ResourceTitle: titles[g.ResourceID], Role: g.Role, GrantID: g.ID})
 		}
 	}
 	out := []EffectiveAccessItem{}

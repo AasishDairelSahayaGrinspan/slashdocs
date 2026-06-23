@@ -96,13 +96,18 @@ func (h handlers) getDocument(c *gin.Context) {
 		forbidden(c, "viewer role required")
 		return
 	}
-	// Opening a document adds it to the viewer's workspace, so a broadly-shared
-	// ("anyone") document joins their listing after first open. The owner is
-	// already listed; recording for them is unnecessary. Best-effort: a failure
-	// here must not block serving the document.
 	p := current(c)
 	if !(p.Type == d.Owner.Type && p.ID == d.Owner.ID) {
 		_ = h.deps.repository.RecordDocumentOpened(c.Request.Context(), d.ID, *p)
+	}
+	// Show parent folder in breadcrumb only if viewer has access to it.
+	if d.ParentFolderID != "" {
+		if r, _ := h.deps.repository.RoleForFolder(c.Request.Context(), *p, d.ParentFolderID); atLeast(r, repo.RoleViewer) {
+			f, err := h.deps.repository.GetFolder(c.Request.Context(), d.ParentFolderID)
+			if err == nil {
+				d.ParentFolder = &repo.FolderBreadcrumb{ID: f.ID, Title: f.Title}
+			}
+		}
 	}
 	c.JSON(http.StatusOK, d)
 }

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -169,14 +170,14 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 		WITH RECURSIVE ancestors(rid, rtype, depth) AS (
 			SELECT $1::text, 'document'::text, 0
 			UNION ALL
-			SELECT f.id, 'folder', a.depth+1
-			FROM folders f
-			JOIN (
+			SELECT f.id, 'folder'::text, a.depth+1
+			FROM ancestors a
+			JOIN LATERAL (
 				SELECT CASE WHEN a.rtype='document' THEN (SELECT parent_folder_id FROM documents WHERE id=a.rid)
 				            ELSE (SELECT parent_folder_id FROM folders WHERE id=a.rid) END AS pid
-				FROM ancestors a WHERE a.depth < 64
-			) sub ON f.id = sub.pid
-			WHERE sub.pid IS NOT NULL
+			) sub ON true
+			JOIN folders f ON f.id = sub.pid
+			WHERE sub.pid IS NOT NULL AND a.depth < 64
 		)
 		SELECT g.resource_id, g.principal_type, g.principal_id, g.role
 		FROM resource_grants g
@@ -308,7 +309,7 @@ func (s *Store) PrincipalExists(ctx context.Context, p auth.Principal) (bool, er
 		return false, nil
 	}
 }
-func (s *Store) CreateGrant(ctx context.Context, documentID string, principal auth.Principal, role repo.Role, grantedBy auth.Principal) (repo.Grant, error) {
+func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role repo.Role, grantedBy auth.Principal) (repo.Grant, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return repo.Grant{}, err
@@ -325,24 +326,20 @@ func (s *Store) CreateGrant(ctx context.Context, documentID string, principal au
 			return repo.Grant{}, err
 		}
 	}
-	rt := "document"
-	if strings.HasPrefix(documentID, "fld_") {
-		rt = "folder"
-	}
 	id := newID("gr")
 	_, err = tx.Exec(ctx, `
 		INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id)
 		VALUES($1,$2,$3,$4,$5,$6,$7,$8)
 		ON CONFLICT(resource_type,resource_id,principal_type,principal_id)
 		DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id`,
-		id, rt, documentID, string(principal.Type), principal.ID, string(role), string(grantedBy.Type), grantedBy.ID)
+		id, resourceType, resourceID, string(principal.Type), principal.ID, string(role), string(grantedBy.Type), grantedBy.ID)
 	if err != nil {
 		return repo.Grant{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Grant{}, err
 	}
-	return repo.Grant{ID: id, DocumentID: documentID, ResourceType: rt, ResourceID: documentID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
+	return repo.Grant{ID: id, DocumentID: resourceID, ResourceType: resourceType, ResourceID: resourceID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
 }
 
 func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal) (repo.Version, error) {
@@ -457,6 +454,10 @@ func (s *Store) RecordDocumentOpened(ctx context.Context, documentID string, p a
 		PrincipalType: string(p.Type),
 		PrincipalID:   p.ID,
 	})
+}
+func (s *Store) RecordFolderOpened(ctx context.Context, folderID string, p auth.Principal) error {
+	_, err := s.db.Exec(ctx, `INSERT INTO folder_workspace_entries(folder_id,principal_type,principal_id,last_opened_at) VALUES($1,$2,$3,now()) ON CONFLICT (folder_id,principal_type,principal_id) DO UPDATE SET last_opened_at=now()`, folderID, string(p.Type), p.ID)
+	return err
 }
 func (s *Store) UpdateDocument(ctx context.Context, id, title string) (repo.Document, error) {
 	if title != "" {
@@ -719,10 +720,14 @@ func (s *Store) DeclineOwnershipTransfer(ctx context.Context, id string, user au
 }
 
 func docFromGet(r dbsqlc.GetDocumentRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}, ParentFolderID: r.ParentFolderID}
 }
 func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	if r.UpdatedAt.Valid {
+		d.UpdatedAt = r.UpdatedAt.Time.Format(time.RFC3339)
+	}
+	return d
 }
 func docFromSearch(r dbsqlc.SearchDocumentsByTitleRow) repo.Document {
 	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
@@ -826,12 +831,47 @@ func (s *Store) subtreeHeight(ctx context.Context, id string) (int, error) {
 func (s *Store) GetFolder(ctx context.Context, id string) (repo.Folder, error) {
 	var f repo.Folder
 	var pt string
-	err := s.db.QueryRow(ctx, `SELECT id,title,owner_type,owner_id,COALESCE(parent_folder_id,'') FROM folders WHERE id=$1`, id).Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID)
+	err := s.db.QueryRow(ctx, `
+		SELECT f.id, f.title, f.owner_type, f.owner_id, COALESCE(f.parent_folder_id,''),
+		       COALESCE(u.name,sa.name,''), COALESCE(u.email,'')
+		FROM folders f
+		LEFT JOIN users u ON f.owner_type='user' AND f.owner_id=u.id
+		LEFT JOIN service_accounts sa ON f.owner_type='service_account' AND f.owner_id=sa.id
+		WHERE f.id=$1`, id).Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID, &f.Owner.Name, &f.Owner.Email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repo.Folder{}, repo.ErrNotFound
 	}
 	f.Owner.Type = auth.PrincipalType(pt)
+	if err == nil && f.ParentFolderID != "" {
+		f.Ancestors, _ = s.folderAncestors(ctx, f.ParentFolderID)
+	}
 	return f, err
+}
+
+func (s *Store) folderAncestors(ctx context.Context, parentID string) ([]repo.FolderBreadcrumb, error) {
+	rows, err := s.db.Query(ctx, `
+		WITH RECURSIVE anc(id, title, parent, depth) AS (
+			SELECT f.id, f.title, COALESCE(f.parent_folder_id,''), 1
+			FROM folders f WHERE f.id=$1
+			UNION ALL
+			SELECT f.id, f.title, COALESCE(f.parent_folder_id,''), a.depth+1
+			FROM folders f JOIN anc a ON f.id=a.parent
+			WHERE a.parent != '' AND a.depth < 10
+		)
+		SELECT id, title FROM anc ORDER BY depth DESC`, parentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []repo.FolderBreadcrumb
+	for rows.Next() {
+		var b repo.FolderBreadcrumb
+		if err := rows.Scan(&b.ID, &b.Title); err != nil {
+			return nil, err
+		}
+		out = append(out, b)
+	}
+	return out, rows.Err()
 }
 func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *string) (repo.Folder, error) {
 	f, err := s.GetFolder(ctx, id)
@@ -890,16 +930,66 @@ func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *stri
 	return s.GetFolder(ctx, id)
 }
 func (s *Store) DeleteFolder(ctx context.Context, id string) error {
-	_, err := s.db.Exec(ctx, `WITH RECURSIVE d(id,depth) AS (SELECT $1::text,1 UNION ALL SELECT f.id,d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth<64) DELETE FROM folders WHERE id IN (SELECT id FROM d)`, id)
-	return err
+	tag, err := s.db.Exec(ctx, `WITH RECURSIVE d(id,depth) AS (SELECT $1::text,1 UNION ALL SELECT f.id,d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth<64) DELETE FROM folders WHERE id IN (SELECT id FROM d)`, id)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
 }
 func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path string) ([]repo.FolderEntry, bool, *repo.Folder, error) {
 	parent := folderID
 	if path != "" && path != "/" {
 		parts := strings.Split(strings.Trim(path, "/"), "/")
-		for _, part := range parts {
+		for i, part := range parts {
 			var found string
-			err := s.db.QueryRow(ctx, `SELECT id FROM folders WHERE COALESCE(parent_folder_id,'')=$1 AND title=$2 LIMIT 1`, parent, part).Scan(&found)
+			var err error
+			if i == 0 && parent == "" {
+				rows, err2 := s.db.Query(ctx, `
+					SELECT f.id, f.title, f.owner_type, f.owner_id,
+					       COALESCE(u.name,sa.name,'') AS owner_name, COALESCE(u.email,'') AS owner_email
+					FROM folders f
+					LEFT JOIN users u ON f.owner_type='user' AND f.owner_id=u.id
+					LEFT JOIN service_accounts sa ON f.owner_type='service_account' AND f.owner_id=sa.id
+					WHERE COALESCE(f.parent_folder_id,'')=''
+					  AND lower(f.title)=lower($1)
+					  AND (
+					    (f.owner_type=$2 AND f.owner_id=$3)
+					    OR EXISTS (
+					      SELECT 1 FROM resource_grants g
+					      WHERE g.resource_type='folder' AND g.resource_id=f.id
+					        AND g.revoked_at IS NULL
+					        AND ((g.principal_type=$2 AND g.principal_id=$3) OR g.principal_type='anyone')
+					    )
+					  )
+					ORDER BY CASE WHEN f.owner_type=$2 AND f.owner_id=$3 THEN 0 ELSE 1 END`, part, string(p.Type), p.ID)
+				if err2 != nil {
+					return nil, false, nil, err2
+				}
+				var candidates []repo.Folder
+				for rows.Next() {
+					var f repo.Folder
+					var pt, ownName, ownEmail string
+					rows.Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &ownName, &ownEmail)
+					f.Owner.Type = auth.PrincipalType(pt)
+					f.Owner.Name = ownName
+					f.Owner.Email = ownEmail
+					candidates = append(candidates, f)
+				}
+				rows.Close()
+				if len(candidates) == 0 {
+					return nil, false, nil, repo.ErrNotFound
+				}
+				if len(candidates) > 1 {
+					return nil, false, nil, &repo.AmbiguousPathError{Segment: part, Candidates: candidates}
+				}
+				found = candidates[0].ID
+				err = nil
+			} else {
+				err = s.db.QueryRow(ctx, `SELECT id FROM folders WHERE parent_folder_id=$1 AND lower(title)=lower($2) LIMIT 1`, parent, part).Scan(&found)
+			}
 			if errors.Is(err, pgx.ErrNoRows) {
 				return nil, false, nil, repo.ErrNotFound
 			}
@@ -910,28 +1000,112 @@ func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path
 		}
 	}
 
-	rows, err := s.db.Query(ctx, `SELECT id,title,owner_type,owner_id,COALESCE(parent_folder_id,'') FROM folders WHERE COALESCE(parent_folder_id,'')=$1 LIMIT 51`, parent)
-	if err != nil {
-		return nil, false, nil, err
+	var rows pgx.Rows
+	var err2 error
+	isRoot := parent == ""
+	if isRoot {
+		rows, err2 = s.db.Query(ctx, `
+			SELECT f.id, f.title, f.owner_type, f.owner_id, COALESCE(f.parent_folder_id,''),
+			       COALESCE(u.name,sa.name,'') AS owner_name, COALESCE(u.email,'') AS owner_email,
+			       COALESCE(we.last_opened_at, f.created_at) AS last_active
+			FROM folders f
+			LEFT JOIN users u ON f.owner_type='user' AND f.owner_id=u.id
+			LEFT JOIN service_accounts sa ON f.owner_type='service_account' AND f.owner_id=sa.id
+			LEFT JOIN folder_workspace_entries we ON we.folder_id=f.id AND we.principal_type=$1 AND we.principal_id=$2
+			WHERE (
+			  COALESCE(f.parent_folder_id,'')=''
+			  AND (
+			    (f.owner_type=$1 AND f.owner_id=$2)
+			    OR EXISTS (
+			      SELECT 1 FROM resource_grants g
+			      WHERE g.resource_type='folder' AND g.resource_id=f.id
+			        AND g.revoked_at IS NULL
+			        AND g.principal_type=$1 AND g.principal_id=$2
+			    )
+			    OR (
+			      EXISTS (
+			        SELECT 1 FROM folder_workspace_entries w
+			        WHERE w.folder_id=f.id
+			          AND w.principal_type=$1 AND w.principal_id=$2
+			      )
+			      AND EXISTS (
+			        SELECT 1 FROM resource_grants g
+			        WHERE g.resource_type='folder' AND g.resource_id=f.id
+			          AND g.revoked_at IS NULL
+			          AND g.principal_type='anyone'
+			      )
+			    )
+			  )
+			)
+			OR (
+			  f.parent_folder_id IS NOT NULL
+			  AND EXISTS (
+			    SELECT 1 FROM folder_workspace_entries w
+			    WHERE w.folder_id=f.id
+			      AND w.principal_type=$1 AND w.principal_id=$2
+			  )
+			  AND NOT EXISTS (
+			    WITH RECURSIVE anc(fid, depth) AS (
+			      SELECT f.parent_folder_id, 1
+			      UNION ALL
+			      SELECT p.parent_folder_id, a.depth+1 FROM folders p JOIN anc a ON p.id=a.fid WHERE p.parent_folder_id IS NOT NULL AND a.depth < 20
+			    )
+			    SELECT 1 FROM folder_workspace_entries fw
+			    JOIN anc ON fw.folder_id=anc.fid
+			    WHERE fw.principal_type=$1 AND fw.principal_id=$2
+			  )
+			)
+			ORDER BY COALESCE(we.last_opened_at, f.created_at) DESC
+			LIMIT 51`, string(p.Type), p.ID)
+	} else {
+		rows, err2 = s.db.Query(ctx, `
+			SELECT f.id, f.title, f.owner_type, f.owner_id, COALESCE(f.parent_folder_id,''),
+			       COALESCE(u.name,sa.name,'') AS owner_name, COALESCE(u.email,'') AS owner_email
+			FROM folders f
+			LEFT JOIN users u ON f.owner_type='user' AND f.owner_id=u.id
+			LEFT JOIN service_accounts sa ON f.owner_type='service_account' AND f.owner_id=sa.id
+			WHERE COALESCE(f.parent_folder_id,'')=$1
+			ORDER BY f.title
+			LIMIT 51`, parent)
+	}
+	if err2 != nil {
+		return nil, false, nil, err2
 	}
 	defer rows.Close()
 	out := []repo.FolderEntry{}
 	for rows.Next() {
 		var f repo.Folder
 		var pt string
-		if err := rows.Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID); err != nil {
-			return nil, false, nil, err
+		var lastActive time.Time
+		if isRoot {
+			if err := rows.Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID, &f.Owner.Name, &f.Owner.Email, &lastActive); err != nil {
+				return nil, false, nil, err
+			}
+		} else {
+			if err := rows.Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID, &f.Owner.Name, &f.Owner.Email); err != nil {
+				return nil, false, nil, err
+			}
 		}
 		f.Owner.Type = auth.PrincipalType(pt)
 		if len(out) < 50 {
 			ff := f
-			out = append(out, repo.FolderEntry{Type: "folder", Folder: &ff})
+			entry := repo.FolderEntry{Type: "folder", Folder: &ff}
+			if isRoot {
+				entry.LastActive = lastActive.Format(time.RFC3339)
+			}
+			out = append(out, entry)
 		}
 	}
 	has := len(out) == 50
 
 	if parent != "" {
-		docRows, err := s.db.Query(ctx, `SELECT id,title,owner_type,owner_id,COALESCE(current_version_id,''),COALESCE(parent_folder_id,'') FROM documents WHERE parent_folder_id=$1`, parent)
+		docRows, err := s.db.Query(ctx, `
+			SELECT d.id, d.title, d.owner_type, d.owner_id,
+			       COALESCE(d.current_version_id,''), COALESCE(d.parent_folder_id,''),
+			       COALESCE(u.name,''), COALESCE(u.email,'')
+			FROM documents d
+			LEFT JOIN users u ON d.owner_type='user' AND d.owner_id=u.id
+			WHERE d.parent_folder_id=$1`, parent)
 		if err != nil {
 			return nil, false, nil, err
 		}
@@ -939,7 +1113,7 @@ func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path
 		for docRows.Next() {
 			var d repo.Document
 			var pt string
-			if err := docRows.Scan(&d.ID, &d.Title, &pt, &d.Owner.ID, &d.CurrentVersionID, &d.ParentFolderID); err != nil {
+			if err := docRows.Scan(&d.ID, &d.Title, &pt, &d.Owner.ID, &d.CurrentVersionID, &d.ParentFolderID, &d.Owner.Name, &d.Owner.Email); err != nil {
 				return nil, false, nil, err
 			}
 			d.Owner.Type = auth.PrincipalType(pt)
@@ -954,20 +1128,70 @@ func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path
 	}
 	return out, has, cur, nil
 }
-func (s *Store) AddDocumentToFolder(ctx context.Context, p auth.Principal, folderID, docID string) (bool, error) {
-	tag, err := s.db.Exec(ctx, `UPDATE documents SET parent_folder_id=$1 WHERE id=$2`, folderID, docID)
+func (s *Store) SearchFoldersByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Folder, error) {
+	rows, err := s.db.Query(ctx, `
+		WITH RECURSIVE accessible(id, depth) AS (
+			SELECT f.id, 1 FROM folders f WHERE f.owner_type=$2 AND f.owner_id=$1
+			UNION
+			SELECT g.resource_id, 1 FROM resource_grants g
+			WHERE g.resource_type='folder' AND g.revoked_at IS NULL
+			  AND ((g.principal_type=$2 AND g.principal_id=$1) OR ($3::boolean AND g.principal_type='anyone'))
+			UNION ALL
+			SELECT c.id, a.depth+1 FROM folders c JOIN accessible a ON c.parent_folder_id = a.id WHERE a.depth < 20
+		)
+		SELECT DISTINCT f.id, f.title, f.owner_type, f.owner_id, COALESCE(f.parent_folder_id,''),
+		       COALESCE(u.name,sa.name,''), COALESCE(u.email,'')
+		FROM folders f
+		JOIN accessible a ON f.id = a.id
+		LEFT JOIN users u ON f.owner_type='user' AND f.owner_id=u.id
+		LEFT JOIN service_accounts sa ON f.owner_type='service_account' AND f.owner_id=sa.id
+		WHERE f.title ILIKE '%' || $4 || '%'
+		ORDER BY f.title
+		LIMIT $5`, p.ID, string(p.Type), includeOrgWide, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []repo.Folder
+	for rows.Next() {
+		var f repo.Folder
+		var pt string
+		if err := rows.Scan(&f.ID, &f.Title, &pt, &f.Owner.ID, &f.ParentFolderID, &f.Owner.Name, &f.Owner.Email); err != nil {
+			return nil, err
+		}
+		f.Owner.Type = auth.PrincipalType(pt)
+		out = append(out, f)
+	}
+	return out, nil
+}
+func (s *Store) FolderHasGrants(ctx context.Context, folderID string) (bool, error) {
+	var shared bool
+	err := s.db.QueryRow(ctx, `
+		WITH RECURSIVE anc(fid, depth) AS (
+			SELECT $1::text, 1
+			UNION ALL
+			SELECT f.parent_folder_id, a.depth+1 FROM folders f JOIN anc a ON f.id=a.fid WHERE f.parent_folder_id IS NOT NULL AND a.depth < 20
+		)
+		SELECT EXISTS(
+			SELECT 1 FROM resource_grants g
+			JOIN anc ON g.resource_id=anc.fid
+			WHERE g.resource_type='folder' AND g.revoked_at IS NULL
+		)`, folderID).Scan(&shared)
+	return shared, err
+}
+func (s *Store) MoveDocumentToFolder(ctx context.Context, _ auth.Principal, folderID, docID string) (bool, error) {
+	tag, err := s.db.Exec(ctx, `UPDATE documents SET parent_folder_id=$1, updated_at=now() WHERE id=$2`, folderID, docID)
 	if err != nil {
 		return false, err
 	}
 	if tag.RowsAffected() == 0 {
 		return false, repo.ErrNotFound
 	}
-	var shared bool
-	err = s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM resource_grants WHERE resource_id=$1 AND revoked_at IS NULL)`, folderID).Scan(&shared)
-	return shared, err
+	hasGrants, err := s.FolderHasGrants(ctx, folderID)
+	return hasGrants, err
 }
-func (s *Store) RemoveDocumentFromFolder(ctx context.Context, folderID, docID string) error {
-	_, err := s.db.Exec(ctx, `UPDATE documents SET parent_folder_id=NULL WHERE id=$1 AND parent_folder_id=$2`, docID, folderID)
+func (s *Store) MoveDocumentToRoot(ctx context.Context, folderID, docID string) error {
+	_, err := s.db.Exec(ctx, `UPDATE documents SET parent_folder_id=NULL, updated_at=now() WHERE id=$1 AND parent_folder_id=$2`, docID, folderID)
 	return err
 }
 func (s *Store) ListFolderDocuments(ctx context.Context, p auth.Principal, folderID string) ([]repo.Document, error) {
@@ -1048,7 +1272,7 @@ func (s *Store) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]repo
 	}
 
 	grantRows, err := s.db.Query(ctx, `
-		SELECT g.resource_id, g.resource_type, g.principal_type, g.principal_id,
+		SELECT g.id, g.resource_id, g.resource_type, g.principal_type, g.principal_id,
 		       COALESCE(u.email,''), COALESCE(u.name,sa.name,''), g.role
 		FROM resource_grants g
 		LEFT JOIN users u ON g.principal_type='user' AND g.principal_id=u.id
@@ -1059,12 +1283,12 @@ func (s *Store) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]repo
 	}
 	defer grantRows.Close()
 	for grantRows.Next() {
-		var resID, resType, pt, pid, email, name, role string
-		if err := grantRows.Scan(&resID, &resType, &pt, &pid, &email, &name, &role); err != nil {
+		var grantID, resID, resType, pt, pid, email, name, role string
+		if err := grantRows.Scan(&grantID, &resID, &resType, &pt, &pid, &email, &name, &role); err != nil {
 			return nil, err
 		}
 		p := auth.Principal{Type: auth.PrincipalType(pt), ID: pid, Email: email, Name: name}
-		add(p, repo.AccessSource{ResourceType: rtypes[resID], ResourceID: resID, ResourceTitle: titles[resID], Role: repo.Role(role)})
+		add(p, repo.AccessSource{ResourceType: rtypes[resID], ResourceID: resID, ResourceTitle: titles[resID], Role: repo.Role(role), GrantID: grantID})
 	}
 
 	out := make([]repo.EffectiveAccessItem, 0, len(by))

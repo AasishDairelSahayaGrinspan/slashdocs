@@ -1,3 +1,4 @@
+-- +goose Up
 CREATE TABLE IF NOT EXISTS folders (
   id TEXT PRIMARY KEY,
   title TEXT NOT NULL,
@@ -25,3 +26,12 @@ CREATE UNIQUE INDEX IF NOT EXISTS folders_owner_sibling_title_idx
 CREATE INDEX IF NOT EXISTS folders_parent_folder_id_idx ON folders(parent_folder_id);
 CREATE INDEX IF NOT EXISTS documents_parent_folder_id_idx ON documents(parent_folder_id);
 CREATE INDEX IF NOT EXISTS pins_principal_idx ON pins(principal_type, principal_id);
+
+-- +goose Down
+DROP INDEX IF EXISTS pins_principal_idx;
+DROP INDEX IF EXISTS documents_parent_folder_id_idx;
+DROP INDEX IF EXISTS folders_parent_folder_id_idx;
+DROP INDEX IF EXISTS folders_owner_sibling_title_idx;
+DROP TABLE IF EXISTS pins;
+ALTER TABLE documents DROP COLUMN IF EXISTS parent_folder_id;
+DROP TABLE IF EXISTS folders;

@@ -33,6 +33,19 @@ definitions:
         type: string
       owner:
         $ref: '#/definitions/auth.Principal'
+      parent_folder:
+        $ref: '#/definitions/repo.FolderBreadcrumb'
+      parent_folder_id:
+        type: string
+      title:
+        type: string
+      updated_at:
+        type: string
+    type: object
+  repo.FolderBreadcrumb:
+    properties:
+      id:
+        type: string
       title:
         type: string
     type: object
@@ -46,6 +59,10 @@ definitions:
         type: string
       principal:
         $ref: '#/definitions/auth.Principal'
+      resource_id:
+        type: string
+      resource_type:
+        type: string
       role:
         $ref: '#/definitions/repo.Role'
     type: object
@@ -502,25 +519,6 @@ paths:
       tags:
       - comments
   /v1/documents/{id}/grants:
-    get:
-      parameters:
-      - description: Document ID
-        in: path
-        name: id
-        required: true
-        type: string
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties: true
-            type: object
-      security:
-      - bearerAuth: []
-      - cookieAuth: []
-      summary: List document grants
-      tags:
-      - grants
     post:
       parameters:
       - description: Document ID
