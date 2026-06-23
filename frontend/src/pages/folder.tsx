@@ -89,9 +89,16 @@ export function FolderPage() {
 
   const pinnedIds = useMemo(() => new Set((pins.data?.items || []).map((p) => p.resource_id)), [pins.data]);
 
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderTitle, setNewFolderTitle] = useState("");
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [renameTitle, setRenameTitle] = useState("");
+
   const delFolder = useMutation({
     mutationFn: () => api.deleteFolder(id),
     onSuccess: () => {
+      setDeleteOpen(false);
       toast.success("Deleted folder.");
       qc.invalidateQueries({ queryKey: queryKeys.folders() });
       nav("/app/documents");
@@ -99,11 +106,6 @@ export function FolderPage() {
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
 
-  const [newFolderOpen, setNewFolderOpen] = useState(false);
-  const [newFolderTitle, setNewFolderTitle] = useState("");
-  const [renameOpen, setRenameOpen] = useState(false);
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [renameTitle, setRenameTitle] = useState("");
   const createSub = useMutation({
     mutationFn: () => api.createFolder(newFolderTitle, id),
     onSuccess: () => {
@@ -264,7 +266,7 @@ export function FolderPage() {
               <DropdownItem onSelect={() => setNewFolderOpen(true)}>
                 <Plus className="h-4 w-4" /> New subfolder
               </DropdownItem>
-              <DropdownItem onSelect={() => setDeleteOpen(true)} className="text-[var(--color-danger)]">
+              <DropdownItem onSelect={() => window.setTimeout(() => setDeleteOpen(true), 0)} className="text-[var(--color-danger)]">
                 <Trash2 className="h-4 w-4" /> Delete folder
               </DropdownItem>
             </DropdownContent>
@@ -280,7 +282,7 @@ export function FolderPage() {
           </AlertDialogDescription>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction variant="danger" onClick={() => delFolder.mutate()}>
+            <AlertDialogAction variant="danger" onClick={(e) => { e.preventDefault(); delFolder.mutate(); }}>
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>

@@ -476,7 +476,7 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
         <OwnerCell owner={doc.owner} />
       </td>
       <td className="px-2 py-3">
-        <div className="flex gap-0.5">
+        <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <RowPinButton resourceType="document" resourceId={docID(doc)} pinned={pinned} />
           {canDelete && (
             <DeleteDocumentDialog
@@ -517,7 +517,7 @@ function RowPinButton({ resourceType, resourceId, pinned }: { resourceType: "doc
       size="icon"
       className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
       aria-label={isPinned ? "Unpin" : "Pin"}
-      onClick={(e) => { e.preventDefault(); togglePin.mutate(); }}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}
     >
       {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
     </Button>
@@ -543,8 +543,12 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
-    <div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 [&_button]:cursor-pointer">
-      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={isPinned ? "Unpin" : "Pin"} onClick={(e) => { e.preventDefault(); togglePin.mutate(); }}>
+    <div
+      className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 [&_button]:cursor-pointer"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={isPinned ? "Unpin" : "Pin"} onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}>
         {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
       </Button>
       {canDelete && (
@@ -552,7 +556,7 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
           title={title}
           onConfirm={() => del.mutate()}
           trigger={
-            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Delete" onClick={(e) => e.preventDefault()}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Delete" onClick={(e) => e.stopPropagation()}>
               <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
             </Button>
           }
