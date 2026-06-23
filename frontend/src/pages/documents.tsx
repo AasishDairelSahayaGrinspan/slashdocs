@@ -359,7 +359,7 @@ function DraggableFolderCard({ folder: f, canDelete, qc, pinned }: { folder: Fol
         <div className="absolute inset-x-3 bottom-2.5">
           <div className="truncate text-sm font-medium">{f.title}</div>
           <div className="truncate text-xs text-[var(--color-fg-muted)]">
-            {f.owner?.name || f.owner?.email || ""}
+            {principalLabel(f.owner)}
           </div>
         </div>
       </Link>
@@ -383,7 +383,7 @@ function DraggableDocCard({ doc: d, canDelete, qc, pinned }: { doc: Document; ca
         <div className="absolute inset-x-3 bottom-2.5">
           <div className="truncate text-sm font-medium">{docTitle(d)}</div>
           <div className="truncate text-xs text-[var(--color-fg-muted)]">
-            {d.owner?.name || d.owner?.email || ""}
+            {principalLabel(d.owner)}
           </div>
         </div>
       </Link>
