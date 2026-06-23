@@ -100,7 +100,10 @@ export function FolderPage() {
     onSuccess: () => {
       setDeleteOpen(false);
       toast.success("Deleted folder.");
-      qc.invalidateQueries({ queryKey: queryKeys.folders() });
+      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: queryKeys.documents() });
+      qc.invalidateQueries({ queryKey: queryKeys.pins() });
+      qc.removeQueries({ queryKey: queryKeys.folder(id) });
       nav("/app/documents");
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
@@ -148,7 +151,6 @@ export function FolderPage() {
     },
     onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["folders"] });
-      qc.invalidateQueries({ queryKey: queryKeys.folders() });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       qc.invalidateQueries({ queryKey: queryKeys.pins() });
       const warning = (data as Record<string, unknown>)?.permission_warning as { message?: string } | undefined;

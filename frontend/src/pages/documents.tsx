@@ -427,7 +427,7 @@ function DraggableFolderRow({ folder: f, canDelete, pinned }: { folder: Folder; 
     mutationFn: () => api.deleteFolder(f.id),
     onSuccess: () => {
       toast.success("Deleted.");
-      q.invalidateQueries({ queryKey: queryKeys.folders() });
+      q.invalidateQueries({ queryKey: ["folders"] });
       q.invalidateQueries({ queryKey: queryKeys.documents() });
       q.invalidateQueries({ queryKey: queryKeys.pins() });
     },
@@ -476,7 +476,9 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
     mutationFn: () => api.deleteDocument(docID(doc)),
     onSuccess: () => {
       toast.success("Deleted.");
+      q.invalidateQueries({ queryKey: ["folders"] });
       q.invalidateQueries({ queryKey: queryKeys.documents() });
+      q.invalidateQueries({ queryKey: queryKeys.pins() });
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
@@ -563,7 +565,7 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
     mutationFn: () => resourceType === "folder" ? api.deleteFolder(resourceId) : api.deleteDocument(resourceId),
     onSuccess: () => {
       toast.success("Deleted.");
-      qc.invalidateQueries({ queryKey: queryKeys.folders() });
+      qc.invalidateQueries({ queryKey: ["folders"] });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       qc.invalidateQueries({ queryKey: queryKeys.pins() });
     },
