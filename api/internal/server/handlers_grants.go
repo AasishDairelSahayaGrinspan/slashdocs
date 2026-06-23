@@ -79,7 +79,7 @@ func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, pr
 // @Success 201 {object} map[string]interface{}
 // @Router /v1/documents/{id}/grants [post]
 func (h handlers) createGrant(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleOwner) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleEditor) {
 		return
 	}
 	p := current(c)
@@ -118,7 +118,7 @@ func (h handlers) createGrant(c *gin.Context) {
 		}
 		return
 	}
-	g, err := h.deps.repository.CreateGrant(c.Request.Context(), c.Param("id"), resolved, in.Role, *p)
+	g, err := h.deps.repository.CreateGrant(c.Request.Context(), "document", c.Param("id"), resolved, in.Role, *p)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -134,26 +134,6 @@ func (h handlers) createGrant(c *gin.Context) {
 	c.JSON(http.StatusCreated, gin.H{"id": g.ID, "resource": gin.H{"type": "document", "id": g.DocumentID}, "principal": pr, "role": g.Role, "granted_by": gin.H{"id": g.GrantedBy.ID, "email": g.GrantedBy.Email}})
 }
 
-// ListGrants godoc
-// @Summary List document grants
-// @Tags grants
-// @Security bearerAuth
-// @Security cookieAuth
-// @Param id path string true "Document ID"
-// @Success 200 {object} map[string]interface{}
-// @Router /v1/documents/{id}/grants [get]
-func (h handlers) listGrants(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleOwner) {
-		return
-	}
-	items, err := h.deps.repository.ListGrants(c.Request.Context(), c.Param("id"))
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
-}
-
 // PatchGrant godoc
 // @Summary Update document grant
 // @Tags grants
@@ -164,7 +144,7 @@ func (h handlers) listGrants(c *gin.Context) {
 // @Success 200 {object} repo.Grant
 // @Router /v1/documents/{id}/grants/{grant_id} [patch]
 func (h handlers) patchGrant(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleOwner) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleEditor) {
 		return
 	}
 	var in struct {
@@ -197,7 +177,7 @@ func (h handlers) patchGrant(c *gin.Context) {
 // @Success 204
 // @Router /v1/documents/{id}/grants/{grant_id} [delete]
 func (h handlers) deleteGrant(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleOwner) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleEditor) {
 		return
 	}
 	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil {

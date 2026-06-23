@@ -23,6 +23,7 @@ import { LandingPage } from "@/pages/landing";
 import { LoginPage } from "@/pages/login";
 import { DocumentsPage } from "@/pages/documents";
 import { DocumentPage } from "@/pages/document";
+import { FolderPage } from "@/pages/folder";
 import { ServiceAccountsPage } from "@/pages/service-accounts";
 import { DevelopersPage } from "@/pages/developers";
 import { ProfilePage } from "@/pages/profile";
@@ -60,6 +61,7 @@ function App() {
                 <Route path="start" element={<StartPage />} />
                 <Route path="documents" element={<DocumentsPage />} />
                 <Route path="d/:id" element={<DocumentPage />} />
+                <Route path="folders/:id" element={<FolderPage />} />
                 <Route
                   path="settings/service-accounts"
                   element={<ServiceAccountsPage />}

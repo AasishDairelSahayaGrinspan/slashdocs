@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  FolderIcon,
   GitBranch,
   MoreHorizontal,
   PanelRightClose,
@@ -42,6 +43,7 @@ export function DocBar({
   docId,
   owner,
   principal,
+  parentFolder,
   current,
   latest,
   versions,
@@ -53,6 +55,7 @@ export function DocBar({
   docId: string;
   owner?: Principal;
   principal?: Principal;
+  parentFolder?: { id: string; title: string };
   current: string;
   latest: string;
   versions: Version[];
@@ -82,6 +85,12 @@ export function DocBar({
         </Link>
       </Button>
       <div className="min-w-0 flex-1">
+        {parentFolder ? (
+          <div className="flex items-center gap-1 text-xs text-[var(--color-fg-muted)]">
+            <FolderIcon className="h-3 w-3 shrink-0" />
+            <Link to={`/app/folders/${parentFolder.id}`} className="hover:text-[var(--color-fg)] hover:underline">{parentFolder.title}</Link>
+          </div>
+        ) : null}
         <div className="truncate text-sm font-semibold">{title}</div>
         {isViewingOlder && currentVersion ? (
           <div className="truncate text-[11px] text-amber-600 dark:text-amber-300">

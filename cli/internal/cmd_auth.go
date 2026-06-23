@@ -30,6 +30,8 @@ func loginCmd(g *globals, out io.Writer) *cobra.Command {
 		srv := defaultServer
 		if len(args) > 0 {
 			srv = args[0]
+		} else if g.server != "" {
+			srv = g.server
 		}
 		srv = normalizeServer(srv)
 		verifier := randomToken(32)

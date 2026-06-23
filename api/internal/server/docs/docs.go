@@ -653,38 +653,6 @@ const docTemplate = `{
             }
         },
         "/v1/documents/{id}/grants": {
-            "get": {
-                "security": [
-                    {
-                        "bearerAuth": []
-                    },
-                    {
-                        "cookieAuth": []
-                    }
-                ],
-                "tags": [
-                    "grants"
-                ],
-                "summary": "List document grants",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "Document ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": true
-                        }
-                    }
-                }
-            },
             "post": {
                 "security": [
                     {
@@ -1401,6 +1369,26 @@ const docTemplate = `{
                 "owner": {
                     "$ref": "#/definitions/auth.Principal"
                 },
+                "parent_folder": {
+                    "$ref": "#/definitions/repo.FolderBreadcrumb"
+                },
+                "parent_folder_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "repo.FolderBreadcrumb": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
                 "title": {
                     "type": "string"
                 }
@@ -1420,6 +1408,12 @@ const docTemplate = `{
                 },
                 "principal": {
                     "$ref": "#/definitions/auth.Principal"
+                },
+                "resource_id": {
+                    "type": "string"
+                },
+                "resource_type": {
+                    "type": "string"
                 },
                 "role": {
                     "$ref": "#/definitions/repo.Role"
