@@ -929,7 +929,20 @@ func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *stri
 	}
 	return s.GetFolder(ctx, id)
 }
-func (s *Store) DeleteFolder(ctx context.Context, id string) error {
+func (s *Store) DeleteFolder(ctx context.Context, id string, p auth.Principal) error {
+	var exists, topOwner bool
+	if err := s.db.QueryRow(ctx, `
+SELECT
+  EXISTS(SELECT 1 FROM folders WHERE id=$1),
+  EXISTS(SELECT 1 FROM folders WHERE id=$1 AND owner_type=$2 AND owner_id=$3)`, id, string(p.Type), p.ID).Scan(&exists, &topOwner); err != nil {
+		return err
+	}
+	if !exists {
+		return repo.ErrNotFound
+	}
+	if !topOwner {
+		return repo.ErrForbidden
+	}
 	tag, err := s.db.Exec(ctx, `WITH RECURSIVE d(id,depth) AS (SELECT $1::text,1 UNION ALL SELECT f.id,d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth<64) DELETE FROM folders WHERE id IN (SELECT id FROM d)`, id)
 	if err != nil {
 		return err
@@ -1102,9 +1115,10 @@ func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path
 		docRows, err := s.db.Query(ctx, `
 			SELECT d.id, d.title, d.owner_type, d.owner_id,
 			       COALESCE(d.current_version_id,''), COALESCE(d.parent_folder_id,''),
-			       COALESCE(u.name,''), COALESCE(u.email,'')
+			       COALESCE(u.name,sa.name,''), COALESCE(u.email,'')
 			FROM documents d
 			LEFT JOIN users u ON d.owner_type='user' AND d.owner_id=u.id
+			LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND d.owner_id=sa.id
 			WHERE d.parent_folder_id=$1`, parent)
 		if err != nil {
 			return nil, false, nil, err
@@ -1195,7 +1209,13 @@ func (s *Store) MoveDocumentToRoot(ctx context.Context, folderID, docID string) 
 	return err
 }
 func (s *Store) ListFolderDocuments(ctx context.Context, p auth.Principal, folderID string) ([]repo.Document, error) {
-	rows, err := s.db.Query(ctx, `SELECT id,title,owner_type,owner_id,COALESCE(current_version_id,''),COALESCE(parent_folder_id,'') FROM documents WHERE parent_folder_id=$1`, folderID)
+	rows, err := s.db.Query(ctx, `
+		SELECT d.id,d.title,d.owner_type,d.owner_id,COALESCE(d.current_version_id,''),COALESCE(d.parent_folder_id,''),
+		       COALESCE(u.name,sa.name,''), COALESCE(u.email,'')
+		FROM documents d
+		LEFT JOIN users u ON d.owner_type='user' AND d.owner_id=u.id
+		LEFT JOIN service_accounts sa ON d.owner_type='service_account' AND d.owner_id=sa.id
+		WHERE d.parent_folder_id=$1`, folderID)
 	if err != nil {
 		return nil, err
 	}
@@ -1204,7 +1224,9 @@ func (s *Store) ListFolderDocuments(ctx context.Context, p auth.Principal, folde
 	for rows.Next() {
 		var d repo.Document
 		var pt string
-		rows.Scan(&d.ID, &d.Title, &pt, &d.Owner.ID, &d.CurrentVersionID, &d.ParentFolderID)
+		if err := rows.Scan(&d.ID, &d.Title, &pt, &d.Owner.ID, &d.CurrentVersionID, &d.ParentFolderID, &d.Owner.Name, &d.Owner.Email); err != nil {
+			return nil, err
+		}
 		d.Owner.Type = auth.PrincipalType(pt)
 		out = append(out, d)
 	}

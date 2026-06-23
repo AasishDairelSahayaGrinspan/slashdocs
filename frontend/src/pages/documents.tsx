@@ -102,7 +102,9 @@ export function DocumentsPage() {
     .filter((e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder);
   const folders = folderEntries.map((e) => e.folder);
 
-  // Merge folders and documents into a single list sorted by last activity, then alphabetically
+  const pinnedIds = useMemo(() => new Set(pinnedItems.map((p) => p.resource_id)), [pinnedItems]);
+
+  // Merge folders and documents into a single list sorted by pinned status, last activity, then alphabetically
   const merged = useMemo(() => {
     const folderItems: FolderEntry[] = folderEntries.map((e) => ({
       type: "folder" as const,
@@ -115,6 +117,9 @@ export function DocumentsPage() {
       last_active: d.updated_at,
     }));
     return [...folderItems, ...docItems].sort((a, b) => {
+      const ap = pinnedIds.has(a.folder?.id || docID(a.document!));
+      const bp = pinnedIds.has(b.folder?.id || docID(b.document!));
+      if (ap !== bp) return ap ? -1 : 1;
       const ta = a.last_active || "";
       const tb = b.last_active || "";
       if (ta && tb) return tb.localeCompare(ta);
@@ -124,9 +129,7 @@ export function DocumentsPage() {
       const nb = (b.folder?.title || b.document?.title || "").toLowerCase();
       return na.localeCompare(nb);
     });
-  }, [folderEntries, documents]);
-
-  const pinnedIds = useMemo(() => new Set(pinnedItems.map((p) => p.resource_id)), [pinnedItems]);
+  }, [folderEntries, documents, pinnedIds]);
 
   const viewMode = viewModeStore.useStore();
   const [newFolderOpen, setNewFolderOpen] = useState(false);
@@ -356,7 +359,7 @@ function DraggableFolderCard({ folder: f, canDelete, qc, pinned }: { folder: Fol
         <div className="absolute inset-x-3 bottom-2.5">
           <div className="truncate text-sm font-medium">{f.title}</div>
           <div className="truncate text-xs text-[var(--color-fg-muted)]">
-            {f.owner?.name || f.owner?.email || ""}
+            {principalLabel(f.owner)}
           </div>
         </div>
       </Link>
@@ -380,7 +383,7 @@ function DraggableDocCard({ doc: d, canDelete, qc, pinned }: { doc: Document; ca
         <div className="absolute inset-x-3 bottom-2.5">
           <div className="truncate text-sm font-medium">{docTitle(d)}</div>
           <div className="truncate text-xs text-[var(--color-fg-muted)]">
-            {d.owner?.name || d.owner?.email || ""}
+            {principalLabel(d.owner)}
           </div>
         </div>
       </Link>
@@ -403,7 +406,7 @@ export function UnifiedTable({ entries, principal, pinnedIds }: { entries: Folde
         <tbody>
           {entries.map((e) => {
             if (e.type === "folder" && e.folder) {
-              return <DraggableFolderRow key={e.folder.id} folder={e.folder} pinned={pinnedIds?.has(e.folder.id)} />;
+              return <DraggableFolderRow key={e.folder.id} folder={e.folder} canDelete={samePrincipal(principal, e.folder.owner)} pinned={pinnedIds?.has(e.folder.id)} />;
             }
             if (e.type === "document" && e.document) {
               return <DraggableDocRow key={docID(e.document)} doc={e.document} canDelete={samePrincipal(principal, e.document.owner)} pinned={pinnedIds?.has(docID(e.document))} />;
@@ -416,9 +419,20 @@ export function UnifiedTable({ entries, principal, pinnedIds }: { entries: Folde
   );
 }
 
-function DraggableFolderRow({ folder: f, pinned }: { folder: Folder; pinned?: boolean }) {
+function DraggableFolderRow({ folder: f, canDelete, pinned }: { folder: Folder; canDelete: boolean; pinned?: boolean }) {
   const { attributes, listeners, setNodeRef: dragRef, isDragging } = useDraggable({ id: `folder:${f.id}` });
   const { setNodeRef: dropRef, isOver } = useDroppable({ id: `drop:${f.id}` });
+  const q = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => api.deleteFolder(f.id),
+    onSuccess: () => {
+      toast.success("Deleted.");
+      q.invalidateQueries({ queryKey: ["folders"] });
+      q.invalidateQueries({ queryKey: queryKeys.documents() });
+      q.invalidateQueries({ queryKey: queryKeys.pins() });
+    },
+    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
+  });
 
   return (
     <tr
@@ -435,7 +449,21 @@ function DraggableFolderRow({ folder: f, pinned }: { folder: Folder; pinned?: bo
       </td>
       <td className="px-4 py-3"><OwnerCell owner={f.owner} /></td>
       <td className="px-2 py-3">
-        <RowPinButton resourceType="folder" resourceId={f.id} pinned={pinned} />
+        <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+          <RowPinButton resourceType="folder" resourceId={f.id} pinned={pinned} />
+          {canDelete && (
+            <DeleteDocumentDialog
+              title={f.title}
+              description="This deletes the folder and its subfolders. Documents inside them will move to root."
+              onConfirm={() => del.mutate()}
+              trigger={
+                <Button variant="ghost" size="icon" className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" aria-label="Delete folder">
+                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                </Button>
+              }
+            />
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -448,7 +476,9 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
     mutationFn: () => api.deleteDocument(docID(doc)),
     onSuccess: () => {
       toast.success("Deleted.");
+      q.invalidateQueries({ queryKey: ["folders"] });
       q.invalidateQueries({ queryKey: queryKeys.documents() });
+      q.invalidateQueries({ queryKey: queryKeys.pins() });
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
@@ -473,7 +503,7 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
         <OwnerCell owner={doc.owner} />
       </td>
       <td className="px-2 py-3">
-        <div className="flex gap-0.5">
+        <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <RowPinButton resourceType="document" resourceId={docID(doc)} pinned={pinned} />
           {canDelete && (
             <DeleteDocumentDialog
@@ -483,7 +513,7 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+                  className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                   aria-label="Delete document"
                 >
                   <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
@@ -512,9 +542,9 @@ function RowPinButton({ resourceType, resourceId, pinned }: { resourceType: "doc
     <Button
       variant="ghost"
       size="icon"
-      className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+      className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
       aria-label={isPinned ? "Unpin" : "Pin"}
-      onClick={(e) => { e.preventDefault(); togglePin.mutate(); }}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}
     >
       {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
     </Button>
@@ -535,21 +565,28 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
     mutationFn: () => resourceType === "folder" ? api.deleteFolder(resourceId) : api.deleteDocument(resourceId),
     onSuccess: () => {
       toast.success("Deleted.");
-      qc.invalidateQueries({ queryKey: resourceType === "folder" ? queryKeys.folders() : queryKeys.documents() });
+      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: queryKeys.documents() });
+      qc.invalidateQueries({ queryKey: queryKeys.pins() });
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
-    <div className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 [&_button]:cursor-pointer">
-      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={isPinned ? "Unpin" : "Pin"} onClick={(e) => { e.preventDefault(); togglePin.mutate(); }}>
+    <div
+      className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [&_button]:cursor-pointer"
+      onClick={(e) => e.stopPropagation()}
+      onPointerDown={(e) => e.stopPropagation()}
+    >
+      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={isPinned ? "Unpin" : "Pin"} onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}>
         {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
       </Button>
       {canDelete && (
         <DeleteDocumentDialog
           title={title}
+          description={resourceType === "folder" ? "This deletes the folder and its subfolders. Documents inside them will move to root." : undefined}
           onConfirm={() => del.mutate()}
           trigger={
-            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Delete" onClick={(e) => e.preventDefault()}>
+            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Delete" onClick={(e) => e.stopPropagation()}>
               <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
             </Button>
           }

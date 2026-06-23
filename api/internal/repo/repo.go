@@ -35,6 +35,7 @@ func MaxRole(a, b Role) Role {
 // (to avoid an import cycle) can still detect not-found via errors.Is.
 var ErrNotFound = fmt.Errorf("not found: %w", auth.ErrNotFound)
 var ErrConflict = errors.New("conflict")
+var ErrForbidden = errors.New("forbidden")
 
 // Ownership-transfer state errors, shared by all repository implementations so
 // handlers can map them to responses without matching on message text.
@@ -249,7 +250,7 @@ type Repository interface {
 	RecordFolderOpened(ctx context.Context, folderID string, principal auth.Principal) error
 	GetFolder(ctx context.Context, id string) (Folder, error)
 	UpdateFolder(ctx context.Context, id, title string, parentFolderID *string) (Folder, error)
-	DeleteFolder(ctx context.Context, id string) error
+	DeleteFolder(ctx context.Context, id string, principal auth.Principal) error
 	FolderHasGrants(ctx context.Context, folderID string) (bool, error)
 	MoveDocumentToFolder(ctx context.Context, principal auth.Principal, folderID, documentID string) (bool, error)
 	MoveDocumentToRoot(ctx context.Context, folderID, documentID string) error
@@ -1099,9 +1100,16 @@ func (m *Memory) UpdateFolder(ctx context.Context, id, title string, parent *str
 	m.folders[id] = f
 	return f, nil
 }
-func (m *Memory) DeleteFolder(ctx context.Context, id string) error {
+func (m *Memory) DeleteFolder(ctx context.Context, id string, p auth.Principal) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	root, ok := m.folders[id]
+	if !ok {
+		return ErrNotFound
+	}
+	if root.Owner.Type != p.Type || root.Owner.ID != p.ID {
+		return ErrForbidden
+	}
 	var del func(string)
 	del = func(fid string) {
 		for _, d := range m.docs {
@@ -1116,9 +1124,6 @@ func (m *Memory) DeleteFolder(ctx context.Context, id string) error {
 			}
 		}
 		delete(m.folders, fid)
-	}
-	if _, ok := m.folders[id]; !ok {
-		return ErrNotFound
 	}
 	del(id)
 	return nil
