@@ -1103,45 +1103,19 @@ func (m *Memory) UpdateFolder(ctx context.Context, id, title string, parent *str
 func (m *Memory) DeleteFolder(ctx context.Context, id string, p auth.Principal) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var checkOwned func(string) error
-	checkOwned = func(fid string) error {
-		f, ok := m.folders[fid]
-		if !ok {
-			return ErrNotFound
-		}
-		best := RoleNone
-		if f.Owner.Type == p.Type && f.Owner.ID == p.ID {
-			best = RoleOwner
-		}
-		ids := map[string]bool{}
-		for cur := fid; cur != ""; cur = m.folders[cur].ParentFolderID {
-			ids[cur] = true
-		}
-		for _, g := range m.grants {
-			if ids[g.ResourceID] && g.ResourceType == "folder" && ((g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone) {
-				best = MaxRole(best, g.Role)
-			}
-		}
-		if roleRank[best] < roleRank[RoleEditor] {
-			return ErrForbidden
-		}
-		for _, child := range m.folders {
-			if child.ParentFolderID == fid {
-				if err := checkOwned(child.ID); err != nil {
-					return err
-				}
-			}
-		}
-		return nil
+	root, ok := m.folders[id]
+	if !ok {
+		return ErrNotFound
 	}
-	if err := checkOwned(id); err != nil {
-		return err
+	if root.Owner.Type != p.Type || root.Owner.ID != p.ID {
+		return ErrForbidden
 	}
 	var del func(string)
 	del = func(fid string) {
 		for _, d := range m.docs {
 			if d.ParentFolderID == fid {
-				delete(m.docs, d.ID)
+				d.ParentFolderID = ""
+				m.docs[d.ID] = d
 			}
 		}
 		for _, f := range m.folders {

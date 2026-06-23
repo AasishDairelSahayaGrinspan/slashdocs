@@ -123,8 +123,8 @@ func (h handlers) patchFolder(c *gin.Context) {
 	}
 	// Use json.RawMessage to distinguish absent field from explicit null.
 	var raw struct {
-		Title          string           `json:"title"`
-		ParentFolderID json.RawMessage  `json:"parent_folder_id"`
+		Title          string          `json:"title"`
+		ParentFolderID json.RawMessage `json:"parent_folder_id"`
 	}
 	if c.ShouldBindJSON(&raw) != nil {
 		badRequest(c, "invalid folder")
@@ -178,7 +178,7 @@ func (h handlers) deleteFolder(c *gin.Context) {
 	}
 	if err := h.deps.repository.DeleteFolder(c.Request.Context(), c.Param("id"), *current(c)); err != nil {
 		if errors.Is(err, repo.ErrForbidden) {
-			forbidden(c, "editor role required on all descendant folders")
+			forbidden(c, "owner role required")
 			return
 		}
 		notFound(c)
@@ -310,15 +310,38 @@ func (h handlers) createFolderGrant(c *gin.Context) {
 	c.JSON(http.StatusCreated, g)
 }
 func (h handlers) patchFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) { return }
-	var in struct{ Role repo.Role `json:"role"` }
-	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) { badRequest(c, "invalid grant"); return }
+	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
+		return
+	}
+	var in struct {
+		Role repo.Role `json:"role"`
+	}
+	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) {
+		badRequest(c, "invalid grant")
+		return
+	}
 	g, err := h.deps.repository.UpdateGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"), in.Role)
-	if err != nil { if errors.Is(err, repo.ErrNotFound) { notFound(c); return }; internalErr(c, err); return }
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+			return
+		}
+		internalErr(c, err)
+		return
+	}
 	c.JSON(http.StatusOK, g)
 }
 func (h handlers) deleteFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) { return }
-	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil { if errors.Is(err, repo.ErrNotFound) { notFound(c); return }; internalErr(c, err); return }
+	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
+		return
+	}
+	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+			return
+		}
+		internalErr(c, err)
+		return
+	}
 	c.Status(http.StatusNoContent)
 }

@@ -1143,6 +1143,67 @@ func TestFolderAccessControl(t *testing.T) {
 		}
 	})
 
+	t.Run("delete folder requires owner on target", func(t *testing.T) {
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Owned"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var folder struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &folder)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/grants",
+			`{"address":"other@example.com","role":"editor"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		rr = do(t, h, http.MethodDelete, "/v1/folders/"+folder.ID, "", map[string]string{"X-Test-Principal": other})
+		assertStatus(t, rr, http.StatusForbidden)
+	})
+
+	t.Run("delete folder deletes descendant folders and moves documents to root", func(t *testing.T) {
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Root"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var root struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &root)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+root.ID+"/grants",
+			`{"address":"other@example.com","role":"editor"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders", `{"title":"Child","parent_folder_id":"`+root.ID+`"}`, map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var child struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &child)
+
+		body, ct := multipartBody(t, map[string]string{"title": "KeptDoc"}, "file", "doc.html", "<p>kept</p>")
+		rr = doRaw(t, h, http.MethodPost, "/v1/documents", body, map[string]string{"X-Test-Principal": owner, "Content-Type": ct})
+		assertStatus(t, rr, http.StatusCreated)
+		var doc struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &doc)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+child.ID+"/documents",
+			`{"document_id":"`+doc.ID+`"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusOK)
+
+		rr = do(t, h, http.MethodDelete, "/v1/folders/"+root.ID, "", map[string]string{"X-Test-Principal": owner})
+		assertStatus(t, rr, http.StatusNoContent)
+
+		rr = do(t, h, http.MethodGet, "/v1/folders/"+child.ID, "", map[string]string{"X-Test-Principal": owner})
+		assertStatus(t, rr, http.StatusForbidden)
+		rr = do(t, h, http.MethodGet, "/v1/documents/"+doc.ID, "", map[string]string{"X-Test-Principal": owner})
+		assertStatus(t, rr, http.StatusOK)
+	})
+
 	t.Run("move folder requires editor on destination", func(t *testing.T) {
 		r := repo.NewMemory()
 		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
@@ -1203,7 +1264,7 @@ func TestFolderAccessControl(t *testing.T) {
 		assertStatus(t, rr, http.StatusConflict)
 
 		var resp struct {
-			Error struct{ Code string } `json:"error"`
+			Error      struct{ Code string } `json:"error"`
 			Candidates []struct {
 				ID    string `json:"id"`
 				Title string `json:"title"`

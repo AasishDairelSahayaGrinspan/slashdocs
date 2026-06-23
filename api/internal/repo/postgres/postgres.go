@@ -931,66 +931,19 @@ func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *stri
 }
 func (s *Store) DeleteFolder(ctx context.Context, id string, p auth.Principal) error {
 	var exists, topOwner bool
-	var underprivilegedDescendants int
 	if err := s.db.QueryRow(ctx, `
-WITH RECURSIVE d(id,depth) AS (
-  SELECT $1::text,1
-  UNION ALL
-  SELECT f.id,d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth<64
-), effective AS (
-  SELECT target.id, d.depth,
-    GREATEST(
-      CASE WHEN target.owner_type=$2 AND target.owner_id=$3 THEN 4 ELSE 0 END,
-      COALESCE(MAX(CASE g.role WHEN 'viewer' THEN 1 WHEN 'commenter' THEN 2 WHEN 'editor' THEN 3 WHEN 'owner' THEN 4 ELSE 0 END), 0)
-    ) AS rank
-  FROM d
-  JOIN folders target ON target.id=d.id
-  LEFT JOIN LATERAL (
-    WITH RECURSIVE anc(id,parent_folder_id,depth) AS (
-      SELECT id,parent_folder_id,1 FROM folders WHERE id=target.id
-      UNION ALL
-      SELECT f.id,f.parent_folder_id,anc.depth+1 FROM folders f JOIN anc ON f.id=anc.parent_folder_id WHERE anc.depth<64
-    )
-    SELECT id FROM anc
-  ) a ON true
-  LEFT JOIN resource_grants g ON g.resource_type='folder'
-    AND g.resource_id=a.id
-    AND g.revoked_at IS NULL
-    AND ((g.principal_type=$2 AND g.principal_id=$3) OR g.principal_type='anyone')
-  GROUP BY target.id, d.depth, target.owner_type, target.owner_id
-)
 SELECT
   EXISTS(SELECT 1 FROM folders WHERE id=$1),
-  EXISTS(SELECT 1 FROM folders WHERE id=$1 AND owner_type=$2 AND owner_id=$3),
-  COUNT(*) FILTER (WHERE depth > 1 AND rank < 3)
-FROM effective`, id, string(p.Type), p.ID).Scan(&exists, &topOwner, &underprivilegedDescendants); err != nil {
+  EXISTS(SELECT 1 FROM folders WHERE id=$1 AND owner_type=$2 AND owner_id=$3)`, id, string(p.Type), p.ID).Scan(&exists, &topOwner); err != nil {
 		return err
 	}
 	if !exists {
 		return repo.ErrNotFound
 	}
-	if !topOwner || underprivilegedDescendants > 0 {
+	if !topOwner {
 		return repo.ErrForbidden
 	}
-	tag, err := s.db.Exec(ctx, `
-WITH RECURSIVE d(id,depth) AS (
-  SELECT $1::text,1
-  UNION ALL
-  SELECT f.id,d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth<64
-), docs AS (
-  SELECT id FROM documents WHERE parent_folder_id IN (SELECT id FROM d)
-), deleted_doc_grants AS (
-  DELETE FROM resource_grants WHERE resource_type='document' AND resource_id IN (SELECT id FROM docs)
-), deleted_folder_grants AS (
-  DELETE FROM resource_grants WHERE resource_type='folder' AND resource_id IN (SELECT id FROM d)
-), deleted_doc_pins AS (
-  DELETE FROM pins WHERE resource_type='document' AND resource_id IN (SELECT id FROM docs)
-), deleted_folder_pins AS (
-  DELETE FROM pins WHERE resource_type='folder' AND resource_id IN (SELECT id FROM d)
-), deleted_docs AS (
-  DELETE FROM documents WHERE id IN (SELECT id FROM docs)
-)
-DELETE FROM folders WHERE id IN (SELECT id FROM d)`, id)
+	tag, err := s.db.Exec(ctx, `WITH RECURSIVE d(id,depth) AS (SELECT $1::text,1 UNION ALL SELECT f.id,d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth<64) DELETE FROM folders WHERE id IN (SELECT id FROM d)`, id)
 	if err != nil {
 		return err
 	}
