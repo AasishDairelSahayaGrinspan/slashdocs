@@ -406,7 +406,7 @@ export function UnifiedTable({ entries, principal, pinnedIds }: { entries: Folde
         <tbody>
           {entries.map((e) => {
             if (e.type === "folder" && e.folder) {
-              return <DraggableFolderRow key={e.folder.id} folder={e.folder} pinned={pinnedIds?.has(e.folder.id)} />;
+              return <DraggableFolderRow key={e.folder.id} folder={e.folder} canDelete={samePrincipal(principal, e.folder.owner)} pinned={pinnedIds?.has(e.folder.id)} />;
             }
             if (e.type === "document" && e.document) {
               return <DraggableDocRow key={docID(e.document)} doc={e.document} canDelete={samePrincipal(principal, e.document.owner)} pinned={pinnedIds?.has(docID(e.document))} />;
@@ -419,9 +419,20 @@ export function UnifiedTable({ entries, principal, pinnedIds }: { entries: Folde
   );
 }
 
-function DraggableFolderRow({ folder: f, pinned }: { folder: Folder; pinned?: boolean }) {
+function DraggableFolderRow({ folder: f, canDelete, pinned }: { folder: Folder; canDelete: boolean; pinned?: boolean }) {
   const { attributes, listeners, setNodeRef: dragRef, isDragging } = useDraggable({ id: `folder:${f.id}` });
   const { setNodeRef: dropRef, isOver } = useDroppable({ id: `drop:${f.id}` });
+  const q = useQueryClient();
+  const del = useMutation({
+    mutationFn: () => api.deleteFolder(f.id),
+    onSuccess: () => {
+      toast.success("Deleted.");
+      q.invalidateQueries({ queryKey: queryKeys.folders() });
+      q.invalidateQueries({ queryKey: queryKeys.documents() });
+      q.invalidateQueries({ queryKey: queryKeys.pins() });
+    },
+    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
+  });
 
   return (
     <tr
@@ -438,7 +449,21 @@ function DraggableFolderRow({ folder: f, pinned }: { folder: Folder; pinned?: bo
       </td>
       <td className="px-4 py-3"><OwnerCell owner={f.owner} /></td>
       <td className="px-2 py-3">
-        <RowPinButton resourceType="folder" resourceId={f.id} pinned={pinned} />
+        <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+          <RowPinButton resourceType="folder" resourceId={f.id} pinned={pinned} />
+          {canDelete && (
+            <DeleteDocumentDialog
+              title={f.title}
+              description="This deletes the folder and its subfolders. Documents inside them will move to root."
+              onConfirm={() => del.mutate()}
+              trigger={
+                <Button variant="ghost" size="icon" className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" aria-label="Delete folder">
+                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                </Button>
+              }
+            />
+          )}
+        </div>
       </td>
     </tr>
   );
@@ -486,7 +511,7 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+                  className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                   aria-label="Delete document"
                 >
                   <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
@@ -515,7 +540,7 @@ function RowPinButton({ resourceType, resourceId, pinned }: { resourceType: "doc
     <Button
       variant="ghost"
       size="icon"
-      className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100"
+      className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
       aria-label={isPinned ? "Unpin" : "Pin"}
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}
     >
@@ -538,13 +563,15 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
     mutationFn: () => resourceType === "folder" ? api.deleteFolder(resourceId) : api.deleteDocument(resourceId),
     onSuccess: () => {
       toast.success("Deleted.");
-      qc.invalidateQueries({ queryKey: resourceType === "folder" ? queryKeys.folders() : queryKeys.documents() });
+      qc.invalidateQueries({ queryKey: queryKeys.folders() });
+      qc.invalidateQueries({ queryKey: queryKeys.documents() });
+      qc.invalidateQueries({ queryKey: queryKeys.pins() });
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
     <div
-      className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 [&_button]:cursor-pointer"
+      className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [&_button]:cursor-pointer"
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
@@ -554,6 +581,7 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
       {canDelete && (
         <DeleteDocumentDialog
           title={title}
+          description={resourceType === "folder" ? "This deletes the folder and its subfolders. Documents inside them will move to root." : undefined}
           onConfirm={() => del.mutate()}
           trigger={
             <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Delete" onClick={(e) => e.stopPropagation()}>

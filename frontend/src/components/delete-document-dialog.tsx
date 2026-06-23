@@ -16,20 +16,19 @@ export function DeleteDocumentDialog({
   title,
   trigger,
   onConfirm,
+  description = "This permanently removes the document, all versions, and all comments. This cannot be undone.",
 }: {
   title: string;
   trigger: React.ReactNode;
   onConfirm: () => void;
+  description?: string;
 }) {
   return (
     <AlertDialog>
       <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
       <AlertDialogContent>
         <AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>
-        <AlertDialogDescription>
-          This permanently removes the document, all versions, and all comments. This
-          cannot be undone.
-        </AlertDialogDescription>
+        <AlertDialogDescription>{description}</AlertDialogDescription>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>
           <AlertDialogAction variant="danger" onClick={onConfirm}>
