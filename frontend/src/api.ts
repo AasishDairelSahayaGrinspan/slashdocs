@@ -10,6 +10,9 @@ export type Document = {
   title: string;
   owner?: Principal;
   current_version_id?: string;
+  parent_folder_id?: string;
+  parent_folder?: { id: string; title: string };
+  updated_at?: string;
 };
 export type ServerConfig = {
   deployment: "public" | "org";
@@ -54,16 +57,23 @@ export type Grant = {
   principal?: Principal;
   role: string;
 };
+export type FolderBreadcrumb = {
+  id: string;
+  title: string;
+};
+
 export type Folder = {
   id: string;
   title: string;
   owner?: Principal;
   parent_folder_id?: string;
+  ancestors?: FolderBreadcrumb[];
 };
 export type FolderEntry = {
   type: "folder" | "document";
   folder?: Folder;
   document?: Document;
+  last_active?: string;
 };
 export type Pin = {
   resource_type: "document" | "folder";
@@ -74,6 +84,7 @@ export type AccessSource = {
   resource_id: string;
   resource_title: string;
   role: string;
+  grant_id?: string;
 };
 export type EffectiveAccessItem = {
   principal: Principal;
@@ -212,8 +223,6 @@ export const api = {
     }),
   deleteComment: (doc: string, id: string) =>
     request<void>(`/v1/documents/${doc}/comments/${id}`, { method: "DELETE" }),
-  listGrants: (doc: string) =>
-    request<{ items: Grant[] }>(`/v1/documents/${doc}/grants`),
   createGrant: (doc: string, address: string, role: string) =>
     request<Grant>(`/v1/documents/${doc}/grants`, {
       method: "POST",
@@ -266,10 +275,11 @@ export const api = {
       method: "DELETE",
     }),
   // Folders
-  listFolders: (folderId?: string, path?: string) => {
+  listFolders: (folderId?: string, path?: string, q?: string) => {
     const params = new URLSearchParams();
     if (folderId) params.set("folder_id", folderId);
     if (path) params.set("path", path);
+    if (q) params.set("q", q);
     const qs = params.toString();
     return request<{ folder?: Folder; items: FolderEntry[]; has_more: boolean }>(
       `/v1/folders${qs ? `?${qs}` : ""}`,
@@ -282,7 +292,7 @@ export const api = {
       body: JSON.stringify({ title, parent_folder_id: parentFolderId || undefined }),
     }),
   updateFolder: (id: string, title?: string, parentFolderId?: string | null) =>
-    request<Folder>(`/v1/folders/${id}`, {
+    request<Folder & { permission_warning?: { kind: string; message: string } }>(`/v1/folders/${id}`, {
       method: "PATCH",
       body: JSON.stringify({
         ...(title ? { title } : {}),
@@ -291,12 +301,15 @@ export const api = {
     }),
   deleteFolder: (id: string) =>
     request<void>(`/v1/folders/${id}`, { method: "DELETE" }),
-  listFolderGrants: (id: string) =>
-    request<{ items: Grant[] }>(`/v1/folders/${id}/grants`),
   createFolderGrant: (id: string, address: string, role: string) =>
     request<Grant>(`/v1/folders/${id}/grants`, {
       method: "POST",
       body: JSON.stringify({ address, role }),
+    }),
+  setFolderGeneralAccess: (id: string, role: string) =>
+    request<Grant>(`/v1/folders/${id}/grants`, {
+      method: "POST",
+      body: JSON.stringify({ principal: { type: "anyone" }, role }),
     }),
   updateFolderGrant: (folderId: string, grantId: string, role: string) =>
     request<Grant>(`/v1/folders/${folderId}/grants/${grantId}`, {
@@ -309,12 +322,12 @@ export const api = {
     }),
   listFolderDocuments: (id: string) =>
     request<{ items: Document[] }>(`/v1/folders/${id}/documents`),
-  addDocumentToFolder: (folderId: string, documentId: string) =>
-    request<{ document_id: string; permission_warning?: { message: string } }>(
+  moveDocumentToFolder: (folderId: string, documentId: string) =>
+    request<{ document_id: string; moved: boolean; permission_warning?: { message: string } }>(
       `/v1/folders/${folderId}/documents`,
       { method: "POST", body: JSON.stringify({ document_id: documentId }) },
     ),
-  removeDocumentFromFolder: (folderId: string, documentId: string) =>
+  moveDocumentToRoot: (folderId: string, documentId: string) =>
     request<void>(`/v1/folders/${folderId}/documents/${documentId}`, {
       method: "DELETE",
     }),

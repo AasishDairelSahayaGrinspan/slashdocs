@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -10,15 +10,13 @@ import {
   Folder as FolderIcon,
   MoreHorizontal,
   Pencil,
-  Pin,
-  PinOff,
   Plus,
   Share2,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Avatar, Center, Skeleton, EmptyState } from "@/components/ui/misc";
+import { Center, Skeleton, EmptyState } from "@/components/ui/misc";
 import {
   Dropdown,
   DropdownContent,
@@ -38,12 +36,14 @@ import {
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
   api,
+  docID,
   type Folder,
   type FolderEntry,
   type Document,
@@ -51,6 +51,18 @@ import {
 import { queryKeys } from "@/lib/queryKeys";
 import { ShareSheet } from "@/pages/doc-share-sheet";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
+import { LayoutGrid, List } from "lucide-react";
+import { UnifiedGrid, UnifiedTable, viewModeStore } from "@/pages/documents";
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  useDroppable,
+  type DragEndEvent,
+  type DragStartEvent,
+} from "@dnd-kit/core";
 
 export function FolderPage() {
   const { id = "" } = useParams();
@@ -72,21 +84,10 @@ export function FolderPage() {
     queryFn: api.listPins,
   });
 
+  const viewMode = viewModeStore.useStore();
   useTitle(folder.data?.title || "Folder");
 
-  const isPinned = (pins.data?.items || []).some(
-    (p) => p.resource_type === "folder" && p.resource_id === id,
-  );
-
-  const togglePin = useMutation({
-    mutationFn: () =>
-      isPinned ? api.deletePin("folder", id) : api.putPin("folder", id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.pins() });
-      toast.success(isPinned ? "Unpinned." : "Pinned.");
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
+  const pinnedIds = useMemo(() => new Set((pins.data?.items || []).map((p) => p.resource_id)), [pins.data]);
 
   const delFolder = useMutation({
     mutationFn: () => api.deleteFolder(id),
@@ -122,6 +123,38 @@ export function FolderPage() {
     onError: (e) => toast.error(errorMessage(e, "Rename failed")),
   });
 
+  const [activeDrag, setActiveDrag] = useState<{ type: "folder" | "document"; id: string; title: string } | null>(null);
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
+  const [accessWarning, setAccessWarning] = useState<string | null>(null);
+
+  const moveMutation = useMutation({
+    mutationFn: async ({ dragType, dragId, targetFolderId }: { dragType: "folder" | "document"; dragId: string; targetFolderId: string }) => {
+      if (targetFolderId === "__root__") {
+        if (dragType === "document") {
+          return api.moveDocumentToRoot(id, dragId);
+        } else {
+          return api.updateFolder(dragId, undefined, null);
+        }
+      }
+      if (dragType === "folder") {
+        return api.updateFolder(dragId, undefined, targetFolderId);
+      } else {
+        return api.moveDocumentToFolder(targetFolderId, dragId);
+      }
+    },
+    onSuccess: (data) => {
+      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: queryKeys.folders() });
+      const warning = (data as Record<string, unknown>)?.permission_warning as { message?: string } | undefined;
+      if (warning?.message) {
+        setAccessWarning(warning.message);
+      } else {
+        toast.success("Moved.");
+      }
+    },
+    onError: (e) => toast.error(errorMessage(e, "Move failed")),
+  });
+
   if (folder.isLoading || contents.isLoading) {
     return (
       <div className="mx-auto max-w-6xl px-6 py-10">
@@ -134,43 +167,77 @@ export function FolderPage() {
 
   const f = folder.data!;
   const items = contents.data?.items || [];
-  const breadcrumbs = buildBreadcrumbs(f, contents.data?.folder);
+  const breadcrumbs = f.ancestors || [];
+
+  function handleDragStart(event: DragStartEvent) {
+    const raw = event.active.id as string;
+    const [type, did] = raw.split(":", 2) as ["folder" | "document", string];
+    const entry = items.find((e) =>
+      type === "folder" ? e.folder?.id === did : e.document?.id === did,
+    );
+    const title = type === "folder" ? entry?.folder?.title || "Folder" : entry?.document?.title || "Document";
+    setActiveDrag({ type, id: did, title });
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveDrag(null);
+    const { active, over } = event;
+    if (!over) return;
+    const [dragType, dragId] = (active.id as string).split(":", 2) as ["folder" | "document", string];
+    const targetFolderId = (over.id as string).replace("drop:", "");
+    if (dragType === "folder" && dragId === targetFolderId) return;
+    if (targetFolderId === id) return;
+    moveMutation.mutate({ dragType, dragId, targetFolderId });
+  }
 
   return (
+    <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
     <div className="mx-auto max-w-6xl px-6 py-10">
       {/* Breadcrumbs */}
       <nav className="mb-4 flex items-center gap-1 text-sm text-[var(--color-fg-muted)]">
-        <Link to="/app/documents" className="hover:underline">
-          Documents
-        </Link>
+        <DroppableBreadcrumb dropId="drop:__root__" to="/app/documents" label="Documents" isDragging={!!activeDrag} />
         {breadcrumbs.map((b) => (
           <span key={b.id} className="flex items-center gap-1">
             <ChevronRight className="h-3 w-3" />
-            <Link to={`/app/folders/${b.id}`} className="hover:underline">
-              {b.title}
-            </Link>
+            <DroppableBreadcrumb dropId={`drop:${b.id}`} to={`/app/folders/${b.id}`} label={b.title} isDragging={!!activeDrag} />
           </span>
         ))}
+        <ChevronRight className="h-3 w-3" />
+        <span className="font-medium text-[var(--color-fg)]">{f.title}</span>
       </nav>
 
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <FolderIcon className="h-6 w-6 text-[var(--color-accent)]" />
-          <h1 className="text-2xl font-semibold tracking-tight">{f.title}</h1>
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{f.title}</h1>
+            <p className="text-sm text-[var(--color-fg-muted)]">{f.owner?.name || f.owner?.email || ""}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            onClick={() => togglePin.mutate()}
-            aria-label={isPinned ? "Unpin" : "Pin"}
-          >
-            {isPinned ? (
-              <PinOff className="h-4 w-4" />
-            ) : (
-              <Pin className="h-4 w-4" />
-            )}
+          <div className="flex rounded-md border border-[var(--color-border)]">
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`rounded-r-none ${viewMode === "gallery" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              onClick={() => viewModeStore.write("gallery")}
+              aria-label="Gallery view"
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className={`rounded-l-none border-l border-[var(--color-border)] ${viewMode === "list" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              onClick={() => viewModeStore.write("list")}
+              aria-label="List view"
+            >
+              <List className="h-4 w-4" />
+            </Button>
+          </div>
+          <Button variant="outline" size="md" onClick={() => setNewFolderOpen(true)}>
+            <Plus className="mr-1.5 h-3.5 w-3.5" /> New folder
           </Button>
           <Sheet>
             <SheetTrigger asChild>
@@ -224,21 +291,7 @@ export function FolderPage() {
           description="Add documents or create subfolders."
         />
       ) : (
-        <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-          <table className="w-full text-sm">
-            <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
-              <tr>
-                <th className="px-4 py-2.5 text-left font-medium">Name</th>
-                <th className="px-4 py-2.5 text-left font-medium">Owner</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.map((entry) => (
-                <EntryRow key={entryKey(entry)} entry={entry} />
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <FolderContents items={items} pinnedIds={pinnedIds} />
       )}
 
       {/* New subfolder dialog */}
@@ -306,66 +359,63 @@ export function FolderPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Dialog open={!!accessWarning} onOpenChange={() => setAccessWarning(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Access may change</DialogTitle>
+            <DialogDescription>{accessWarning}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setAccessWarning(null)}>Got it</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+    <DragOverlay dropAnimation={null}>
+      {activeDrag && viewMode === "gallery" && (
+        <div className="flex h-36 w-48 flex-col items-center justify-center rounded-lg border border-[var(--color-accent)] bg-[var(--color-surface)] opacity-30 shadow-xl">
+          {activeDrag.type === "folder" ? <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" /> : <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />}
+          <div className="mt-2 max-w-[10rem] truncate px-3 text-sm font-medium">{activeDrag.title}</div>
+        </div>
+      )}
+      {activeDrag && viewMode === "list" && (
+        <div className="flex w-64 items-center gap-2 rounded-md border border-[var(--color-accent)] bg-[var(--color-surface)] px-3 py-2 opacity-30 shadow-xl">
+          {activeDrag.type === "folder" ? <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" /> : <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />}
+          <span className="truncate text-sm font-medium">{activeDrag.title}</span>
+        </div>
+      )}
+    </DragOverlay>
+    </DndContext>
   );
 }
 
-function EntryRow({ entry }: { entry: FolderEntry }) {
-  if (entry.type === "folder" && entry.folder) {
-    const f = entry.folder;
-    return (
-      <tr className="border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40">
-        <td className="px-4 py-3">
-          <Link
-            to={`/app/folders/${f.id}`}
-            className="flex items-center gap-2 font-medium hover:underline"
-          >
-            <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
-            {f.title}
-          </Link>
-        </td>
-        <td className="px-4 py-3">
-          <OwnerLabel owner={f.owner} />
-        </td>
-      </tr>
-    );
-  }
-  if (entry.type === "document" && entry.document) {
-    const d = entry.document;
-    return (
-      <tr className="border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40">
-        <td className="px-4 py-3">
-          <Link
-            to={`/app/d/${d.id}`}
-            className="flex items-center gap-2 font-medium hover:underline"
-          >
-            <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
-            {d.title || "Untitled"}
-          </Link>
-        </td>
-        <td className="px-4 py-3">
-          <OwnerLabel owner={d.owner} />
-        </td>
-      </tr>
-    );
-  }
-  return null;
+function FolderContents({ items, pinnedIds }: { items: FolderEntry[]; pinnedIds: Set<string> }) {
+  const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
+  const viewMode = viewModeStore.useStore();
+
+  const folders = items.filter((e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder).map((e) => e.folder);
+  const documents = items.filter((e): e is FolderEntry & { document: Document } => e.type === "document" && !!e.document).map((e) => e.document);
+
+  return viewMode === "list" ? (
+    <UnifiedTable entries={[...folders.map(f => ({ type: "folder" as const, folder: f })), ...documents.map(d => ({ type: "document" as const, document: d }))]} principal={me.data?.principal} pinnedIds={pinnedIds} />
+  ) : (
+    <UnifiedGrid entries={[...folders.map(f => ({ type: "folder" as const, folder: f })), ...documents.map(d => ({ type: "document" as const, document: d }))]} pinnedIds={pinnedIds} />
+  );
 }
 
-function OwnerLabel({ owner }: { owner?: { name?: string; email?: string } }) {
-  const label = owner?.name || owner?.email || "Unknown";
-  return <span className="text-sm text-[var(--color-fg-muted)]">{label}</span>;
+function DroppableBreadcrumb({ dropId, to, label, isDragging }: { dropId: string; to: string; label: string; isDragging: boolean }) {
+  const { setNodeRef, isOver } = useDroppable({ id: dropId });
+  return (
+    <Link
+      ref={setNodeRef}
+      to={to}
+      className={`rounded px-1.5 py-0.5 transition-colors hover:underline ${
+        isDragging ? "ring-1 ring-[var(--color-border)] ring-dashed" : ""
+      } ${isOver ? "bg-[var(--color-accent)]/15 ring-2 ring-[var(--color-accent)] font-medium text-[var(--color-accent)]" : ""}`}
+    >
+      {label}
+    </Link>
+  );
 }
 
-function entryKey(e: FolderEntry) {
-  return e.type === "folder" ? `f:${e.folder?.id}` : `d:${e.document?.id}`;
-}
-
-function buildBreadcrumbs(
-  _current: Folder,
-  _parent?: Folder,
-): { id: string; title: string }[] {
-  // For now return just the current folder in breadcrumbs.
-  // Full ancestor chain would require an additional API call.
-  return [{ id: _current.id, title: _current.title }];
-}
