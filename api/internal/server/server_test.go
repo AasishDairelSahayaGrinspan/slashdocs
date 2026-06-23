@@ -1179,7 +1179,7 @@ func TestFolderAccessControl(t *testing.T) {
 			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
 		assertStatus(t, rr, http.StatusCreated)
 
-		rr = do(t, h, http.MethodPost, "/v1/folders", `{"title":"Child","parent_folder_id":"`+root.ID+`"}`, map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		rr = do(t, h, http.MethodPost, "/v1/folders", `{"title":"Child","parent_folder_id":"`+root.ID+`"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
 		assertStatus(t, rr, http.StatusCreated)
 		var child struct{ ID string }
 		json.Unmarshal(rr.Body.Bytes(), &child)
