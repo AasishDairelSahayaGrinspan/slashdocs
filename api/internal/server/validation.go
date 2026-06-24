@@ -17,11 +17,14 @@ func safeWebRedirect(redirect string) bool {
 	if redirect == "" {
 		return true
 	}
-	if strings.HasPrefix(redirect, "/") && !strings.HasPrefix(redirect, "//") {
-		return true
+	if strings.Contains(redirect, "\\") {
+		return false
 	}
 	u, err := url.Parse(redirect)
-	return err == nil && u.Scheme == "" && u.Host == ""
+	if err != nil || u.Scheme != "" || u.Host != "" || strings.Contains(u.Path, "\\") {
+		return false
+	}
+	return strings.HasPrefix(u.EscapedPath(), "/") && !strings.HasPrefix(u.EscapedPath(), "//")
 }
 
 func validGrantRole(role repo.Role) bool {
@@ -33,7 +36,27 @@ func hostMatchesOrigin(host, origin string) bool {
 	if err != nil || u.Host == "" {
 		return false
 	}
-	return strings.EqualFold(host, u.Host)
+	return strings.EqualFold(sanitizeHost(host), u.Host)
+}
+
+func canonicalHTTPOrigin(origin string) (string, bool) {
+	u, err := url.Parse(origin)
+	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return "", false
+	}
+	return u.Scheme + "://" + u.Host, true
+}
+
+func sanitizeHost(host string) string {
+	if host == "" || strings.ContainsAny(host, "/\\ \t\r\n@") {
+		return "localhost"
+	}
+	return host
+}
+
+func isLocalHost(host string) bool {
+	host = strings.ToLower(sanitizeHost(host))
+	return host == "localhost" || strings.HasPrefix(host, "localhost:") || host == "127.0.0.1" || strings.HasPrefix(host, "127.0.0.1:") || host == "[::1]" || strings.HasPrefix(host, "[::1]:")
 }
 
 func emailDomainAllowed(email string, allowed []string) bool {

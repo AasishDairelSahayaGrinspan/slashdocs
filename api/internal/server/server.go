@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -220,6 +222,15 @@ func requireAuth(a auth.Authenticator) gin.HandlerFunc {
 		p, err := a.Authenticate(c.Request)
 		if err != nil {
 			incAuth("request", "failure")
+			if wantsBrowserLogin(c) {
+				redirect := c.Request.URL.RequestURI()
+				if !safeWebRedirect(redirect) {
+					redirect = "/"
+				}
+				c.Abort()
+				c.Redirect(http.StatusFound, "/v1/auth/google/start?mode=web&redirect="+url.QueryEscape(redirect))
+				return
+			}
 			c.AbortWithStatusJSON(http.StatusUnauthorized, errorResponse("unauthorized", "authentication required", nil))
 			return
 		}
@@ -227,6 +238,14 @@ func requireAuth(a auth.Authenticator) gin.HandlerFunc {
 		c.Set("principal", p)
 		c.Next()
 	}
+}
+
+func wantsBrowserLogin(c *gin.Context) bool {
+	if c.Request.Method != http.MethodGet {
+		return false
+	}
+	accept := c.GetHeader("Accept")
+	return strings.Contains(accept, "text/html") && !strings.Contains(accept, "application/json")
 }
 
 func current(c *gin.Context) *auth.Principal {
