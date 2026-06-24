@@ -82,23 +82,29 @@ func validCLIPlatform(goos, goarch string) bool {
 }
 
 func (h handlers) installScript(c *gin.Context) {
-	base := externalBase(c)
+	base, ok := h.installBase(c)
+	if !ok {
+		c.Data(http.StatusInternalServerError, "text/plain; charset=utf-8", []byte("aidocs server is missing APP_ORIGIN; cannot generate installer\n"))
+		return
+	}
 	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(strings.ReplaceAll(installScriptTemplate, "__BASE_URL__", base)))
 }
 
-func externalBase(c *gin.Context) string {
-	proto := c.GetHeader("X-Forwarded-Proto")
-	if proto == "" {
-		proto = "https"
-		if c.Request.TLS == nil && strings.HasPrefix(c.Request.Host, "localhost") {
+func (h handlers) installBase(c *gin.Context) (string, bool) {
+	if base, ok := canonicalHTTPOrigin(h.deps.appOrigin); ok {
+		return base, true
+	}
+	// Tests and local development may not configure APP_ORIGIN. Keep that path
+	// usable, but do not derive public installer URLs from proxy-controlled
+	// forwarding headers or arbitrary non-local Host values.
+	if isLocalHost(c.Request.Host) {
+		proto := "https"
+		if c.Request.TLS == nil {
 			proto = "http"
 		}
+		return proto + "://" + sanitizeHost(c.Request.Host), true
 	}
-	host := c.GetHeader("X-Forwarded-Host")
-	if host == "" {
-		host = c.Request.Host
-	}
-	return proto + "://" + host
+	return "", false
 }
 
 func releaseVersion() string {
