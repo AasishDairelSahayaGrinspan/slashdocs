@@ -10,8 +10,6 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 
-// Delete-document confirmation shared by the documents table row and the
-// document toolbar dropdown.
 export function DeleteDocumentDialog({
   title,
   trigger,
@@ -27,7 +25,7 @@ export function DeleteDocumentDialog({
     <AlertDialog>
       <AlertDialogTrigger asChild>{trigger}</AlertDialogTrigger>
       <AlertDialogContent>
-        <AlertDialogTitle>Delete “{title}”?</AlertDialogTitle>
+        <AlertDialogTitle>Delete "{title}"?</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
         <AlertDialogFooter>
           <AlertDialogCancel>Cancel</AlertDialogCancel>

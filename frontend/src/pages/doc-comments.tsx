@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
 import { CheckCircle2, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -80,34 +80,52 @@ export function Comments() {
   });
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--color-border)] px-4 py-3">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Comments</h2>
+    <div style={{ display: "flex", height: "100%", flexDirection: "column" }}>
+      <div style={{ borderBottom: "1px solid #e4e4e7", padding: "12px 16px" }}>
+        <div style={{ marginBottom: "12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2 style={{ fontSize: "14px", fontWeight: 600 }}>Comments</h2>
           <Badge variant="muted">{comments.length}</Badge>
         </div>
-        <div className="flex gap-1 rounded-md bg-[var(--color-surface-muted)] p-0.5 text-xs">
+        <div style={{ display: "flex", gap: "4px", borderRadius: "6px", background: "#f4f4f5", padding: "2px", fontSize: "12px" }}>
           {COMMENT_FILTERS.map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
-              className={`flex-1 rounded px-2 py-1 capitalize transition-colors ${filter === f ? "bg-[var(--color-surface)] text-[var(--color-fg)] shadow-sm" : "text-[var(--color-fg-muted)]"}`}
+              style={{
+                flex: 1,
+                borderRadius: "4px",
+                padding: "4px 8px",
+                textTransform: "capitalize",
+                transition: "background-color 0.15s",
+                ...(filter === f
+                  ? { background: "#fff", color: "#18181b", boxShadow: "0 1px 2px 0 rgba(0,0,0,0.05)" }
+                  : { color: "#71717a", background: "transparent", border: "none", cursor: "pointer" }),
+              }}
             >
               {f}
             </button>
           ))}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
+      <div style={{ flex: 1, overflowY: "auto", padding: "16px" }}>
         {quote && (
           <form
-            className="mb-4 space-y-2 rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/50 p-3"
+            style={{
+              marginBottom: "16px",
+              display: "flex",
+              flexDirection: "column",
+              gap: "8px",
+              borderRadius: "12px",
+              border: "1px solid #e4e4e7",
+              background: "rgba(244,244,245,0.5)",
+              padding: "12px",
+            }}
             onSubmit={(e) => {
               e.preventDefault();
               create.mutate();
             }}
           >
-            <div className="border-l-2 border-[var(--color-accent)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
+            <div style={{ borderLeft: "2px solid #2028ff", paddingLeft: "8px", fontSize: "12px", fontStyle: "italic", color: "#71717a" }}>
               “{quote.length > 80 ? quote.slice(0, 80) + "…" : quote}”
             </div>
             <Textarea
@@ -123,7 +141,7 @@ export function Comments() {
               }}
               placeholder="Add a comment…"
             />
-            <div className="flex justify-end gap-2">
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: "8px" }}>
               <Button type="button" variant="ghost" size="sm" onClick={clear}>
                 Cancel
               </Button>
@@ -134,9 +152,9 @@ export function Comments() {
           </form>
         )}
         {commentsLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+            <Skeleton style={{ height: "80px", width: "100%" }} />
+            <Skeleton style={{ height: "80px", width: "100%" }} />
           </div>
         ) : commentsError ? (
           <Center>Could not load comments.</Center>
@@ -146,7 +164,7 @@ export function Comments() {
             description="Select text inside the rendered document to start a thread."
           />
         ) : (
-          <div className="space-y-3">
+          <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
             {items.map((c) => (
               <CommentCard key={c.id} c={c} docId={docId} />
             ))}
@@ -180,16 +198,25 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   return (
     <article
       ref={cardRef}
-      className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-colors hover:border-[var(--color-border-strong)] ${active ? "border-[var(--color-border-strong)] ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
+      style={{
+        cursor: "pointer",
+        borderRadius: "12px",
+        border: `1px solid ${active ? "#d4d4d8" : "#e4e4e7"}`,
+        background: "#fff",
+        padding: "12px",
+        transition: "border-color 0.15s",
+        ...(active ? { outline: "1px solid #d4d4d8" } : {}),
+        ...(resolved ? { opacity: 0.7 } : {}),
+      }}
       onClick={() => setActiveComment(active ? undefined : c.id)}
     >
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-semibold">
+      <div style={{ marginBottom: "4px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <span style={{ fontSize: "12px", fontWeight: 600 }}>
           {c.author.name || c.author.email || c.author.id}
         </span>
         {resolved ? (
           <Badge variant="success">
-            <CheckCircle2 className="h-3 w-3" /> resolved
+            <CheckCircle2 style={{ height: "12px", width: "12px" }} /> resolved
           </Badge>
         ) : (
           <Badge variant="accent">open</Badge>
@@ -197,26 +224,27 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
       </div>
       {c.current_placement?.status &&
         c.current_placement.status !== PLACEMENT_STATUS.attached && (
-          <Badge variant="warning" className="mb-2">
-            {c.current_placement.status}
-          </Badge>
+          <div style={{ marginBottom: "8px" }}>
+            <Badge variant="warning">
+              {c.current_placement.status}
+            </Badge>
+          </div>
         )}
       {c.selected_text && (
-        <blockquote className="mb-2 border-l-2 border-[var(--color-border-strong)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
+        <blockquote style={{ marginBottom: "8px", borderLeft: "2px solid #d4d4d8", paddingLeft: "8px", fontSize: "12px", fontStyle: "italic", color: "#71717a" }}>
           {c.selected_text}
         </blockquote>
       )}
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-sm">{c.body}</p>
+      <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "8px" }}>
+        <p style={{ fontSize: "14px" }}>{c.body}</p>
         <DeleteCommentButton
           c={c}
           docId={docId}
           canDelete={samePrincipal(principal, c.author)}
-          className="opacity-0 transition-opacity group-hover:opacity-100"
         />
       </div>
       {(c.replies || []).length > 0 && (
-        <div className="mt-3 space-y-2 border-l border-[var(--color-border)] pl-3">
+        <div style={{ marginTop: "12px", display: "flex", flexDirection: "column", gap: "8px", borderLeft: "1px solid #e4e4e7", paddingLeft: "12px" }}>
           {(c.replies || []).map((r) => (
             <ReplyItem
               key={r.id}
@@ -228,7 +256,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
         </div>
       )}
       <ReplyComposer onReply={(body) => reply.mutate(body)} pending={reply.isPending} />
-      <div className="mt-2 flex justify-end">
+      <div style={{ marginTop: "8px", display: "flex", justifyContent: "flex-end" }}>
         <Button
           variant="ghost"
           size="sm"
@@ -254,19 +282,18 @@ function ReplyItem({
   canDelete: boolean;
 }) {
   return (
-    <div className="group/reply rounded-md bg-[var(--color-surface-muted)]/50 p-2">
-      <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold">
+    <div style={{ borderRadius: "6px", background: "rgba(244,244,245,0.5)", padding: "8px" }}>
+      <div style={{ marginBottom: "4px", display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px" }}>
+        <span style={{ fontSize: "12px", fontWeight: 600 }}>
           {r.author.name || r.author.email || r.author.id}
         </span>
         <DeleteCommentButton
           c={r}
           docId={docId}
           canDelete={canDelete}
-          className="opacity-0 transition-opacity group-hover/reply:opacity-100"
         />
       </div>
-      <p className="text-sm">{r.body}</p>
+      <p style={{ fontSize: "14px" }}>{r.body}</p>
     </div>
   );
 }
@@ -281,7 +308,7 @@ function ReplyComposer({
   const [body, setBody] = useState("");
   return (
     <form
-      className="mt-3 flex gap-2"
+      style={{ marginTop: "12px", display: "flex", gap: "8px" }}
       onSubmit={(e) => {
         e.preventDefault();
         if (!body.trim() || pending) return;
@@ -294,7 +321,6 @@ function ReplyComposer({
         value={body}
         onChange={(e) => setBody(e.target.value)}
         placeholder="Reply…"
-        className="min-h-9 text-sm"
       />
       <Button size="sm" type="submit" disabled={!body.trim() || pending}>
         Reply
@@ -307,12 +333,10 @@ function DeleteCommentButton({
   c,
   docId,
   canDelete,
-  className = "",
 }: {
   c: Comment;
   docId: string;
   canDelete: boolean;
-  className?: string;
 }) {
   const q = useQueryClient();
   const del = useMutation({
@@ -330,11 +354,10 @@ function DeleteCommentButton({
         <Button
           variant="ghost"
           size="icon"
-          className={`h-7 w-7 shrink-0 ${className}`}
           aria-label="Delete comment"
           onClick={(e) => e.stopPropagation()}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <Trash2 style={{ height: "14px", width: "14px" }} />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent onClick={(e) => e.stopPropagation()}>

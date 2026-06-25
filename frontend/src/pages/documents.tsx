@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
 import {
   FileText,
@@ -104,7 +104,6 @@ export function DocumentsPage() {
 
   const pinnedIds = useMemo(() => new Set(pinnedItems.map((p) => p.resource_id)), [pinnedItems]);
 
-  // Merge folders and documents into a single list sorted by pinned status, last activity, then alphabetically
   const merged = useMemo(() => {
     const folderItems: FolderEntry[] = folderEntries.map((e) => ({
       type: "folder" as const,
@@ -146,7 +145,6 @@ export function DocumentsPage() {
     onError: (e) => toast.error(errorMessage(e, "Create failed")),
   });
 
-  // Drag and drop
   const [activeDrag, setActiveDrag] = useState<{ type: string; id: string; title: string } | null>(null);
   const [accessWarning, setAccessWarning] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }));
@@ -191,9 +189,9 @@ export function DocumentsPage() {
 
   if (docs.isLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <Skeleton className="mb-3 h-9 w-48" />
-        <Skeleton className="h-64 w-full" />
+      <div style={{ maxWidth: "1152px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+        <Skeleton style={{ marginBottom: "12px", height: "36px", width: "192px" }} />
+        <Skeleton style={{ height: "256px", width: "100%" }} />
       </div>
     );
   }
@@ -203,51 +201,50 @@ export function DocumentsPage() {
   const empty = !searching && documents.length === 0 && folders.length === 0;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-6 flex items-end justify-between gap-4">
+    <div style={{ maxWidth: "1152px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+      <div style={{ marginBottom: "24px", display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: "16px" }}>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
-          <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
+          <h1 style={{ fontSize: "24px", fontWeight: 600, letterSpacing: "-0.02em" }}>Documents</h1>
+          <p style={{ marginTop: "4px", fontSize: "14px", color: "#71717a" }}>
             Documents your agents have published.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="relative">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-muted)]" />
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ position: "relative" }}>
+            <Search style={{ pointerEvents: "none", position: "absolute", left: "10px", top: "50%", height: "16px", width: "16px", transform: "translateY(-50%)", color: "#71717a" }} />
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search…"
-              className="w-56 pl-8"
             />
           </div>
-          <div className="flex rounded-md border border-[var(--color-border)]">
+          <div style={{ display: "flex", borderRadius: "6px", border: "1px solid #e4e4e7" }}>
             <Button
               variant="ghost"
               size="icon"
-              className={`rounded-r-none ${viewMode === "gallery" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              style={{ borderRadius: "6px 0 0 6px", ...(viewMode === "gallery" ? { background: "#f4f4f5" } : {}) }}
               onClick={() => viewModeStore.write("gallery")}
               aria-label="Gallery view"
             >
-              <LayoutGrid className="h-4 w-4" />
+              <LayoutGrid style={{ height: "16px", width: "16px" }} />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className={`rounded-l-none border-l border-[var(--color-border)] ${viewMode === "list" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              style={{ borderRadius: "0 6px 6px 0", borderLeft: "1px solid #e4e4e7", ...(viewMode === "list" ? { background: "#f4f4f5" } : {}) }}
               onClick={() => viewModeStore.write("list")}
               aria-label="List view"
             >
-              <List className="h-4 w-4" />
+              <List style={{ height: "16px", width: "16px" }} />
             </Button>
           </div>
           <Button variant="outline" size="md" onClick={() => setNewFolderOpen(true)}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" /> New folder
+            <Plus style={{ marginRight: "6px", height: "14px", width: "14px" }} /> New folder
           </Button>
           <Dropdown>
             <DropdownTrigger asChild>
               <Button variant="outline" size="icon" aria-label="More">
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreHorizontal style={{ height: "16px", width: "16px" }} />
               </Button>
             </DropdownTrigger>
             <DropdownContent>
@@ -276,22 +273,44 @@ export function DocumentsPage() {
           )}
           <DragOverlay dropAnimation={null}>
             {activeDrag && viewMode === "gallery" && (
-              <div className="flex h-36 w-48 flex-col items-center justify-center rounded-lg border border-[var(--color-accent)] bg-[var(--color-surface)] opacity-30 shadow-xl">
-                {activeDrag.type === "folder" ? <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" /> : <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />}
-                <div className="mt-2 max-w-[10rem] truncate px-3 text-sm font-medium">{activeDrag.title}</div>
+              <div style={{
+                display: "flex",
+                height: "144px",
+                width: "192px",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                borderRadius: "8px",
+                border: "1px solid #2028ff",
+                background: "#fff",
+                opacity: 0.3,
+                boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)",
+              }}>
+                {activeDrag.type === "folder" ? <FolderIcon style={{ height: "40px", width: "40px", color: "rgba(32,40,255,0.6)" }} /> : <FileText style={{ height: "40px", width: "40px", color: "rgba(113,113,122,0.3)" }} />}
+                <div style={{ marginTop: "8px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 12px", fontSize: "14px", fontWeight: 500 }}>{activeDrag.title}</div>
               </div>
             )}
             {activeDrag && viewMode === "list" && (
-              <div className="flex w-64 items-center gap-2 rounded-md border border-[var(--color-accent)] bg-[var(--color-surface)] px-3 py-2 opacity-30 shadow-xl">
-                {activeDrag.type === "folder" ? <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" /> : <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />}
-                <span className="truncate text-sm font-medium">{activeDrag.title}</span>
+              <div style={{
+                display: "flex",
+                width: "256px",
+                alignItems: "center",
+                gap: "8px",
+                borderRadius: "6px",
+                border: "1px solid #2028ff",
+                background: "#fff",
+                padding: "8px 12px",
+                opacity: 0.3,
+                boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)",
+              }}>
+                {activeDrag.type === "folder" ? <FolderIcon style={{ height: "16px", width: "16px", color: "#2028ff" }} /> : <FileText style={{ height: "16px", width: "16px", color: "#71717a" }} />}
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "14px", fontWeight: 500 }}>{activeDrag.title}</span>
               </div>
             )}
           </DragOverlay>
         </DndContext>
       )}
 
-      {/* New folder dialog */}
       <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
         <DialogContent>
           <DialogHeader>
@@ -299,7 +318,7 @@ export function DocumentsPage() {
           </DialogHeader>
           <form onSubmit={(e) => { e.preventDefault(); if (newFolderTitle.trim()) createFolder.mutate(); }}>
             <Input placeholder="Folder name" value={newFolderTitle} onChange={(e) => setNewFolderTitle(e.target.value)} autoFocus />
-            <DialogFooter className="mt-4">
+            <DialogFooter style={{ marginTop: "16px" }}>
               <Button type="button" variant="ghost" onClick={() => setNewFolderOpen(false)}>Cancel</Button>
               <Button type="submit" disabled={!newFolderTitle.trim() || createFolder.isPending}>Create</Button>
             </DialogFooter>
@@ -307,7 +326,6 @@ export function DocumentsPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Access warning after move */}
       <Dialog open={!!accessWarning} onOpenChange={() => setAccessWarning(null)}>
         <DialogContent>
           <DialogHeader>
@@ -327,7 +345,7 @@ export function UnifiedGrid({ entries, pinnedIds }: { entries: FolderEntry[]; pi
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const qc = useQueryClient();
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: "12px" }}>
       {entries.map((e) => {
         if (e.type === "folder" && e.folder) {
           const canDelete = samePrincipal(me.data?.principal, e.folder.owner);
@@ -352,13 +370,22 @@ function DraggableFolderCard({ folder: f, canDelete, qc, pinned }: { folder: Fol
       ref={(node) => { dragRef(node); dropRef(node); }}
       {...listeners}
       {...attributes}
-      className={`group relative overflow-hidden rounded-lg border bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-muted)] ${isOver ? "border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/30" : "border-[var(--color-border)]"} ${isDragging ? "opacity-40" : ""}`}
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        borderRadius: "8px",
+        border: `1px solid ${isOver ? "#2028ff" : "#e4e4e7"}`,
+        background: "#fff",
+        transition: "background-color 0.15s",
+        ...(isOver ? { outline: "2px solid rgba(32,40,255,0.3)" } : {}),
+        ...(isDragging ? { opacity: 0.4 } : {}),
+      }}
     >
-      <Link to={`/app/folders/${f.id}`} className="relative flex h-36 cursor-default flex-col items-center justify-center px-3 pb-8" draggable={false}>
-        <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" />
-        <div className="absolute inset-x-3 bottom-2.5">
-          <div className="truncate text-sm font-medium">{f.title}</div>
-          <div className="truncate text-xs text-[var(--color-fg-muted)]">
+      <Link to={`/app/folders/${f.id}`} style={{ position: "relative", display: "flex", height: "144px", cursor: "default", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px 32px" }} draggable={false}>
+        <FolderIcon style={{ height: "40px", width: "40px", color: "rgba(32,40,255,0.6)" }} />
+        <div style={{ position: "absolute", left: "12px", right: "12px", bottom: "10px" }}>
+          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "14px", fontWeight: 500 }}>{f.title}</div>
+          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: "#71717a" }}>
             {principalLabel(f.owner)}
           </div>
         </div>
@@ -376,13 +403,21 @@ function DraggableDocCard({ doc: d, canDelete, qc, pinned }: { doc: Document; ca
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`group relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-muted)] ${isDragging ? "opacity-40" : ""}`}
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        borderRadius: "8px",
+        border: "1px solid #e4e4e7",
+        background: "#fff",
+        transition: "background-color 0.15s",
+        ...(isDragging ? { opacity: 0.4 } : {}),
+      }}
     >
-      <Link to={`/app/d/${docID(d)}`} className="relative flex h-36 cursor-default flex-col items-center justify-center px-3 pb-8" draggable={false}>
-        <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />
-        <div className="absolute inset-x-3 bottom-2.5">
-          <div className="truncate text-sm font-medium">{docTitle(d)}</div>
-          <div className="truncate text-xs text-[var(--color-fg-muted)]">
+      <Link to={`/app/d/${docID(d)}`} style={{ position: "relative", display: "flex", height: "144px", cursor: "default", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "0 12px 32px" }} draggable={false}>
+        <FileText style={{ height: "40px", width: "40px", color: "rgba(113,113,122,0.3)" }} />
+        <div style={{ position: "absolute", left: "12px", right: "12px", bottom: "10px" }}>
+          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "14px", fontWeight: 500 }}>{docTitle(d)}</div>
+          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: "#71717a" }}>
             {principalLabel(d.owner)}
           </div>
         </div>
@@ -394,13 +429,13 @@ function DraggableDocCard({ doc: d, canDelete, qc, pinned }: { doc: Document; ca
 
 export function UnifiedTable({ entries, principal, pinnedIds }: { entries: FolderEntry[]; principal?: Principal; pinnedIds?: Set<string> }) {
   return (
-    <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
+    <div style={{ overflow: "hidden", borderRadius: "12px", border: "1px solid #e4e4e7", background: "#fff" }}>
+      <table style={{ width: "100%", fontSize: "14px" }}>
+        <thead style={{ background: "rgba(244,244,245,0.5)", fontSize: "11px", textTransform: "uppercase", letterSpacing: "0.05em", color: "#71717a" }}>
           <tr>
-            <th className="px-4 py-2.5 text-left font-medium">Name</th>
-            <th className="px-4 py-2.5 text-left font-medium">Owner</th>
-            <th className="w-12 px-2 py-2.5"></th>
+            <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500 }}>Name</th>
+            <th style={{ padding: "10px 16px", textAlign: "left", fontWeight: 500 }}>Owner</th>
+            <th style={{ width: "48px", padding: "10px 8px" }}></th>
           </tr>
         </thead>
         <tbody>
@@ -439,17 +474,22 @@ function DraggableFolderRow({ folder: f, canDelete, pinned }: { folder: Folder; 
       ref={(node) => { dragRef(node); dropRef(node); }}
       {...listeners}
       {...attributes}
-      className={`group border-t transition-colors ${isOver ? "bg-[var(--color-accent)]/10 border-[var(--color-accent)]" : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]/40"} ${isDragging ? "opacity-40" : ""}`}
+      style={{
+        borderTop: `1px solid ${isOver ? "#2028ff" : "#e4e4e7"}`,
+        transition: "background-color 0.15s",
+        ...(isOver ? { background: "rgba(32,40,255,0.1)" } : {}),
+        ...(isDragging ? { opacity: 0.4 } : {}),
+      }}
     >
-      <td className="px-4 py-3">
-        <Link to={`/app/folders/${f.id}`} className="flex cursor-default items-center gap-2 font-medium hover:underline" draggable={false}>
-          <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
+      <td style={{ padding: "12px 16px" }}>
+        <Link to={`/app/folders/${f.id}`} style={{ display: "flex", cursor: "default", alignItems: "center", gap: "8px", fontWeight: 500 }} draggable={false}>
+          <FolderIcon style={{ height: "16px", width: "16px", color: "#2028ff" }} />
           {f.title}
         </Link>
       </td>
-      <td className="px-4 py-3"><OwnerCell owner={f.owner} /></td>
-      <td className="px-2 py-3">
-        <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+      <td style={{ padding: "12px 16px" }}><OwnerCell owner={f.owner} /></td>
+      <td style={{ padding: "12px 8px" }}>
+        <div style={{ display: "flex", gap: "2px" }} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <RowPinButton resourceType="folder" resourceId={f.id} pinned={pinned} />
           {canDelete && (
             <DeleteDocumentDialog
@@ -457,8 +497,8 @@ function DraggableFolderRow({ folder: f, canDelete, pinned }: { folder: Folder; 
               description="This deletes the folder and its subfolders. Documents inside them will move to root."
               onConfirm={() => del.mutate()}
               trigger={
-                <Button variant="ghost" size="icon" className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100" aria-label="Delete folder">
-                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                <Button variant="ghost" size="icon" aria-label="Delete folder">
+                  <Trash2 style={{ height: "14px", width: "14px", color: "#dc2626" }} />
                 </Button>
               }
             />
@@ -487,23 +527,27 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`group border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40 ${isDragging ? "opacity-40" : ""}`}
+      style={{
+        borderTop: "1px solid #e4e4e7",
+        transition: "background-color 0.15s",
+        ...(isDragging ? { opacity: 0.4 } : {}),
+      }}
     >
-      <td className="px-4 py-3">
+      <td style={{ padding: "12px 16px" }}>
         <Link
           to={`/app/d/${docID(doc)}`}
-          className="flex cursor-default items-center gap-2 font-medium hover:underline"
+          style={{ display: "flex", cursor: "default", alignItems: "center", gap: "8px", fontWeight: 500 }}
           draggable={false}
         >
-          <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
+          <FileText style={{ height: "16px", width: "16px", color: "#71717a" }} />
           {docTitle(doc)}
         </Link>
       </td>
-      <td className="px-4 py-3">
+      <td style={{ padding: "12px 16px" }}>
         <OwnerCell owner={doc.owner} />
       </td>
-      <td className="px-2 py-3">
-        <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
+      <td style={{ padding: "12px 8px" }}>
+        <div style={{ display: "flex", gap: "2px" }} onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <RowPinButton resourceType="document" resourceId={docID(doc)} pinned={pinned} />
           {canDelete && (
             <DeleteDocumentDialog
@@ -513,10 +557,9 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
                 <Button
                   variant="ghost"
                   size="icon"
-                  className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
                   aria-label="Delete document"
                 >
-                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                  <Trash2 style={{ height: "14px", width: "14px", color: "#dc2626" }} />
                 </Button>
               }
             />
@@ -542,11 +585,10 @@ function RowPinButton({ resourceType, resourceId, pinned }: { resourceType: "doc
     <Button
       variant="ghost"
       size="icon"
-      className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
       aria-label={isPinned ? "Unpin" : "Pin"}
       onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}
     >
-      {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+      {isPinned ? <PinOff style={{ height: "14px", width: "14px" }} /> : <Pin style={{ height: "14px", width: "14px" }} />}
     </Button>
   );
 }
@@ -573,12 +615,12 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
   });
   return (
     <div
-      className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [&_button]:cursor-pointer"
+      style={{ position: "absolute", right: "8px", top: "8px", display: "flex", gap: "2px" }}
       onClick={(e) => e.stopPropagation()}
       onPointerDown={(e) => e.stopPropagation()}
     >
-      <Button variant="ghost" size="icon" className="h-7 w-7" aria-label={isPinned ? "Unpin" : "Pin"} onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}>
-        {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
+      <Button variant="ghost" size="icon" aria-label={isPinned ? "Unpin" : "Pin"} onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin.mutate(); }}>
+        {isPinned ? <PinOff style={{ height: "14px", width: "14px" }} /> : <Pin style={{ height: "14px", width: "14px" }} />}
       </Button>
       {canDelete && (
         <DeleteDocumentDialog
@@ -586,8 +628,8 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
           description={resourceType === "folder" ? "This deletes the folder and its subfolders. Documents inside them will move to root." : undefined}
           onConfirm={() => del.mutate()}
           trigger={
-            <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Delete" onClick={(e) => e.stopPropagation()}>
-              <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+            <Button variant="ghost" size="icon" aria-label="Delete" onClick={(e) => e.stopPropagation()}>
+              <Trash2 style={{ height: "14px", width: "14px", color: "#dc2626" }} />
             </Button>
           }
         />
@@ -595,8 +637,6 @@ function GridCardActions({ resourceType, resourceId, canDelete, title, qc, pinne
     </div>
   );
 }
-
-
 
 function OwnerCell({ owner }: { owner?: Principal }) {
   const label = principalLabel(owner);
@@ -607,11 +647,11 @@ function OwnerCell({ owner }: { owner?: Principal }) {
         ? "Service account"
         : "Owner";
   return (
-    <div className="flex min-w-0 items-center gap-2">
+    <div style={{ display: "flex", minWidth: 0, alignItems: "center", gap: "8px" }}>
       <Avatar name={label} src={owner?.picture_url} size={28} />
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{label}</div>
-        <div className="truncate text-xs text-[var(--color-fg-muted)]">{detail}</div>
+      <div style={{ minWidth: 0 }}>
+        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "14px", fontWeight: 500 }}>{label}</div>
+        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: "#71717a" }}>{detail}</div>
       </div>
     </div>
   );
@@ -631,17 +671,17 @@ function principalLabel(p?: Principal) {
 
 function EmptyDocs() {
   return (
-    <div className="mx-auto max-w-xl space-y-4">
-      <div className="rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
-          <Sparkles className="h-5 w-5" />
+    <div style={{ maxWidth: "576px", margin: "0 auto", display: "flex", flexDirection: "column", gap: "16px" }}>
+      <div style={{ borderRadius: "14px", border: "1px solid #e4e4e7", background: "#fff", padding: "24px" }}>
+        <div style={{ marginBottom: "12px", display: "flex", height: "40px", width: "40px", alignItems: "center", justifyContent: "center", borderRadius: "6px", background: "#eef0ff", color: "#2028ff" }}>
+          <Sparkles style={{ height: "20px", width: "20px" }} />
         </div>
-        <h3 className="text-base font-semibold">Set up your agent</h3>
-        <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
+        <h3 style={{ fontSize: "16px", fontWeight: 600 }}>Set up your agent</h3>
+        <p style={{ marginTop: "4px", fontSize: "14px", color: "#71717a" }}>
           Documents are published by your AI agent. Walk through the three-step setup so
           it knows how to use aidocs.
         </p>
-        <div className="mt-4">
+        <div style={{ marginTop: "16px" }}>
           <Button asChild>
             <Link to="/app/start">Open setup guide</Link>
           </Button>
@@ -656,13 +696,12 @@ function UploadBackupItem() {
     <UploadBackupDialog
       trigger={
         <DropdownItem onSelect={(e) => e.preventDefault()}>
-          <Upload className="h-4 w-4" /> Upload HTML (backup)
+          <Upload style={{ height: "16px", width: "16px" }} /> Upload HTML (backup)
         </DropdownItem>
       }
     />
   );
 }
-
 
 function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
   const q = useQueryClient();
@@ -692,7 +731,7 @@ function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
           </DialogDescription>
         </DialogHeader>
         <form
-          className="space-y-3"
+          style={{ display: "flex", flexDirection: "column", gap: "12px" }}
           onSubmit={(e) => {
             e.preventDefault();
             if (file) m.mutate();

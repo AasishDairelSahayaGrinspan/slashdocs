@@ -12,12 +12,13 @@ import {
   QueryClient,
   QueryClientProvider,
 } from "@tanstack/react-query";
-import { Toaster, toast } from "sonner";
-import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { Toaster, toast } from "react-hot-toast";
+import { BladeProvider } from "@razorpay/blade/components";
+import { bladeTheme } from "@razorpay/blade/tokens";
 import "./styles.css";
 import { APIError } from "@/api";
 import { errorMessage } from "@/lib/errors";
-import { ThemeProvider } from "@/lib/theme";
+import { ThemeProvider, useResolvedTheme } from "@/lib/theme";
 import { AppShell } from "@/components/layout/app-shell";
 import { LandingPage } from "@/pages/landing";
 import { LoginPage } from "@/pages/login";
@@ -29,8 +30,6 @@ import { DevelopersPage } from "@/pages/developers";
 import { ProfilePage } from "@/pages/profile";
 import { StartPage } from "@/pages/start";
 
-// Query failures (other than auth, handled by route guards) and any mutation
-// without its own onError surface as a toast.
 const qc = new QueryClient({
   defaultOptions: {
     queries: { refetchOnWindowFocus: false },
@@ -47,45 +46,51 @@ const qc = new QueryClient({
   }),
 });
 
+function BladeApp() {
+  const theme = useResolvedTheme();
+  return (
+    <BladeProvider themeTokens={bladeTheme} colorScheme={theme}>
+      <QueryClientProvider client={qc}>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/" element={<LandingPage />} />
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/app" element={<AppShell />}>
+              <Route index element={<Navigate to="documents" replace />} />
+              <Route path="start" element={<StartPage />} />
+              <Route path="documents" element={<DocumentsPage />} />
+              <Route path="d/:id" element={<DocumentPage />} />
+              <Route path="folders/:id" element={<FolderPage />} />
+              <Route
+                path="settings/service-accounts"
+                element={<ServiceAccountsPage />}
+              />
+              <Route path="settings/profile" element={<ProfilePage />} />
+              <Route path="developers" element={<DevelopersPage />} />
+            </Route>
+            <Route
+              path="/documents/:id"
+              element={<LegacyDocRedirect />}
+            />
+            <Route
+              path="/service-accounts"
+              element={
+                <Navigate to="/app/settings/service-accounts" replace />
+              }
+            />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </BrowserRouter>
+        <Toaster position="bottom-right" />
+      </QueryClientProvider>
+    </BladeProvider>
+  );
+}
+
 function App() {
   return (
     <ThemeProvider>
-      <QueryClientProvider client={qc}>
-        <TooltipProvider delayDuration={150}>
-          <BrowserRouter>
-            <Routes>
-              <Route path="/" element={<LandingPage />} />
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/app" element={<AppShell />}>
-                <Route index element={<Navigate to="documents" replace />} />
-                <Route path="start" element={<StartPage />} />
-                <Route path="documents" element={<DocumentsPage />} />
-                <Route path="d/:id" element={<DocumentPage />} />
-                <Route path="folders/:id" element={<FolderPage />} />
-                <Route
-                  path="settings/service-accounts"
-                  element={<ServiceAccountsPage />}
-                />
-                <Route path="settings/profile" element={<ProfilePage />} />
-                <Route path="developers" element={<DevelopersPage />} />
-              </Route>
-              {/* legacy redirects */}
-              <Route
-                path="/documents/:id"
-                element={<LegacyDocRedirect />}
-              />
-              <Route
-                path="/service-accounts"
-                element={
-                  <Navigate to="/app/settings/service-accounts" replace />
-                }
-              />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-            <Toaster position="bottom-right" theme="system" richColors />
-          </BrowserRouter>
-        </TooltipProvider>
-      </QueryClientProvider>
+      <BladeApp />
     </ThemeProvider>
   );
 }

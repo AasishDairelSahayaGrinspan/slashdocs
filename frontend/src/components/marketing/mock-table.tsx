@@ -1,6 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
 import { FileText } from "lucide-react";
-import { cn } from "@/lib/cn";
 
 export function MockDocsTable({
   hasRow,
@@ -11,35 +10,59 @@ export function MockDocsTable({
 }) {
   return (
     <div
-      className={cn(
-        "overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl",
-        className,
-      )}
+      style={{
+        overflow: "hidden",
+        borderRadius: "12px",
+        border: "1px solid #e4e4e7",
+        background: "#fff",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+      }}
     >
-      <div className="border-b border-[var(--color-border)] px-4 py-2.5 text-sm font-semibold">
+      <div style={{ borderBottom: "1px solid #e4e4e7", padding: "10px 16px", fontSize: "14px", fontWeight: 600 }}>
         Documents
       </div>
-      <div className="grid grid-cols-[1fr_80px_90px] gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-muted)]/50 px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-[var(--color-fg-muted)]">
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "1fr 80px 90px",
+          gap: "8px",
+          borderBottom: "1px solid #e4e4e7",
+          background: "rgba(244,244,245,0.5)",
+          padding: "8px 16px",
+          fontSize: "10px",
+          fontWeight: 500,
+          textTransform: "uppercase",
+          letterSpacing: "0.05em",
+          color: "#71717a",
+        }}
+      >
         <div>Title</div>
         <div>Updated</div>
         <div>Version</div>
       </div>
-      <div className="min-h-[140px]">
+      <div style={{ minHeight: "140px" }}>
         <AnimatePresence>
           {hasRow && (
             <motion.div
               initial={{ opacity: 0, y: -16, backgroundColor: "rgba(32,40,255,0.12)" }}
               animate={{ opacity: 1, y: 0, backgroundColor: "rgba(32,40,255,0)" }}
               transition={{ duration: 0.5 }}
-              className="grid grid-cols-[1fr_80px_90px] items-center gap-2 px-4 py-3 text-[12.5px]"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr 80px 90px",
+                alignItems: "center",
+                gap: "8px",
+                padding: "12px 16px",
+                fontSize: "12.5px",
+              }}
             >
-              <div className="flex items-center gap-2 truncate">
-                <FileText className="h-3.5 w-3.5 text-[var(--color-fg-muted)]" />
-                <span className="font-medium">Q3 incident review</span>
+              <div style={{ display: "flex", alignItems: "center", gap: "8px", overflow: "hidden", textOverflow: "ellipsis" }}>
+                <FileText width={14} height={14} style={{ color: "#71717a" }} />
+                <span style={{ fontWeight: 500 }}>Q3 incident review</span>
               </div>
-              <div className="text-[var(--color-fg-muted)]">just now</div>
+              <div style={{ color: "#71717a" }}>just now</div>
               <div>
-                <span className="rounded-full bg-[var(--color-accent-muted)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
+                <span style={{ borderRadius: "9999px", background: "rgba(238,240,255,1)", padding: "2px 8px", fontSize: "10px", fontWeight: 500, color: "#2028ff" }}>
                   v1
                 </span>
               </div>
@@ -47,7 +70,7 @@ export function MockDocsTable({
           )}
         </AnimatePresence>
         {!hasRow && (
-          <div className="flex h-[140px] items-center justify-center text-xs text-[var(--color-fg-muted)]">
+          <div style={{ display: "flex", height: "140px", alignItems: "center", justifyContent: "center", fontSize: "12px", color: "#71717a" }}>
             No documents yet
           </div>
         )}

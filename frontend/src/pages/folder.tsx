@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { Link, useParams, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
 import { useTitle } from "@/lib/use-title";
 import {
@@ -165,9 +165,9 @@ export function FolderPage() {
 
   if (folder.isLoading || contents.isLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <Skeleton className="mb-3 h-9 w-48" />
-        <Skeleton className="h-64 w-full" />
+      <div style={{ maxWidth: "1152px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+        <Skeleton style={{ marginBottom: "12px", height: "36px", width: "192px" }} />
+        <Skeleton style={{ height: "256px", width: "100%" }} />
       </div>
     );
   }
@@ -200,57 +200,55 @@ export function FolderPage() {
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      {/* Breadcrumbs */}
-      <nav className="mb-4 flex items-center gap-1 text-sm text-[var(--color-fg-muted)]">
+    <div style={{ maxWidth: "1152px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+      <nav style={{ marginBottom: "16px", display: "flex", alignItems: "center", gap: "4px", fontSize: "14px", color: "#71717a" }}>
         <DroppableBreadcrumb dropId="drop:__root__" to="/app/documents" label="Documents" isDragging={!!activeDrag} />
         {breadcrumbs.map((b) => (
-          <span key={b.id} className="flex items-center gap-1">
-            <ChevronRight className="h-3 w-3" />
+          <span key={b.id} style={{ display: "flex", alignItems: "center", gap: "4px" }}>
+            <ChevronRight style={{ height: "12px", width: "12px" }} />
             <DroppableBreadcrumb dropId={`drop:${b.id}`} to={`/app/folders/${b.id}`} label={b.title} isDragging={!!activeDrag} />
           </span>
         ))}
-        <ChevronRight className="h-3 w-3" />
-        <span className="font-medium text-[var(--color-fg)]">{f.title}</span>
+        <ChevronRight style={{ height: "12px", width: "12px" }} />
+        <span style={{ fontWeight: 500, color: "#18181b" }}>{f.title}</span>
       </nav>
 
-      {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <FolderIcon className="h-6 w-6 text-[var(--color-accent)]" />
+      <div style={{ marginBottom: "24px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
+          <FolderIcon style={{ height: "24px", width: "24px", color: "#2028ff" }} />
           <div>
-            <h1 className="text-2xl font-semibold tracking-tight">{f.title}</h1>
-            <p className="text-sm text-[var(--color-fg-muted)]">{f.owner?.name || f.owner?.email || ""}</p>
+            <h1 style={{ fontSize: "24px", fontWeight: 600, letterSpacing: "-0.02em" }}>{f.title}</h1>
+            <p style={{ fontSize: "14px", color: "#71717a" }}>{f.owner?.name || f.owner?.email || ""}</p>
           </div>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex rounded-md border border-[var(--color-border)]">
+        <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+          <div style={{ display: "flex", borderRadius: "6px", border: "1px solid #e4e4e7" }}>
             <Button
               variant="ghost"
               size="icon"
-              className={`rounded-r-none ${viewMode === "gallery" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              style={{ borderRadius: "6px 0 0 6px", ...(viewMode === "gallery" ? { background: "#f4f4f5" } : {}) }}
               onClick={() => viewModeStore.write("gallery")}
               aria-label="Gallery view"
             >
-              <LayoutGrid className="h-4 w-4" />
+              <LayoutGrid style={{ height: "16px", width: "16px" }} />
             </Button>
             <Button
               variant="ghost"
               size="icon"
-              className={`rounded-l-none border-l border-[var(--color-border)] ${viewMode === "list" ? "bg-[var(--color-surface-muted)]" : ""}`}
+              style={{ borderRadius: "0 6px 6px 0", borderLeft: "1px solid #e4e4e7", ...(viewMode === "list" ? { background: "#f4f4f5" } : {}) }}
               onClick={() => viewModeStore.write("list")}
               aria-label="List view"
             >
-              <List className="h-4 w-4" />
+              <List style={{ height: "16px", width: "16px" }} />
             </Button>
           </div>
           <Button variant="outline" size="md" onClick={() => setNewFolderOpen(true)}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" /> New folder
+            <Plus style={{ marginRight: "6px", height: "14px", width: "14px" }} /> New folder
           </Button>
           <Sheet>
             <SheetTrigger asChild>
               <Button variant="outline" size="sm">
-                <Share2 className="mr-1.5 h-3.5 w-3.5" /> Share
+                <Share2 style={{ marginRight: "6px", height: "14px", width: "14px" }} /> Share
               </Button>
             </SheetTrigger>
             <ShareSheet resourceType="folder" resourceId={id} />
@@ -258,18 +256,18 @@ export function FolderPage() {
           <Dropdown>
             <DropdownTrigger asChild>
               <Button variant="ghost" size="icon">
-                <MoreHorizontal className="h-4 w-4" />
+                <MoreHorizontal style={{ height: "16px", width: "16px" }} />
               </Button>
             </DropdownTrigger>
             <DropdownContent>
               <DropdownItem onSelect={() => { setRenameTitle(f.title); setRenameOpen(true); }}>
-                <Pencil className="h-4 w-4" /> Rename
+                <Pencil style={{ height: "16px", width: "16px" }} /> Rename
               </DropdownItem>
               <DropdownItem onSelect={() => setNewFolderOpen(true)}>
-                <Plus className="h-4 w-4" /> New subfolder
+                <Plus style={{ height: "16px", width: "16px" }} /> New subfolder
               </DropdownItem>
-              <DropdownItem onSelect={() => window.setTimeout(() => setDeleteOpen(true), 0)} className="text-[var(--color-danger)]">
-                <Trash2 className="h-4 w-4" /> Delete folder
+              <DropdownItem onSelect={() => window.setTimeout(() => setDeleteOpen(true), 0)} style={{ color: "#dc2626" }}>
+                <Trash2 style={{ height: "16px", width: "16px" }} /> Delete folder
               </DropdownItem>
             </DropdownContent>
           </Dropdown>
@@ -291,7 +289,6 @@ export function FolderPage() {
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Contents */}
       {items.length === 0 ? (
         <EmptyState
           title="Empty folder"
@@ -301,7 +298,6 @@ export function FolderPage() {
         <FolderContents items={items} pinnedIds={pinnedIds} />
       )}
 
-      {/* New subfolder dialog */}
       <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
         <DialogContent>
           <DialogHeader>
@@ -319,7 +315,7 @@ export function FolderPage() {
               onChange={(e) => setNewFolderTitle(e.target.value)}
               autoFocus
             />
-            <DialogFooter className="mt-4">
+            <DialogFooter style={{ marginTop: "16px" }}>
               <Button
                 type="button"
                 variant="ghost"
@@ -338,7 +334,6 @@ export function FolderPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Rename dialog */}
       <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
         <DialogContent>
           <DialogHeader>
@@ -355,7 +350,7 @@ export function FolderPage() {
               onChange={(e) => setRenameTitle(e.target.value)}
               autoFocus
             />
-            <DialogFooter className="mt-4">
+            <DialogFooter style={{ marginTop: "16px" }}>
               <Button type="button" variant="ghost" onClick={() => setRenameOpen(false)}>
                 Cancel
               </Button>
@@ -381,15 +376,38 @@ export function FolderPage() {
     </div>
     <DragOverlay dropAnimation={null}>
       {activeDrag && viewMode === "gallery" && (
-        <div className="flex h-36 w-48 flex-col items-center justify-center rounded-lg border border-[var(--color-accent)] bg-[var(--color-surface)] opacity-30 shadow-xl">
-          {activeDrag.type === "folder" ? <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" /> : <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />}
-          <div className="mt-2 max-w-[10rem] truncate px-3 text-sm font-medium">{activeDrag.title}</div>
+        <div style={{
+          display: "flex",
+          height: "144px",
+          width: "192px",
+          flexDirection: "column",
+          alignItems: "center",
+          justifyContent: "center",
+          borderRadius: "8px",
+          border: "1px solid #2028ff",
+          background: "#fff",
+          opacity: 0.3,
+          boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)",
+        }}>
+          {activeDrag.type === "folder" ? <FolderIcon style={{ height: "40px", width: "40px", color: "rgba(32,40,255,0.6)" }} /> : <FileText style={{ height: "40px", width: "40px", color: "rgba(113,113,122,0.3)" }} />}
+          <div style={{ marginTop: "8px", maxWidth: "160px", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", padding: "0 12px", fontSize: "14px", fontWeight: 500 }}>{activeDrag.title}</div>
         </div>
       )}
       {activeDrag && viewMode === "list" && (
-        <div className="flex w-64 items-center gap-2 rounded-md border border-[var(--color-accent)] bg-[var(--color-surface)] px-3 py-2 opacity-30 shadow-xl">
-          {activeDrag.type === "folder" ? <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" /> : <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />}
-          <span className="truncate text-sm font-medium">{activeDrag.title}</span>
+        <div style={{
+          display: "flex",
+          width: "256px",
+          alignItems: "center",
+          gap: "8px",
+          borderRadius: "6px",
+          border: "1px solid #2028ff",
+          background: "#fff",
+          padding: "8px 12px",
+          opacity: 0.3,
+          boxShadow: "0 20px 25px -5px rgba(0,0,0,0.1), 0 8px 10px -6px rgba(0,0,0,0.1)",
+        }}>
+          {activeDrag.type === "folder" ? <FolderIcon style={{ height: "16px", width: "16px", color: "#2028ff" }} /> : <FileText style={{ height: "16px", width: "16px", color: "#71717a" }} />}
+          <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "14px", fontWeight: 500 }}>{activeDrag.title}</span>
         </div>
       )}
     </DragOverlay>
@@ -428,12 +446,15 @@ function DroppableBreadcrumb({ dropId, to, label, isDragging }: { dropId: string
     <Link
       ref={setNodeRef}
       to={to}
-      className={`rounded px-1.5 py-0.5 transition-colors hover:underline ${
-        isDragging ? "ring-1 ring-[var(--color-border)] ring-dashed" : ""
-      } ${isOver ? "bg-[var(--color-accent)]/15 ring-2 ring-[var(--color-accent)] font-medium text-[var(--color-accent)]" : ""}`}
+      style={{
+        borderRadius: "4px",
+        padding: "2px 6px",
+        transition: "background-color 0.15s",
+        ...(isDragging ? { outline: "1px dashed #e4e4e7" } : {}),
+        ...(isOver ? { background: "rgba(32,40,255,0.15)", outline: "2px solid #2028ff", fontWeight: 500, color: "#2028ff" } : {}),
+      }}
     >
       {label}
     </Link>
   );
 }
-

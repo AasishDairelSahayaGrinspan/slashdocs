@@ -1,56 +1,68 @@
 import * as React from "react";
-import * as DM from "@radix-ui/react-dropdown-menu";
-import { cn } from "@/lib/cn";
 
-export const Dropdown = DM.Root;
-export const DropdownTrigger = DM.Trigger;
+export const Dropdown = ({ children }: { children: React.ReactNode } & Record<string, unknown>) => {
+  return <>{children}</>;
+};
 
-export function DropdownContent({
-  className,
-  ...p
-}: React.ComponentPropsWithoutRef<typeof DM.Content>) {
+export const DropdownTrigger = ({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) => {
+  return <>{children}</>;
+};
+
+export function DropdownContent({ children, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <DM.Portal>
-      <DM.Content
-        sideOffset={6}
-        align="end"
-        className={cn(
-          "z-50 min-w-[200px] rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg focus:outline-none",
-          className,
-        )}
-        {...p}
-      />
-    </DM.Portal>
-  );
-}
-export function DropdownItem({
-  className,
-  ...p
-}: React.ComponentPropsWithoutRef<typeof DM.Item>) {
-  return (
-    <DM.Item
-      className={cn(
-        "flex cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-[var(--color-surface-muted)]",
-        className,
-      )}
+    <div
+      style={{
+        minWidth: "200px",
+        borderRadius: "10px",
+        border: "1px solid #e4e4e7",
+        background: "#fff",
+        padding: "4px",
+        boxShadow: "0 4px 12px rgba(0,0,0,0.08)",
+      }}
       {...p}
-    />
+    >
+      {children}
+    </div>
   );
 }
+
+export function DropdownItem({ children, ...p }: React.HTMLAttributes<HTMLDivElement>) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        cursor: "pointer",
+        alignItems: "center",
+        gap: "8px",
+        borderRadius: "6px",
+        padding: "6px 8px",
+        fontSize: "14px",
+      }}
+      {...p}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function DropdownSeparator() {
-  return <DM.Separator className="my-1 h-px bg-[var(--color-border)]" />;
+  return <div style={{ margin: "4px 0", height: "1px", background: "#e4e4e7" }} />;
 }
-export function DropdownLabel({
-  className,
-  ...p
-}: React.ComponentPropsWithoutRef<typeof DM.Label>) {
+
+export function DropdownLabel({ children, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <DM.Label
-      className={cn(
-        "px-2 py-1 text-[11px] font-medium uppercase tracking-wider text-[var(--color-fg-muted)]",
-        className,
-      )}
+    <div
+      style={{
+        padding: "4px 8px",
+        fontSize: "11px",
+        fontWeight: 500,
+        textTransform: "uppercase",
+        letterSpacing: "0.05em",
+        color: "#71717a",
+      }}
       {...p}
-    />
+    >
+      {children}
+    </div>
   );
 }

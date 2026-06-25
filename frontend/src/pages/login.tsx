@@ -7,21 +7,9 @@ import { setFrontendSignedOut, useFrontendSignedOut } from "@/lib/auth-state";
 import { useMe } from "@/lib/hooks";
 
 const HIGHLIGHTS = [
-  {
-    icon: Sparkles,
-    title: "Built for AI output",
-    body: "Your agents publish finished documents straight to aidocs.",
-  },
-  {
-    icon: MessageSquareText,
-    title: "Comment in context",
-    body: "Highlight a passage and leave feedback, just like Google Docs.",
-  },
-  {
-    icon: Share2,
-    title: "Share and iterate",
-    body: "Versioned, shareable, and ready for the next revision.",
-  },
+  { icon: Sparkles, title: "Built for AI output", body: "Your agents publish finished documents straight to aidocs." },
+  { icon: MessageSquareText, title: "Comment in context", body: "Highlight a passage and leave feedback, just like Google Docs." },
+  { icon: Share2, title: "Share and iterate", body: "Versioned, shareable, and ready for the next revision." },
 ];
 
 export function LoginPage() {
@@ -35,43 +23,41 @@ export function LoginPage() {
     return <Navigate to={next} replace />;
   }
   return (
-    <div className="relative flex min-h-full flex-col items-center justify-center overflow-hidden bg-[var(--color-bg)] px-6 py-12">
-      {/* Subtle accent glow behind the card. */}
+    <div style={{ position: "relative", display: "flex", minHeight: "100%", flexDirection: "column", alignItems: "center", justifyContent: "center", overflow: "hidden", background: "#fafafa", padding: "48px 24px" }}>
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/3 h-[28rem] w-[28rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--color-accent)] opacity-[0.07] blur-3xl"
+        style={{ pointerEvents: "none", position: "absolute", left: "50%", top: "33%", height: "28rem", width: "28rem", transform: "translate(-50%, -50%)", borderRadius: "9999px", background: "#2028ff", opacity: 0.07, filter: "blur(64px)" }}
       />
       <Link
         to="/"
-        className="absolute left-6 top-6 flex items-center gap-1 text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
+        style={{ position: "absolute", left: "24px", top: "24px", display: "flex", alignItems: "center", gap: "4px", fontSize: "14px", color: "#71717a" }}
       >
-        <ArrowLeft className="h-4 w-4" /> Home
+        <ArrowLeft width={16} height={16} /> Home
       </Link>
-      <div className="relative w-full max-w-sm">
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-sm">
-          <div className="mb-7 flex flex-col items-center text-center">
-            <img src="/favicon.svg" alt="" className="mb-4 h-14 w-14" />
-            <h1 className="text-2xl font-semibold tracking-tight">Sign in to aidocs</h1>
-            <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
+      <div style={{ position: "relative", width: "100%", maxWidth: "384px" }}>
+        <div style={{ borderRadius: "16px", border: "1px solid #e4e4e7", background: "#fff", padding: "32px", boxShadow: "0 1px 3px rgba(0,0,0,0.04)" }}>
+          <div style={{ marginBottom: "28px", display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+            <img src="/favicon.svg" alt="" style={{ marginBottom: "16px", height: "56px", width: "56px" }} />
+            <h1 style={{ fontSize: "24px", fontWeight: 600, letterSpacing: "-0.02em" }}>Sign in to aidocs</h1>
+            <p style={{ marginTop: "8px", fontSize: "14px", color: "#71717a" }}>
               The review layer for documents your agents write.
             </p>
           </div>
-          <Button asChild size="lg" className="w-full">
-            {/* nosemgrep: typescript.react.react-href-url.react-href-url - api.loginURL always returns a same-origin relative path and URL-encodes next as a query parameter. */}
+          <Button asChild size="lg" isFullWidth>
             <a href={url} onClick={() => setFrontendSignedOut(false)}>
               <GoogleIcon /> Continue with Google
             </a>
           </Button>
         </div>
-        <ul className="mt-6 space-y-3">
+        <ul style={{ marginTop: "24px", listStyle: "none", padding: 0, display: "flex", flexDirection: "column", gap: "12px" }}>
           {HIGHLIGHTS.map((h) => (
-            <li key={h.title} className="flex items-start gap-3">
-              <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
-                <h.icon className="h-3.5 w-3.5" />
+            <li key={h.title} style={{ display: "flex", alignItems: "flex-start", gap: "12px" }}>
+              <span style={{ marginTop: "2px", display: "flex", height: "28px", width: "28px", flexShrink: 0, alignItems: "center", justifyContent: "center", borderRadius: "6px", background: "rgba(238,240,255,1)", color: "#2028ff" }}>
+                <h.icon width={14} height={14} />
               </span>
               <div>
-                <div className="text-sm font-medium">{h.title}</div>
-                <div className="text-xs text-[var(--color-fg-muted)]">{h.body}</div>
+                <div style={{ fontSize: "14px", fontWeight: 500 }}>{h.title}</div>
+                <div style={{ fontSize: "12px", color: "#71717a" }}>{h.body}</div>
               </div>
             </li>
           ))}
@@ -83,7 +69,7 @@ export function LoginPage() {
 
 function GoogleIcon() {
   return (
-    <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden>
+    <svg viewBox="0 0 24 24" width={16} height={16} aria-hidden>
       <path
         fill="#fff"
         d="M21.35 11.1H12v2.9h5.35c-.23 1.45-1.7 4.25-5.35 4.25-3.22 0-5.85-2.67-5.85-5.95s2.63-5.95 5.85-5.95c1.83 0 3.06.78 3.76 1.45l2.56-2.47C16.66 3.78 14.55 2.8 12 2.8 6.92 2.8 2.8 6.92 2.8 12s4.12 9.2 9.2 9.2c5.31 0 8.83-3.73 8.83-8.98 0-.6-.06-1.06-.15-1.51z"

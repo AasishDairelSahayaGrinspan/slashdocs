@@ -17,53 +17,76 @@ export function MockDocViewer({
 }) {
   return (
     <div
-      className={cn(
-        "relative overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl",
-        className,
-      )}
+      className={cn("mock-doc-viewer", className)}
+      style={{
+        position: "relative",
+        overflow: "hidden",
+        borderRadius: "12px",
+        border: "1px solid #e4e4e7",
+        background: "#fff",
+        boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+      }}
     >
-      {/* doc bar */}
-      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2.5">
-        <div className="flex items-center gap-2 text-sm">
-          <span className="font-semibold">Q3 incident review</span>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: "1px solid #e4e4e7", padding: "10px 16px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px" }}>
+          <span style={{ fontWeight: 600 }}>Q3 incident review</span>
           <motion.span
             key={version}
             initial={{ scale: 0.6, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: "spring", stiffness: 400, damping: 18 }}
-            className="rounded-full bg-[var(--color-accent-muted)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-accent)]"
+            style={{
+              borderRadius: "9999px",
+              background: "rgba(238,240,255,1)",
+              padding: "2px 8px",
+              fontSize: "10px",
+              fontWeight: 500,
+              color: "#2028ff",
+            }}
           >
             v{version}
           </motion.span>
         </div>
-        <div className="flex gap-1.5">
-          <span className="h-2 w-2 rounded-full bg-[var(--color-border-strong)]" />
-          <span className="h-2 w-2 rounded-full bg-[var(--color-border-strong)]" />
-          <span className="h-2 w-2 rounded-full bg-[var(--color-border-strong)]" />
+        <div style={{ display: "flex", gap: "6px" }}>
+          <span style={{ height: "8px", width: "8px", borderRadius: "9999px", background: "#d4d4d8" }} />
+          <span style={{ height: "8px", width: "8px", borderRadius: "9999px", background: "#d4d4d8" }} />
+          <span style={{ height: "8px", width: "8px", borderRadius: "9999px", background: "#d4d4d8" }} />
         </div>
       </div>
-      {/* body */}
-      <div className="flex">
-        <div className="relative flex-1 p-5 text-[11.5px] leading-relaxed text-[var(--color-fg)]">
+      <div style={{ display: "flex" }}>
+        <div style={{ position: "relative", flex: 1, padding: "20px", fontSize: "11.5px", lineHeight: 1.6, color: "#18181b" }}>
           <RichDoc highlight={!!highlight} />
-          {/* selection bubble overlay positioned over the highlighted phrase */}
           <AnimatePresence>
             {commentState === "selecting" && (
               <motion.div
                 initial={{ opacity: 0, y: -4 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className="pointer-events-none absolute left-[22%] top-[58%] flex items-center gap-1 rounded-md bg-zinc-900 px-2 py-1 text-[10px] font-medium text-white shadow-lg ring-1 ring-black/20"
+                style={{
+                  position: "absolute",
+                  left: "22%",
+                  top: "58%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: "4px",
+                  borderRadius: "6px",
+                  background: "#18181b",
+                  padding: "4px 8px",
+                  fontSize: "10px",
+                  fontWeight: 500,
+                  color: "#fff",
+                  boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+                  pointerEvents: "none",
+                }}
               >
-                <span className="inline-block h-1.5 w-1.5 rounded-full bg-[var(--color-accent)]" />
+                <span style={{ display: "inline-block", height: "6px", width: "6px", borderRadius: "9999px", background: "#2028ff" }} />
                 Comment
               </motion.div>
             )}
           </AnimatePresence>
         </div>
-        {/* comment rail */}
-        <div className="w-[180px] shrink-0 border-l border-[var(--color-border)] bg-[var(--color-surface-muted)]/40 p-2.5">
-          <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--color-fg-muted)]">
+        <div style={{ width: "180px", flexShrink: 0, borderLeft: "1px solid #e4e4e7", background: "rgba(244,244,245,0.4)", padding: "10px" }}>
+          <div style={{ marginBottom: "8px", fontSize: "10px", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "#71717a" }}>
             Comments
           </div>
           <AnimatePresence>
@@ -72,25 +95,29 @@ export function MockDocViewer({
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0 }}
-                className={cn(
-                  "rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[10px]",
-                  commentState === "resolved" && "opacity-60",
-                )}
+                style={{
+                  borderRadius: "6px",
+                  border: "1px solid #e4e4e7",
+                  background: "#fff",
+                  padding: "8px",
+                  fontSize: "10px",
+                  opacity: commentState === "resolved" ? 0.6 : 1,
+                }}
               >
-                <div className="mb-1 flex items-center justify-between">
-                  <span className="font-semibold">alice</span>
+                <div style={{ marginBottom: "4px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ fontWeight: 600 }}>alice</span>
                   {commentState === "resolved" ? (
-                    <CheckCircle2 className="h-3 w-3 text-[var(--color-success)]" />
+                    <CheckCircle2 width={12} height={12} style={{ color: "#16a34a" }} />
                   ) : (
-                    <span className="rounded-full bg-[var(--color-accent-muted)] px-1.5 py-px text-[8px] font-medium text-[var(--color-accent)]">
+                    <span style={{ borderRadius: "9999px", background: "rgba(238,240,255,1)", padding: "1px 6px", fontSize: "8px", fontWeight: 500, color: "#2028ff" }}>
                       open
                     </span>
                   )}
                 </div>
-                <div className="mb-1 border-l-2 border-[var(--color-border-strong)] pl-1 text-[var(--color-fg-muted)]">
+                <div style={{ marginBottom: "4px", borderLeft: "2px solid #d4d4d8", paddingLeft: "4px", color: "#71717a" }}>
                   …impact window…
                 </div>
-                <div className="text-[var(--color-fg)]">
+                <div style={{ color: "#18181b" }}>
                   Clarify the impact window.
                 </div>
               </motion.div>
@@ -105,75 +132,78 @@ export function MockDocViewer({
 function RichDoc({ highlight }: { highlight: boolean }) {
   return (
     <>
-      <h3 className="mb-1 text-[15px] font-semibold tracking-tight">
+      <h3 style={{ marginBottom: "4px", fontSize: "15px", fontWeight: 600, letterSpacing: "-0.02em" }}>
         Q3 payments incident — postmortem
       </h3>
-      <div className="mb-3 flex items-center gap-2 text-[10px] text-[var(--color-fg-muted)]">
+      <div style={{ marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "10px", color: "#71717a" }}>
         <span>Sept 14, 2025</span>
         <span>·</span>
-        <span className="rounded bg-red-500/15 px-1.5 py-px text-red-500">
+        <span style={{ borderRadius: "4px", background: "rgba(239,68,68,0.15)", padding: "0 6px", color: "#ef4444" }}>
           Sev-1
         </span>
         <span>·</span>
         <span>owner: payments-platform</span>
       </div>
-      <p className="mb-3">
-        On Sept 14, the payments API returned <code className="rounded bg-[var(--color-surface-muted)] px-1 font-mono text-[10px]">5xx</code> errors for{" "}
+      <p style={{ marginBottom: "12px" }}>
+        On Sept 14, the payments API returned <code style={{ borderRadius: "4px", background: "#f4f4f5", padding: "0 4px", fontFamily: "monospace", fontSize: "10px" }}>5xx</code> errors for{" "}
         <span
-          className={cn(
-            "rounded px-0.5 transition-colors duration-300",
-            highlight ? "bg-yellow-200/80 dark:bg-yellow-400/30" : "",
-          )}
+          style={{
+            borderRadius: "4px",
+            padding: "0 2px",
+            transition: "background-color 0.3s",
+            background: highlight ? "rgba(250,204,21,0.8)" : "transparent",
+          }}
         >
           roughly 12 minutes during the impact window
         </span>
         , affecting 3.2% of merchants.
       </p>
 
-      <h4 className="mb-1 mt-3 text-[12px] font-semibold">Impact</h4>
-      <table className="mb-3 w-full text-[10px]">
-        <thead className="text-left text-[var(--color-fg-muted)]">
+      <h4 style={{ marginBottom: "4px", marginTop: "12px", fontSize: "12px", fontWeight: 600 }}>Impact</h4>
+      <table style={{ marginBottom: "12px", width: "100%", fontSize: "10px" }}>
+        <thead style={{ textAlign: "left", color: "#71717a" }}>
           <tr>
-            <th className="border-b border-[var(--color-border)] pb-1 font-medium">
+            <th style={{ borderBottom: "1px solid #e4e4e7", paddingBottom: "4px", fontWeight: 500 }}>
               Metric
             </th>
-            <th className="border-b border-[var(--color-border)] pb-1 font-medium">
+            <th style={{ borderBottom: "1px solid #e4e4e7", paddingBottom: "4px", fontWeight: 500 }}>
               Value
             </th>
           </tr>
         </thead>
         <tbody>
           <tr>
-            <td className="py-1">Failed requests</td>
-            <td className="py-1 font-mono">14,203</td>
+            <td style={{ padding: "4px 0" }}>Failed requests</td>
+            <td style={{ padding: "4px 0", fontFamily: "monospace" }}>14,203</td>
           </tr>
           <tr>
-            <td className="py-1">Merchants affected</td>
-            <td className="py-1 font-mono">3.2%</td>
+            <td style={{ padding: "4px 0" }}>Merchants affected</td>
+            <td style={{ padding: "4px 0", fontFamily: "monospace" }}>3.2%</td>
           </tr>
           <tr>
-            <td className="py-1">Revenue at risk</td>
-            <td className="py-1 font-mono">$48,200</td>
+            <td style={{ padding: "4px 0" }}>Revenue at risk</td>
+            <td style={{ padding: "4px 0", fontFamily: "monospace" }}>$48,200</td>
           </tr>
         </tbody>
       </table>
 
-      <h4 className="mb-1 mt-3 text-[12px] font-semibold">Error rate</h4>
-      <div className="mb-3 flex h-14 items-end gap-1 rounded-md bg-[var(--color-surface-muted)]/60 p-2">
+      <h4 style={{ marginBottom: "4px", marginTop: "12px", fontSize: "12px", fontWeight: 600 }}>Error rate</h4>
+      <div style={{ marginBottom: "12px", display: "flex", height: "56px", alignItems: "flex-end", gap: "4px", borderRadius: "6px", background: "rgba(244,244,245,0.6)", padding: "8px" }}>
         {[12, 18, 14, 22, 88, 95, 76, 30, 14, 11, 9, 10].map((h, i) => (
           <div
             key={i}
-            style={{ height: `${h}%` }}
-            className={cn(
-              "flex-1 rounded-sm",
-              h > 50 ? "bg-red-400/80" : "bg-[var(--color-accent)]/70",
-            )}
+            style={{
+              height: `${h}%`,
+              flex: 1,
+              borderRadius: "2px",
+              background: h > 50 ? "rgba(248,113,113,0.8)" : "rgba(32,40,255,0.7)",
+            }}
           />
         ))}
       </div>
 
-      <h4 className="mb-1 text-[12px] font-semibold">Root cause</h4>
-      <pre className="overflow-hidden rounded-md bg-[var(--color-surface-muted)] p-2 font-mono text-[9.5px] leading-relaxed text-[var(--color-fg)]">
+      <h4 style={{ marginBottom: "4px", fontSize: "12px", fontWeight: 600 }}>Root cause</h4>
+      <pre style={{ overflow: "hidden", borderRadius: "6px", background: "#f4f4f5", padding: "8px", fontFamily: "monospace", fontSize: "9.5px", lineHeight: 1.6, color: "#18181b" }}>
         {`if conn.IdleTimeout < ctx.Deadline() {
   // pool returned a stale conn → 5xx
   return ErrUpstream

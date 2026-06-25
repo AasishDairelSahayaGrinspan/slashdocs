@@ -25,9 +25,9 @@ export function AppShell() {
   if (!me.data) return null;
   const user = me.data.user || me.data.principal;
   return (
-    <div className="flex h-full flex-col">
+    <div style={{ display: "flex", height: "100%", flexDirection: "column" }}>
       <TopBar user={user} />
-      <main className="flex-1 overflow-auto">
+      <main style={{ flex: 1, overflow: "auto" }}>
         <Outlet />
       </main>
     </div>

@@ -14,8 +14,6 @@ function apply(t: Theme) {
   document.documentElement.classList.toggle("dark", isDark);
 }
 
-// ThemeProvider keeps the document's theme class in sync with the stored
-// preference and with the OS setting while "system" is selected.
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const theme = store.useStore();
   React.useEffect(() => {
@@ -38,8 +36,6 @@ function resolve(t: Theme): "light" | "dark" {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
 }
 
-// useResolvedTheme returns the concrete "light"/"dark" the reader is seeing,
-// resolving "system" against the OS and re-resolving when the OS flips.
 export function useResolvedTheme(): "light" | "dark" {
   const theme = store.useStore();
   const [resolved, setResolved] = React.useState(() => resolve(theme));

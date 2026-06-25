@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
 import { Copy } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -195,17 +195,25 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
       </SheetHeader>
       <SheetBody>
         {pendingChange ? (
-          <div className="space-y-3 rounded-lg border border-[var(--color-warning-border)] bg-[var(--color-warning-bg,var(--color-surface-muted))] p-4">
-            <p className="text-sm font-medium">
+          <div style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: "12px",
+            borderRadius: "8px",
+            border: "1px solid #d97706",
+            background: "#f4f4f5",
+            padding: "16px",
+          }}>
+            <p style={{ fontSize: "14px", fontWeight: 500 }}>
               {pendingChange.action === "revoke" ? "Remove" : "Change"} access for {pendingChange.label}?
             </p>
-            <p className="text-xs text-[var(--color-fg-muted)]">
-              This access is inherited from <span className="font-medium">{pendingChange.source.resource_title}</span>.
+            <p style={{ fontSize: "12px", color: "#71717a" }}>
+              This access is inherited from <span style={{ fontWeight: 500 }}>{pendingChange.source.resource_title}</span>.
               {pendingChange.action === "revoke"
                 ? " Removing it will affect everyone who accesses items through that folder."
                 : " Changing it will affect everyone who accesses items through that folder."}
             </p>
-            <div className="flex gap-2">
+            <div style={{ display: "flex", gap: "8px" }}>
               <Button
                 size="sm"
                 variant="outline"
@@ -225,7 +233,7 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
         ) : (
           <>
             <form
-              className="space-y-3"
+              style={{ display: "flex", flexDirection: "column", gap: "12px" }}
               onSubmit={(e) => {
                 e.preventDefault();
                 m.mutate();
@@ -240,21 +248,21 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                   autoCorrect="off"
                   spellCheck={false}
                 />
-                <p className="mt-1.5 text-[11px] text-[var(--color-fg-muted)]">
+                <p style={{ marginTop: "6px", fontSize: "11px", color: "#71717a" }}>
                   Search existing aidocs users by email, or add a bot by its address.
                 </p>
                 {userSuggestions.length > 0 ? (
-                  <div className="mt-2 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
+                  <div style={{ marginTop: "8px", overflow: "hidden", borderRadius: "8px", border: "1px solid #e4e4e7", background: "#fff" }}>
                     {userSuggestions.map((u) => (
                       <button
                         key={u.id || u.email}
                         type="button"
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-muted)]"
+                        style={{ display: "block", width: "100%", padding: "8px 12px", textAlign: "left", fontSize: "14px", background: "transparent", border: "none", cursor: "pointer" }}
                         onClick={() => setAddress(u.email || "")}
                       >
-                        <div className="font-medium">{u.name || u.email}</div>
+                        <div style={{ fontWeight: 500 }}>{u.name || u.email}</div>
                         {u.name && u.email ? (
-                          <div className="text-xs text-[var(--color-fg-muted)]">
+                          <div style={{ fontSize: "12px", color: "#71717a" }}>
                             {u.email}
                           </div>
                         ) : null}
@@ -264,7 +272,7 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                 ) : debouncedAddress.length >= 2 &&
                   !debouncedAddress.includes(".bot") &&
                   !userSearch.isFetching ? (
-                  <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-fg-muted)]">
+                  <div style={{ marginTop: "8px", borderRadius: "8px", border: "1px solid #e4e4e7", background: "#f4f4f5", padding: "8px 12px", fontSize: "12px", color: "#71717a" }}>
                     No matching aidocs users. They need to sign in once before you can share
                     with them.
                   </div>
@@ -274,7 +282,15 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                 value={role}
                 onChange={(e) => setRole(e.target.value)}
                 aria-label="Access role"
-                className="h-9 w-full rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+                style={{
+                  height: "36px",
+                  width: "100%",
+                  borderRadius: "10px",
+                  border: "1px solid #e4e4e7",
+                  background: "#fff",
+                  padding: "0 12px",
+                  fontSize: "14px",
+                }}
               >
                 {ROLES.map((r) => (
                   <option key={r.value} value={r.value}>
@@ -283,29 +299,29 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                 ))}
               </select>
               <Button
-                className="w-full"
+                isFullWidth
                 type="submit"
                 disabled={!address.trim() || m.isPending}
               >
                 Share
               </Button>
             </form>
-            <div className="mt-6">
-              <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--color-fg-muted)]">
+            <div style={{ marginTop: "24px" }}>
+              <h4 style={{ marginBottom: "8px", fontSize: "12px", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "#71717a" }}>
                 People with access
               </h4>
-              <div className="space-y-1">
+              <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
                 {access.isLoading ? (
                   <>
-                    <Skeleton className="h-9 w-full" />
-                    <Skeleton className="h-9 w-full" />
+                    <Skeleton style={{ height: "36px", width: "100%" }} />
+                    <Skeleton style={{ height: "36px", width: "100%" }} />
                   </>
                 ) : access.error ? (
-                  <div className="text-xs text-[var(--color-danger)]">
+                  <div style={{ fontSize: "12px", color: "#dc2626" }}>
                     Could not load access list.
                   </div>
                 ) : namedItems.length === 0 ? (
-                  <div className="text-xs text-[var(--color-fg-muted)]">
+                  <div style={{ fontSize: "12px", color: "#71717a" }}>
                     No people or bots added yet.
                   </div>
                 ) : (
@@ -316,15 +332,25 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                     return (
                       <div
                         key={item.principal.type + ":" + item.principal.id}
-                        className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: "12px",
+                          borderRadius: "6px",
+                          border: "1px solid #e4e4e7",
+                          background: "#fff",
+                          padding: "8px 12px",
+                          fontSize: "14px",
+                        }}
                       >
-                        <div className="min-w-0">
-                          <div className="truncate font-medium">
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>
                             {item.principal?.name || item.principal?.email || item.principal?.id}
                             {item.principal?.type === "service_account" ? " (bot)" : ""}
                           </div>
                           {item.principal?.name && item.principal?.email ? (
-                            <div className="truncate text-xs text-[var(--color-fg-muted)]">
+                            <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "12px", color: "#71717a" }}>
                               {item.principal.email}
                             </div>
                           ) : null}
@@ -347,7 +373,15 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                             }
                           }}
                           aria-label="Access role"
-                          className="h-8 shrink-0 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm"
+                          style={{
+                            height: "32px",
+                            flexShrink: 0,
+                            borderRadius: "10px",
+                            border: "1px solid #e4e4e7",
+                            background: "#fff",
+                            padding: "0 8px",
+                            fontSize: "14px",
+                          }}
                         >
                           {ROLES.map((r) => (
                             <option key={r.value} value={r.value}>
@@ -362,12 +396,12 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                 )}
               </div>
             </div>
-            <div className="mt-6">
-              <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--color-fg-muted)]">
+            <div style={{ marginTop: "24px" }}>
+              <h4 style={{ marginBottom: "8px", fontSize: "12px", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "#71717a" }}>
                 General access
               </h4>
-              <div className="flex items-center justify-between gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm">
-                <span className="truncate">{everyoneLabel}</span>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px", borderRadius: "6px", border: "1px solid #e4e4e7", background: "#fff", padding: "8px 12px", fontSize: "14px" }}>
+                <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{everyoneLabel}</span>
                 <select
                   value={anyoneEffectiveRole}
                   disabled={general.isPending}
@@ -381,7 +415,14 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                     }
                   }}
                   aria-label="General access role"
-                  className="h-8 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm"
+                  style={{
+                    height: "32px",
+                    borderRadius: "10px",
+                    border: "1px solid #e4e4e7",
+                    background: "#fff",
+                    padding: "0 8px",
+                    fontSize: "14px",
+                  }}
                 >
                   <option value={GENERAL_ACCESS_NONE}>No access</option>
                   {ROLES.map((r) => (
@@ -392,20 +433,19 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                 </select>
               </div>
             </div>
-            <div className="mt-6 rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)]/45 p-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium">{isFolder ? "Folder" : "Document"} link</div>
+            <div style={{ marginTop: "24px", borderRadius: "8px", border: "1px dashed #e4e4e7", background: "rgba(244,244,245,0.45)", padding: "12px" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+                <div style={{ fontSize: "14px", fontWeight: 500 }}>{isFolder ? "Folder" : "Document"} link</div>
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
-                  className="shrink-0"
                   onClick={async () => {
                     await navigator.clipboard.writeText(shareURL);
                     toast.success("Share link copied.");
                   }}
                 >
-                  <Copy className="h-4 w-4" /> Copy link
+                  <Copy style={{ height: "16px", width: "16px" }} /> Copy link
                 </Button>
               </div>
             </div>

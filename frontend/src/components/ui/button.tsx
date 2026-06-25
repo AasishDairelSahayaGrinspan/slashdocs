@@ -1,53 +1,62 @@
 import * as React from "react";
-import { Slot } from "@radix-ui/react-slot";
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/cn";
+import { Button as BladeButton } from "@razorpay/blade/components";
 
-const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)] disabled:pointer-events-none disabled:opacity-50",
-  {
-    variants: {
-      variant: {
-        primary:
-          "bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90",
-        secondary:
-          "bg-[var(--color-surface-muted)] text-[var(--color-fg)] hover:bg-[var(--color-border)]",
-        outline:
-          "border border-[var(--color-border-strong)] bg-[var(--color-surface)] text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]",
-        ghost:
-          "text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]",
-        danger:
-          "bg-[var(--color-danger)] text-[var(--color-danger-fg)] hover:opacity-90",
-        link: "text-[var(--color-accent)] underline-offset-4 hover:underline",
-      },
-      size: {
-        sm: "h-8 px-3 text-sm",
-        md: "h-9 px-4 text-sm",
-        lg: "h-11 px-6 text-base",
-        icon: "h-9 w-9",
-      },
-    },
-    defaultVariants: { variant: "primary", size: "md" },
-  },
-);
+type Variant = "primary" | "secondary" | "outline" | "ghost" | "danger" | "link";
+type Size = "sm" | "md" | "lg" | "icon";
 
 export interface ButtonProps
-  extends React.ButtonHTMLAttributes<HTMLButtonElement>,
-    VariantProps<typeof buttonVariants> {
+  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, "color"> {
+  variant?: Variant;
+  size?: Size;
   asChild?: boolean;
+  icon?: React.ReactNode;
+  isLoading?: boolean;
+  isFullWidth?: boolean;
 }
 
+const variantMap: Record<Variant, { variant: "primary" | "secondary" | "tertiary"; color?: "primary" | "negative" }> = {
+  primary: { variant: "primary" },
+  secondary: { variant: "secondary" },
+  outline: { variant: "secondary" },
+  ghost: { variant: "tertiary" },
+  danger: { variant: "primary", color: "negative" },
+  link: { variant: "tertiary" },
+};
+
+const sizeMap: Record<Size, "xsmall" | "small" | "medium" | "large"> = {
+  sm: "small",
+  md: "medium",
+  lg: "large",
+  icon: "small",
+};
+
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild, ...props }, ref) => {
-    const Comp = asChild ? Slot : "button";
+  ({ variant = "primary", size = "md", asChild, children, ...props }, ref) => {
+    const bladeProps = variantMap[variant] || variantMap.primary;
+    const bladeSize = sizeMap[size] || sizeMap.md;
+
+    if (asChild && React.isValidElement(children)) {
+      const childProps = (children as React.ReactElement).props as Record<string, unknown>;
+      return React.cloneElement(children as React.ReactElement, {
+        ...childProps,
+        ...props,
+      });
+    }
+
     return (
-      <Comp
-        ref={ref}
-        className={cn(buttonVariants({ variant, size }), className)}
-        {...props}
-      />
+      <BladeButton
+        variant={bladeProps.variant}
+        color={bladeProps.color as "primary" | "negative" | undefined}
+        size={bladeSize}
+        onClick={props.onClick as never}
+        isDisabled={props.disabled}
+        type={props.type as "button" | "reset" | "submit" | undefined}
+        isLoading={props.isLoading}
+        isFullWidth={props.isFullWidth}
+      >
+        {children as string}
+      </BladeButton>
     );
   },
 );
 Button.displayName = "Button";
-export { buttonVariants };

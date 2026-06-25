@@ -1,7 +1,7 @@
 import { useTitle } from "@/lib/use-title";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
 import { Bot, KeyRound, Plus, Power, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,18 +45,18 @@ export function ServiceAccountsPage() {
   const selected = items.find((s) => s.id === selectedId) || items[0] || null;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-6 flex items-start justify-between gap-4">
+    <div style={{ maxWidth: "1152px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+      <div style={{ marginBottom: "24px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Bots</h1>
-          <p className="mt-1 max-w-2xl text-sm text-[var(--color-fg-muted)]">
+          <h1 style={{ fontSize: "24px", fontWeight: 600, letterSpacing: "-0.02em" }}>Bots</h1>
+          <p style={{ marginTop: "4px", maxWidth: "672px", fontSize: "14px", color: "#71717a" }}>
             Bots are their own identities — share docs with them just like you would
             with a person. Use them for n8n workflows, scheduled jobs, or anything that
             runs without you.
           </p>
         </div>
         <Button onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" /> New bot
+          <Plus style={{ height: "16px", width: "16px" }} /> New bot
         </Button>
       </div>
       <NewBotDialog
@@ -68,23 +68,23 @@ export function ServiceAccountsPage() {
         }}
       />
 
-      <div className="grid gap-6 md:grid-cols-[280px_1fr]">
-        <div className="space-y-2">
+      <div style={{ display: "grid", gap: "24px", gridTemplateColumns: "280px 1fr" }}>
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
           {sas.isLoading ? (
             <>
-              <Skeleton className="h-12 w-full" />
-              <Skeleton className="h-12 w-full" />
+              <Skeleton style={{ height: "48px", width: "100%" }} />
+              <Skeleton style={{ height: "48px", width: "100%" }} />
             </>
           ) : sas.error ? (
-            <div className="rounded-[12px] border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-danger)]">
+            <div style={{ borderRadius: "12px", border: "1px dashed #e4e4e7", padding: "24px", textAlign: "center", fontSize: "14px", color: "#dc2626" }}>
               Could not load bots.
             </div>
           ) : items.length === 0 ? (
-            <div className="rounded-[12px] border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-fg-muted)]">
+            <div style={{ borderRadius: "12px", border: "1px dashed #e4e4e7", padding: "24px", textAlign: "center", fontSize: "14px", color: "#71717a" }}>
               No bots yet. Create one to share docs with it.
             </div>
           ) : (
-            <ul className="space-y-1">
+            <ul style={{ display: "flex", flexDirection: "column", gap: "4px", listStyle: "none", padding: 0, margin: 0 }}>
               {items.map((sa) => {
                 const id = sa.id;
                 const active = selected?.id === id;
@@ -92,12 +92,25 @@ export function ServiceAccountsPage() {
                   <li key={id}>
                     <button
                       onClick={() => setSelectedId(id)}
-                      className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${active ? "border-[var(--color-accent)] bg-[var(--color-accent-muted)]" : "border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)]"}`}
+                      style={{
+                        display: "flex",
+                        width: "100%",
+                        alignItems: "center",
+                        gap: "8px",
+                        borderRadius: "6px",
+                        border: `1px solid ${active ? "#2028ff" : "#e4e4e7"}`,
+                        background: active ? "#eef0ff" : "#fff",
+                        padding: "8px 12px",
+                        textAlign: "left",
+                        fontSize: "14px",
+                        transition: "background-color 0.15s",
+                        cursor: "pointer",
+                      }}
                     >
-                      <Bot className="h-4 w-4 shrink-0 text-[var(--color-fg-muted)]" />
-                      <div className="min-w-0 flex-1">
-                        <div className="truncate font-medium">{sa.name}</div>
-                        <div className="truncate font-mono text-[10px] text-[var(--color-fg-muted)]">
+                      <Bot style={{ height: "16px", width: "16px", flexShrink: 0, color: "#71717a" }} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }}>{sa.name}</div>
+                        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "ui-monospace, monospace", fontSize: "10px", color: "#71717a" }}>
                           {id}
                         </div>
                       </div>
@@ -115,7 +128,7 @@ export function ServiceAccountsPage() {
             <ServiceAccountDetail sa={selected} />
           ) : (
             <EmptyState
-              icon={<Bot className="h-5 w-5" />}
+              icon={<Bot style={{ height: "20px", width: "20px" }} />}
               title="No bot selected"
               description="Pick one on the left to manage its keys."
             />
@@ -166,27 +179,27 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
   });
 
   return (
-    <div className="space-y-4">
+    <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
       <Card>
-        <CardHeader className="flex flex-row items-start justify-between">
+        <CardHeader style={{ display: "flex", flexDirection: "row", alignItems: "flex-start", justifyContent: "space-between" }}>
           <div>
-            <CardTitle className="flex items-center gap-2">
-              <Bot className="h-4 w-4" /> {name}
+            <CardTitle style={{ display: "flex", alignItems: "center", gap: "8px" }}>
+              <Bot style={{ height: "16px", width: "16px" }} /> {name}
             </CardTitle>
-            <div className="mt-1 font-mono text-xs text-[var(--color-fg-muted)]">
+            <div style={{ marginTop: "4px", fontFamily: "ui-monospace, monospace", fontSize: "12px", color: "#71717a" }}>
               {id}
             </div>
           </div>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button variant="outline" size="sm">
-                <Power className="h-3.5 w-3.5" />
+                <Power style={{ height: "14px", width: "14px" }} />
                 {disabled ? "Enable" : "Disable"}
               </Button>
             </AlertDialogTrigger>
             <AlertDialogContent>
               <AlertDialogTitle>
-                {disabled ? "Enable" : "Disable"} “{name}”?
+                {disabled ? "Enable" : "Disable"} "{name}"?
               </AlertDialogTitle>
               <AlertDialogDescription>
                 {disabled
@@ -206,13 +219,13 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-sm">
-            <KeyRound className="h-4 w-4" /> API keys
+          <CardTitle style={{ display: "flex", alignItems: "center", gap: "8px", fontSize: "14px" }}>
+            <KeyRound style={{ height: "16px", width: "16px" }} /> API keys
           </CardTitle>
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
           <form
-            className="flex gap-2"
+            style={{ display: "flex", gap: "8px" }}
             onSubmit={(e) => {
               e.preventDefault();
               createKey.mutate();
@@ -224,38 +237,47 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
               placeholder="Key name"
             />
             <Button type="submit" disabled={!keyName || createKey.isPending}>
-              <Plus className="h-4 w-4" /> New key
+              <Plus style={{ height: "16px", width: "16px" }} /> New key
             </Button>
           </form>
-          <div className="space-y-1">
+          <div style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
             {keys.isLoading ? (
               <>
-                <Skeleton className="h-10 w-full" />
-                <Skeleton className="h-10 w-full" />
+                <Skeleton style={{ height: "40px", width: "100%" }} />
+                <Skeleton style={{ height: "40px", width: "100%" }} />
               </>
             ) : keys.error ? (
-              <div className="rounded-md border border-dashed border-[var(--color-border)] p-4 text-center text-xs text-[var(--color-danger)]">
+              <div style={{ borderRadius: "6px", border: "1px dashed #e4e4e7", padding: "16px", textAlign: "center", fontSize: "12px", color: "#dc2626" }}>
                 Could not load keys.
               </div>
             ) : keys.data?.items?.length ? (
               keys.data.items.map((k) => (
                 <div
                   key={k.id}
-                  className="flex items-center gap-3 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm"
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: "12px",
+                    borderRadius: "6px",
+                    border: "1px solid #e4e4e7",
+                    background: "#fff",
+                    padding: "8px 12px",
+                    fontSize: "14px",
+                  }}
                 >
-                  <KeyRound className="h-3.5 w-3.5 text-[var(--color-fg-muted)]" />
-                  <span className="font-medium">{k.name}</span>
-                  <span className="flex-1 truncate font-mono text-xs text-[var(--color-fg-muted)]">
+                  <KeyRound style={{ height: "14px", width: "14px", color: "#71717a" }} />
+                  <span style={{ fontWeight: 500 }}>{k.name}</span>
+                  <span style={{ flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "ui-monospace, monospace", fontSize: "12px", color: "#71717a" }}>
                     {k.id}
                   </span>
                   <AlertDialog>
                     <AlertDialogTrigger asChild>
                       <Button variant="ghost" size="icon" aria-label="Revoke">
-                        <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
+                        <Trash2 style={{ height: "14px", width: "14px", color: "#dc2626" }} />
                       </Button>
                     </AlertDialogTrigger>
                     <AlertDialogContent>
-                      <AlertDialogTitle>Revoke key “{k.name}”?</AlertDialogTitle>
+                      <AlertDialogTitle>Revoke key "{k.name}"?</AlertDialogTitle>
                       <AlertDialogDescription>
                         Agents using this key will immediately lose access.
                       </AlertDialogDescription>
@@ -273,7 +295,7 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
                 </div>
               ))
             ) : (
-              <div className="rounded-md border border-dashed border-[var(--color-border)] p-4 text-center text-xs text-[var(--color-fg-muted)]">
+              <div style={{ borderRadius: "6px", border: "1px dashed #e4e4e7", padding: "16px", textAlign: "center", fontSize: "12px", color: "#71717a" }}>
                 No keys yet. Mint one to start using the CLI.
               </div>
             )}
@@ -283,16 +305,16 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-sm">Headless agent quickstart</CardTitle>
+          <CardTitle style={{ fontSize: "14px" }}>Headless agent quickstart</CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="mb-2 text-xs text-[var(--color-fg-muted)]">
+          <p style={{ marginBottom: "8px", fontSize: "12px", color: "#71717a" }}>
             Use the minted key as a bearer token from any HTTP client, or with the CLI
             in non-interactive mode:
           </p>
           <CodeBlock>{`aidocs auth login --token <YOUR_KEY>
 aidocs docs create report.html`}</CodeBlock>
-          <p className="mt-3 text-xs text-[var(--color-fg-muted)]">For raw HTTP:</p>
+          <p style={{ marginTop: "12px", fontSize: "12px", color: "#71717a" }}>For raw HTTP:</p>
           <CodeBlock>{`curl -H "Authorization: Bearer <YOUR_KEY>" \\
   ${url}/v1/documents`}</CodeBlock>
         </CardContent>
@@ -309,11 +331,11 @@ aidocs docs create report.html`}</CodeBlock>
           </DialogHeader>
           {revealToken && (
             <>
-              <div className="mb-1 text-xs font-medium text-[var(--color-fg-muted)]">
+              <div style={{ marginBottom: "4px", fontSize: "12px", fontWeight: 500, color: "#71717a" }}>
                 {revealToken.keyName}
               </div>
               <CodeBlock>{revealToken.token}</CodeBlock>
-              <div className="mt-4 text-xs text-[var(--color-fg-muted)]">
+              <div style={{ marginTop: "16px", fontSize: "12px", color: "#71717a" }}>
                 Use it as a bearer token from your headless agent, or:
               </div>
               <CodeBlock>{`aidocs auth login ${url} --token ${revealToken.token}`}</CodeBlock>
@@ -344,8 +366,6 @@ function NewBotDialog({
   const label = at >= 0 ? trimmed.slice(0, at) : trimmed;
   const domain = at >= 0 ? trimmed.slice(at + 1) : "";
   const hasDomain = at >= 0;
-  // Lightweight inline hint mirroring the server's `.bot` address rule; the
-  // server remains authoritative.
   const domainLooksValid = !hasDomain || domain.endsWith(BOT_DOMAIN_SUFFIX);
   const create = useMutation({
     mutationFn: () => api.createServiceAccount(label, hasDomain ? domain : undefined),
@@ -382,10 +402,10 @@ function NewBotDialog({
                 e.preventDefault();
                 if (label) create.mutate();
               }}
-              className="space-y-4"
+              style={{ display: "flex", flexDirection: "column", gap: "16px" }}
             >
               <div>
-                <label className="mb-1 block text-xs font-medium text-[var(--color-fg-muted)]">
+                <label style={{ marginBottom: "4px", display: "block", fontSize: "12px", fontWeight: 500, color: "#71717a" }}>
                   Name
                 </label>
                 <Input
@@ -397,13 +417,13 @@ function NewBotDialog({
                   spellCheck={false}
                   autoFocus
                 />
-                <p className="mt-1 text-[11px] text-[var(--color-fg-muted)]">
+                <p style={{ marginTop: "4px", fontSize: "11px", color: "#71717a" }}>
                   Letters, numbers, and hyphens. Add{" "}
-                  <code className="font-mono">@something.bot</code> to pick your bot's
+                  <code style={{ fontFamily: "ui-monospace, monospace" }}>@something.bot</code> to pick your bot's
                   address, or skip it and we'll pick one for you.
                 </p>
                 {hasDomain && !domainLooksValid && (
-                  <p className="mt-1 text-[11px] text-[var(--color-danger)]">
+                  <p style={{ marginTop: "4px", fontSize: "11px", color: "#dc2626" }}>
                     Addresses must end in {BOT_DOMAIN_SUFFIX}.
                   </p>
                 )}
@@ -435,11 +455,11 @@ function NewBotDialog({
               </DialogDescription>
             </DialogHeader>
             <CodeBlock>{result.name}</CodeBlock>
-            <div className="mt-5 rounded-[10px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3">
-              <div className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--color-fg-muted)]">
+            <div style={{ marginTop: "20px", borderRadius: "10px", border: "1px solid rgba(217,119,6,0.4)", background: "rgba(217,119,6,0.1)", padding: "12px" }}>
+              <div style={{ marginBottom: "4px", fontSize: "12px", fontWeight: 500, textTransform: "uppercase", letterSpacing: "0.05em", color: "#71717a" }}>
                 Bot key
               </div>
-              <div className="mb-2 text-sm font-semibold text-[var(--color-warning)]">
+              <div style={{ marginBottom: "8px", fontSize: "14px", fontWeight: 600, color: "#d97706" }}>
                 Copy this key now — you won't see it again.
               </div>
               <CodeBlock>{result.token}</CodeBlock>

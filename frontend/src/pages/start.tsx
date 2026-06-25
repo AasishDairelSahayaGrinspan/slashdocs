@@ -17,7 +17,6 @@ import { publicURL } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/misc";
-import { cn } from "@/lib/cn";
 import {
   onboardingProgress,
   useOnboarding,
@@ -45,8 +44,6 @@ export function StartPage() {
     queryFn: () => api.getConfig(),
     staleTime: Infinity,
   });
-  // Self-hosted/org instances aren't the CLI's hosted default, so the login
-  // command must name this server.
   const loginCmd =
     config.data?.deployment === "org"
       ? `aidocs auth login ${publicURL()}`
@@ -63,16 +60,28 @@ export function StartPage() {
     state.steps.cli_installed && state.steps.cli_authed && state.steps.agent_configured;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
-      <div className="mb-8 flex items-start justify-between gap-4">
+    <div style={{ maxWidth: "768px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+      <div style={{ marginBottom: "32px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: "16px" }}>
         <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
-            <Rocket className="h-3 w-3 text-[var(--color-accent)]" /> Setup guide
+          <div style={{
+            marginBottom: "8px",
+            display: "inline-flex",
+            alignItems: "center",
+            gap: "8px",
+            borderRadius: "9999px",
+            border: "1px solid #e4e4e7",
+            background: "#fff",
+            padding: "4px 12px",
+            fontSize: "12px",
+            fontWeight: 500,
+            color: "#71717a",
+          }}>
+            <Rocket style={{ height: "12px", width: "12px", color: "#2028ff" }} /> Setup guide
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight">
+          <h1 style={{ fontSize: "30px", fontWeight: 600, letterSpacing: "-0.02em" }}>
             Get your agent publishing to aidocs
           </h1>
-          <p className="mt-2 max-w-xl text-sm text-[var(--color-fg-muted)]">
+          <p style={{ marginTop: "8px", maxWidth: "576px", fontSize: "14px", color: "#71717a" }}>
             aidocs is meant to be driven by your AI agent — Claude Code, Codex, Cursor,
             Pi, OpenCode, Aider, or anything else. These three steps wire it up. About 2
             minutes.
@@ -80,44 +89,55 @@ export function StartPage() {
         </div>
         <button
           onClick={skipTutorial}
-          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+          style={{
+            display: "flex",
+            flexShrink: 0,
+            alignItems: "center",
+            gap: "4px",
+            borderRadius: "6px",
+            padding: "4px 8px",
+            fontSize: "12px",
+            color: "#71717a",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+          }}
         >
-          Skip tutorial <X className="h-3 w-3" />
+          Skip tutorial <X style={{ height: "12px", width: "12px" }} />
         </button>
       </div>
 
       {allRequiredDone && state.status !== "skipped" && (
-        <Card className="mb-6 border-[var(--color-accent)]/30 bg-[var(--color-accent-muted)]/40">
-          <CardContent className="flex items-center gap-3 pt-5">
-            <PartyPopper className="h-5 w-5 text-[var(--color-accent)]" />
-            <div className="flex-1">
-              <div className="font-medium">You're all set.</div>
-              <div className="text-xs text-[var(--color-fg-muted)]">
+        <Card style={{ marginBottom: "24px", borderColor: "rgba(32,40,255,0.3)", background: "rgba(238,240,255,0.4)" }}>
+          <CardContent style={{ display: "flex", alignItems: "center", gap: "12px", paddingTop: "20px" }}>
+            <PartyPopper style={{ height: "20px", width: "20px", color: "#2028ff" }} />
+            <div style={{ flex: 1 }}>
+              <div style={{ fontWeight: 500 }}>You're all set.</div>
+              <div style={{ fontSize: "12px", color: "#71717a" }}>
                 Ask your agent to publish something to aidocs. It'll show up here.
               </div>
             </div>
             <Button asChild size="sm">
               <Link to="/app/documents">
-                Open documents <ArrowRight className="h-4 w-4" />
+                Open documents <ArrowRight style={{ height: "16px", width: "16px" }} />
               </Link>
             </Button>
           </CardContent>
         </Card>
       )}
 
-      <div className="mb-3 flex items-center gap-2 text-xs text-[var(--color-fg-muted)]">
-        <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-muted)]">
+      <div style={{ marginBottom: "12px", display: "flex", alignItems: "center", gap: "8px", fontSize: "12px", color: "#71717a" }}>
+        <div style={{ height: "4px", flex: 1, overflow: "hidden", borderRadius: "9999px", background: "#f4f4f5" }}>
           <div
-            className="h-full bg-[var(--color-accent)] transition-all"
-            style={{ width: `${(done / total) * 100}%` }}
+            style={{ height: "100%", background: "#2028ff", transition: "all 0.15s", width: `${(done / total) * 100}%` }}
           />
         </div>
-        <span className="font-mono">
+        <span style={{ fontFamily: "ui-monospace, monospace" }}>
           {done}/{total} complete
         </span>
       </div>
 
-      <ol className="space-y-3">
+      <ol style={{ display: "flex", flexDirection: "column", gap: "12px", listStyle: "none", padding: 0, margin: 0 }}>
         <Step
           n={1}
           title="Install the CLI on your machine"
@@ -125,12 +145,12 @@ export function StartPage() {
           state={state}
           setStep={setStep}
         >
-          <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
+          <p style={{ marginBottom: "12px", fontSize: "14px", color: "#71717a" }}>
             One-time, on the machine where your agent runs. Your agent calls this CLI
             under the hood — you won't need to use it directly.
           </p>
           <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash`}</CodeBlock>
-          <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
+          <p style={{ marginTop: "12px", fontSize: "12px", color: "#71717a" }}>
             Works on macOS and Linux.
           </p>
         </Step>
@@ -142,7 +162,7 @@ export function StartPage() {
           state={state}
           setStep={setStep}
         >
-          <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
+          <p style={{ marginBottom: "12px", fontSize: "14px", color: "#71717a" }}>
             One-time. After this, your agent can publish documents on your behalf — no
             keys or tokens to copy around.
           </p>
@@ -192,7 +212,6 @@ function Step({
   children: React.ReactNode;
 }) {
   const done = state.steps[stepKey];
-  // Find the first incomplete step among required ones to default-expand.
   const requiredOrder: StepKey[] = [
     "cli_installed",
     "cli_authed",
@@ -204,66 +223,87 @@ function Step({
   const expanded = forced ?? (done ? false : firstIncomplete === stepKey);
   return (
     <li>
-      <Card
-        className={cn(
-          "transition-colors",
-          done && "bg-[var(--color-surface-muted)]/50",
-        )}
-      >
+      <Card style={{ transition: "background-color 0.15s", ...(done ? { background: "rgba(244,244,245,0.5)" } : {}) }}>
         <button
           type="button"
           onClick={() => setForced((v) => (v === null ? !expanded : !v))}
-          className="flex w-full items-center gap-3 px-5 py-4 text-left"
+          style={{
+            display: "flex",
+            width: "100%",
+            alignItems: "center",
+            gap: "12px",
+            padding: "16px 20px",
+            textAlign: "left",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+          }}
         >
           <span
-            className={cn(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
-              done
-                ? "bg-[var(--color-success)] text-white"
-                : "border-2 border-[var(--color-border-strong)] text-[var(--color-fg-muted)]",
-            )}
+            style={{
+              display: "flex",
+              height: "24px",
+              width: "24px",
+              flexShrink: 0,
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "9999px",
+              fontSize: "12px",
+              fontWeight: 600,
+              ...(done
+                ? { background: "#16a34a", color: "#fff" }
+                : { border: "2px solid #d4d4d8", color: "#71717a" }),
+            }}
           >
-            {done ? <Check className="h-3.5 w-3.5" /> : n}
+            {done ? <Check style={{ height: "14px", width: "14px" }} /> : n}
           </span>
-          <div className="flex-1">
+          <div style={{ flex: 1 }}>
             <div
-              className={cn(
-                "font-medium",
-                done && "text-[var(--color-fg-muted)] line-through decoration-1",
-              )}
+              style={{
+                fontWeight: 500,
+                ...(done ? { color: "#71717a", textDecoration: "line-through", textDecorationThickness: "1px" } : {}),
+              }}
             >
               {title}
               {optional && (
-                <span className="ml-2 rounded-full bg-[var(--color-surface-muted)] px-1.5 py-px text-[10px] font-medium text-[var(--color-fg-muted)]">
+                <span style={{
+                  marginLeft: "8px",
+                  borderRadius: "9999px",
+                  background: "#f4f4f5",
+                  padding: "1px 6px",
+                  fontSize: "10px",
+                  fontWeight: 500,
+                  color: "#71717a",
+                }}>
                   optional
                 </span>
               )}
             </div>
           </div>
           {!done && (
-            <span className="text-xs text-[var(--color-fg-muted)]">
+            <span style={{ fontSize: "12px", color: "#71717a" }}>
               {expanded ? "Collapse" : "Show"}
             </span>
           )}
         </button>
         {expanded && (
-          <div className="border-t border-[var(--color-border)] px-5 pb-5 pt-4">
+          <div style={{ borderTop: "1px solid #e4e4e7", padding: "16px 20px 20px" }}>
             {children}
             {!done && (
-              <div className="mt-4 flex justify-end">
+              <div style={{ marginTop: "16px", display: "flex", justifyContent: "flex-end" }}>
                 <Button size="sm" onClick={() => setStep(stepKey, true)}>
-                  <Check className="h-3.5 w-3.5" /> Mark done
+                  <Check style={{ height: "14px", width: "14px" }} /> Mark done
                 </Button>
               </div>
             )}
             {done && (
-              <div className="mt-3 flex justify-end">
+              <div style={{ marginTop: "12px", display: "flex", justifyContent: "flex-end" }}>
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => setStep(stepKey, false)}
                 >
-                  <Circle className="h-3.5 w-3.5" /> Mark incomplete
+                  <Circle style={{ height: "14px", width: "14px" }} /> Mark incomplete
                 </Button>
               </div>
             )}
@@ -275,41 +315,44 @@ function Step({
 }
 
 function AgentConfigure() {
-  // `--all` installs the skill across every coding agent on the machine, so the
-  // command is the same regardless of agent. The chips below are a static
-  // compatibility list, not a selector.
   const cmd = `npx skills add ${SKILL_REPO} -s aidocs --all`;
   return (
     <div>
-      <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
+      <p style={{ marginBottom: "12px", fontSize: "14px", color: "#71717a" }}>
         Run this once to install the aidocs skill into the agents you use. It tells
         them: "when the user asks for a doc / report / RCA / spec, publish it to
         aidocs". <code>--all</code> installs across every coding agent it finds on your
         machine.
       </p>
       <CodeBlock>{cmd}</CodeBlock>
-      <div className="mt-4">
-        <div className="mb-2 text-xs font-medium text-[var(--color-fg-muted)]">
+      <div style={{ marginTop: "16px" }}>
+        <div style={{ marginBottom: "8px", fontSize: "12px", fontWeight: 500, color: "#71717a" }}>
           Works with
         </div>
-        <div className="flex flex-wrap gap-1.5">
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "6px" }}>
           {AGENT_TARGETS.map((t) => (
             <span
               key={t.id}
-              className="rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-fg-muted)]"
+              style={{
+                borderRadius: "9999px",
+                border: "1px solid #e4e4e7",
+                padding: "4px 10px",
+                fontSize: "12px",
+                color: "#71717a",
+              }}
             >
               {t.label}
             </span>
           ))}
         </div>
       </div>
-      <p className="mt-4 text-xs text-[var(--color-fg-muted)]">
+      <p style={{ marginTop: "16px", fontSize: "12px", color: "#71717a" }}>
         Skill source:{" "}
         <a
           href="https://github.com/razorpay/aidocs/tree/main/skills/aidocs"
           target="_blank"
           rel="noreferrer"
-          className="text-[var(--color-fg)] underline-offset-2 hover:underline"
+          style={{ color: "#18181b" }}
         >
           skills/aidocs/SKILL.md
         </a>
@@ -328,16 +371,16 @@ curl -sSL ${url}/onboarding/sample.html -o sample.html
 Then use the aidocs CLI to publish sample.html to aidocs. Give me the document URL when you're done.`;
   return (
     <div>
-      <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
+      <p style={{ marginBottom: "12px", fontSize: "14px", color: "#71717a" }}>
         Want to see the loop work without writing anything? Copy this prompt into your
         agent — it'll fetch a sample report and publish it to aidocs.
       </p>
       <CodeBlock>{prompt}</CodeBlock>
-      <div className="mt-4">
+      <div style={{ marginTop: "16px" }}>
         <Button asChild variant="ghost" size="sm">
           <Link to="/app/documents">
-            <Sparkles className="h-4 w-4" /> Open documents
-            <ExternalLink className="h-3.5 w-3.5" />
+            <Sparkles style={{ height: "16px", width: "16px" }} /> Open documents
+            <ExternalLink style={{ height: "14px", width: "14px" }} />
           </Link>
         </Button>
       </div>

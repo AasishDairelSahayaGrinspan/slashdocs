@@ -1,69 +1,68 @@
 import * as React from "react";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { X } from "lucide-react";
-import { cn } from "@/lib/cn";
 
-export const Sheet = DialogPrimitive.Root;
-export const SheetTrigger = DialogPrimitive.Trigger;
-export const SheetClose = DialogPrimitive.Close;
-
-export function SheetContent({
-  className,
-  children,
-  side = "right",
-  ...p
-}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
-  side?: "right" | "left";
-}) {
+export const Sheet = ({ open, onOpenChange, children }: {
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  children?: React.ReactNode;
+}) => {
+  if (!open) return null;
   return (
-    <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40" />
-      <DialogPrimitive.Content
-        className={cn(
-          "fixed z-50 top-0 h-full w-full max-w-md bg-[var(--color-surface)] border-[var(--color-border)] shadow-xl focus:outline-none flex flex-col",
-          side === "right" ? "right-0 border-l" : "left-0 border-r",
-          className,
-        )}
-        {...p}
+    <div style={{ position: "fixed", inset: 0, zIndex: 50 }} onClick={() => onOpenChange?.(false)}>
+      <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.4)" }} />
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          right: 0,
+          height: "100%",
+          width: "100%",
+          maxWidth: "448px",
+          background: "#fff",
+          borderLeft: "1px solid #e4e4e7",
+          boxShadow: "0 8px 24px rgba(0,0,0,0.12)",
+          display: "flex",
+          flexDirection: "column",
+        }}
+        onClick={(e) => e.stopPropagation()}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-md p-1 text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]">
-          <X className="h-4 w-4" />
-        </DialogPrimitive.Close>
-      </DialogPrimitive.Content>
-    </DialogPrimitive.Portal>
+      </div>
+    </div>
   );
-}
-export function SheetHeader({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
+};
+
+export const SheetTrigger = ({ children, asChild }: { children: React.ReactNode; asChild?: boolean }) => {
+  return <>{children}</>;
+};
+
+export const SheetClose = ({ children }: { children?: React.ReactNode }) => {
+  return <>{children}</>;
+};
+
+export function SheetContent({ children, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "px-6 py-4 border-b border-[var(--color-border)]",
-        className,
-      )}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        height: "100%",
+        background: "#fff",
+      }}
       {...p}
-    />
+    >
+      {children}
+    </div>
   );
 }
-export function SheetTitle({
-  className,
-  ...p
-}: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
-  return (
-    <DialogPrimitive.Title
-      className={cn("text-base font-semibold", className)}
-      {...p}
-    />
-  );
+
+export function SheetHeader({ children, ...p }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div style={{ padding: "16px 24px", borderBottom: "1px solid #e4e4e7" }} {...p}>{children}</div>;
 }
-export function SheetBody({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={cn("flex-1 overflow-y-auto p-6", className)} {...p} />
-  );
+
+export function SheetTitle({ children, ...p }: React.HTMLAttributes<HTMLHeadingElement>) {
+  return <h2 style={{ fontSize: "16px", fontWeight: 600 }} {...p}>{children}</h2>;
+}
+
+export function SheetBody({ children, ...p }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div style={{ flex: 1, overflowY: "auto", padding: "24px" }} {...p}>{children}</div>;
 }

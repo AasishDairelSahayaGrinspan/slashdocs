@@ -1,18 +1,14 @@
 import * as React from "react";
-import { Check, Copy } from "lucide-react";
-import { cn } from "@/lib/cn";
 import { Button } from "./button";
 
-export function Skeleton({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function Skeleton({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={cn(
-        "animate-pulse rounded-md bg-[var(--color-surface-muted)]",
-        className,
-      )}
+      style={{
+        borderRadius: "6px",
+        background: "#f4f4f5",
+        animation: "pulse 1.5s ease-in-out infinite",
+      }}
       {...p}
     />
   );
@@ -34,33 +30,40 @@ export function CodeBlock({
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
     } catch {
-      // Clipboard is unavailable in insecure contexts or was denied; leave the
-      // button state untouched so we don't falsely report success.
     }
   };
   return (
     <div
-      className={cn(
-        "group relative rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface-muted)] font-mono text-xs",
-        className,
-      )}
+      style={{
+        position: "relative",
+        borderRadius: "10px",
+        border: "1px solid #e4e4e7",
+        background: "#f4f4f5",
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+        fontSize: "12px",
+      }}
     >
-      <pre className="overflow-x-auto p-3 pr-10 leading-relaxed text-[var(--color-fg)]">
+      <pre style={{ overflowX: "auto", padding: "12px 40px 12px 12px", lineHeight: 1.6, color: "#18181b", margin: 0 }}>
         {children}
       </pre>
       {copy && (
-        <>
-          <button
-            onClick={onCopy}
-            className="absolute right-2 top-2 rounded-md p-1.5 text-[var(--color-fg-muted)] opacity-0 transition hover:bg-[var(--color-border)] hover:text-[var(--color-fg)] group-hover:opacity-100 focus:opacity-100"
-            aria-label={copied ? "Copied" : "Copy"}
-          >
-            {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          </button>
-          <span className="sr-only" role="status" aria-live="polite">
-            {copied ? "Copied to clipboard" : ""}
-          </span>
-        </>
+        <button
+          onClick={onCopy}
+          style={{
+            position: "absolute",
+            right: "8px",
+            top: "8px",
+            borderRadius: "6px",
+            padding: "6px",
+            border: "none",
+            background: "transparent",
+            cursor: "pointer",
+            color: "#71717a",
+          }}
+          aria-label={copied ? "Copied" : "Copy"}
+        >
+          {copied ? "✓" : "⎘"}
+        </button>
       )}
     </div>
   );
@@ -81,55 +84,54 @@ export function EmptyState({
 }) {
   return (
     <div
-      className={cn(
-        "flex flex-col items-center justify-center rounded-[14px] border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-10 text-center",
-        className,
-      )}
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        borderRadius: "14px",
+        border: "1px dashed #e4e4e7",
+        background: "#fff",
+        padding: "40px",
+        textAlign: "center",
+      }}
     >
       {icon && (
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)]">
+        <div style={{ marginBottom: "12px", display: "flex", height: "40px", width: "40px", alignItems: "center", justifyContent: "center", borderRadius: "9999px", background: "#f4f4f5", color: "#71717a" }}>
           {icon}
         </div>
       )}
-      <h3 className="text-base font-semibold">{title}</h3>
+      <h3 style={{ fontSize: "16px", fontWeight: 600 }}>{title}</h3>
       {description && (
-        <p className="mt-1 max-w-md text-sm text-[var(--color-fg-muted)]">
+        <p style={{ marginTop: "4px", maxWidth: "448px", fontSize: "14px", color: "#71717a" }}>
           {description}
         </p>
       )}
-      {action && <div className="mt-4">{action}</div>}
+      {action && <div style={{ marginTop: "16px" }}>{action}</div>}
     </div>
   );
 }
 
-export function Center({
-  children,
-  className,
-}: {
-  children: React.ReactNode;
-  className?: string;
-}) {
+export function Center({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <div
-      className={cn(
-        "flex h-full w-full items-center justify-center p-10 text-sm text-[var(--color-fg-muted)]",
-        className,
-      )}
+      style={{
+        display: "flex",
+        height: "100%",
+        width: "100%",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "40px",
+        fontSize: "14px",
+        color: "#71717a",
+      }}
     >
       {children}
     </div>
   );
 }
 
-export function Avatar({
-  name,
-  src,
-  size = 32,
-}: {
-  name?: string;
-  src?: string;
-  size?: number;
-}) {
+export function Avatar({ name, src, size = 32 }: { name?: string; src?: string; size?: number }) {
   const initials =
     (name || "?")
       .split(/\s+/)
@@ -149,8 +151,16 @@ export function Avatar({
         width: size,
         height: size,
         fontSize: Math.max(10, Math.floor(size * 0.38)),
+        display: "flex",
+        flexShrink: 0,
+        alignItems: "center",
+        justifyContent: "center",
+        overflow: "hidden",
+        borderRadius: "9999px",
+        background: "rgba(238,240,255,1)",
+        fontWeight: 600,
+        color: "#2028ff",
       }}
-      className="flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--color-accent-muted)] font-semibold text-[var(--color-accent)]"
     >
       {showImg ? (
         <img
@@ -158,7 +168,7 @@ export function Avatar({
           alt=""
           referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
-          className="h-full w-full object-cover"
+          style={{ height: "100%", width: "100%", objectFit: "cover" }}
         />
       ) : (
         initials

@@ -23,9 +23,9 @@ function DocumentErrorState({
 }) {
   return (
     <Center>
-      <div className="max-w-md text-center">
-        <h1 className="text-lg font-semibold text-[var(--color-fg)]">{title}</h1>
-        <p className="mt-2 text-sm text-[var(--color-fg-muted)]">{description}</p>
+      <div style={{ maxWidth: "448px", textAlign: "center" }}>
+        <h1 style={{ fontSize: "18px", fontWeight: 600, color: "#18181b" }}>{title}</h1>
+        <p style={{ marginTop: "8px", fontSize: "14px", color: "#71717a" }}>{description}</p>
       </div>
     </Center>
   );
@@ -45,8 +45,6 @@ export function DocumentPage() {
     enabled: !!id && !doc.error,
     meta: { suppressGlobalError: true },
   });
-  // One comments query feeds both the paint overlay and the side panel so they
-  // stay in sync.
   const comments = useQuery({
     queryKey: queryKeys.comments(id),
     queryFn: () => api.listComments(id),
@@ -125,9 +123,9 @@ export function DocumentPage() {
 
   if (doc.isLoading) {
     return (
-      <div className="p-6">
-        <Skeleton className="mb-3 h-7 w-72" />
-        <Skeleton className="h-[60vh] w-full" />
+      <div style={{ padding: "24px" }}>
+        <Skeleton style={{ marginBottom: "12px", height: "28px", width: "288px" }} />
+        <Skeleton style={{ height: "60vh", width: "100%" }} />
       </div>
     );
   }
@@ -161,7 +159,7 @@ export function DocumentPage() {
 
   return (
     <DocProvider value={ctx}>
-      <div className="flex h-full flex-col">
+      <div style={{ display: "flex", height: "100%", flexDirection: "column" }}>
         <DocBar
           title={docTitle(doc.data)}
           docId={id}
@@ -175,17 +173,33 @@ export function DocumentPage() {
           commentsOpen={panelOpen}
           onToggleComments={() => setPanelOpen((o) => !o)}
         />
-        <div className="flex flex-1 overflow-hidden">
-          <section className="relative flex-1 bg-[var(--color-surface-muted)]">
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          <section style={{ position: "relative", flex: 1, background: "#f4f4f5" }}>
             {current ? <RenderFrame /> : <Center>No version available.</Center>}
           </section>
           {panelOpen && (
             <aside
-              className="relative hidden shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] md:flex"
-              style={{ width: panelWidth }}
+              style={{
+                position: "relative",
+                display: "flex",
+                flexDirection: "column",
+                flexShrink: 0,
+                borderLeft: "1px solid #e4e4e7",
+                background: "#fff",
+                width: panelWidth,
+              }}
             >
               <div
-                className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
+                style={{
+                  position: "absolute",
+                  top: 0,
+                  bottom: 0,
+                  left: 0,
+                  zIndex: 10,
+                  width: "4px",
+                  cursor: "col-resize",
+                  transition: "background-color 0.15s",
+                }}
                 onPointerDown={onResizePointerDown}
               />
               <Comments />

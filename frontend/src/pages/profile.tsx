@@ -12,7 +12,6 @@ import {
 } from "@/components/ui/card";
 import { useMe } from "@/lib/hooks";
 import { useTheme } from "@/lib/theme";
-import { cn } from "@/lib/cn";
 import { setFrontendSignedOut } from "@/lib/auth-state";
 
 export function ProfilePage() {
@@ -24,9 +23,9 @@ export function ProfilePage() {
 
   if (me.isLoading) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-10">
-        <Skeleton className="mb-6 h-8 w-40" />
-        <Skeleton className="h-28 w-full" />
+      <div style={{ maxWidth: "672px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+        <Skeleton style={{ marginBottom: "24px", height: "32px", width: "160px" }} />
+        <Skeleton style={{ height: "112px", width: "100%" }} />
       </div>
     );
   }
@@ -34,17 +33,17 @@ export function ProfilePage() {
     return <Center>Could not load your profile.</Center>;
   }
   return (
-    <div className="mx-auto max-w-2xl px-6 py-10">
-      <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
+    <div style={{ maxWidth: "672px", margin: "0 auto", paddingLeft: "24px", paddingRight: "24px", paddingTop: "40px", paddingBottom: "40px" }}>
+      <div style={{ marginBottom: "24px" }}>
+        <h1 style={{ fontSize: "24px", fontWeight: 600, letterSpacing: "-0.02em" }}>Profile</h1>
       </div>
-      <div className="space-y-4">
+      <div style={{ display: "flex", flexDirection: "column", gap: "16px" }}>
         <Card>
-          <CardContent className="flex items-center gap-4 pt-5">
+          <CardContent style={{ display: "flex", alignItems: "center", gap: "16px", paddingTop: "20px" }}>
             <Avatar size={56} src={user.picture_url} name={user.name || user.email} />
-            <div className="min-w-0">
-              <div className="font-medium">{user.name || "Signed-in user"}</div>
-              <div className="text-sm text-[var(--color-fg-muted)]">
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 500 }}>{user.name || "Signed-in user"}</div>
+              <div style={{ fontSize: "14px", color: "#71717a" }}>
                 {user.email || user.id}
               </div>
             </div>
@@ -52,11 +51,11 @@ export function ProfilePage() {
         </Card>
         <Card>
           <CardHeader>
-            <CardTitle className="text-sm">Appearance</CardTitle>
+            <CardTitle style={{ fontSize: "14px" }}>Appearance</CardTitle>
             <CardDescription>Choose how aidocs looks to you.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-3 gap-2">
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "8px" }}>
               {(
                 [
                   ["light", "Light", Sun],
@@ -67,21 +66,28 @@ export function ProfilePage() {
                 <button
                   key={v}
                   onClick={() => setTheme(v)}
-                  className={cn(
-                    "flex flex-col items-center gap-2 rounded-md border p-4 text-xs transition-colors",
-                    theme === v
-                      ? "border-[var(--color-accent)] bg-[var(--color-accent-muted)]"
-                      : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]",
-                  )}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    gap: "8px",
+                    borderRadius: "6px",
+                    border: `1px solid ${theme === v ? "#2028ff" : "#e4e4e7"}`,
+                    padding: "16px",
+                    fontSize: "12px",
+                    transition: "background-color 0.15s",
+                    background: theme === v ? "#eef0ff" : "transparent",
+                    cursor: "pointer",
+                  }}
                 >
-                  <Icon className="h-4 w-4" /> {label}
+                  <Icon style={{ height: "16px", width: "16px" }} /> {label}
                 </button>
               ))}
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardContent className="pt-5">
+          <CardContent style={{ paddingTop: "20px" }}>
             <Button
               variant="outline"
               onClick={() => {
@@ -89,7 +95,7 @@ export function ProfilePage() {
                 nav("/");
               }}
             >
-              <LogOut className="h-4 w-4" /> Sign out
+              <LogOut style={{ height: "16px", width: "16px" }} /> Sign out
             </Button>
           </CardContent>
         </Card>

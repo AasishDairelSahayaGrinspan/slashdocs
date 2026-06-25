@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
 import {
   ArrowLeft,
@@ -78,22 +78,30 @@ export function DocBar({
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
-    <div className="flex h-14 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4">
+    <div style={{
+      display: "flex",
+      height: "56px",
+      alignItems: "center",
+      gap: "12px",
+      borderBottom: "1px solid #e4e4e7",
+      background: "#fff",
+      padding: "0 16px",
+    }}>
       <Button asChild variant="ghost" size="icon">
         <Link to="/app/documents" aria-label="Back to documents">
-          <ArrowLeft className="h-4 w-4" />
+          <ArrowLeft style={{ height: "16px", width: "16px" }} />
         </Link>
       </Button>
-      <div className="min-w-0 flex-1">
+      <div style={{ minWidth: 0, flex: 1 }}>
         {parentFolder ? (
-          <div className="flex items-center gap-1 text-xs text-[var(--color-fg-muted)]">
-            <FolderIcon className="h-3 w-3 shrink-0" />
-            <Link to={`/app/folders/${parentFolder.id}`} className="hover:text-[var(--color-fg)] hover:underline">{parentFolder.title}</Link>
+          <div style={{ display: "flex", alignItems: "center", gap: "4px", fontSize: "12px", color: "#71717a" }}>
+            <FolderIcon style={{ height: "12px", width: "12px", flexShrink: 0 }} />
+            <Link to={`/app/folders/${parentFolder.id}`} style={{ color: "#71717a" }}>{parentFolder.title}</Link>
           </div>
         ) : null}
-        <div className="truncate text-sm font-semibold">{title}</div>
+        <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "14px", fontWeight: 600 }}>{title}</div>
         {isViewingOlder && currentVersion ? (
-          <div className="truncate text-[11px] text-amber-600 dark:text-amber-300">
+          <div style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontSize: "11px", color: "#d97706" }}>
             {`Viewing older version - version ${currentVersion.number}`}
           </div>
         ) : null}
@@ -113,7 +121,7 @@ export function DocBar({
         <Sheet>
           <SheetTrigger asChild>
             <Button variant="outline" size="sm">
-              <Share2 className="h-4 w-4" /> Share
+              <Share2 style={{ height: "16px", width: "16px" }} /> Share
             </Button>
           </SheetTrigger>
           <ShareSheet docId={docId} />
@@ -124,18 +132,17 @@ export function DocBar({
         size="icon"
         onClick={onToggleComments}
         aria-label={commentsOpen ? "Hide comments" : "Show comments"}
-        className="hidden md:inline-flex"
       >
         {commentsOpen ? (
-          <PanelRightClose className="h-4 w-4" />
+          <PanelRightClose style={{ height: "16px", width: "16px" }} />
         ) : (
-          <PanelRightOpen className="h-4 w-4" />
+          <PanelRightOpen style={{ height: "16px", width: "16px" }} />
         )}
       </Button>
       <Dropdown>
         <DropdownTrigger asChild>
           <Button variant="ghost" size="icon" aria-label="More">
-            <MoreHorizontal className="h-4 w-4" />
+            <MoreHorizontal style={{ height: "16px", width: "16px" }} />
           </Button>
         </DropdownTrigger>
         <DropdownContent>
@@ -148,7 +155,7 @@ export function DocBar({
               )
             }
           >
-            <ExternalLink className="h-4 w-4" /> Open raw HTML
+            <ExternalLink style={{ height: "16px", width: "16px" }} /> Open raw HTML
           </DropdownItem>
           {canManage ? (
             <>
@@ -160,9 +167,9 @@ export function DocBar({
                 trigger={
                   <DropdownItem
                     onSelect={(e) => e.preventDefault()}
-                    className="text-[var(--color-danger)] data-[highlighted]:bg-red-50 dark:data-[highlighted]:bg-red-950/40"
+                    style={{ color: "#dc2626" }}
                   >
-                    <Trash2 className="h-4 w-4" /> Delete document
+                    <Trash2 style={{ height: "16px", width: "16px" }} /> Delete document
                   </DropdownItem>
                 }
               />
@@ -194,12 +201,12 @@ function VersionHistoryDialog({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="hidden sm:inline-flex">
-          <GitBranch className="h-4 w-4" />
+        <Button variant="outline" size="sm">
+          <GitBranch style={{ height: "16px", width: "16px" }} />
           {currentVersion ? `v${currentVersion.number}` : "Versions"}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-2xl">
+      <DialogContent style={{ maxWidth: "672px" }}>
         <DialogHeader>
           <DialogTitle>Version history</DialogTitle>
           <DialogDescription>
@@ -208,43 +215,62 @@ function VersionHistoryDialog({
           </DialogDescription>
         </DialogHeader>
         {sorted.length === 0 ? (
-          <div className="rounded-lg border border-[var(--color-border)] p-4 text-sm text-[var(--color-fg-muted)]">
+          <div style={{ borderRadius: "8px", border: "1px solid #e4e4e7", padding: "16px", fontSize: "14px", color: "#71717a" }}>
             No versions available yet.
           </div>
         ) : (
-          <div className="max-h-[60vh] space-y-2 overflow-auto pr-1">
+          <div style={{ maxHeight: "60vh", display: "flex", flexDirection: "column", gap: "8px", overflow: "auto", paddingRight: "4px" }}>
             {sorted.map((v) => (
               <button
                 key={v.id}
                 type="button"
                 onClick={() => onSelectVersion(v.id)}
-                className={`flex w-full gap-3 rounded-xl border border-[var(--color-border)] p-4 text-left transition-colors hover:bg-[var(--color-surface-muted)]/60 ${
-                  v.id === current
-                    ? "bg-[var(--color-accent-muted)]/35"
-                    : "bg-[var(--color-surface)]"
-                }`}
+                style={{
+                  display: "flex",
+                  width: "100%",
+                  gap: "12px",
+                  borderRadius: "12px",
+                  border: "1px solid #e4e4e7",
+                  padding: "16px",
+                  textAlign: "left",
+                  transition: "background-color 0.15s",
+                  background: v.id === current ? "rgba(238,240,255,0.35)" : "#fff",
+                  cursor: "pointer",
+                }}
                 aria-current={v.id === current ? "true" : undefined}
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-muted)] text-sm font-semibold text-[var(--color-accent)]">
+                <div style={{
+                  display: "flex",
+                  height: "32px",
+                  width: "32px",
+                  flexShrink: 0,
+                  alignItems: "center",
+                  justifyContent: "center",
+                  borderRadius: "9999px",
+                  background: "#eef0ff",
+                  fontSize: "14px",
+                  fontWeight: 600,
+                  color: "#2028ff",
+                }}>
                   {v.number}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-medium">Version {v.number}</div>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px" }}>
+                    <div style={{ fontWeight: 500 }}>Version {v.number}</div>
                     {v.id === current ? (
                       <Badge variant="accent">
-                        <Check className="h-3 w-3" /> Viewing
+                        <Check style={{ height: "12px", width: "12px" }} /> Viewing
                       </Badge>
                     ) : null}
                     {v.id === latest ? <Badge variant="muted">Latest</Badge> : null}
                   </div>
-                  <div className="mt-1 text-sm text-[var(--color-fg-muted)]">
+                  <div style={{ marginTop: "4px", fontSize: "14px", color: "#71717a" }}>
                     {v.change_summary ||
                       (v.number === 1 ? "Initial version" : "No change summary")}
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
+                  <div style={{ marginTop: "8px", display: "flex", flexWrap: "wrap", gap: "16px", fontSize: "12px", color: "#71717a" }}>
                     <span>Created by {principalLabel(v.created_by)}</span>
-                    <span className="font-mono">{v.id}</span>
+                    <span style={{ fontFamily: "ui-monospace, monospace" }}>{v.id}</span>
                   </div>
                 </div>
               </button>

@@ -22,7 +22,6 @@ function useSceneIntersection() {
       ([entry]) => {
         if (entry.intersectionRatio > 0.35) {
           setState((s) => (s.cmdStarted ? s : { cmdStarted: true, uiActivated: false }));
-          // trigger UI after a brief delay so the terminal runs first
           window.setTimeout(
             () => setState((s) => ({ ...s, uiActivated: true })),
             1400,
@@ -42,28 +41,28 @@ export function HowItWorks() {
     <section
       id="how-it-works"
       aria-label="How aidocs works"
-      className="border-t border-[var(--color-border)] bg-[var(--color-bg)] py-24"
+      style={{ borderTop: "1px solid #e4e4e7", background: "#fafafa", padding: "96px 0" }}
     >
-      <div className="mx-auto mb-16 max-w-3xl px-6 text-center">
-        <div className="mb-3 inline-block rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
+      <div style={{ margin: "0 auto 64px", maxWidth: "768px", padding: "0 24px", textAlign: "center" }}>
+        <div style={{ marginBottom: "12px", display: "inline-block", borderRadius: "9999px", border: "1px solid #e4e4e7", background: "#fff", padding: "4px 12px", fontSize: "12px", fontWeight: 500, color: "#71717a" }}>
           How it works
         </div>
-        <h2 className="text-balance text-3xl font-semibold tracking-tight md:text-4xl">
+        <h2 style={{ fontSize: "30px", fontWeight: 600, letterSpacing: "-0.02em" }}>
           Agents push. Humans review.
         </h2>
-        <p className="mt-3 text-[var(--color-fg-muted)]">
+        <p style={{ marginTop: "12px", color: "#71717a" }}>
           Three steps from a generated HTML file to a reviewed, versioned
           document.
         </p>
       </div>
 
-      <ol className="sr-only">
+      <ol style={{ position: "absolute", width: "1px", height: "1px", padding: 0, margin: -1, overflow: "hidden", clip: "rect(0,0,0,0)", border: 0 }}>
         <li>Step 1: An agent publishes a document via the CLI.</li>
         <li>Step 2: Reviewers comment on the exact text in the browser.</li>
         <li>Step 3: The agent ships a new version and resolves the thread.</li>
       </ol>
 
-      <div className="flex flex-col gap-24">
+      <div style={{ display: "flex", flexDirection: "column", gap: "96px" }}>
         <SceneAgentPublishes />
         <SceneHumanReviews />
         <SceneAgentResponds />
@@ -86,17 +85,19 @@ function SceneFrame({
   inputRef: React.RefObject<HTMLDivElement | null>;
 }) {
   return (
-    <div ref={inputRef} className="mx-auto w-full max-w-6xl px-6">
-      <div className="mb-6 flex items-center gap-3">
-        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--color-accent)] text-xs font-semibold text-[var(--color-accent-fg)]">
+    <div ref={inputRef} style={{ margin: "0 auto", width: "100%", maxWidth: "1152px", padding: "0 24px" }}>
+      <div style={{ marginBottom: "24px", display: "flex", alignItems: "center", gap: "12px" }}>
+        <span style={{ display: "flex", height: "28px", width: "28px", alignItems: "center", justifyContent: "center", borderRadius: "9999px", background: "#2028ff", fontSize: "12px", fontWeight: 600, color: "#fff" }}>
           {step}
         </span>
         <div>
-          <div className="text-lg font-semibold">{title}</div>
-          <div className="text-sm text-[var(--color-fg-muted)]">{caption}</div>
+          <div style={{ fontSize: "18px", fontWeight: 600 }}>{title}</div>
+          <div style={{ fontSize: "14px", color: "#71717a" }}>{caption}</div>
         </div>
       </div>
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2">{children}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: "24px" }}>
+        {children}
+      </div>
     </div>
   );
 }
@@ -117,14 +118,8 @@ function SceneAgentPublishes() {
           { kind: "cmd", text: "aidocs auth login" },
           { kind: "out", text: "signed in as alice@example.com" },
           { kind: "cmd", text: "aidocs docs create report.html" },
-          {
-            kind: "out",
-            text: "doc_id=doc_8f2a",
-          },
-          {
-            kind: "out",
-            text: "url=https://aidocs.dev/app/d/doc_8f2a",
-          },
+          { kind: "out", text: "doc_id=doc_8f2a" },
+          { kind: "out", text: "url=https://aidocs.dev/app/d/doc_8f2a" },
         ]}
       />
       <motion.div
@@ -154,7 +149,7 @@ function SceneHumanReviews() {
       caption="Selections are anchored to the rendered HTML — and visible to the agent."
       inputRef={ref}
     >
-      <div className="relative">
+      <div style={{ position: "relative" }}>
         <MockDocViewer
           version={1}
           commentState={phase === "none" ? "none" : phase === "selecting" ? "selecting" : "open"}
@@ -201,10 +196,7 @@ function SceneAgentResponds() {
         lines={[
           { kind: "cmd", text: "aidocs docs push doc_8f2a report.html" },
           { kind: "out", text: "version=ver_2" },
-          {
-            kind: "cmd",
-            text: "aidocs docs comments resolve doc_8f2a cmt_a1",
-          },
+          { kind: "cmd", text: "aidocs docs comments resolve doc_8f2a cmt_a1" },
           { kind: "out", text: "ok" },
         ]}
       />
@@ -216,5 +208,4 @@ function SceneAgentResponds() {
   );
 }
 
-// re-export so consumers can probe
 export { usePrefersReducedMotion };

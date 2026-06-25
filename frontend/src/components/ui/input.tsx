@@ -1,16 +1,24 @@
 import * as React from "react";
-import { cn } from "@/lib/cn";
 
 export const Input = React.forwardRef<
   HTMLInputElement,
   React.InputHTMLAttributes<HTMLInputElement>
->(({ className, ...props }, ref) => (
+>(({ ...props }, ref) => (
   <input
     ref={ref}
-    className={cn(
-      "h-9 w-full rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm text-[var(--color-fg)] placeholder:text-[var(--color-fg-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:opacity-50",
-      className,
-    )}
+    style={{
+      height: "36px",
+      width: "100%",
+      borderRadius: "10px",
+      border: "1px solid #e4e4e7",
+      background: "#fff",
+      padding: "0 12px",
+      fontSize: "14px",
+      color: "#18181b",
+      outline: "none",
+    }}
+    onFocus={(e) => { e.target.style.boxShadow = "0 0 0 2px #2028ff"; }}
+    onBlur={(e) => { e.target.style.boxShadow = "none"; }}
     {...props}
   />
 ));
@@ -19,13 +27,23 @@ Input.displayName = "Input";
 export const Textarea = React.forwardRef<
   HTMLTextAreaElement,
   React.TextareaHTMLAttributes<HTMLTextAreaElement>
->(({ className, ...props }, ref) => (
+>(({ ...props }, ref) => (
   <textarea
     ref={ref}
-    className={cn(
-      "min-h-[60px] w-full rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-sm text-[var(--color-fg)] placeholder:text-[var(--color-fg-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] disabled:opacity-50",
-      className,
-    )}
+    style={{
+      minHeight: "60px",
+      width: "100%",
+      borderRadius: "10px",
+      border: "1px solid #e4e4e7",
+      background: "#fff",
+      padding: "8px 12px",
+      fontSize: "14px",
+      color: "#18181b",
+      outline: "none",
+      resize: "vertical",
+    }}
+    onFocus={(e) => { e.target.style.boxShadow = "0 0 0 2px #2028ff"; }}
+    onBlur={(e) => { e.target.style.boxShadow = "none"; }}
     {...props}
   />
 ));
@@ -34,13 +52,10 @@ Textarea.displayName = "Textarea";
 export const Label = React.forwardRef<
   HTMLLabelElement,
   React.LabelHTMLAttributes<HTMLLabelElement>
->(({ className, ...props }, ref) => (
+>(({ ...props }, ref) => (
   <label
     ref={ref}
-    className={cn(
-      "text-xs font-medium text-[var(--color-fg-muted)]",
-      className,
-    )}
+    style={{ fontSize: "12px", fontWeight: 500, color: "#71717a" }}
     {...props}
   />
 ));

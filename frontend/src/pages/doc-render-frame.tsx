@@ -7,9 +7,6 @@ import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
 import { useDoc } from "./doc-context";
 
-// Renders the sandboxed document iframe and exchanges selection and paint
-// messages with the in-iframe bridge. Message origins are validated on both
-// ends, and painting is driven by the bridge's ready signal.
 export function RenderFrame() {
   const {
     docId,
@@ -33,8 +30,6 @@ export function RenderFrame() {
   const paintPayload = useMemo(
     () =>
       comments
-        // Resolved comments keep their anchor server-side (in case a resolve
-        // is reversed) but should not be highlighted in the rendered doc.
         .filter((c) => c.status !== COMMENT_STATUS.resolved)
         .map((c) => ({
           id: c.id,
@@ -53,20 +48,15 @@ export function RenderFrame() {
     }
   }, [token.data]);
 
-  // Reset readiness whenever we load a different frame.
   useEffect(() => {
     readyRef.current = false;
   }, [frameOrigin, token.data?.url]);
 
-  // The resolved theme is baked into the iframe URL so the bridge can apply
-  // it before the document's first paint (no flash); live toggles are pushed
-  // over postMessage below.
   const frameSrc = useMemo(() => {
     const url = token.data?.url;
     if (!url) return undefined;
     const sep = url.includes("?") ? "&" : "?";
     return `${url}${sep}aidocs_theme=${theme}`;
-    // theme is intentionally excluded: changing it must not reload the frame.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token.data?.url]);
 
@@ -78,7 +68,6 @@ export function RenderFrame() {
     );
   }, [paintPayload, activeComment, frameOrigin]);
 
-  // Push live theme changes to the bridge once the frame is ready.
   useEffect(() => {
     if (!readyRef.current || !frameOrigin) return;
     ref.current?.contentWindow?.postMessage(
@@ -111,23 +100,17 @@ export function RenderFrame() {
     return () => window.removeEventListener("message", onMsg);
   }, [frameOrigin, paint, setSelection, handleDocCommentClick, theme]);
 
-  // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {
     paint();
   }, [paint]);
 
-  // The parent (DocPage) only mounts RenderFrame when a current version
-  // exists, so version is always set here.
   if (token.isLoading) return <Center>Preparing secure render…</Center>;
   if (token.error) return <Center>Could not create render token.</Center>;
   return (
     <iframe
       ref={ref}
       title="Rendered document"
-      // Match the frame to the resolved theme so dark readers don't see a
-      // white flash before the document paints.
-      className="h-full w-full"
-      style={{ background: theme === "dark" ? "#0b0d12" : "#fff" }}
+      style={{ height: "100%", width: "100%", background: theme === "dark" ? "#0b0d12" : "#fff" }}
       src={frameSrc}
       sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
     />

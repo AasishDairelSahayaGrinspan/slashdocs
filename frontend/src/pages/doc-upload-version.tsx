@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
+import { toast } from "react-hot-toast";
 import { errorMessage } from "@/lib/errors";
 import { Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -50,9 +50,9 @@ export function UploadVersionItem({
             e.preventDefault();
             setOpen(true);
           }}
-          className="text-[var(--color-fg-muted)]"
+          style={{ color: "#71717a" }}
         >
-          <Upload className="h-3.5 w-3.5" /> Upload new version (backup)
+          <Upload style={{ height: "14px", width: "14px" }} /> Upload new version (backup)
         </DropdownItem>
       </SheetTrigger>
       <SheetContent>
@@ -61,7 +61,7 @@ export function UploadVersionItem({
         </SheetHeader>
         <SheetBody>
           <form
-            className="space-y-3"
+            style={{ display: "flex", flexDirection: "column", gap: "12px" }}
             onSubmit={(e) => {
               e.preventDefault();
               if (file) m.mutate();

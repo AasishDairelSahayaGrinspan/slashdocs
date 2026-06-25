@@ -1,14 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import {
-  Check,
-  LogOut,
-  Monitor,
-  Moon,
-  Rocket,
-  Sun,
-  Terminal,
-  User as UserIcon,
-} from "lucide-react";
+import { Check, LogOut, Monitor, Moon, Rocket, Sun, Terminal, User as UserIcon } from "lucide-react";
 import { GetStartedPill } from "./get-started-pill";
 import { useOnboarding } from "@/lib/onboarding";
 import {
@@ -24,57 +15,64 @@ import { setFrontendSignedOut } from "@/lib/auth-state";
 import { useTheme } from "@/lib/theme";
 import type { Principal } from "@/api";
 
-export function TopBar({
-  user,
-}: {
-  user: Principal;
-}) {
+export function TopBar({ user }: { user: Principal }) {
   const nav = useNavigate();
   const { theme, setTheme } = useTheme();
   const { reset } = useOnboarding();
   return (
-    <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[var(--color-border)] bg-[var(--color-surface)]/80 px-5 backdrop-blur">
-      <Link to="/app/documents" className="flex items-center gap-2 font-semibold">
-        <img src="/favicon.svg" alt="" className="h-10 w-10" />
+    <header
+      style={{
+        position: "sticky",
+        top: 0,
+        zIndex: 30,
+        display: "flex",
+        height: "56px",
+        alignItems: "center",
+        justifyContent: "space-between",
+        borderBottom: "1px solid #e4e4e7",
+        background: "rgba(255,255,255,0.8)",
+        backdropFilter: "blur(8px)",
+        padding: "0 20px",
+      }}
+    >
+      <Link to="/app/documents" style={{ display: "flex", alignItems: "center", gap: "8px", fontWeight: 600 }}>
+        <img src="/favicon.svg" alt="" style={{ height: "40px", width: "40px" }} />
         aidocs
       </Link>
-      <div className="flex items-center gap-2">
+      <div style={{ display: "flex", alignItems: "center", gap: "8px" }}>
         <GetStartedPill />
         <Dropdown>
           <DropdownTrigger asChild>
             <button
-              className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+              style={{ borderRadius: "9999px", border: "none", background: "transparent", cursor: "pointer" }}
               aria-label="Account menu"
             >
-              <Avatar
-                src={user.picture_url}
-                name={user.name || user.email || user.id}
-              />
+              <Avatar src={user.picture_url} name={user.name || user.email || user.id} />
             </button>
           </DropdownTrigger>
           <DropdownContent>
-            <div className="px-2 py-2">
-              <div className="text-sm font-medium">
+            <div style={{ padding: "8px" }}>
+              <div style={{ fontSize: "14px", fontWeight: 500 }}>
                 {user.name || "Signed in"}
               </div>
-              <div className="text-xs text-[var(--color-fg-muted)]">
+              <div style={{ fontSize: "12px", color: "#71717a" }}>
                 {user.email || user.id}
               </div>
             </div>
             <DropdownSeparator />
             <DropdownItem
-              onSelect={() => {
+              onClick={() => {
                 reset();
                 nav("/app/start");
               }}
             >
-              <Rocket className="h-4 w-4" /> Setup guide
+              <Rocket width={16} height={16} /> Setup guide
             </DropdownItem>
-            <DropdownItem onSelect={() => nav("/app/settings/profile")}>
-              <UserIcon className="h-4 w-4" /> Profile
+            <DropdownItem onClick={() => nav("/app/settings/profile")}>
+              <UserIcon width={16} height={16} /> Profile
             </DropdownItem>
-            <DropdownItem onSelect={() => nav("/app/developers")}>
-              <Terminal className="h-4 w-4" /> Developers
+            <DropdownItem onClick={() => nav("/app/developers")}>
+              <Terminal width={16} height={16} /> Developers
             </DropdownItem>
             <DropdownSeparator />
             <DropdownLabel>Theme</DropdownLabel>
@@ -87,23 +85,23 @@ export function TopBar({
             ).map(({ value, label, icon: Icon }) => (
               <DropdownItem
                 key={value}
-                onSelect={(e) => {
+                onClick={(e) => {
                   e.preventDefault();
                   setTheme(value);
                 }}
               >
-                <Icon className="h-4 w-4" /> {label}
-                {theme === value && <Check className="ml-auto h-4 w-4" />}
+                <Icon width={16} height={16} /> {label}
+                {theme === value && <Check style={{ marginLeft: "auto", width: 16, height: 16 }} />}
               </DropdownItem>
             ))}
             <DropdownSeparator />
             <DropdownItem
-              onSelect={() => {
+              onClick={() => {
                 setFrontendSignedOut(true);
                 nav("/");
               }}
             >
-              <LogOut className="h-4 w-4" /> Sign out
+              <LogOut width={16} height={16} /> Sign out
             </DropdownItem>
           </DropdownContent>
         </Dropdown>
