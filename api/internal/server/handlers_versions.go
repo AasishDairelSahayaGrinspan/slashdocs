@@ -196,5 +196,8 @@ func (h handlers) getVersionHTML(c *gin.Context) {
 	}
 	observeHTML("version_download", len(b))
 	incVersion("html_downloaded", actorType(c))
+	c.Header("Content-Security-Policy", "sandbox; default-src 'none'")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Header("Content-Disposition", `attachment; filename="aidocs-`+v.ID+`.html"`)
 	c.Data(http.StatusOK, "text/html; charset=utf-8", b)
 }

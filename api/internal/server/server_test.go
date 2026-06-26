@@ -544,6 +544,18 @@ func TestOAuthStartRejectsExternalWebRedirect(t *testing.T) {
 	assertStatus(t, rr, http.StatusBadRequest)
 }
 
+func TestOAuthStartRejectsBackslashNormalizedWebRedirect(t *testing.T) {
+	rr := do(t, newOAuthTestServer(), http.MethodGet, "/v1/auth/google/start?mode=web&redirect=/%5C%5Cevil.com", "", nil)
+
+	assertStatus(t, rr, http.StatusBadRequest)
+}
+
+func TestOAuthStartAllowsOnlyRootRelativeWebRedirect(t *testing.T) {
+	rr := do(t, newOAuthTestServer(), http.MethodGet, "/v1/auth/google/start?mode=web&redirect=/documents/doc_1", "", nil)
+
+	assertStatus(t, rr, http.StatusFound)
+}
+
 func TestRenderCSPAllowsConfiguredAppOrigin(t *testing.T) {
 	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://app.example", SessionSecret: "test-secret"})
 	body, contentType := multipartBody(t, map[string]string{"title": "Doc"}, "file", "doc.html", "<html><body>x</body></html>")
@@ -558,6 +570,7 @@ func TestRenderCSPAllowsConfiguredAppOrigin(t *testing.T) {
 	assertStatus(t, tokRR, http.StatusOK)
 	var tok struct {
 		Token string `json:"token"`
+		URL   string `json:"url"`
 	}
 	if err := json.Unmarshal(tokRR.Body.Bytes(), &tok); err != nil {
 		t.Fatal(err)
@@ -592,6 +605,76 @@ func TestRenderRouteRequiresRenderHostWhenConfigured(t *testing.T) {
 	rr := httptest.NewRecorder()
 	h.ServeHTTP(rr, req)
 	assertStatus(t, rr, http.StatusNotFound)
+}
+
+func TestRawHTMLDownloadIsServedInert(t *testing.T) {
+	h := newTestServer()
+	body, contentType := multipartBody(t, map[string]string{"title": "Doc"}, "file", "doc.html", `<html><script>fetch('/v1/me')</script></html>`)
+	_ = doRaw(t, h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	rr := do(t, h, http.MethodGet, "/v1/documents/doc_1/versions/ver_1/html", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, rr, http.StatusOK)
+	if got := rr.Header().Get("Content-Security-Policy"); got != "sandbox; default-src 'none'" {
+		t.Fatalf("Content-Security-Policy = %q", got)
+	}
+	if got := rr.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q", got)
+	}
+	if got := rr.Header().Get("Content-Disposition"); !strings.Contains(got, "attachment") || !strings.Contains(got, "ver_1.html") {
+		t.Fatalf("Content-Disposition = %q", got)
+	}
+}
+
+func TestRawHTMLBrowserRequestRedirectsToLoginWhenUnauthenticated(t *testing.T) {
+	h := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/v1/documents/doc_1/versions/ver_1/html", nil)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusFound)
+	loc := rr.Header().Get("Location")
+	if !strings.HasPrefix(loc, "/v1/auth/google/start?mode=web&") || !strings.Contains(loc, "redirect=%2Fv1%2Fdocuments%2Fdoc_1%2Fversions%2Fver_1%2Fhtml") {
+		t.Fatalf("Location = %q", loc)
+	}
+}
+
+func TestInstallScriptUsesConfiguredAppOriginNotForwardedHost(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.example", SessionSecret: "test-secret"})
+	req := httptest.NewRequest(http.MethodGet, "/install.sh", nil)
+	req.Host = "aidocs.example"
+	req.Header.Set("X-Forwarded-Host", "evil.example")
+	req.Header.Set("X-Forwarded-Proto", "https")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	body := rr.Body.String()
+	if strings.Contains(body, "evil.example") {
+		t.Fatalf("install script reflected attacker-controlled forwarded host: %q", body)
+	}
+	if !strings.Contains(body, `BASE_URL="${AIDOCS_BASE_URL:-https://aidocs.example}"`) {
+		t.Fatalf("install script did not use configured app origin: %q", body)
+	}
+}
+
+func TestInstallScriptRequiresConfiguredAppOriginForNonLocalHost(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", SessionSecret: "test-secret"})
+	req := httptest.NewRequest(http.MethodGet, "/install.sh", nil)
+	req.Host = "aidocs.example"
+	req.Header.Set("X-Forwarded-Host", "evil.example")
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusInternalServerError)
+	if strings.Contains(rr.Body.String(), "evil.example") || strings.Contains(rr.Body.String(), "aidocs.example") {
+		t.Fatalf("misconfigured installer response reflected request host: %q", rr.Body.String())
+	}
 }
 
 func TestFrontendFallbackServesEmbeddedIndex(t *testing.T) {
