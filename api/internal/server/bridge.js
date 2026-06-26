@@ -224,6 +224,32 @@ function bridge() {
     return null;
   }
 
+  function scrollWindowTo(win, left, top) {
+    if (!win) return 0;
+    const startLeft = win.scrollX || 0;
+    const startTop = win.scrollY || 0;
+    const dx = left - startLeft;
+    const dy = top - startTop;
+    const duration = 180;
+    if (!dx && !dy) return 1;
+    if (!win.requestAnimationFrame) {
+      win.scrollTo(left, top);
+      return 1;
+    }
+    const started =
+      win.performance && win.performance.now ? win.performance.now() : Date.now();
+    const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+    const step = (now) => {
+      const elapsed = now - started;
+      const p = Math.min(1, elapsed / duration);
+      const eased = easeOut(p);
+      win.scrollTo(startLeft + dx * eased, startTop + dy * eased);
+      if (p < 1) win.requestAnimationFrame(step);
+    };
+    win.requestAnimationFrame(step);
+    return 1;
+  }
+
   function scrollRangeIntoView(r) {
     const d = doc();
     if (!d || !r) return 0;
@@ -234,21 +260,17 @@ function bridge() {
       );
       const rect = rects[0] || r.getBoundingClientRect();
       if (rect && (rect.width > 0 || rect.height > 0)) {
-        win.scrollTo({
-          left: Math.max(0, rect.left + win.scrollX - win.innerWidth / 2),
-          top: Math.max(
-            0,
-            rect.top + win.scrollY - win.innerHeight / 2 + rect.height / 2,
-          ),
-          behavior: "smooth",
-        });
-        return 1;
+        return scrollWindowTo(
+          win,
+          Math.max(0, rect.left + win.scrollX - win.innerWidth / 2),
+          Math.max(0, rect.top + win.scrollY - win.innerHeight / 2 + rect.height / 2),
+        );
       }
     } catch (e) {}
     const n = r.startContainer;
     const el = n && (n.nodeType === 1 ? n : n.parentElement);
     if (el && el.scrollIntoView) {
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      el.scrollIntoView({ block: "center", behavior: "auto" });
       return 1;
     }
     return 0;

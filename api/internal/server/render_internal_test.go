@@ -58,6 +58,8 @@ func TestBridgeHandlesDocumentLinks(t *testing.T) {
 func TestBridgeScrollsActiveCommentEvenWhenRangeCannotBeMarked(t *testing.T) {
 	for _, needle := range []string{
 		"scrollRangeIntoView",
+		"scrollWindowTo",
+		"const duration = 180",
 		"getClientRects",
 		"win.scrollTo",
 		"if (active) return scrollRangeIntoView(r)",
