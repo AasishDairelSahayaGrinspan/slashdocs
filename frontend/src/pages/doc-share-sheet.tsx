@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import { Copy } from "lucide-react";
+import { Copy, LockKeyhole } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/misc";
@@ -14,9 +14,7 @@ import {
 } from "@/components/ui/sheet";
 import { api, AccessSource, EffectiveAccessItem } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { ROLES, DEFAULT_ROLE, GENERAL_ACCESS_NONE } from "@/lib/constants";
-
-const ROLE_RANK: Record<string, number> = { none: 0, viewer: 1, commenter: 2, editor: 3, owner: 4 };
+import { ROLES, DEFAULT_ROLE, GENERAL_ACCESS_NONE, ROLE_RANK } from "@/lib/constants";
 
 type PendingChange = {
   label: string;
@@ -25,14 +23,26 @@ type PendingChange = {
   newRole?: string;
 };
 
-export function ShareSheet({ docId, resourceType = "document", resourceId }: { docId?: string; resourceType?: "document" | "folder"; resourceId?: string }) {
+export function ShareSheet({
+  docId,
+  resourceType = "document",
+  resourceId,
+  canManageAccess = true,
+}: {
+  docId?: string;
+  resourceType?: "document" | "folder";
+  resourceId?: string;
+  canManageAccess?: boolean;
+}) {
   const id = resourceId || docId || "";
   const isFolder = resourceType === "folder";
   const q = useQueryClient();
-  const accessKey = isFolder ? queryKeys.folderAccess(id) : queryKeys.documentAccess(id);
+  const accessKey = isFolder
+    ? queryKeys.folderAccess(id)
+    : queryKeys.documentAccess(id);
   const access = useQuery({
     queryKey: accessKey,
-    queryFn: () => isFolder ? api.folderAccess(id) : api.documentAccess(id),
+    queryFn: () => (isFolder ? api.folderAccess(id) : api.documentAccess(id)),
   });
   const config = useQuery({
     queryKey: ["config"],
@@ -51,14 +61,20 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
   const userSearch = useQuery({
     queryKey: ["users", "search", debouncedAddress],
     queryFn: () => api.searchUsers(debouncedAddress),
-    enabled: debouncedAddress.length >= 2 && !debouncedAddress.includes(".bot"),
+    enabled:
+      canManageAccess &&
+      debouncedAddress.length >= 2 &&
+      !debouncedAddress.includes(".bot"),
     staleTime: 30_000,
   });
   const userSuggestions = userSearch.data?.items || [];
 
   const items = access.data?.items || [];
   const anyoneItem = items.find((i) => i.principal?.type === "anyone");
-  const namedItems = items.filter((i) => i.principal?.type !== "anyone" && i.principal?.id && i.effective_role !== "owner");
+  const namedItems = items.filter(
+    (i) =>
+      i.principal?.type !== "anyone" && i.principal?.id && i.effective_role !== "owner",
+  );
 
   const anyoneDirectSource = useMemo(() => {
     if (!anyoneItem) return undefined;
@@ -88,7 +104,10 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
   };
 
   const m = useMutation({
-    mutationFn: () => isFolder ? api.createFolderGrant(id, address.trim(), role) : api.createGrant(id, address.trim(), role),
+    mutationFn: () =>
+      isFolder
+        ? api.createFolderGrant(id, address.trim(), role)
+        : api.createGrant(id, address.trim(), role),
     onSuccess: () => {
       setAddress("");
       toast.success("Access granted.");
@@ -97,8 +116,15 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
     onError: (e) => toast.error(errorMessage(e, "Couldn't share.")),
   });
   const updateGrant = useMutation({
-    mutationFn: ({ resourceId: rid, grantId, nextRole }: { resourceId: string; grantId: string; nextRole: string }) =>
-      api.updateFolderGrant(rid, grantId, nextRole),
+    mutationFn: ({
+      resourceId: rid,
+      grantId,
+      nextRole,
+    }: {
+      resourceId: string;
+      grantId: string;
+      nextRole: string;
+    }) => api.updateFolderGrant(rid, grantId, nextRole),
     onSuccess: () => {
       toast.success("Access updated.");
       invalidateAccess();
@@ -107,8 +133,13 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
     onError: (e) => toast.error(errorMessage(e, "Couldn't update access.")),
   });
   const revokeGrant = useMutation({
-    mutationFn: ({ resourceId: rid, grantId }: { resourceId: string; grantId: string }) =>
-      api.deleteFolderGrant(rid, grantId),
+    mutationFn: ({
+      resourceId: rid,
+      grantId,
+    }: {
+      resourceId: string;
+      grantId: string;
+    }) => api.deleteFolderGrant(rid, grantId),
     onSuccess: () => {
       toast.success("Access revoked.");
       invalidateAccess();
@@ -118,7 +149,9 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
   });
   const updateDirectGrant = useMutation({
     mutationFn: ({ grantId, nextRole }: { grantId: string; nextRole: string }) =>
-      isFolder ? api.updateFolderGrant(id, grantId, nextRole) : api.updateGrant(id, grantId, nextRole),
+      isFolder
+        ? api.updateFolderGrant(id, grantId, nextRole)
+        : api.updateGrant(id, grantId, nextRole),
     onSuccess: () => {
       toast.success("Access updated.");
       invalidateAccess();
@@ -126,7 +159,8 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
     onError: (e) => toast.error(errorMessage(e, "Couldn't update access.")),
   });
   const revokeDirectGrant = useMutation({
-    mutationFn: (grantId: string) => isFolder ? api.deleteFolderGrant(id, grantId) : api.deleteGrant(id, grantId),
+    mutationFn: (grantId: string) =>
+      isFolder ? api.deleteFolderGrant(id, grantId) : api.deleteGrant(id, grantId),
     onSuccess: () => {
       toast.success("Access revoked.");
       invalidateAccess();
@@ -154,19 +188,28 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
   });
 
   const confirmPending = () => {
-    if (!pendingChange) return;
+    if (!canManageAccess || !pendingChange) return;
     const { source, action, newRole } = pendingChange;
     if (action === "revoke") {
       revokeGrant.mutate({ resourceId: source.resource_id, grantId: source.grant_id! });
     } else if (newRole) {
-      updateGrant.mutate({ resourceId: source.resource_id, grantId: source.grant_id!, nextRole: newRole });
+      updateGrant.mutate({
+        resourceId: source.resource_id,
+        grantId: source.grant_id!,
+        nextRole: newRole,
+      });
     }
   };
 
   const handleInheritedChange = (item: EffectiveAccessItem, nextValue: string) => {
+    if (!canManageAccess) return;
     const src = inheritedSource(item);
     if (!src?.grant_id) return;
-    const label = item.principal?.name || item.principal?.email || item.principal?.id || "this principal";
+    const label =
+      item.principal?.name ||
+      item.principal?.email ||
+      item.principal?.id ||
+      "this principal";
     if (nextValue === "revoke") {
       setPendingChange({ label, source: src, action: "revoke" });
     } else {
@@ -175,32 +218,42 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
   };
 
   const handleGeneralInheritedChange = (nextValue: string) => {
+    if (!canManageAccess) return;
     if (!anyoneInheritedSource?.grant_id) return;
     const label = config.data?.everyone_label || "Everyone on this server";
     if (nextValue === GENERAL_ACCESS_NONE) {
       setPendingChange({ label, source: anyoneInheritedSource, action: "revoke" });
     } else {
-      setPendingChange({ label, source: anyoneInheritedSource, action: "update", newRole: nextValue });
+      setPendingChange({
+        label,
+        source: anyoneInheritedSource,
+        action: "update",
+        newRole: nextValue,
+      });
     }
   };
 
   const everyoneLabel = config.data?.everyone_label || "Everyone on this server";
   const userPlaceholder =
     config.data?.deployment === "public" ? "user@gmail.com" : "user@org.example";
+  const resourceLabel = isFolder ? "folder" : "document";
 
   return (
     <SheetContent>
       <SheetHeader>
-        <SheetTitle>Share {isFolder ? "folder" : "document"}</SheetTitle>
+        <SheetTitle>Share {resourceLabel}</SheetTitle>
       </SheetHeader>
       <SheetBody>
         {pendingChange ? (
           <div className="space-y-3 rounded-lg border border-[var(--color-warning-border)] bg-[var(--color-warning-bg,var(--color-surface-muted))] p-4">
             <p className="text-sm font-medium">
-              {pendingChange.action === "revoke" ? "Remove" : "Change"} access for {pendingChange.label}?
+              {pendingChange.action === "revoke" ? "Remove" : "Change"} access for{" "}
+              {pendingChange.label}?
             </p>
             <p className="text-xs text-[var(--color-fg-muted)]">
-              This access is inherited from <span className="font-medium">{pendingChange.source.resource_title}</span>.
+              This access is inherited from{" "}
+              <span className="font-medium">{pendingChange.source.resource_title}</span>
+              .
               {pendingChange.action === "revoke"
                 ? " Removing it will affect everyone who accesses items through that folder."
                 : " Changing it will affect everyone who accesses items through that folder."}
@@ -218,77 +271,103 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                 disabled={updateGrant.isPending || revokeGrant.isPending}
                 onClick={confirmPending}
               >
-                {pendingChange.action === "revoke" ? "Remove from folder" : "Change on folder"}
+                {pendingChange.action === "revoke"
+                  ? "Remove from folder"
+                  : "Change on folder"}
               </Button>
             </div>
           </div>
         ) : (
           <>
+            {!canManageAccess ? (
+              <div
+                id="share-read-only-note"
+                className="mb-4 flex gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm dark:border-red-900/60 dark:bg-red-950/30"
+              >
+                <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-danger)]" />
+                <div>
+                  <p className="font-medium">
+                    Sharing is read-only for your access level.
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-[var(--color-fg-muted)]">
+                    You can see who has access and copy the link, but you need at least
+                    commenter access to change sharing.
+                  </p>
+                </div>
+              </div>
+            ) : null}
             <form
-              className="space-y-3"
+              className={`space-y-3 ${canManageAccess ? "" : "opacity-55"}`}
+              aria-describedby={!canManageAccess ? "share-read-only-note" : undefined}
               onSubmit={(e) => {
                 e.preventDefault();
+                if (!canManageAccess) return;
                 m.mutate();
               }}
             >
-              <div>
-                <Input
-                  placeholder={`${userPlaceholder}  or  report-creator@brave.otter.bot`}
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  autoCapitalize="off"
-                  autoCorrect="off"
-                  spellCheck={false}
-                />
-                <p className="mt-1.5 text-[11px] text-[var(--color-fg-muted)]">
-                  Search existing aidocs users by email, or add a bot by its address.
-                </p>
-                {userSuggestions.length > 0 ? (
-                  <div className="mt-2 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
-                    {userSuggestions.map((u) => (
-                      <button
-                        key={u.id || u.email}
-                        type="button"
-                        className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-muted)]"
-                        onClick={() => setAddress(u.email || "")}
-                      >
-                        <div className="font-medium">{u.name || u.email}</div>
-                        {u.name && u.email ? (
-                          <div className="text-xs text-[var(--color-fg-muted)]">
-                            {u.email}
-                          </div>
-                        ) : null}
-                      </button>
-                    ))}
-                  </div>
-                ) : debouncedAddress.length >= 2 &&
-                  !debouncedAddress.includes(".bot") &&
-                  !userSearch.isFetching ? (
-                  <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-fg-muted)]">
-                    No matching aidocs users. They need to sign in once before you can share
-                    with them.
-                  </div>
-                ) : null}
-              </div>
-              <select
-                value={role}
-                onChange={(e) => setRole(e.target.value)}
-                aria-label="Access role"
-                className="h-9 w-full rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm"
+              <fieldset
+                disabled={!canManageAccess || m.isPending}
+                className="space-y-3"
               >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-              <Button
-                className="w-full"
-                type="submit"
-                disabled={!address.trim() || m.isPending}
-              >
-                Share
-              </Button>
+                <div>
+                  <Input
+                    placeholder={`${userPlaceholder}  or  report-creator@brave.otter.bot`}
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                  />
+                  <p className="mt-1.5 text-[11px] text-[var(--color-fg-muted)]">
+                    Search existing aidocs users by email, or add a bot by its address.
+                  </p>
+                  {userSuggestions.length > 0 ? (
+                    <div className="mt-2 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
+                      {userSuggestions.map((u) => (
+                        <button
+                          key={u.id || u.email}
+                          type="button"
+                          className="block w-full px-3 py-2 text-left text-sm hover:bg-[var(--color-surface-muted)]"
+                          onClick={() => setAddress(u.email || "")}
+                        >
+                          <div className="font-medium">{u.name || u.email}</div>
+                          {u.name && u.email ? (
+                            <div className="text-xs text-[var(--color-fg-muted)]">
+                              {u.email}
+                            </div>
+                          ) : null}
+                        </button>
+                      ))}
+                    </div>
+                  ) : debouncedAddress.length >= 2 &&
+                    !debouncedAddress.includes(".bot") &&
+                    !userSearch.isFetching ? (
+                    <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-fg-muted)]">
+                      No matching aidocs users. They need to sign in once before you can
+                      share with them.
+                    </div>
+                  ) : null}
+                </div>
+                <select
+                  value={role}
+                  onChange={(e) => setRole(e.target.value)}
+                  aria-label="Access role"
+                  className="h-9 w-full rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm disabled:cursor-not-allowed"
+                >
+                  {ROLES.map((r) => (
+                    <option key={r.value} value={r.value}>
+                      {r.label}
+                    </option>
+                  ))}
+                </select>
+                <Button
+                  className="w-full"
+                  type="submit"
+                  disabled={!canManageAccess || !address.trim() || m.isPending}
+                >
+                  Share
+                </Button>
+              </fieldset>
             </form>
             <div className="mt-6">
               <h4 className="mb-2 text-xs font-medium uppercase tracking-wider text-[var(--color-fg-muted)]">
@@ -320,7 +399,9 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                       >
                         <div className="min-w-0">
                           <div className="truncate font-medium">
-                            {item.principal?.name || item.principal?.email || item.principal?.id}
+                            {item.principal?.name ||
+                              item.principal?.email ||
+                              item.principal?.id}
                             {item.principal?.type === "service_account" ? " (bot)" : ""}
                           </div>
                           {item.principal?.name && item.principal?.email ? (
@@ -331,11 +412,19 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                         </div>
                         <select
                           value={item.effective_role}
-                          disabled={updateGrant.isPending || revokeGrant.isPending || updateDirectGrant.isPending || revokeDirectGrant.isPending}
+                          disabled={
+                            !canManageAccess ||
+                            updateGrant.isPending ||
+                            revokeGrant.isPending ||
+                            updateDirectGrant.isPending ||
+                            revokeDirectGrant.isPending
+                          }
                           onChange={(e) => {
                             const next = e.target.value;
                             const inheritedRole = src?.role;
-                            const reducingBelowInherited = inheritedRole && (ROLE_RANK[next] || 0) < (ROLE_RANK[inheritedRole] || 0);
+                            const reducingBelowInherited =
+                              inheritedRole &&
+                              (ROLE_RANK[next] || 0) < (ROLE_RANK[inheritedRole] || 0);
                             if (reducingBelowInherited) {
                               handleInheritedChange(item, next);
                             } else if (next === "revoke" && grantId) {
@@ -347,7 +436,7 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                             }
                           }}
                           aria-label="Access role"
-                          className="h-8 shrink-0 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm"
+                          className="h-8 shrink-0 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                         >
                           {ROLES.map((r) => (
                             <option key={r.value} value={r.value}>
@@ -370,18 +459,21 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
                 <span className="truncate">{everyoneLabel}</span>
                 <select
                   value={anyoneEffectiveRole}
-                  disabled={general.isPending}
+                  disabled={!canManageAccess || general.isPending}
                   onChange={(e) => {
                     const next = e.target.value;
                     const inheritedRole = anyoneInheritedSource?.role;
-                    if (inheritedRole && (ROLE_RANK[next] || 0) < (ROLE_RANK[inheritedRole] || 0)) {
+                    if (
+                      inheritedRole &&
+                      (ROLE_RANK[next] || 0) < (ROLE_RANK[inheritedRole] || 0)
+                    ) {
                       handleGeneralInheritedChange(next);
                     } else {
                       general.mutate(next);
                     }
                   }}
                   aria-label="General access role"
-                  className="h-8 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm"
+                  className="h-8 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <option value={GENERAL_ACCESS_NONE}>No access</option>
                   {ROLES.map((r) => (
@@ -394,7 +486,9 @@ export function ShareSheet({ docId, resourceType = "document", resourceId }: { d
             </div>
             <div className="mt-6 rounded-lg border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)]/45 p-3">
               <div className="flex items-center justify-between gap-3">
-                <div className="text-sm font-medium">{isFolder ? "Folder" : "Document"} link</div>
+                <div className="text-sm font-medium">
+                  {isFolder ? "Folder" : "Document"} link
+                </div>
                 <Button
                   type="button"
                   variant="outline"
