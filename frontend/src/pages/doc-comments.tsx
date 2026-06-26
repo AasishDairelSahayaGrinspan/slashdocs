@@ -159,7 +159,7 @@ export function Comments() {
 
 function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   const q = useQueryClient();
-  const { activeComment, setActiveComment, principal } = useDoc();
+  const { activeComment, focusComment, principal } = useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
   useEffect(() => {
@@ -181,7 +181,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
     <article
       ref={cardRef}
       className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-colors hover:border-[var(--color-border-strong)] ${active ? "border-[var(--color-border-strong)] ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
-      onClick={() => setActiveComment(active ? undefined : c.id)}
+      onClick={() => focusComment(c.id)}
     >
       <div className="mb-1 flex items-center justify-between">
         <span className="text-xs font-semibold">

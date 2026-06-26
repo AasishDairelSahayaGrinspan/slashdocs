@@ -55,6 +55,22 @@ func TestBridgeHandlesDocumentLinks(t *testing.T) {
 	}
 }
 
+func TestBridgeScrollsActiveCommentEvenWhenRangeCannotBeMarked(t *testing.T) {
+	for _, needle := range []string{
+		"scrollRangeIntoView",
+		"getClientRects",
+		"win.scrollTo",
+		"if (active) return scrollRangeIntoView(r)",
+		"aidocs:focus",
+		"rangeForQuote",
+		"candidateScore",
+	} {
+		if !strings.Contains(bridgeJSSource, needle) {
+			t.Fatalf("bridge.js missing active comment range scrolling hook %q", needle)
+		}
+	}
+}
+
 func TestRenderWrapperLeavesScriptSubstringInJSAlone(t *testing.T) {
 	userHTML := []byte(`<html><body><script>var s = "</script>oops";</script></body></html>`)
 	out := string(renderWrapperHTML(userHTML, "https://app.example"))

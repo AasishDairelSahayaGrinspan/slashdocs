@@ -6,7 +6,8 @@ export const queryKeys = {
   document: (id: string) => ["document", id] as const,
   versions: (doc: string) => ["versions", doc] as const,
   render: (version: string) => ["render", version] as const,
-  comments: (doc: string) => ["comments", doc] as const,
+  comments: (doc: string, version?: string) =>
+    version ? (["comments", doc, version] as const) : (["comments", doc] as const),
   serviceAccounts: () => ["service-accounts"] as const,
   serviceAccountKeys: (id: string) => ["service-account-keys", id] as const,
   folders: (folderId?: string) => ["folders", folderId || "root"] as const,

@@ -45,31 +45,40 @@ export function DocumentPage() {
     enabled: !!id && !doc.error,
     meta: { suppressGlobalError: true },
   });
-  // One comments query feeds both the paint overlay and the side panel so they
-  // stay in sync.
-  const comments = useQuery({
-    queryKey: queryKeys.comments(id),
-    queryFn: () => api.listComments(id),
-    enabled: !!id && !doc.error,
-    meta: { suppressGlobalError: true },
-  });
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
+  const [commentFocusToken, setCommentFocusToken] = useState(0);
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
-  const handleDocCommentClick = useCallback((commentId: string) => {
+  const focusComment = useCallback((commentId: string) => {
     setActiveComment(commentId);
-    setPanelOpen(true);
+    setCommentFocusToken((token) => token + 1);
   }, []);
+
+  const handleDocCommentClick = useCallback(
+    (commentId: string) => {
+      focusComment(commentId);
+      setPanelOpen(true);
+    },
+    [focusComment],
+  );
 
   const versionItems = versions.data?.items || [];
   const latest =
     currentVersionID(doc.data || {}) ||
     versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || latest;
+  // One comments query feeds both the paint overlay and the side panel so they
+  // stay in sync with the version currently rendered in the iframe.
+  const comments = useQuery({
+    queryKey: queryKeys.comments(id, current),
+    queryFn: () => api.listComments(id, current),
+    enabled: !!id && !!current && !doc.error,
+    meta: { suppressGlobalError: true },
+  });
 
   const ctx = useMemo(
     () => ({
@@ -83,6 +92,8 @@ export function DocumentPage() {
       setSelection,
       activeComment,
       setActiveComment,
+      commentFocusToken,
+      focusComment,
       handleDocCommentClick,
     }),
     [
@@ -95,6 +106,8 @@ export function DocumentPage() {
       selection,
       activeComment,
       setActiveComment,
+      commentFocusToken,
+      focusComment,
       handleDocCommentClick,
     ],
   );

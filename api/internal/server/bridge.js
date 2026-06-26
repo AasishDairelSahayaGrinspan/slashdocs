@@ -124,6 +124,144 @@ function bridge() {
     return r;
   }
 
+  function rangeForAnchor(a) {
+    const d = doc();
+    if (
+      !d ||
+      !a ||
+      typeof a.start_offset !== "number" ||
+      typeof a.end_offset !== "number"
+    ) {
+      return null;
+    }
+    const r = rangeAtOffsets(d, textNodes(d.body), a.start_offset, a.end_offset);
+    if (!r) return null;
+    if (a.quote && norm(r.toString()) !== norm(a.quote)) return null;
+    return r;
+  }
+
+  function normalizeWithMap(s) {
+    const out = [];
+    const map = [];
+    let inWhitespace = false;
+    for (let i = 0; i < s.length; i += 1) {
+      const ch = s[i];
+      if (/\s/.test(ch)) {
+        if (out.length === 0 || inWhitespace) continue;
+        out.push(" ");
+        map.push(i);
+        inWhitespace = true;
+      } else {
+        out.push(ch);
+        map.push(i);
+        inWhitespace = false;
+      }
+    }
+    if (out[out.length - 1] === " ") {
+      out.pop();
+      map.pop();
+    }
+    return { text: out.join(""), map };
+  }
+
+  function candidateScore(flat, candidate, a) {
+    let score = 0;
+    const prefix = a && a.prefix;
+    const suffix = a && a.suffix;
+    const before = flat.slice(Math.max(0, candidate.start - 256), candidate.start);
+    const after = flat.slice(candidate.end, candidate.end + 256);
+    if (prefix) {
+      if (before.endsWith(prefix)) score += 8;
+      else if (norm(before).endsWith(norm(prefix))) score += 4;
+    }
+    if (suffix) {
+      if (after.startsWith(suffix)) score += 8;
+      else if (norm(after).startsWith(norm(suffix))) score += 4;
+    }
+    if (typeof a?.start_offset === "number") {
+      score -= Math.min(4, Math.abs(candidate.start - a.start_offset) / 1000);
+    }
+    return score;
+  }
+
+  function rangeForQuote(a, q) {
+    const d = doc();
+    if (!d || !q) return null;
+    const nodes = textNodes(d.body);
+    const flat = nodes.map((n) => n.nodeValue).join("");
+    const candidates = [];
+
+    let rawIndex = flat.indexOf(q);
+    while (rawIndex >= 0) {
+      candidates.push({ start: rawIndex, end: rawIndex + q.length });
+      rawIndex = flat.indexOf(q, rawIndex + Math.max(1, q.length));
+    }
+
+    const nq = norm(q);
+    if (nq) {
+      const normalized = normalizeWithMap(flat);
+      let normalizedIndex = normalized.text.indexOf(nq);
+      while (normalizedIndex >= 0) {
+        const start = normalized.map[normalizedIndex];
+        const last = normalized.map[normalizedIndex + nq.length - 1];
+        if (typeof start === "number" && typeof last === "number") {
+          candidates.push({ start, end: last + 1 });
+        }
+        normalizedIndex = normalized.text.indexOf(
+          nq,
+          normalizedIndex + Math.max(1, nq.length),
+        );
+      }
+    }
+
+    candidates.sort(
+      (left, right) => candidateScore(flat, right, a) - candidateScore(flat, left, a),
+    );
+    for (const candidate of candidates) {
+      const r = rangeAtOffsets(d, nodes, candidate.start, candidate.end);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  function scrollRangeIntoView(r) {
+    const d = doc();
+    if (!d || !r) return 0;
+    const win = d.defaultView || frame.contentWindow;
+    try {
+      const rects = Array.from(r.getClientRects()).filter(
+        (rect) => rect.width > 0 || rect.height > 0,
+      );
+      const rect = rects[0] || r.getBoundingClientRect();
+      if (rect && (rect.width > 0 || rect.height > 0)) {
+        win.scrollTo({
+          left: Math.max(0, rect.left + win.scrollX - win.innerWidth / 2),
+          top: Math.max(
+            0,
+            rect.top + win.scrollY - win.innerHeight / 2 + rect.height / 2,
+          ),
+          behavior: "smooth",
+        });
+        return 1;
+      }
+    } catch (e) {}
+    const n = r.startContainer;
+    const el = n && (n.nodeType === 1 ? n : n.parentElement);
+    if (el && el.scrollIntoView) {
+      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      return 1;
+    }
+    return 0;
+  }
+
+  function scrollComment(x) {
+    const a = x?.anchor || {};
+    const q = a.quote || x?.quote || x?.selected_text;
+    const r = rangeForAnchor(a) || rangeForQuote(a, q);
+    if (!r) return 0;
+    return scrollRangeIntoView(r);
+  }
+
   function highlightRange(r, active, id) {
     const d = doc();
     const m = d.createElement("mark");
@@ -134,24 +272,14 @@ function bridge() {
       if (active) m.scrollIntoView({ block: "center", behavior: "smooth" });
       return 1;
     } catch (e) {
+      if (active) return scrollRangeIntoView(r);
       return 0;
     }
   }
 
   function markAtAnchor(a, active, id) {
-    const d = doc();
-    if (
-      !d ||
-      !a ||
-      typeof a.start_offset !== "number" ||
-      typeof a.end_offset !== "number"
-    ) {
-      return 0;
-    }
-    const nodes = textNodes(d.body);
-    const r = rangeAtOffsets(d, nodes, a.start_offset, a.end_offset);
+    const r = rangeForAnchor(a);
     if (!r) return 0;
-    if (a.quote && norm(r.toString()) !== norm(a.quote)) return 0;
 
     if (r.startContainer === r.endContainer && isSVGNode(r.startContainer)) {
       return svgHighlight(r.startContainer, active, id);
@@ -159,21 +287,16 @@ function bridge() {
     return highlightRange(r, active, id);
   }
 
-  function markQuote(q, active, id) {
+  function markQuote(a, q, active, id) {
     const d = doc();
     if (!d || !q) return 0;
     injectStyles();
-    const nq = norm(q);
-    if (!nq) return 0;
-    for (const n of textNodes(d.body)) {
-      const raw = n.nodeValue;
-      const nText = norm(raw);
-      if (nText.indexOf(nq) < 0 && raw.indexOf(q) < 0) continue;
-      if (isSVGNode(n)) {
-        if (svgHighlight(n, active, id)) return 1;
-        continue;
+    const r = rangeForQuote(a, q);
+    if (r) {
+      if (r.startContainer === r.endContainer && isSVGNode(r.startContainer)) {
+        return svgHighlight(r.startContainer, active, id);
       }
-      if (htmlHighlight(n, q, active, id)) return 1;
+      return highlightRange(r, active, id);
     }
     return 0;
   }
@@ -184,9 +307,13 @@ function bridge() {
     (items || []).forEach((x) => {
       const a = x.anchor || {};
       if (!markAtAnchor(a, x.id === active, x.id)) {
-        markQuote(a.quote || x.quote || x.selected_text, x.id === active, x.id);
+        markQuote(a, a.quote || x.quote || x.selected_text, x.id === active, x.id);
       }
     });
+  }
+
+  function focus(x) {
+    scrollComment(x);
   }
 
   function activate(e) {
@@ -372,6 +499,7 @@ function bridge() {
   window.addEventListener("message", (e) => {
     if (!e.data) return;
     if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
+    else if (e.data.type === "aidocs:focus") focus(e.data.comment);
     else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
   });
 }

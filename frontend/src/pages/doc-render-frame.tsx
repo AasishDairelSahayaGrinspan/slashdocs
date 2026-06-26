@@ -16,6 +16,7 @@ export function RenderFrame() {
     version,
     comments,
     activeComment,
+    commentFocusToken,
     setSelection,
     handleDocCommentClick,
   } = useDoc();
@@ -43,6 +44,15 @@ export function RenderFrame() {
         })),
     [comments],
   );
+  const focusPayload = useMemo(() => {
+    const c = comments.find((item) => item.id === activeComment);
+    if (!c) return null;
+    return {
+      id: c.id,
+      quote: c.selected_text || c.anchor?.quote,
+      anchor: c.anchor,
+    };
+  }, [comments, activeComment]);
 
   const frameOrigin = useMemo(() => {
     if (!token.data?.url) return null;
@@ -78,6 +88,14 @@ export function RenderFrame() {
     );
   }, [paintPayload, activeComment, frameOrigin]);
 
+  const focus = useCallback(() => {
+    if (!readyRef.current || !frameOrigin || !focusPayload) return;
+    ref.current?.contentWindow?.postMessage(
+      { type: "aidocs:focus", comment: focusPayload },
+      frameOrigin,
+    );
+  }, [focusPayload, frameOrigin]);
+
   // Push live theme changes to the bridge once the frame is ready.
   useEffect(() => {
     if (!readyRef.current || !frameOrigin) return;
@@ -101,6 +119,7 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:ready") {
         readyRef.current = true;
         paint();
+        focus();
         ref.current?.contentWindow?.postMessage(
           { type: "aidocs:theme", theme },
           frameOrigin,
@@ -109,12 +128,18 @@ export function RenderFrame() {
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [frameOrigin, paint, setSelection, handleDocCommentClick, theme]);
+  }, [frameOrigin, paint, focus, setSelection, handleDocCommentClick, theme]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {
     paint();
   }, [paint]);
+
+  // Sidebar clicks should navigate even when the comment is already active or
+  // intentionally not painted, such as resolved comments in the side panel.
+  useEffect(() => {
+    focus();
+  }, [focus, commentFocusToken]);
 
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.
