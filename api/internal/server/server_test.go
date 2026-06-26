@@ -494,6 +494,38 @@ func TestPatchGrantRejectsOwnerRole(t *testing.T) {
 	assertStatus(t, rr, http.StatusBadRequest)
 }
 
+func TestCommenterCanManageDocumentGrants(t *testing.T) {
+	h := newTestServer()
+	commenter := map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:commenter_1:commenter@example.com:Commenter",
+	}
+
+	rr := do(t, h, http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "service_account", "id": "sa_1" },
+	  "role": "viewer"
+	}`, commenter)
+	assertStatus(t, rr, http.StatusCreated)
+
+	rr = do(t, h, http.MethodPatch, "/v1/documents/doc_1/grants/gr_1", `{"role":"editor"}`, commenter)
+	assertStatus(t, rr, http.StatusOK)
+
+	rr = do(t, h, http.MethodDelete, "/v1/documents/doc_1/grants/gr_1", "", commenter)
+	assertStatus(t, rr, http.StatusNoContent)
+}
+
+func TestViewerCannotManageDocumentGrants(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "service_account", "id": "sa_1" },
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:viewer_1:viewer@example.com:Viewer",
+	})
+
+	assertStatus(t, rr, http.StatusForbidden)
+}
+
 func TestGrantRejectsNonexistentServiceAccount(t *testing.T) {
 	rr := do(t, newTestServer(), http.MethodPost, "/v1/documents/doc_1/grants", `{
 	  "principal": { "type": "service_account", "id": "sa_missing" },
@@ -1131,6 +1163,62 @@ func TestFolderAccessControl(t *testing.T) {
 		// Moving doc with only viewer access is blocked — editor required
 		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/documents",
 			`{"document_id":"`+doc.ID+`"}`,
+			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusForbidden)
+	})
+
+	t.Run("commenter can manage folder grants", func(t *testing.T) {
+		thirdP := auth.Principal{Type: auth.PrincipalUser, ID: "u_third", Email: "third@example.com", Name: "Third"}
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), thirdP.ID, thirdP.Email, thirdP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Shared"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var folder struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &folder)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/grants",
+			`{"address":"other@example.com","role":"commenter"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/grants",
+			`{"address":"third@example.com","role":"viewer"}`,
+			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		rr = do(t, h, http.MethodPatch, "/v1/folders/"+folder.ID+"/grants/gr_2",
+			`{"role":"editor"}`,
+			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusOK)
+
+		rr = do(t, h, http.MethodDelete, "/v1/folders/"+folder.ID+"/grants/gr_2", "", map[string]string{"X-Test-Principal": other})
+		assertStatus(t, rr, http.StatusNoContent)
+	})
+
+	t.Run("viewer cannot manage folder grants", func(t *testing.T) {
+		thirdP := auth.Principal{Type: auth.PrincipalUser, ID: "u_third", Email: "third@example.com", Name: "Third"}
+		r := repo.NewMemory()
+		r.UpsertGoogleUser(context.Background(), ownerP.ID, ownerP.Email, ownerP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), otherP.ID, otherP.Email, otherP.Name, "", "")
+		r.UpsertGoogleUser(context.Background(), thirdP.ID, thirdP.Email, thirdP.Name, "", "")
+		h := server.New(server.Config{Environment: "test"}, server.WithRepository(r), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+		rr := do(t, h, http.MethodPost, "/v1/folders", `{"title":"Shared"}`, map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		var folder struct{ ID string }
+		json.Unmarshal(rr.Body.Bytes(), &folder)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/grants",
+			`{"address":"other@example.com","role":"viewer"}`,
+			map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+
+		rr = do(t, h, http.MethodPost, "/v1/folders/"+folder.ID+"/grants",
+			`{"address":"third@example.com","role":"viewer"}`,
 			map[string]string{"X-Test-Principal": other, "Content-Type": "application/json"})
 		assertStatus(t, rr, http.StatusForbidden)
 	})

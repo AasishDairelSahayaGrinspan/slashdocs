@@ -79,7 +79,7 @@ func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, pr
 // @Success 201 {object} map[string]interface{}
 // @Router /v1/documents/{id}/grants [post]
 func (h handlers) createGrant(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleEditor) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleCommenter) {
 		return
 	}
 	p := current(c)
@@ -144,7 +144,7 @@ func (h handlers) createGrant(c *gin.Context) {
 // @Success 200 {object} repo.Grant
 // @Router /v1/documents/{id}/grants/{grant_id} [patch]
 func (h handlers) patchGrant(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleEditor) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleCommenter) {
 		return
 	}
 	var in struct {
@@ -177,7 +177,7 @@ func (h handlers) patchGrant(c *gin.Context) {
 // @Success 204
 // @Router /v1/documents/{id}/grants/{grant_id} [delete]
 func (h handlers) deleteGrant(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleEditor) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleCommenter) {
 		return
 	}
 	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil {
