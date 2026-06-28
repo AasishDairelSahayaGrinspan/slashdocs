@@ -71,6 +71,113 @@ docker run --rm -p 8080:8080 --env-file .env harbor.razorpay.com/razorpay/aidocs
 
 See [Self-hosting](docs/self-hosting.md) for production setup and all environment variables. A Kubernetes Helm chart is available in [`charts/aidocs`](charts/aidocs).
 
+## Local development
+
+The fastest way to run the full stack locally — no internal registry access needed.
+
+**Prerequisites:** Docker and Docker Compose.
+
+### 0. Configure credentials (optional for local, required for shared use)
+
+`docker-compose.yml` ships with a working Google OAuth client and a pre-generated session secret so you can start immediately without any setup. For most local development you can skip this step entirely.
+
+If you want to use your own Google OAuth app, or are running a shared/staging instance, override the values before starting:
+
+**Option A — edit `docker-compose.yml` directly** (quickest for local):
+```yaml
+environment:
+  GOOGLE_OAUTH_CLIENT_ID: <your-client-id>
+  GOOGLE_OAUTH_CLIENT_SECRET: <your-client-secret>
+  SESSION_SECRET: <output of: openssl rand -hex 32>
+```
+
+**Option B — use a `.env` file** (keeps secrets out of the file):
+```bash
+cp .env.example .env
+# fill in GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, SESSION_SECRET
+```
+
+Then reference them in `docker-compose.yml`:
+```yaml
+environment:
+  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
+  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
+  SESSION_SECRET: ${SESSION_SECRET}
+```
+
+To create a Google OAuth client: go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials), create an OAuth 2.0 Client ID (Web application), and set the authorized redirect URI to `http://localhost:8080/v1/auth/google/callback`.
+
+**Session secret:** the value in `docker-compose.yml` is a random 32-byte hex string generated for this repo. It is safe to use as-is for local development on your own machine. Generate a fresh one for any environment where other people have access: `openssl rand -hex 32`.
+
+### 1. Start dependencies + server
+
+```bash
+docker compose up --build
+```
+
+This starts:
+- **PostgreSQL 16** on `localhost:5432`
+- **MinIO** (S3-compatible blob store) on `localhost:9000` (API) and `localhost:9001` (console UI)
+- **aidocs server** on `localhost:8080` (built from source via `Dockerfile.local`)
+
+Database migrations run automatically on first boot (`AIDOCS_MIGRATE=true`).
+
+### 2. Open the app
+
+```
+http://localhost:8080
+```
+
+Sign in with Google. The app is fully functional — you can create documents, invite others, and use the CLI against it.
+
+### 3. Develop frontend with hot reload
+
+Keep the compose stack running (for the API + DB), then in a separate terminal:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Vite's dev server starts on `http://localhost:5173` and proxies API calls to the Go server at `http://localhost:8080`.
+
+To rebuild the frontend and apply changes to the running Docker container:
+
+```bash
+make frontend-docker
+```
+
+This runs `make frontend` (compiles the React bundle) then `docker-compose up -d` to restart the container with the new assets baked in. Use this after any frontend change when running via Docker Compose.
+
+### 4. Develop the backend
+
+```bash
+# Run the server directly (needs DATABASE_URL and other env vars)
+go run ./api/cmd/aidocs-server
+
+# Or rebuild and restart via Docker
+docker compose up --build aidocs
+```
+
+### 5. MinIO console
+
+Browse uploaded HTML blobs at `http://localhost:9001`.
+
+```
+Username: minioadmin
+Password: minioadmin
+```
+
+### Tear down
+
+```bash
+docker compose down          # stop containers, keep volumes
+docker compose down -v       # stop containers and delete all data
+```
+
+---
+
 ## CLI quickstart
 
 ```bash

@@ -20,7 +20,8 @@ export function SheetContent({
       <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed z-50 top-0 h-full w-full max-w-md bg-[var(--color-surface)] border-[var(--color-border)] shadow-xl focus:outline-none flex flex-col",
+          "fixed z-50 top-0 h-full w-full max-w-md bg-[var(--color-surface)] border-[var(--color-border)] shadow-2xl focus:outline-none flex flex-col",
+          "data-[state=open]:sheet-animate-in data-[state=closed]:sheet-animate-out",
           side === "right" ? "right-0 border-l" : "left-0 border-r",
           className,
         )}
@@ -41,7 +42,7 @@ export function SheetHeader({
   return (
     <div
       className={cn(
-        "px-6 py-4 border-b border-[var(--color-border)]",
+        "px-6 py-5 border-b border-[var(--color-border)] bg-[var(--color-surface)]",
         className,
       )}
       {...p}

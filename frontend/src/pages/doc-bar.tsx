@@ -5,6 +5,8 @@ import { errorMessage } from "@/lib/errors";
 import {
   ArrowLeft,
   Check,
+  Clock,
+  Expand,
   ExternalLink,
   FolderIcon,
   GitBranch,
@@ -13,6 +15,7 @@ import {
   PanelRightOpen,
   Share2,
   Trash2,
+  User,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -50,6 +53,7 @@ export function DocBar({
   onSelectVersion,
   commentsOpen,
   onToggleComments,
+  onEnterFullscreen,
 }: {
   title: string;
   docId: string;
@@ -62,6 +66,7 @@ export function DocBar({
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
+  onEnterFullscreen: () => void;
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
@@ -119,6 +124,15 @@ export function DocBar({
           <ShareSheet docId={docId} />
         </Sheet>
       ) : null}
+      <Button
+        variant="ghost"
+        size="icon"
+        onClick={onEnterFullscreen}
+        aria-label="Fullscreen"
+        title="Fullscreen"
+      >
+        <Expand className="h-4 w-4" />
+      </Button>
       <Button
         variant="ghost"
         size="icon"
@@ -218,19 +232,24 @@ function VersionHistoryDialog({
                 key={v.id}
                 type="button"
                 onClick={() => onSelectVersion(v.id)}
-                className={`flex w-full gap-3 rounded-xl border border-[var(--color-border)] p-4 text-left transition-colors hover:bg-[var(--color-surface-muted)]/60 ${
+                className={`flex w-full gap-3 rounded-xl border p-4 text-left transition-all duration-150 hover:shadow-sm ${
                   v.id === current
-                    ? "bg-[var(--color-accent-muted)]/35"
-                    : "bg-[var(--color-surface)]"
+                    ? "border-[var(--color-accent)]/40 bg-[var(--color-accent-muted)]/40"
+                    : "border-[var(--color-border)] bg-[var(--color-surface)] hover:border-[var(--color-border-strong)] hover:bg-[var(--color-surface-muted)]/50"
                 }`}
                 aria-current={v.id === current ? "true" : undefined}
               >
-                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--color-accent-muted)] text-sm font-semibold text-[var(--color-accent)]">
+                {/* version number bubble */}
+                <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-sm font-bold ${
+                  v.id === current
+                    ? "bg-[var(--color-accent)] text-white"
+                    : "bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)]"
+                }`}>
                   {v.number}
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-2">
-                    <div className="font-medium">Version {v.number}</div>
+                    <div className="font-semibold text-sm">Version {v.number}</div>
                     {v.id === current ? (
                       <Badge variant="accent">
                         <Check className="h-3 w-3" /> Viewing
@@ -242,9 +261,15 @@ function VersionHistoryDialog({
                     {v.change_summary ||
                       (v.number === 1 ? "Initial version" : "No change summary")}
                   </div>
-                  <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
-                    <span>Created by {principalLabel(v.created_by)}</span>
-                    <span className="font-mono">{v.id}</span>
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--color-fg-muted)]">
+                    <span className="flex items-center gap-1">
+                      <User className="h-3 w-3" />
+                      {principalLabel(v.created_by)}
+                    </span>
+                    <span className="flex items-center gap-1 font-mono text-[10px] opacity-60">
+                      <Clock className="h-3 w-3 font-normal" style={{ fontFamily: "inherit" }} />
+                      {v.id.slice(0, 8)}…
+                    </span>
                   </div>
                 </div>
               </button>

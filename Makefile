@@ -2,7 +2,7 @@ SWAG := go run github.com/swaggo/swag/cmd/swag@v1.16.6
 JSONNET ?= jsonnet
 JB ?= jb
 
-.PHONY: swagger frontend backend cli build build-frontend build-backend build-cli dashboards check-dashboards format test clean
+.PHONY: swagger frontend frontend-docker backend cli build build-frontend build-backend build-cli dashboards check-dashboards format test clean
 
 swagger:
 	$(SWAG) init \
@@ -14,6 +14,9 @@ swagger:
 
 frontend:
 	cd frontend && npm ci && npm run build
+
+frontend-docker: frontend
+	docker-compose up -d
 
 backend: swagger frontend
 	go build -o bin/aidocs-server ./api/cmd/aidocs-server
