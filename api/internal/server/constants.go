@@ -55,3 +55,9 @@ const (
 	saNameMaxAttempts         = 8
 	saNameShortDomainAttempts = 5
 )
+
+// Document listing pagination defaults and limits.
+const (
+	docPageDefault = 20
+	docPageMax     = 50
+)

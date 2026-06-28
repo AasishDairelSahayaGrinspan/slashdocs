@@ -2,7 +2,7 @@ import { useTitle } from "@/lib/use-title";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
@@ -122,10 +122,17 @@ export function DocumentsPage() {
     return () => document.removeEventListener("keydown", handler);
   }, []);
 
+  const DOC_PAGE_SIZE = 20;
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
-  const docs = useQuery({
+  const docs = useInfiniteQuery({
     queryKey: [...queryKeys.documents(), debouncedQ],
-    queryFn: () => api.listDocuments(debouncedQ || undefined),
+    queryFn: ({ pageParam }) =>
+      api.listDocuments({ q: debouncedQ || undefined, limit: DOC_PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (lastPage, allPages) => {
+      if (!lastPage.has_more) return undefined;
+      return allPages.reduce((sum, p) => sum + p.items.length, 0);
+    },
     placeholderData: (prev) => prev,
   });
   const pins = useQuery({ queryKey: queryKeys.pins(), queryFn: api.listPins });
@@ -144,10 +151,13 @@ export function DocumentsPage() {
   }, [onb, nav]);
 
   useEffect(() => {
-    if (docs.data && (docs.data.items || []).length > 0) autoMarkFirstDoc();
+    if (docs.data?.pages.some((p) => p.items.length > 0)) autoMarkFirstDoc();
   }, [docs.data]);
 
-  const documents = useMemo(() => docs.data?.items || [], [docs.data]);
+  const documents = useMemo(
+    () => docs.data?.pages.flatMap((p) => p.items) ?? [],
+    [docs.data],
+  );
   const pinnedItems = pins.data?.items || [];
   const folderEntries = (rootFolders.data?.items || [])
     .filter((e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder);
@@ -344,12 +354,18 @@ export function DocumentsPage() {
                 principal={me.data?.principal}
                 pinnedIds={pinnedIds}
                 scrollRef={scrollContainerRef}
+                fetchNextPage={docs.fetchNextPage}
+                hasNextPage={docs.hasNextPage}
+                isFetchingNextPage={docs.isFetchingNextPage}
               />
             ) : (
               <VirtualGrid
                 entries={merged}
                 pinnedIds={pinnedIds}
                 scrollRef={scrollContainerRef}
+                fetchNextPage={docs.fetchNextPage}
+                hasNextPage={docs.hasNextPage}
+                isFetchingNextPage={docs.isFetchingNextPage}
               />
             )}
             <DragOverlay dropAnimation={null}>
@@ -407,12 +423,19 @@ export function VirtualGrid({
   entries,
   pinnedIds,
   scrollRef,
+  fetchNextPage,
+  hasNextPage,
+  isFetchingNextPage,
 }: {
   entries: FolderEntry[];
   pinnedIds?: Set<string>;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  fetchNextPage?: () => void;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const qc = useQueryClient();
   const [containerWidth, setContainerWidth] = useState(800);
@@ -425,6 +448,17 @@ export function VirtualGrid({
     setContainerWidth(el.clientWidth);
     return () => obs.disconnect();
   }, []);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !fetchNextPage || !hasNextPage) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) fetchNextPage(); },
+      { rootMargin: "200px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [fetchNextPage, hasNextPage]);
 
   const cols = containerWidth >= 1024 ? 4 : containerWidth >= 640 ? 3 : 2;
 
@@ -492,6 +526,12 @@ export function VirtualGrid({
           </div>
         ))}
       </div>
+      <div ref={sentinelRef} className="h-1" />
+      {isFetchingNextPage && (
+        <div className="flex justify-center py-4">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
+        </div>
+      )}
     </div>
   );
 }
@@ -505,13 +545,31 @@ export function VirtualTable({
   principal,
   pinnedIds,
   scrollRef,
+  fetchNextPage,
+  hasNextPage,
+  isFetchingNextPage,
 }: {
   entries: FolderEntry[];
   principal?: Principal;
   pinnedIds?: Set<string>;
   scrollRef: React.RefObject<HTMLDivElement | null>;
+  fetchNextPage?: () => void;
+  hasNextPage?: boolean;
+  isFetchingNextPage?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const sentinelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el || !fetchNextPage || !hasNextPage) return;
+    const obs = new IntersectionObserver(
+      ([entry]) => { if (entry.isIntersecting) fetchNextPage(); },
+      { rootMargin: "200px" },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [fetchNextPage, hasNextPage]);
 
   const rowVirtualizer = useVirtualizer({
     count: entries.length,
@@ -523,11 +581,11 @@ export function VirtualTable({
   return (
     <div ref={containerRef} className="mx-auto max-w-6xl px-6 py-6">
       <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-        <table className="w-full text-sm">
+        <table className="w-full table-fixed text-sm">
           <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
             <tr>
-              <th className="px-4 py-2.5 text-left font-medium">Name</th>
-              <th className="px-4 py-2.5 text-left font-medium">Owner</th>
+              <th className="w-1/2 px-4 py-2.5 text-left font-medium">Name</th>
+              <th className="w-1/3 px-4 py-2.5 text-left font-medium">Owner</th>
               <th className="w-12 px-2 py-2.5"></th>
             </tr>
           </thead>
@@ -553,7 +611,7 @@ export function VirtualTable({
                   height: ROW_LIST_H,
                 }}
               >
-                <table className="w-full text-sm">
+                <table className="w-full table-fixed text-sm">
                   <tbody>
                     {e.type === "folder" && e.folder ? (
                       <DraggableFolderRow
@@ -576,6 +634,12 @@ export function VirtualTable({
           })}
         </div>
       </div>
+      <div ref={sentinelRef} className="h-1" />
+      {isFetchingNextPage && (
+        <div className="flex justify-center py-4">
+          <div className="h-5 w-5 animate-spin rounded-full border-2 border-[var(--color-accent)] border-t-transparent" />
+        </div>
+      )}
     </div>
   );
 }
@@ -668,7 +732,7 @@ function DocCardPreview({ docId, versionId }: { docId: string; versionId: string
             loaded ? "opacity-100" : "opacity-0",
           )}
           style={{ width: "900px", height: "600px", transform: "scale(0.27)", pointerEvents: "none" }}
-          sandbox="allow-scripts allow-same-origin"
+          sandbox="allow-scripts"
           tabIndex={-1}
           onLoad={() => setLoaded(true)}
         />
@@ -883,7 +947,7 @@ function DraggableFolderRow({
         isDragging && "opacity-40",
       )}
     >
-      <td className="px-4 py-3">
+      <td className="w-1/2 px-4 py-3">
         <Link to={`/app/folders/${f.id}`} className="flex cursor-default items-center gap-2 hover:underline" draggable={false}>
           <FolderIcon className="h-4 w-4 shrink-0 text-[var(--color-accent)]" />
           <div className="min-w-0">
@@ -892,8 +956,8 @@ function DraggableFolderRow({
           </div>
         </Link>
       </td>
-      <td className="px-4 py-3"><OwnerCell owner={f.owner} /></td>
-      <td className="px-2 py-3">
+      <td className="w-1/3 px-4 py-3"><OwnerCell owner={f.owner} /></td>
+      <td className="w-12 px-2 py-3">
         <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <RowPinButton resourceType="folder" resourceId={f.id} pinned={pinned} />
           {canDelete && (
@@ -939,7 +1003,7 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
         isDragging && "opacity-40",
       )}
     >
-      <td className="px-4 py-3">
+      <td className="w-1/2 px-4 py-3">
         <Link to={`/app/d/${docID(doc)}`} className="flex cursor-default items-center gap-2 hover:underline" draggable={false}>
           <FileText className={cn("h-4 w-4 shrink-0", swatch.iconText)} />
           <div className="min-w-0">
@@ -948,10 +1012,10 @@ function DraggableDocRow({ doc, canDelete, pinned }: { doc: Document; canDelete:
           </div>
         </Link>
       </td>
-      <td className="px-4 py-3">
+      <td className="w-1/3 px-4 py-3">
         <OwnerCell owner={doc.owner} />
       </td>
-      <td className="px-2 py-3">
+      <td className="w-12 px-2 py-3">
         <div className="flex gap-0.5" onClick={(e) => e.stopPropagation()} onPointerDown={(e) => e.stopPropagation()}>
           <RowPinButton resourceType="document" resourceId={docID(doc)} pinned={pinned} />
           {canDelete && (

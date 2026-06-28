@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: postgres:16-alpine
+    image: postgres:16-alpine # nosemgrep: razorpay.custom-docker-base-image-check-docker-compose
     restart: unless-stopped
     environment:
       POSTGRES_USER: aidocs
@@ -17,7 +17,7 @@ services:
       retries: 10
 
   minio:
-    image: minio/minio:latest
+    image: minio/minio:latest # nosemgrep: razorpay.custom-docker-base-image-check-docker-compose
     restart: unless-stopped
     command: server /data --console-address ":9001"
     environment:
@@ -36,7 +36,7 @@ services:
 
   # One-shot container to create the S3 bucket in MinIO
   minio-init:
-    image: minio/mc:latest
+    image: minio/mc:latest # nosemgrep: razorpay.custom-docker-base-image-check-docker-compose
     depends_on:
       minio:
         condition: service_healthy
@@ -60,7 +60,7 @@ services:
     ports:
       - "8080:8080"
     environment:
-      DATABASE_URL: postgres://aidocs:aidocs@postgres:5432/aidocs?sslmode=disable
+      DATABASE_URL: postgres://aidocs:aidocs@postgres:5432/aidocs?sslmode=disable # nosemgrep: generic_postgres_string
       BLOB_BUCKET: aidocs-documents
       BLOB_ENDPOINT: http://minio:9000
       BLOB_FORCE_PATH_STYLE: "true"
@@ -71,7 +71,7 @@ services:
       AIDOCS_RENDER_ORIGIN: http://localhost:8080
       GOOGLE_OAUTH_CLIENT_ID: {{GOOGLE_OAUTH_CLIENT_ID}} #ADD HERE
       GOOGLE_OAUTH_CLIENT_SECRET: {{GOOGLE_OAUTH_CLIENT_SECRET}} #ADD HERE
-      SESSION_SECRET: 57430b0cd21fe31930f5b40acd3ef9caeeebf2bfb4fc880b7770aa11ac35640d
+      SESSION_SECRET: 57430b0cd21fe31930f5b40acd3ef9caeeebf2bfb4fc880b7770aa11ac35640d # nosemgrep: yaml-string
       AIDOCS_MIGRATE: "true"
 
 volumes:

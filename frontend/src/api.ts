@@ -149,10 +149,16 @@ export const api = {
     }>("/v1/me"),
   loginURL: (redirect: string = location.pathname + location.search) =>
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
-  listDocuments: (q?: string) =>
-    request<{ items: Document[] }>(
-      `/v1/documents${q ? `?q=${encodeURIComponent(q)}` : ""}`,
-    ),
+  listDocuments: (params?: { q?: string; limit?: number; offset?: number }) => {
+    const p = new URLSearchParams();
+    if (params?.q) p.set("q", params.q);
+    if (params?.limit != null) p.set("limit", String(params.limit));
+    if (params?.offset != null) p.set("offset", String(params.offset));
+    const qs = p.toString();
+    return request<{ items: Document[]; has_more: boolean }>(
+      `/v1/documents${qs ? `?${qs}` : ""}`,
+    );
+  },
   getDocument: (id: string) => request<Document>(`/v1/documents/${id}`),
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>

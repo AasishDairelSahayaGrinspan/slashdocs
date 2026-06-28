@@ -3,12 +3,14 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strconv"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
+
 
 // CreateDocument godoc
 // @Summary Create document
@@ -66,15 +68,39 @@ func (h handlers) listDocuments(c *gin.Context) {
 			internalErr(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items})
+		c.JSON(http.StatusOK, gin.H{"items": items, "has_more": false})
 		return
 	}
-	items, err := h.deps.repository.ListDocuments(c.Request.Context(), *current(c))
+
+	limit := docPageDefault
+	if l, err := strconv.Atoi(c.DefaultQuery("limit", "")); err == nil && l > 0 {
+		if l > docPageMax {
+			l = docPageMax
+		}
+		limit = l
+	}
+	offset := 0
+	if o, err := strconv.Atoi(c.DefaultQuery("offset", "")); err == nil && o > 0 {
+		offset = o
+	}
+
+	all, err := h.deps.repository.ListDocuments(c.Request.Context(), *current(c))
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+
+	total := len(all)
+	if offset >= total {
+		c.JSON(http.StatusOK, gin.H{"items": []repo.Document{}, "has_more": false})
+		return
+	}
+	end := offset + limit
+	hasMore := end < total
+	if end > total {
+		end = total
+	}
+	c.JSON(http.StatusOK, gin.H{"items": all[offset:end], "has_more": hasMore})
 }
 
 // GetDocument godoc
