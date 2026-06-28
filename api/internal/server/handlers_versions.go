@@ -185,8 +185,22 @@ func (h handlers) loadVersionForViewer(c *gin.Context) (repo.Version, bool) {
 // @Success 200 {string} string
 // @Router /v1/documents/{id}/versions/{version_id}/html [get]
 func (h handlers) getVersionHTML(c *gin.Context) {
-	v, ok := h.loadVersionForViewer(c)
-	if !ok {
+	docID := c.Param("id")
+	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
+	if !atLeast(role, repo.RoleViewer) {
+		// Browser users get a redirect to the doc page so they see a friendly
+		// "access needed" UI (with a retry button) rather than raw JSON. API
+		// clients (curl, CLI) still receive the standard 403 response.
+		if wantsBrowserLogin(c) {
+			c.Redirect(http.StatusFound, "/app/d/"+docID)
+		} else {
+			forbidden(c, "viewer role required")
+		}
+		return
+	}
+	v, err := h.deps.repository.GetVersion(c.Request.Context(), c.Param("version_id"))
+	if err != nil || v.DocumentID != docID {
+		notFound(c)
 		return
 	}
 	b, err := h.deps.repository.GetVersionHTML(c.Request.Context(), v.ID)

@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
@@ -17,15 +17,25 @@ const DEFAULT_PANEL_WIDTH = 380;
 function DocumentErrorState({
   title,
   description,
+  onRetry,
 }: {
   title: string;
   description: string;
+  onRetry?: () => void;
 }) {
   return (
     <Center>
       <div className="max-w-md text-center">
         <h1 className="text-lg font-semibold text-[var(--color-fg)]">{title}</h1>
         <p className="mt-2 text-sm text-[var(--color-fg-muted)]">{description}</p>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            className="mt-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-4 py-2 text-sm font-medium hover:bg-[var(--color-surface-muted)] active:opacity-70"
+          >
+            Try again
+          </button>
+        )}
       </div>
     </Center>
   );
@@ -58,7 +68,19 @@ export function DocumentPage() {
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const frameContainerRef = useRef<HTMLDivElement>(null);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
+
+  // Enter native browser fullscreen on the frame container
+  const handleEnterFullscreen = useCallback(() => {
+    const el = frameContainerRef.current;
+    if (!el) return;
+    if (el.requestFullscreen) {
+      el.requestFullscreen();
+    } else if ((el as any).webkitRequestFullscreen) {
+      (el as any).webkitRequestFullscreen();
+    }
+  }, []);
 
   const handleDocCommentClick = useCallback((commentId: string) => {
     setActiveComment(commentId);
@@ -138,6 +160,7 @@ export function DocumentPage() {
           <DocumentErrorState
             title="You don't have access to this document"
             description="Please ask the document owner to grant you access."
+            onRetry={() => doc.refetch()}
           />
         );
       }
@@ -174,9 +197,13 @@ export function DocumentPage() {
           onSelectVersion={setSelectedVersion}
           commentsOpen={panelOpen}
           onToggleComments={() => setPanelOpen((o) => !o)}
+          onEnterFullscreen={handleEnterFullscreen}
         />
         <div className="flex flex-1 overflow-hidden">
-          <section className="relative flex-1 bg-[var(--color-surface-muted)]">
+          <section
+            ref={frameContainerRef}
+            className="relative flex-1 bg-[var(--color-surface-muted)]"
+          >
             {current ? <RenderFrame /> : <Center>No version available.</Center>}
           </section>
           {panelOpen && (
