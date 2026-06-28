@@ -206,6 +206,7 @@ type Repository interface {
 	RoleForFolder(ctx context.Context, principal auth.Principal, folderID string) (Role, error)
 	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
+	ListDocumentsPaginated(ctx context.Context, principal auth.Principal, limit, offset int32) ([]Document, bool, error)
 	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
 	// RecordDocumentOpened notes that a principal opened a document, so a
 	// broadly-shared ("anyone") document joins their workspace listing after
@@ -604,6 +605,21 @@ func (m *Memory) ListDocuments(ctx context.Context, principal auth.Principal) ([
 		out = append(out, d)
 	}
 	return out, nil
+}
+func (m *Memory) ListDocumentsPaginated(ctx context.Context, principal auth.Principal, limit, offset int32) ([]Document, bool, error) {
+	all, err := m.ListDocuments(ctx, principal)
+	if err != nil {
+		return nil, false, err
+	}
+	if int(offset) >= len(all) {
+		return []Document{}, false, nil
+	}
+	end := offset + limit
+	hasMore := end < int32(len(all))
+	if end > int32(len(all)) {
+		end = int32(len(all))
+	}
+	return all[offset:end], hasMore, nil
 }
 func (m *Memory) SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error) {
 	m.mu.Lock()

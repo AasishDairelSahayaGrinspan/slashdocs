@@ -16,7 +16,7 @@ frontend:
 	cd frontend && npm ci && npm run build
 
 frontend-docker: frontend
-	docker-compose up -d
+	docker compose up -d
 
 backend: swagger frontend
 	go build -o bin/aidocs-server ./api/cmd/aidocs-server

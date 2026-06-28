@@ -84,23 +84,12 @@ func (h handlers) listDocuments(c *gin.Context) {
 		offset = o
 	}
 
-	all, err := h.deps.repository.ListDocuments(c.Request.Context(), *current(c))
+	items, hasMore, err := h.deps.repository.ListDocumentsPaginated(c.Request.Context(), *current(c), int32(limit), int32(offset))
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-
-	total := len(all)
-	if offset >= total {
-		c.JSON(http.StatusOK, gin.H{"items": []repo.Document{}, "has_more": false})
-		return
-	}
-	end := offset + limit
-	hasMore := end < total
-	if end > total {
-		end = total
-	}
-	c.JSON(http.StatusOK, gin.H{"items": all[offset:end], "has_more": hasMore})
+	c.JSON(http.StatusOK, gin.H{"items": items, "has_more": hasMore})
 }
 
 // GetDocument godoc

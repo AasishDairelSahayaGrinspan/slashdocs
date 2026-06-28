@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -451,14 +451,14 @@ export function VirtualGrid({
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !fetchNextPage || !hasNextPage) return;
+    if (!el || !fetchNextPage || !hasNextPage || isFetchingNextPage) return;
     const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) fetchNextPage(); },
+      ([entry]) => { if (entry.isIntersecting && !isFetchingNextPage) fetchNextPage(); },
       { rootMargin: "200px" },
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [fetchNextPage, hasNextPage]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const cols = containerWidth >= 1024 ? 4 : containerWidth >= 640 ? 3 : 2;
 
@@ -562,14 +562,14 @@ export function VirtualTable({
 
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !fetchNextPage || !hasNextPage) return;
+    if (!el || !fetchNextPage || !hasNextPage || isFetchingNextPage) return;
     const obs = new IntersectionObserver(
-      ([entry]) => { if (entry.isIntersecting) fetchNextPage(); },
+      ([entry]) => { if (entry.isIntersecting && !isFetchingNextPage) fetchNextPage(); },
       { rootMargin: "200px" },
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [fetchNextPage, hasNextPage]);
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
 
   const rowVirtualizer = useVirtualizer({
     count: entries.length,
@@ -714,6 +714,18 @@ function useInView(rootMargin = "50px") {
 function DocCardPreview({ docId, versionId }: { docId: string; versionId: string }) {
   const { ref, inView } = useInView();
   const [loaded, setLoaded] = useState(false);
+  const [containerWidth, setContainerWidth] = useState(240);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const obs = new ResizeObserver(([entry]) => setContainerWidth(entry.contentRect.width));
+    obs.observe(el);
+    setContainerWidth(el.clientWidth);
+    return () => obs.disconnect();
+  }, []);
+  const RENDER_W = 900;
+  const RENDER_H = 600;
+  const scale = containerWidth / RENDER_W;
   const tokenQ = useQuery({
     queryKey: queryKeys.render(versionId),
     queryFn: () => api.renderToken(docId, versionId),
@@ -731,7 +743,7 @@ function DocCardPreview({ docId, versionId }: { docId: string; versionId: string
             "absolute left-0 top-0 origin-top-left border-0 transition-opacity duration-500",
             loaded ? "opacity-100" : "opacity-0",
           )}
-          style={{ width: "900px", height: "600px", transform: "scale(0.27)", pointerEvents: "none" }}
+          style={{ width: `${RENDER_W}px`, height: `${RENDER_H}px`, transform: `scale(${scale})`, pointerEvents: "none" }}
           sandbox="allow-scripts"
           tabIndex={-1}
           onLoad={() => setLoaded(true)}
@@ -1253,6 +1265,3 @@ function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
     </Dialog>
   );
 }
-
-// Suppress unused import warning — useLayoutEffect is used by VirtualTable indirectly
-void useLayoutEffect;

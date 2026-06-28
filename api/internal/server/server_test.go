@@ -866,6 +866,13 @@ func (r *contextCheckingRepo) ListDocuments(ctx context.Context, p auth.Principa
 	return r.Memory.ListDocuments(ctx, p)
 }
 
+func (r *contextCheckingRepo) ListDocumentsPaginated(ctx context.Context, p auth.Principal, limit, offset int32) ([]repo.Document, bool, error) {
+	if ctx.Value(contextMarkerKey{}) == "seen" {
+		r.sawMarker = true
+	}
+	return r.Memory.ListDocumentsPaginated(ctx, p, limit, offset)
+}
+
 func do(t *testing.T, h http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	return doRaw(t, h, method, path, strings.NewReader(body), headers)

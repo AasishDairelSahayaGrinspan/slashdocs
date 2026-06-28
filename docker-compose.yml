@@ -69,9 +69,9 @@ services:
       BLOB_REGION: us-east-1
       AIDOCS_APP_ORIGIN: http://localhost:8080
       AIDOCS_RENDER_ORIGIN: http://localhost:8080
-      GOOGLE_OAUTH_CLIENT_ID: {{GOOGLE_OAUTH_CLIENT_ID}} #ADD HERE
-      GOOGLE_OAUTH_CLIENT_SECRET: {{GOOGLE_OAUTH_CLIENT_SECRET}} #ADD HERE
-      SESSION_SECRET: 57430b0cd21fe31930f5b40acd3ef9caeeebf2bfb4fc880b7770aa11ac35640d # nosemgrep: yaml-string
+      GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID:?Set in .env — see README}
+      GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET:?Set in .env — see README}
+      SESSION_SECRET: ${SESSION_SECRET:?Generate with: openssl rand -hex 32}
       AIDOCS_MIGRATE: "true"
 
 volumes:

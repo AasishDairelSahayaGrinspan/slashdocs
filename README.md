@@ -77,37 +77,26 @@ The fastest way to run the full stack locally — no internal registry access ne
 
 **Prerequisites:** Docker and Docker Compose.
 
-### 0. Configure credentials (optional for local, required for shared use)
+### 0. Configure credentials
 
-`docker-compose.yml` ships with a working Google OAuth client and a pre-generated session secret so you can start immediately without any setup. For most local development you can skip this step entirely.
+`docker-compose.yml` reads Google OAuth credentials and a session secret from environment variables. Create a `.env` file in the repo root:
 
-If you want to use your own Google OAuth app, or are running a shared/staging instance, override the values before starting:
-
-**Option A — edit `docker-compose.yml` directly** (quickest for local):
-```yaml
-environment:
-  GOOGLE_OAUTH_CLIENT_ID: <your-client-id>
-  GOOGLE_OAUTH_CLIENT_SECRET: <your-client-secret>
-  SESSION_SECRET: <output of: openssl rand -hex 32>
-```
-
-**Option B — use a `.env` file** (keeps secrets out of the file):
 ```bash
 cp .env.example .env
-# fill in GOOGLE_OAUTH_CLIENT_ID, GOOGLE_OAUTH_CLIENT_SECRET, SESSION_SECRET
 ```
 
-Then reference them in `docker-compose.yml`:
-```yaml
-environment:
-  GOOGLE_OAUTH_CLIENT_ID: ${GOOGLE_OAUTH_CLIENT_ID}
-  GOOGLE_OAUTH_CLIENT_SECRET: ${GOOGLE_OAUTH_CLIENT_SECRET}
-  SESSION_SECRET: ${SESSION_SECRET}
+Fill in the required values:
+
+```bash
+# .env
+GOOGLE_OAUTH_CLIENT_ID=<your-client-id>
+GOOGLE_OAUTH_CLIENT_SECRET=<your-client-secret>
+SESSION_SECRET=$(openssl rand -hex 32)
 ```
 
 To create a Google OAuth client: go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials), create an OAuth 2.0 Client ID (Web application), and set the authorized redirect URI to `http://localhost:8080/v1/auth/google/callback`.
 
-**Session secret:** the value in `docker-compose.yml` is a random 32-byte hex string generated for this repo. It is safe to use as-is for local development on your own machine. Generate a fresh one for any environment where other people have access: `openssl rand -hex 32`.
+Docker Compose will fail to start if any of these are missing or empty.
 
 ### 1. Start dependencies + server
 

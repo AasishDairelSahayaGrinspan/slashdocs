@@ -437,6 +437,97 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 	}
 	return out, nil
 }
+
+var listDocumentsPaginatedQuery = `
+SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
+       COALESCE(u.email,'') AS owner_email,
+       COALESCE(u.name,sa.name,'') AS owner_name,
+       d.updated_at
+FROM documents d
+LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+LEFT JOIN service_accounts sa
+  ON d.owner_type='service_account' AND sa.id=d.owner_id
+WHERE d.parent_folder_id IS NULL
+  AND (
+   (d.owner_type=$2 AND d.owner_id=$1)
+   OR EXISTS (
+       SELECT 1 FROM resource_grants g
+       WHERE g.resource_type='document'
+         AND g.resource_id=d.id
+         AND g.revoked_at IS NULL
+         AND g.principal_type=$2 AND g.principal_id=$1
+   )
+   OR (
+       EXISTS (
+           SELECT 1 FROM document_workspace_entries w
+           WHERE w.document_id=d.id
+             AND w.principal_type=$2 AND w.principal_id=$1
+       )
+       AND EXISTS (
+           SELECT 1 FROM resource_grants g
+           WHERE g.resource_type='document'
+             AND g.resource_id=d.id
+             AND g.revoked_at IS NULL
+             AND g.principal_type='anyone'
+       )
+   )
+  )
+ORDER BY d.updated_at DESC
+LIMIT $3 OFFSET $4
+`
+
+type listDocumentsPaginatedRow struct {
+	ID               string
+	Title            string
+	CurrentVersionID pgtype.Text
+	OwnerType        string
+	OwnerID          string
+	OwnerEmail       string
+	OwnerName        string
+	UpdatedAt        pgtype.Timestamptz
+}
+
+func (s *Store) ListDocumentsPaginated(ctx context.Context, p auth.Principal, limit, offset int32) ([]repo.Document, bool, error) {
+	rows, err := s.db.Query(ctx, listDocumentsPaginatedQuery, p.ID, string(p.Type), limit+1, offset)
+	if err != nil {
+		return nil, false, err
+	}
+	defer rows.Close()
+	out := make([]repo.Document, 0, limit)
+	var hasMore bool
+	for rows.Next() {
+		var r listDocumentsPaginatedRow
+		if err := rows.Scan(
+			&r.ID, &r.Title, &r.CurrentVersionID, &r.OwnerType, &r.OwnerID,
+			&r.OwnerEmail, &r.OwnerName, &r.UpdatedAt,
+		); err != nil {
+			return nil, false, err
+		}
+		if int32(len(out)) >= limit {
+			hasMore = true
+			break
+		}
+		d := repo.Document{
+			ID:               r.ID,
+			Title:            r.Title,
+			CurrentVersionID: r.CurrentVersionID.String,
+			Owner: auth.Principal{
+				Type:  auth.PrincipalType(r.OwnerType),
+				ID:    r.OwnerID,
+				Email: r.OwnerEmail,
+				Name:  r.OwnerName,
+			},
+		}
+		if r.UpdatedAt.Valid {
+			d.UpdatedAt = r.UpdatedAt.Time.Format(time.RFC3339)
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	return out, hasMore, nil
+}
 func (s *Store) SearchDocumentsByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Document, error) {
 	rows, err := s.q.SearchDocumentsByTitle(ctx, dbsqlc.SearchDocumentsByTitleParams{Column1: pgtype.Text{String: query, Valid: true}, OwnerID: p.ID, OwnerType: string(p.Type), Column4: includeOrgWide, Limit: limit})
 	if err != nil {

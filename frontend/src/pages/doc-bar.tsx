@@ -66,7 +66,7 @@ export function DocBar({
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
-  onEnterFullscreen: () => void;
+  onEnterFullscreen?: () => void;
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
