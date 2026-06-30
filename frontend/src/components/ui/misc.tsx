@@ -52,7 +52,7 @@ export function CodeBlock({
         <>
           <button
             onClick={onCopy}
-            className="absolute right-2 top-2 rounded-md p-1.5 text-[var(--color-fg-muted)] opacity-0 transition hover:bg-[var(--color-border)] hover:text-[var(--color-fg)] group-hover:opacity-100 focus:opacity-100"
+            className="absolute right-2 top-2 min-h-10 min-w-10 rounded-md p-1.5 text-[var(--color-fg-muted)] opacity-0 transition-[background-color,color,opacity,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-border)] hover:text-[var(--color-fg)] group-hover:opacity-100 focus:opacity-100"
             aria-label={copied ? "Copied" : "Copy"}
           >
             {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
@@ -91,9 +91,9 @@ export function EmptyState({
           {icon}
         </div>
       )}
-      <h3 className="text-base font-semibold">{title}</h3>
+      <h3 className="text-balance text-base font-semibold">{title}</h3>
       {description && (
-        <p className="mt-1 max-w-md text-sm text-[var(--color-fg-muted)]">
+        <p className="mt-1 max-w-md text-pretty text-sm text-[var(--color-fg-muted)]">
           {description}
         </p>
       )}
@@ -158,7 +158,7 @@ export function Avatar({
           alt=""
           referrerPolicy="no-referrer"
           onError={() => setFailed(true)}
-          className="h-full w-full object-cover"
+          className="h-full w-full object-cover outline outline-1 -outline-offset-1 outline-[rgba(0,0,0,0.1)] dark:outline-[rgba(255,255,255,0.1)]"
         />
       ) : (
         initials

@@ -30,7 +30,7 @@ export function MockDocViewer({
             key={version}
             initial={{ scale: 0.6, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
-            transition={{ type: "spring", stiffness: 400, damping: 18 }}
+            transition={{ type: "spring", duration: 0.3, bounce: 0 }}
             className="rounded-full bg-[var(--color-accent-muted)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-accent)]"
           >
             v{version}
@@ -47,7 +47,7 @@ export function MockDocViewer({
         <div className="relative flex-1 p-5 text-[11.5px] leading-relaxed text-[var(--color-fg)]">
           <RichDoc highlight={!!highlight} />
           {/* selection bubble overlay positioned over the highlighted phrase */}
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {commentState === "selecting" && (
               <motion.div
                 initial={{ opacity: 0, y: -4 }}
@@ -66,7 +66,7 @@ export function MockDocViewer({
           <div className="mb-2 text-[10px] font-medium uppercase tracking-wider text-[var(--color-fg-muted)]">
             Comments
           </div>
-          <AnimatePresence>
+          <AnimatePresence initial={false}>
             {(commentState === "open" || commentState === "resolved") && (
               <motion.div
                 initial={{ opacity: 0, y: 8 }}
@@ -145,15 +145,15 @@ function RichDoc({ highlight }: { highlight: boolean }) {
         <tbody>
           <tr>
             <td className="py-1">Failed requests</td>
-            <td className="py-1 font-mono">14,203</td>
+            <td className="py-1 font-mono tabular-nums">14,203</td>
           </tr>
           <tr>
             <td className="py-1">Merchants affected</td>
-            <td className="py-1 font-mono">3.2%</td>
+            <td className="py-1 font-mono tabular-nums">3.2%</td>
           </tr>
           <tr>
             <td className="py-1">Revenue at risk</td>
-            <td className="py-1 font-mono">$48,200</td>
+            <td className="py-1 font-mono tabular-nums">$48,200</td>
           </tr>
         </tbody>
       </table>

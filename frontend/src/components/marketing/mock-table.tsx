@@ -25,19 +25,19 @@ export function MockDocsTable({
         <div>Version</div>
       </div>
       <div className="min-h-[140px]">
-        <AnimatePresence>
+        <AnimatePresence initial={false}>
           {hasRow && (
             <motion.div
               initial={{ opacity: 0, y: -16, backgroundColor: "rgba(32,40,255,0.12)" }}
               animate={{ opacity: 1, y: 0, backgroundColor: "rgba(32,40,255,0)" }}
-              transition={{ duration: 0.5 }}
+              transition={{ type: "spring", duration: 0.3, bounce: 0 }}
               className="grid grid-cols-[1fr_80px_90px] items-center gap-2 px-4 py-3 text-[12.5px]"
             >
               <div className="flex items-center gap-2 truncate">
                 <FileText className="h-3.5 w-3.5 text-[var(--color-fg-muted)]" />
                 <span className="font-medium">Q3 incident review</span>
               </div>
-              <div className="text-[var(--color-fg-muted)]">just now</div>
+              <div className="tabular-nums text-[var(--color-fg-muted)]">just now</div>
               <div>
                 <span className="rounded-full bg-[var(--color-accent-muted)] px-2 py-0.5 text-[10px] font-medium text-[var(--color-accent)]">
                   v1

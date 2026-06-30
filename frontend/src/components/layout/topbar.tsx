@@ -43,7 +43,7 @@ export function TopBar({
         <Dropdown>
           <DropdownTrigger asChild>
             <button
-              className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+              className="min-h-10 min-w-10 rounded-full transition-transform duration-150 ease-out active:scale-[0.96] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
               aria-label="Account menu"
             >
               <Avatar
