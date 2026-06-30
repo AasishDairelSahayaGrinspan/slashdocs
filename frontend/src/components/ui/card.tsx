@@ -8,7 +8,7 @@ export function Card({
   return (
     <div
       className={cn(
-        "rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)]",
+        "rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[0_1px_2px_rgba(0,0,0,0.04)] dark:shadow-[0_1px_2px_rgba(0,0,0,0.2)]",
         className,
       )}
       {...p}
@@ -27,7 +27,7 @@ export function CardTitle({
 }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={cn("text-base font-semibold tracking-tight", className)}
+      className={cn("text-balance text-base font-semibold tracking-tight", className)}
       {...p}
     />
   );
@@ -38,7 +38,7 @@ export function CardDescription({
 }: React.HTMLAttributes<HTMLParagraphElement>) {
   return (
     <p
-      className={cn("text-sm text-[var(--color-fg-muted)]", className)}
+      className={cn("text-pretty text-sm text-[var(--color-fg-muted)]", className)}
       {...p}
     />
   );

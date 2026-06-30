@@ -78,7 +78,7 @@ export function DocBar({
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
-    <div className="flex h-14 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4">
+    <div className="flex h-16 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4">
       <Button asChild variant="ghost" size="icon">
         <Link to="/app/documents" aria-label="Back to documents">
           <ArrowLeft className="h-4 w-4" />
@@ -91,7 +91,7 @@ export function DocBar({
             <Link to={`/app/folders/${parentFolder.id}`} className="hover:text-[var(--color-fg)] hover:underline">{parentFolder.title}</Link>
           </div>
         ) : null}
-        <div className="truncate text-sm font-semibold">{title}</div>
+        <div className="truncate text-base font-semibold leading-tight">{title}</div>
         {isViewingOlder && currentVersion ? (
           <div className="truncate text-[11px] text-amber-600 dark:text-amber-300">
             {`Viewing older version - version ${currentVersion.number}`}
