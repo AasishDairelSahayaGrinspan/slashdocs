@@ -15,16 +15,38 @@ spec:
     {{- toYaml .Values.ingressRoute.entryPoints | nindent 4 }}
   routes:
     - kind: Rule
-      match: Host(`{{ required "ingressRoute.host is required" .Values.ingressRoute.host }}`)
+      match: Host(`{{ required "ingressRoute.host is required" .Values.ingressRoute.host }}`) && PathPrefix(`/`)
+      {{- with .Values.ingressRoute.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      priority: 1000
       services:
+        {{- if .Values.ingressRoute.edge.enabled }}
+        - kind: TraefikService
+          name: {{ .Values.ingressRoute.edge.traefikServiceName }}
+          namespace: {{ .Values.ingressRoute.edge.traefikServiceNamespace }}
+        {{- else }}
         - name: {{ include "aidocs.fullname" . }}
           port: {{ .Values.service.port }}
+        {{- end }}
     {{- if and .Values.ingressRoute.renderHost (ne .Values.ingressRoute.renderHost .Values.ingressRoute.host) }}
     # Untrusted uploaded HTML is sandbox-rendered on a separate origin.
     - kind: Rule
-      match: Host(`{{ .Values.ingressRoute.renderHost }}`)
+      match: Host(`{{ .Values.ingressRoute.renderHost }}`) && PathPrefix(`/`)
+      {{- with .Values.ingressRoute.middlewares }}
+      middlewares:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      priority: 1000
       services:
+        {{- if .Values.ingressRoute.edge.enabled }}
+        - kind: TraefikService
+          name: {{ .Values.ingressRoute.edge.traefikServiceName }}
+          namespace: {{ .Values.ingressRoute.edge.traefikServiceNamespace }}
+        {{- else }}
         - name: {{ include "aidocs.fullname" . }}
           port: {{ .Values.service.port }}
+        {{- end }}
     {{- end }}
 {{- end }}

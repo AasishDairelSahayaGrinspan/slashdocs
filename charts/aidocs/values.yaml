@@ -165,6 +165,10 @@ ingress:
 # Traefik IngressRoute (used by clusters that run Traefik CRDs instead of
 # native Ingress). Routes the app host (and optionally a separate render host)
 # to the app port; the metrics port is never routed here.
+#
+# When edge.enabled is true, traffic is routed to the Edge (Kong) TraefikService
+# instead of the aidocs service directly. This is the production pattern —
+# Edge handles upstream routing to aidocs via terraform-kong config.
 ingressRoute:
   enabled: false
   host: ""
@@ -172,8 +176,17 @@ ingressRoute:
   # render on the same host (acceptable for non-production only).
   renderHost: ""
   entryPoints:
-    - http
+    - web
   annotations: {}
+  middlewares:
+    - name: headers-common
+      namespace: traefik-v2
+  # Edge (Kong) routing — set edge.enabled=true in production to route
+  # through Edge instead of directly to the aidocs service.
+  edge:
+    enabled: false
+    traefikServiceName: edge-dp-common
+    traefikServiceNamespace: edge-dp
 
 nodeSelector: {}
 tolerations: []
