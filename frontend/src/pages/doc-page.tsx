@@ -1,6 +1,6 @@
 import { useTitle } from "@/lib/use-title";
-import { useCallback, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams, useParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -33,6 +33,9 @@ function DocumentErrorState({
 
 export function DocumentPage() {
   const { id = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const fullscreen = searchParams.get("fullscreen") === "1";
+  const queryVersion = searchParams.get("version") || undefined;
   const doc = useQuery({
     queryKey: queryKeys.document(id),
     queryFn: () => api.getDocument(id),
@@ -62,14 +65,31 @@ export function DocumentPage() {
 
   const handleDocCommentClick = useCallback((commentId: string) => {
     setActiveComment(commentId);
-    setPanelOpen(true);
-  }, []);
+    if (!fullscreen) setPanelOpen(true);
+  }, [fullscreen]);
 
   const versionItems = versions.data?.items || [];
   const latest =
     currentVersionID(doc.data || {}) ||
     versionID(versionItems[versionItems.length - 1] || {});
-  const current = selectedVersion || latest;
+  const current = selectedVersion || queryVersion || latest;
+
+  const exitFullscreen = useCallback(() => {
+    setSearchParams((params) => {
+      const next = new URLSearchParams(params);
+      next.delete("fullscreen");
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") exitFullscreen();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [fullscreen, exitFullscreen]);
 
   const ctx = useMemo(
     () => ({
@@ -161,6 +181,11 @@ export function DocumentPage() {
 
   return (
     <DocProvider value={ctx}>
+      {fullscreen ? (
+        <div className="h-full bg-[var(--color-surface-muted)]">
+          {current ? <RenderFrame /> : <Center>No version available.</Center>}
+        </div>
+      ) : (
       <div className="flex h-full flex-col">
         <DocBar
           title={docTitle(doc.data)}
@@ -193,6 +218,7 @@ export function DocumentPage() {
           )}
         </div>
       </div>
+      )}
     </DocProvider>
   );
 }

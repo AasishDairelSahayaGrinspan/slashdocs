@@ -24,10 +24,13 @@ export function AppShell() {
   if (me.isLoading) return <Center>Loading workspace…</Center>;
   if (!me.data) return null;
   const user = me.data.user || me.data.principal;
+  const fullscreenDocument =
+    loc.pathname.startsWith("/app/d/") &&
+    new URLSearchParams(loc.search).get("fullscreen") === "1";
   return (
     <div className="flex h-full flex-col">
-      <TopBar user={user} />
-      <main className="flex-1 overflow-auto">
+      {!fullscreenDocument && <TopBar user={user} />}
+      <main className={fullscreenDocument ? "flex-1 overflow-hidden" : "flex-1 overflow-auto"}>
         <Outlet />
       </main>
     </div>
