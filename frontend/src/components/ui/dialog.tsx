@@ -14,16 +14,16 @@ export function DialogContent({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-150 ease-out data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl focus:outline-none",
+          "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl transition-[opacity,transform] duration-200 ease-out data-[state=closed]:-translate-y-[calc(50%-4px)] data-[state=open]:-translate-y-1/2 data-[state=closed]:scale-[0.98] data-[state=open]:scale-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
           className,
         )}
         {...p}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 rounded-md p-1 text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]">
+        <DialogPrimitive.Close className="absolute right-4 top-4 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md p-1 text-[var(--color-fg-muted)] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]">
           <X className="h-4 w-4" />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
@@ -43,7 +43,7 @@ export function DialogTitle({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Title>) {
   return (
     <DialogPrimitive.Title
-      className={cn("text-lg font-semibold tracking-tight", className)}
+      className={cn("text-balance text-lg font-semibold tracking-tight", className)}
       {...p}
     />
   );
@@ -54,7 +54,7 @@ export function DialogDescription({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Description>) {
   return (
     <DialogPrimitive.Description
-      className={cn("text-sm text-[var(--color-fg-muted)]", className)}
+      className={cn("text-pretty text-sm text-[var(--color-fg-muted)]", className)}
       {...p}
     />
   );
