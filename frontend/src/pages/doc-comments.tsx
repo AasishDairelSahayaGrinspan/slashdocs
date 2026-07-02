@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
@@ -146,11 +147,24 @@ export function Comments() {
             description="Select text inside the rendered document to start a thread."
           />
         ) : (
-          <div className="space-y-3">
+          <motion.div
+            className="space-y-3"
+            initial="hidden"
+            animate="visible"
+            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.06 } } }}
+          >
             {items.map((c) => (
-              <CommentCard key={c.id} c={c} docId={docId} />
+              <motion.div
+                key={c.id}
+                variants={{
+                  hidden: { opacity: 0, x: 12 },
+                  visible: { opacity: 1, x: 0, transition: { duration: 0.3, ease: [0.25, 0.4, 0.25, 1] as const } },
+                }}
+              >
+                <CommentCard c={c} docId={docId} />
+              </motion.div>
             ))}
-          </div>
+          </motion.div>
         )}
       </div>
     </div>
@@ -180,7 +194,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   return (
     <article
       ref={cardRef}
-      className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-colors hover:border-[var(--color-border-strong)] ${active ? "border-[var(--color-border-strong)] ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
+      className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-[border-color,box-shadow,opacity] duration-200 ease-out hover:border-[var(--color-border-strong)] hover:shadow-sm ${active ? "border-[var(--color-border-strong)] shadow-sm ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
       onClick={() => setActiveComment(active ? undefined : c.id)}
     >
       <div className="mb-1 flex items-center justify-between">

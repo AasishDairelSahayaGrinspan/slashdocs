@@ -1,6 +1,7 @@
 import { useTitle } from "@/lib/use-title";
-import { useCallback, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams, useParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -13,6 +14,26 @@ import { Comments } from "./doc-comments";
 const MIN_PANEL_WIDTH = 240;
 const MAX_PANEL_WIDTH = 640;
 const DEFAULT_PANEL_WIDTH = 380;
+
+const pageStagger = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
+};
+const barSlide = {
+  hidden: { opacity: 0, y: -8 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.35, ease: [0.25, 0.4, 0.25, 1] as const },
+  },
+};
+const contentFade = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { duration: 0.4, ease: [0.25, 0.4, 0.25, 1] as const },
+  },
+};
 
 function DocumentErrorState({
   title,
@@ -33,6 +54,9 @@ function DocumentErrorState({
 
 export function DocumentPage() {
   const { id = "" } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const fullscreen = searchParams.get("fullscreen") === "1";
+  const queryVersion = searchParams.get("version") || undefined;
   const doc = useQuery({
     queryKey: queryKeys.document(id),
     queryFn: () => api.getDocument(id),
@@ -58,18 +82,41 @@ export function DocumentPage() {
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const [panelOpen, setPanelOpen] = useState(true);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
   const handleDocCommentClick = useCallback((commentId: string) => {
     setActiveComment(commentId);
-    setPanelOpen(true);
-  }, []);
+    if (!fullscreen) setPanelOpen(true);
+  }, [fullscreen]);
 
   const versionItems = versions.data?.items || [];
   const latest =
     currentVersionID(doc.data || {}) ||
     versionID(versionItems[versionItems.length - 1] || {});
-  const current = selectedVersion || latest;
+  const current = selectedVersion || queryVersion || latest;
+
+  const exitFullscreen = useCallback(() => {
+    setSearchParams((params) => {
+      const next = new URLSearchParams(params);
+      next.delete("fullscreen");
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  useEffect(() => {
+    if (!fullscreen) return;
+    setShowFullscreenHint(true);
+    const timeout = window.setTimeout(() => setShowFullscreenHint(false), 4000);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") exitFullscreen();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [fullscreen, exitFullscreen]);
 
   const ctx = useMemo(
     () => ({
@@ -161,7 +208,23 @@ export function DocumentPage() {
 
   return (
     <DocProvider value={ctx}>
-      <div className="flex h-full flex-col">
+      {fullscreen ? (
+        <div className="relative h-full bg-[var(--color-surface-muted)]">
+          {showFullscreenHint ? (
+            <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
+              Press Esc to exit full screen
+            </div>
+          ) : null}
+          {current ? <RenderFrame /> : <Center>No version available.</Center>}
+        </div>
+      ) : (
+      <motion.div
+        className="flex h-full flex-col"
+        initial="hidden"
+        animate="visible"
+        variants={pageStagger}
+      >
+        <motion.div variants={barSlide}>
         <DocBar
           title={docTitle(doc.data)}
           docId={id}
@@ -175,24 +238,34 @@ export function DocumentPage() {
           commentsOpen={panelOpen}
           onToggleComments={() => setPanelOpen((o) => !o)}
         />
-        <div className="flex flex-1 overflow-hidden">
+        </motion.div>
+        <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
           <section className="relative flex-1 bg-[var(--color-surface-muted)]">
             {current ? <RenderFrame /> : <Center>No version available.</Center>}
           </section>
-          {panelOpen && (
-            <aside
-              className="relative hidden shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] md:flex"
-              style={{ width: panelWidth }}
-            >
-              <div
-                className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
-                onPointerDown={onResizePointerDown}
-              />
-              <Comments />
-            </aside>
-          )}
-        </div>
-      </div>
+          <AnimatePresence initial={false}>
+            {panelOpen && (
+              <motion.aside
+                key="comments-panel"
+                initial={{ width: 0 }}
+                animate={{ width: panelWidth }}
+                exit={{ width: 0 }}
+                transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                className="relative hidden shrink-0 overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface)] md:block"
+              >
+                <div className="flex h-full flex-col" style={{ width: panelWidth }}>
+                  <div
+                    className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
+                    onPointerDown={onResizePointerDown}
+                  />
+                  <Comments />
+                </div>
+              </motion.aside>
+            )}
+          </AnimatePresence>
+        </motion.div>
+      </motion.div>
+      )}
     </DocProvider>
   );
 }

@@ -267,7 +267,7 @@ func (h handlers) moveDocToRoot(c *gin.Context) {
 }
 
 func (h handlers) createFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
+	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
 		return
 	}
 	var in struct {
@@ -310,7 +310,7 @@ func (h handlers) createFolderGrant(c *gin.Context) {
 	c.JSON(http.StatusCreated, g)
 }
 func (h handlers) patchFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
+	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
 		return
 	}
 	var in struct {
@@ -332,7 +332,7 @@ func (h handlers) patchFolderGrant(c *gin.Context) {
 	c.JSON(http.StatusOK, g)
 }
 func (h handlers) deleteFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
+	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
 		return
 	}
 	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil {

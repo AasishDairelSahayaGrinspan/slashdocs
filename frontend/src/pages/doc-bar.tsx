@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
 import {
@@ -7,6 +7,7 @@ import {
   Check,
   ExternalLink,
   FolderIcon,
+  Maximize2,
   GitBranch,
   MoreHorizontal,
   PanelRightClose,
@@ -34,6 +35,7 @@ import {
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
+import { canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { ShareSheet } from "./doc-share-sheet";
 import { UploadVersionItem } from "./doc-upload-version";
@@ -68,6 +70,16 @@ export function DocBar({
   const currentVersion = versions.find((v) => v.id === current);
   const isViewingOlder = !!current && !!latest && current !== latest;
   const canManage = samePrincipal(principal, owner);
+  const access = useQuery({
+    queryKey: queryKeys.documentAccess(docId),
+    queryFn: () => api.documentAccess(docId),
+    enabled: !!docId && !!principal && !canManage,
+    staleTime: 30_000,
+  });
+  const currentAccessRole = access.data?.items.find((item) =>
+    samePrincipal(item.principal, principal),
+  )?.effective_role;
+  const canManageAccess = canManage || canManageSharing(currentAccessRole);
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -88,7 +100,12 @@ export function DocBar({
         {parentFolder ? (
           <div className="flex items-center gap-1 text-xs text-[var(--color-fg-muted)]">
             <FolderIcon className="h-3 w-3 shrink-0" />
-            <Link to={`/app/folders/${parentFolder.id}`} className="hover:text-[var(--color-fg)] hover:underline">{parentFolder.title}</Link>
+            <Link
+              to={`/app/folders/${parentFolder.id}`}
+              className="hover:text-[var(--color-fg)] hover:underline"
+            >
+              {parentFolder.title}
+            </Link>
           </div>
         ) : null}
         <div className="truncate text-base font-semibold leading-tight">{title}</div>
@@ -109,16 +126,19 @@ export function DocBar({
         versions={versions}
         onSelectVersion={onSelectVersion}
       />
-      {canManage ? (
-        <Sheet>
-          <SheetTrigger asChild>
-            <Button variant="outline" size="sm">
-              <Share2 className="h-4 w-4" /> Share
-            </Button>
-          </SheetTrigger>
-          <ShareSheet docId={docId} />
-        </Sheet>
-      ) : null}
+      <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+        <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
+          <Maximize2 className="h-4 w-4" /> Full screen
+        </Link>
+      </Button>
+      <Sheet>
+        <SheetTrigger asChild>
+          <Button variant="outline" size="sm">
+            <Share2 className="h-4 w-4" /> Share
+          </Button>
+        </SheetTrigger>
+        <ShareSheet docId={docId} canManageAccess={canManageAccess} />
+      </Sheet>
       <Button
         variant="ghost"
         size="icon"

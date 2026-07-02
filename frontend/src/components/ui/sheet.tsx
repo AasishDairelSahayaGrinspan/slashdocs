@@ -17,19 +17,19 @@ export function SheetContent({
 }) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 transition-opacity duration-150 ease-out data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+      <DialogPrimitive.Overlay className="sheet-overlay fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed z-50 top-0 flex h-full w-full max-w-md flex-col border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl transition-[opacity,transform] duration-200 ease-out data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
+          "fixed z-50 top-0 flex h-full w-full max-w-md flex-col border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl focus:outline-none",
           side === "right"
-            ? "right-0 border-l data-[state=closed]:translate-x-2 data-[state=open]:translate-x-0"
-            : "left-0 border-r data-[state=closed]:-translate-x-2 data-[state=open]:translate-x-0",
+            ? "right-0 border-l sheet-right"
+            : "left-0 border-r sheet-left",
           className,
         )}
         {...p}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md p-1 text-[var(--color-fg-muted)] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]">
+        <DialogPrimitive.Close className="absolute right-2 top-0 inline-flex h-14 w-12 items-center justify-center rounded-md text-[var(--color-fg-muted)] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]">
           <X className="h-4 w-4" />
         </DialogPrimitive.Close>
       </DialogPrimitive.Content>
@@ -43,7 +43,7 @@ export function SheetHeader({
   return (
     <div
       className={cn(
-        "px-6 py-4 border-b border-[var(--color-border)]",
+        "flex items-center px-6 h-14 pr-14 border-b border-[var(--color-border)]",
         className,
       )}
       {...p}

@@ -22,6 +22,16 @@ export const ROLES = [
   { value: "editor", label: "Editor" },
 ] as const;
 export const DEFAULT_ROLE = "commenter";
+export const ROLE_RANK: Record<string, number> = {
+  viewer: 1,
+  commenter: 2,
+  editor: 3,
+  owner: 4,
+};
+
+export function canManageSharing(role?: string) {
+  return (ROLE_RANK[role || ""] || 0) >= ROLE_RANK.commenter;
+}
 
 // GENERAL_ACCESS_NONE is the sentinel role for "no general access" (the
 // "anyone" grant is absent). The visible label comes from the server's

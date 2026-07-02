@@ -1,10 +1,25 @@
 import { useTitle } from "@/lib/use-title";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { motion } from "framer-motion";
 import { ArrowLeft, MessageSquareText, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api } from "@/api";
 import { setFrontendSignedOut, useFrontendSignedOut } from "@/lib/auth-state";
 import { useMe } from "@/lib/hooks";
+
+const loginStagger = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.12, delayChildren: 0.1 } },
+};
+const loginFadeUp = {
+  hidden: { opacity: 0, y: 20, filter: "blur(8px)" },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { duration: 0.5, ease: [0.25, 0.4, 0.25, 1] as const },
+  },
+};
 
 const HIGHLIGHTS = [
   {
@@ -39,7 +54,7 @@ export function LoginPage() {
       {/* Subtle accent glow behind the card. */}
       <div
         aria-hidden
-        className="pointer-events-none absolute left-1/2 top-1/3 h-[28rem] w-[28rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--color-accent)] opacity-[0.07] blur-3xl"
+        className="pointer-events-none absolute left-1/2 top-1/3 h-[28rem] w-[28rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--color-accent)] opacity-[0.07] blur-3xl animate-[glow-pulse_8s_ease-in-out_infinite]"
       />
       <Link
         to="/"
@@ -47,8 +62,13 @@ export function LoginPage() {
       >
         <ArrowLeft className="h-4 w-4" /> Home
       </Link>
-      <div className="relative w-full max-w-sm">
-        <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 shadow-sm">
+      <motion.div
+        className="relative w-full max-w-sm"
+        initial="hidden"
+        animate="visible"
+        variants={loginStagger}
+      >
+        <motion.div variants={loginFadeUp} className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 elevate-subtle">
           <div className="mb-7 flex flex-col items-center text-center">
             <img src="/favicon.svg" alt="" className="mb-4 h-14 w-14" />
             <h1 className="text-2xl font-semibold tracking-tight">Sign in to aidocs</h1>
@@ -62,10 +82,10 @@ export function LoginPage() {
               <GoogleIcon /> Continue with Google
             </a>
           </Button>
-        </div>
-        <ul className="mt-6 space-y-3">
+        </motion.div>
+        <motion.ul className="mt-6 space-y-3" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}>
           {HIGHLIGHTS.map((h) => (
-            <li key={h.title} className="flex items-start gap-3">
+            <motion.li key={h.title} variants={loginFadeUp} className="flex items-start gap-3">
               <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
                 <h.icon className="h-3.5 w-3.5" />
               </span>
@@ -73,10 +93,10 @@ export function LoginPage() {
                 <div className="text-sm font-medium">{h.title}</div>
                 <div className="text-xs text-[var(--color-fg-muted)]">{h.body}</div>
               </div>
-            </li>
+            </motion.li>
           ))}
-        </ul>
-      </div>
+        </motion.ul>
+      </motion.div>
     </div>
   );
 }

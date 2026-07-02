@@ -108,9 +108,11 @@ export function StartPage() {
       <div className="mb-3 flex items-center gap-2 text-xs text-[var(--color-fg-muted)]">
         <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-muted)]">
           <div
-            className="h-full bg-[var(--color-accent)] transition-all"
+            className="relative h-full overflow-hidden bg-[var(--color-accent)] transition-all"
             style={{ width: `${(done / total) * 100}%` }}
-          />
+          >
+            <div aria-hidden className="absolute inset-0 animate-[pill-shimmer_2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+          </div>
         </div>
         <span className="font-mono">
           {done}/{total} complete

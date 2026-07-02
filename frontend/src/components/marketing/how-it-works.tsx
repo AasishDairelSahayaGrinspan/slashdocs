@@ -44,7 +44,13 @@ export function HowItWorks() {
       aria-label="How aidocs works"
       className="border-t border-[var(--color-border)] bg-[var(--color-bg)] py-24"
     >
-      <div className="mx-auto mb-16 max-w-3xl px-6 text-center">
+      <motion.div
+        className="mx-auto mb-16 max-w-3xl px-6 text-center"
+        initial={{ opacity: 0, y: 24 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: "-80px" }}
+        transition={{ duration: 0.6, ease: [0.25, 0.4, 0.25, 1] as const }}
+      >
         <div className="mb-3 inline-block rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
           How it works
         </div>
@@ -55,7 +61,7 @@ export function HowItWorks() {
           Three steps from a generated HTML file to a reviewed, versioned
           document.
         </p>
-      </div>
+      </motion.div>
 
       <ol className="sr-only">
         <li>Step 1: An agent publishes a document via the CLI.</li>

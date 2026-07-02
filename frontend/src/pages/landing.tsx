@@ -1,5 +1,6 @@
 import { useTitle } from "@/lib/use-title";
 import { Link, Navigate } from "react-router-dom";
+import { motion } from "framer-motion";
 import {
   ArrowRight,
   BookOpen,
@@ -15,6 +16,30 @@ import { CodeBlock } from "@/components/ui/misc";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 import { useFrontendSignedOut } from "@/lib/auth-state";
 import { useMe } from "@/lib/hooks";
+
+// Shared animation variants for the landing page
+const stagger = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.12, delayChildren: 0.15 } },
+};
+const fadeUp = {
+  hidden: { opacity: 0, y: 20, filter: "blur(8px)" },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { duration: 0.6, ease: [0.25, 0.4, 0.25, 1] as const },
+  },
+};
+const fadeUpSoft = {
+  hidden: { opacity: 0, y: 12, filter: "blur(4px)" },
+  visible: {
+    opacity: 1,
+    y: 0,
+    filter: "blur(0px)",
+    transition: { duration: 0.5, ease: [0.25, 0.4, 0.25, 1] as const },
+  },
+};
 
 const INSTALL_SNIPPET = `curl -fsSL https://aidocs.concierge.razorpay.com/install.sh | bash
 
@@ -54,10 +79,10 @@ function Nav() {
   const frontendSignedOut = useFrontendSignedOut();
   const isSignedIn = !!me.data && !me.unauth && !frontendSignedOut;
   return (
-    <header className="sticky top-0 z-30 border-b border-[var(--color-border)] bg-[var(--color-bg)]/80 backdrop-blur">
+    <header className="sticky top-0 z-30 border-b border-[var(--color-border)]/50 bg-[var(--color-bg)]/70 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-        <Link to="/" className="flex items-center gap-2 font-semibold">
-          <img src="/favicon.svg" alt="" className="h-10 w-10" />
+        <Link to="/" className="group flex items-center gap-2 font-semibold">
+          <img src="/favicon.svg" alt="" className="h-10 w-10 transition-transform duration-300 ease-out group-hover:rotate-[-8deg] group-hover:scale-110" />
           aidocs
         </Link>
         <nav className="flex items-center gap-2">
@@ -90,29 +115,50 @@ function Hero() {
   const isSignedIn = !!me.data && !me.unauth && !frontendSignedOut;
   return (
     <section className="relative overflow-hidden">
-      <div
-        className="absolute inset-0 -z-10 opacity-60"
-        style={{
-          backgroundImage:
-            "radial-gradient(ellipse at 20% 0%, rgba(32,40,255,0.10), transparent 50%), radial-gradient(ellipse at 80% 10%, rgba(129,140,255,0.10), transparent 50%)",
-        }}
-      />
+      <div className="absolute inset-0 -z-10 overflow-hidden" aria-hidden>
+        <div
+          className="absolute -inset-12 animate-[float_25s_ease-in-out_infinite] opacity-60"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse at 20% 0%, rgba(32,40,255,0.12), transparent 50%), radial-gradient(ellipse at 80% 10%, rgba(129,140,255,0.12), transparent 50%)",
+          }}
+        />
+        <div
+          className="absolute -inset-12 animate-[float_32s_ease-in-out_infinite_reverse] opacity-30"
+          style={{
+            backgroundImage:
+              "radial-gradient(ellipse at 50% 50%, rgba(32,40,255,0.15), transparent 40%)",
+          }}
+        />
+        <div
+          className="absolute inset-0 opacity-[0.35] dark:opacity-[0.15]"
+          style={{
+            backgroundImage: "radial-gradient(circle, var(--color-border) 1px, transparent 1px)",
+            backgroundSize: "24px 24px",
+          }}
+        />
+      </div>
       <div className="mx-auto max-w-6xl px-6 py-24 md:py-32">
-        <div className="mx-auto max-w-3xl text-center">
-          <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
+        <motion.div
+          className="mx-auto max-w-3xl text-center"
+          initial="hidden"
+          animate="visible"
+          variants={stagger}
+        >
+          <motion.div variants={fadeUp} className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
             <Sparkles className="h-3 w-3 text-[var(--color-accent)]" />
             Review layer for AI-generated documents
-          </div>
-          <h1 className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+          </motion.div>
+          <motion.h1 variants={fadeUp} className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
             Give your agents the power to publish{" "}
-            <span className="text-[var(--color-accent)]">reviewable</span> documents.
-          </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-pretty text-base text-[var(--color-fg-muted)] md:text-lg">
+            <span className="bg-gradient-to-r from-[var(--color-accent)] to-[#818cff] bg-clip-text text-transparent">reviewable</span> documents.
+          </motion.h1>
+          <motion.p variants={fadeUp} className="mx-auto mt-6 max-w-2xl text-pretty text-base text-[var(--color-fg-muted)] md:text-lg">
             aidocs is a Google-Docs-style review layer for self-contained HTML
             artifacts. Agents push reports, specs, and RCAs through a CLI. Humans review
             them in the browser with anchored comments and immutable versions.
-          </p>
-          <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          </motion.p>
+          <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center justify-center gap-3">
             <Button asChild size="lg">
               <Link to={isSignedIn ? "/app/documents" : "/login"}>
                 {isSignedIn ? "Open app" : "Sign in"} <ArrowRight className="h-4 w-4" />
@@ -121,8 +167,8 @@ function Hero() {
             <Button asChild size="lg" variant="outline">
               <a href="#install">Install the CLI</a>
             </Button>
-          </div>
-        </div>
+          </motion.div>
+        </motion.div>
       </div>
     </section>
   );
@@ -130,7 +176,14 @@ function Hero() {
 
 function Install() {
   return (
-    <section id="install" className="border-t border-[var(--color-border)] py-24">
+    <motion.section
+      id="install"
+      initial={{ opacity: 0, y: 32 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.7, ease: [0.25, 0.4, 0.25, 1] as const }}
+      className="border-t border-[var(--color-border)] py-24"
+    >
       <div className="mx-auto max-w-2xl px-6">
         <div className="mb-8 text-center">
           <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
@@ -140,7 +193,10 @@ function Install() {
             One command for macOS and Linux.
           </p>
         </div>
-        <CodeBlock>{INSTALL_SNIPPET}</CodeBlock>
+        <div className="relative">
+          <div aria-hidden className="pointer-events-none absolute -inset-4 rounded-2xl bg-[var(--color-accent)] opacity-[0.04] blur-2xl" />
+          <CodeBlock>{INSTALL_SNIPPET}</CodeBlock>
+        </div>
         <p className="mt-4 text-center text-sm text-[var(--color-fg-muted)]">
           Other install methods are documented in the{" "}
           <a
@@ -154,13 +210,19 @@ function Install() {
           .
         </p>
       </div>
-    </section>
+    </motion.section>
   );
 }
 
 function UseCases() {
   return (
-    <section className="border-t border-[var(--color-border)] bg-[var(--color-surface)]/50 py-24">
+    <motion.section
+      initial={{ opacity: 0, y: 32 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: "-80px" }}
+      transition={{ duration: 0.7, ease: [0.25, 0.4, 0.25, 1] as const }}
+      className="border-t border-[var(--color-border)] bg-[var(--color-surface)]/50 py-24"
+    >
       <div className="mx-auto max-w-6xl px-6">
         <div className="mb-10 text-center">
           <h2 className="text-3xl font-semibold tracking-tight md:text-4xl">
@@ -170,21 +232,28 @@ function UseCases() {
             Anything that fits in a self-contained HTML file.
           </p>
         </div>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <motion.div
+          className="grid grid-cols-2 gap-3 md:grid-cols-3"
+          initial="hidden"
+          whileInView="visible"
+          viewport={{ once: true, margin: "-60px" }}
+          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}
+        >
           {useCases.map((u) => (
-            <div
+            <motion.div
               key={u.title}
-              className="flex items-center gap-3 rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+              variants={fadeUpSoft}
+              className="flex items-center gap-3 rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 transition-[box-shadow,transform] duration-200 ease-out hover:-translate-y-0.5 hover:shadow-md"
             >
               <div className="flex h-9 w-9 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
                 <u.icon className="h-4 w-4" />
               </div>
               <div className="text-sm font-medium">{u.title}</div>
-            </div>
+            </motion.div>
           ))}
-        </div>
+        </motion.div>
       </div>
-    </section>
+    </motion.section>
   );
 }
 
@@ -198,7 +267,8 @@ function GithubIcon() {
 
 function Footer() {
   return (
-    <footer className="border-t border-[var(--color-border)] py-10">
+    <footer className="relative py-10">
+      <div aria-hidden className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--color-border-strong)] to-transparent" />
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 text-sm text-[var(--color-fg-muted)] md:flex-row">
         <div className="flex items-center gap-2">
           <img src="/favicon.svg" alt="" className="h-5 w-5" />

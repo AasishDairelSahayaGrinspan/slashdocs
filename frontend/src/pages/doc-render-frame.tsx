@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Anchor } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -87,6 +87,66 @@ export function RenderFrame() {
     );
   }, [theme, frameOrigin]);
 
+  // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
+  // a CSS scale to the iframe instead of zooming the entire browser page.
+  // Zoom is anchored to the cursor position (magnifying-glass feel).
+  const MIN_SCALE = 0.25;
+  const MAX_SCALE = 4;
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const scaleRef = useRef(1);
+  const cursorRef = useRef({ x: 0, y: 0 });
+
+  const applyZoom = useCallback((deltaY: number, cursor?: { x: number; y: number }) => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const oldScale = scaleRef.current;
+    const newScale = Math.min(
+      MAX_SCALE,
+      Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)),
+    );
+    if (newScale === oldScale) return;
+
+    const anchor = cursor ?? cursorRef.current;
+    cursorRef.current = anchor;
+
+    const rect = el.getBoundingClientRect();
+    const cx = anchor.x - rect.left;
+    const cy = anchor.y - rect.top;
+
+    // Point in unscaled document space under cursor.
+    const docX = (el.scrollLeft + cx) / oldScale;
+    const docY = (el.scrollTop + cy) / oldScale;
+
+    scaleRef.current = newScale;
+    setScale(newScale);
+
+    // After scale change, adjust scroll so the same doc point stays under cursor.
+    requestAnimationFrame(() => {
+      el.scrollLeft = docX * newScale - cx;
+      el.scrollTop = docY * newScale - cy;
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      applyZoom(e.deltaY, { x: e.clientX, y: e.clientY });
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      cursorRef.current = { x: e.clientX, y: e.clientY };
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("mousemove", onMouseMove);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("mousemove", onMouseMove);
+    };
+  }, [applyZoom]);
+
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (!frameOrigin || e.origin !== frameOrigin) return;
@@ -97,6 +157,22 @@ export function RenderFrame() {
       }
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
+      }
+      if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      }
+      if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
+        const frameRect = ref.current?.getBoundingClientRect();
+        const cursor =
+          frameRect &&
+          typeof e.data.clientX === "number" &&
+          typeof e.data.clientY === "number"
+            ? {
+                x: frameRect.left + e.data.clientX * scaleRef.current,
+                y: frameRect.top + e.data.clientY * scaleRef.current,
+              }
+            : undefined;
+        applyZoom(e.data.deltaY, cursor);
       }
       if (e.data?.type === "aidocs:ready") {
         readyRef.current = true;
@@ -109,7 +185,7 @@ export function RenderFrame() {
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [frameOrigin, paint, setSelection, handleDocCommentClick, theme]);
+  }, [frameOrigin, paint, setSelection, handleDocCommentClick, theme, applyZoom]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {
@@ -120,16 +196,49 @@ export function RenderFrame() {
   // exists, so version is always set here.
   if (token.isLoading) return <Center>Preparing secure render…</Center>;
   if (token.error) return <Center>Could not create render token.</Center>;
+
+  const showZoomBadge = Math.round(scale * 100) !== 100;
+
   return (
-    <iframe
-      ref={ref}
-      title="Rendered document"
-      // Match the frame to the resolved theme so dark readers don't see a
-      // white flash before the document paints.
-      className="h-full w-full"
-      style={{ background: theme === "dark" ? "#0b0d12" : "#fff" }}
-      src={frameSrc}
-      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-    />
+    <div ref={wrapperRef} className="relative h-full w-full overflow-auto">
+      {/* Spacer creates the scrollable area at zoomed size */}
+      <div
+        style={{
+          position: "relative",
+          width: `${Math.max(100, scale * 100)}%`,
+          height: `${Math.max(100, scale * 100)}%`,
+        }}
+      >
+        <iframe
+          ref={ref}
+          title="Rendered document"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: `${100 / scale}%`,
+            height: `${100 / scale}%`,
+            transform: `scale(${scale})`,
+            transformOrigin: "0 0",
+            background: theme === "dark" ? "#0b0d12" : "#fff",
+          }}
+          src={frameSrc}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        />
+      </div>
+      {showZoomBadge && (
+        <button
+          type="button"
+          onClick={() => {
+            scaleRef.current = 1;
+            setScale(1);
+          }}
+          className="sticky bottom-3 left-[calc(100%-3.5rem)] z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"
+          title="Reset zoom"
+        >
+          {Math.round(scale * 100)}%
+        </button>
+      )}
+    </div>
   );
 }
