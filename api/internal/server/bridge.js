@@ -363,6 +363,12 @@ function bridge() {
     applyTheme(curTheme);
     d.addEventListener("mouseup", () => setTimeout(selection, 0));
     d.addEventListener("keyup", () => setTimeout(selection, 0));
+    d.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") {
+        const t = appOrigin === "self" ? "*" : appOrigin;
+        parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, t);
+      }
+    });
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
     const targetOrigin = appOrigin === "self" ? "*" : appOrigin;

@@ -98,6 +98,9 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
       }
+      if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      }
       if (e.data?.type === "aidocs:ready") {
         readyRef.current = true;
         paint();
