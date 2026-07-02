@@ -110,6 +110,25 @@ export function DocumentPage() {
     else setPanelOpen((o) => !o);
   }, [isMobile]);
 
+  // Radix Dialog's scroll-lock (react-remove-scroll) can leave the body
+  // with `overflow: hidden` / `pointer-events: none` after the mobile
+  // comments sheet closes, which freezes document scrolling. Restore the
+  // body once the sheet is fully closed.
+  useEffect(() => {
+    if (mobilePanelOpen) return;
+    const restore = () => {
+      for (const el of [document.body, document.documentElement]) {
+        el.style.removeProperty("overflow");
+        el.style.removeProperty("padding-right");
+        el.style.removeProperty("pointer-events");
+        el.removeAttribute("data-scroll-locked");
+      }
+    };
+    // Run after Radix's own close cleanup on the next frame.
+    const id = window.requestAnimationFrame(restore);
+    return () => window.cancelAnimationFrame(id);
+  }, [mobilePanelOpen]);
+
   const versionItems = versions.data?.items || [];
   const latest =
     currentVersionID(doc.data || {}) ||
