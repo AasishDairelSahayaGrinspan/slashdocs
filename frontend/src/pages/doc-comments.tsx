@@ -83,7 +83,7 @@ export function Comments() {
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-[var(--color-border)] px-4 py-3">
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-3 flex items-center justify-between pr-10 md:pr-0">
           <h2 className="text-sm font-semibold">Comments</h2>
           <Badge variant="muted">{comments.length}</Badge>
         </div>

@@ -1,11 +1,13 @@
 import { useTitle } from "@/lib/use-title";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useIsMobile } from "@/lib/use-media-query";
 import { DocProvider, type PendingSelection } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
@@ -80,15 +82,77 @@ export function DocumentPage() {
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
   const [selectedVersion, setSelectedVersion] = useState<string>();
+  const isMobile = useIsMobile();
   const [panelOpen, setPanelOpen] = useState(true);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
-  const handleDocCommentClick = useCallback((commentId: string) => {
-    setActiveComment(commentId);
-    if (!fullscreen) setPanelOpen(true);
-  }, [fullscreen]);
+  const handleDocCommentClick = useCallback(
+    (commentId: string) => {
+      setActiveComment(commentId);
+      if (fullscreen) return;
+      if (isMobile) setMobilePanelOpen(true);
+      else setPanelOpen(true);
+    },
+    [fullscreen, isMobile],
+  );
+
+  // On mobile, a text selection from the rendered doc should pop the
+  // comments sheet open so the compose flow is reachable.
+  useEffect(() => {
+    if (isMobile && !fullscreen && selection?.quote) setMobilePanelOpen(true);
+  }, [isMobile, fullscreen, selection]);
+
+  const toggleComments = useCallback(() => {
+    if (isMobile) setMobilePanelOpen((o) => !o);
+    else setPanelOpen((o) => !o);
+  }, [isMobile]);
+
+  // On mobile the comments sheet should be dismissable with the browser/OS
+  // Back gesture, without leaving the document. We push a dedicated history
+  // entry when it opens; Back pops that entry (closing the sheet) instead of
+  // navigating away. Closing via the UI removes the entry we added.
+  const sheetHistoryRef = useRef(false);
+  useEffect(() => {
+    if (!mobilePanelOpen) return;
+    window.history.pushState({ aidocsCommentsSheet: true }, "");
+    sheetHistoryRef.current = true;
+    const onPop = () => {
+      sheetHistoryRef.current = false;
+      setMobilePanelOpen(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // If the sheet closed via the UI (not via Back), remove the entry we
+      // pushed so the next Back returns to the documents list as expected.
+      if (sheetHistoryRef.current) {
+        sheetHistoryRef.current = false;
+        window.history.back();
+      }
+    };
+  }, [mobilePanelOpen]);
+
+  // Radix Dialog's scroll-lock (react-remove-scroll) can leave the body
+  // with `overflow: hidden` / `pointer-events: none` after the mobile
+  // comments sheet closes, which freezes document scrolling. Restore the
+  // body once the sheet is fully closed.
+  useEffect(() => {
+    if (mobilePanelOpen) return;
+    const restore = () => {
+      for (const el of [document.body, document.documentElement]) {
+        el.style.removeProperty("overflow");
+        el.style.removeProperty("padding-right");
+        el.style.removeProperty("pointer-events");
+        el.removeAttribute("data-scroll-locked");
+      }
+    };
+    // Run after Radix's own close cleanup on the next frame.
+    const id = window.requestAnimationFrame(restore);
+    return () => window.cancelAnimationFrame(id);
+  }, [mobilePanelOpen]);
 
   const versionItems = versions.data?.items || [];
   const latest =
@@ -212,7 +276,8 @@ export function DocumentPage() {
         <div className="relative h-full bg-[var(--color-surface-muted)]">
           {showFullscreenHint ? (
             <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
-              Press Esc to exit full screen
+              <span className="hidden sm:inline">Press Esc to exit full screen</span>
+              <span className="sm:hidden">Go back to exit full screen</span>
             </div>
           ) : null}
           {current ? <RenderFrame /> : <Center>No version available.</Center>}
@@ -235,8 +300,8 @@ export function DocumentPage() {
           latest={latest}
           versions={versions.data?.items || []}
           onSelectVersion={setSelectedVersion}
-          commentsOpen={panelOpen}
-          onToggleComments={() => setPanelOpen((o) => !o)}
+          commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
+          onToggleComments={toggleComments}
         />
         </motion.div>
         <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
@@ -264,6 +329,20 @@ export function DocumentPage() {
             )}
           </AnimatePresence>
         </motion.div>
+
+        {/* Mobile: comments live in a slide-over sheet */}
+        <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
+          <SheetContent
+            side="right"
+            className="w-full max-w-md p-0 md:hidden"
+            aria-describedby={undefined}
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Comments</SheetTitle>
+            </SheetHeader>
+            <Comments />
+          </SheetContent>
+        </Sheet>
       </motion.div>
       )}
     </DocProvider>

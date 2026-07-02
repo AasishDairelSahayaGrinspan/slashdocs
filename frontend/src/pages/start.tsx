@@ -63,7 +63,7 @@ export function StartPage() {
     state.steps.cli_installed && state.steps.cli_authed && state.steps.agent_configured;
 
   return (
-    <div className="mx-auto max-w-3xl px-6 py-10">
+    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="mb-8 flex items-start justify-between gap-4">
         <div>
           <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">

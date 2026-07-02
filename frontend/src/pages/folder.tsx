@@ -198,7 +198,7 @@ export function FolderPage() {
 
   if (folder.isLoading || contents.isLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         <Skeleton className="mb-3 h-9 w-48" />
         <Skeleton className="h-64 w-full" />
       </div>
@@ -240,7 +240,7 @@ export function FolderPage() {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="mx-auto max-w-6xl px-6 py-10">
+      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         {/* Breadcrumbs */}
         <nav className="mb-4 flex items-center gap-1 text-sm text-[var(--color-fg-muted)]">
           <DroppableBreadcrumb
@@ -265,18 +265,18 @@ export function FolderPage() {
         </nav>
 
         {/* Header */}
-        <div className="mb-6 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <FolderIcon className="h-6 w-6 text-[var(--color-accent)]" />
-            <div>
-              <h1 className="text-2xl font-semibold tracking-tight">{f.title}</h1>
-              <p className="text-sm text-[var(--color-fg-muted)]">
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex min-w-0 items-center gap-3">
+            <FolderIcon className="h-6 w-6 shrink-0 text-[var(--color-accent)]" />
+            <div className="min-w-0">
+              <h1 className="truncate text-2xl font-semibold tracking-tight">{f.title}</h1>
+              <p className="truncate text-sm text-[var(--color-fg-muted)]">
                 {f.owner?.name || f.owner?.email || ""}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex rounded-md border border-[var(--color-border)]">
+            <div className="flex shrink-0 rounded-md border border-[var(--color-border)]">
               <Button
                 variant="ghost"
                 size="icon"
@@ -296,13 +296,20 @@ export function FolderPage() {
                 <List className="h-4 w-4" />
               </Button>
             </div>
-            <Button variant="outline" size="md" onClick={() => setNewFolderOpen(true)}>
-              <Plus className="mr-1.5 h-3.5 w-3.5" /> New folder
+            <Button
+              variant="outline"
+              size="md"
+              onClick={() => setNewFolderOpen(true)}
+              className="shrink-0 px-3 sm:px-4"
+            >
+              <Plus className="h-3.5 w-3.5 sm:mr-1.5" />
+              <span className="hidden sm:inline">New folder</span>
             </Button>
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="sm">
-                  <Share2 className="mr-1.5 h-3.5 w-3.5" /> Share
+                <Button variant="outline" size="sm" className="shrink-0 px-2.5 sm:px-3">
+                  <Share2 className="h-3.5 w-3.5 sm:mr-1.5" />
+                  <span className="hidden sm:inline">Share</span>
                 </Button>
               </SheetTrigger>
               <ShareSheet
