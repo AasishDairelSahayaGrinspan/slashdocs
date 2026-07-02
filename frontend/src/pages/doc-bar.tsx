@@ -7,6 +7,7 @@ import {
   Check,
   ExternalLink,
   FolderIcon,
+  Maximize2,
   GitBranch,
   MoreHorizontal,
   PanelRightClose,
@@ -125,6 +126,11 @@ export function DocBar({
         versions={versions}
         onSelectVersion={onSelectVersion}
       />
+      <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+        <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
+          <Maximize2 className="h-4 w-4" /> Full screen
+        </Link>
+      </Button>
       <Sheet>
         <SheetTrigger asChild>
           <Button variant="outline" size="sm">
