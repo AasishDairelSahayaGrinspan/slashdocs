@@ -60,7 +60,7 @@ export function Terminal({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[#0b0d12] font-mono text-[12.5px] leading-[1.7] text-zinc-100 shadow-xl",
+        "overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[#0b0d12] font-mono text-[12.5px] leading-[1.7] text-zinc-100 glow-terminal",
         className,
       )}
     >

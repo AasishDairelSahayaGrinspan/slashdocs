@@ -18,7 +18,7 @@ export function MockDocViewer({
   return (
     <div
       className={cn(
-        "relative overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl",
+        "relative overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] glow-surface",
         className,
       )}
     >

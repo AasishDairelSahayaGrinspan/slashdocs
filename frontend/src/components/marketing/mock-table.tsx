@@ -12,7 +12,7 @@ export function MockDocsTable({
   return (
     <div
       className={cn(
-        "overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] shadow-xl",
+        "overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] glow-surface",
         className,
       )}
     >

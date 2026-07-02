@@ -404,7 +404,7 @@ export function UnifiedGrid({
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const qc = useQueryClient();
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    <div className="stagger-grid grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       {entries.map((e) => {
         if (e.type === "folder" && e.folder) {
           const canDelete = samePrincipal(me.data?.principal, e.folder.owner);
@@ -463,7 +463,7 @@ function DraggableFolderCard({
       }}
       {...listeners}
       {...attributes}
-      className={`group relative overflow-hidden rounded-lg border bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-muted)] ${isOver ? "border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/30" : "border-[var(--color-border)]"} ${isDragging ? "opacity-40" : ""}`}
+      className={`group relative overflow-hidden rounded-lg border bg-[var(--color-surface)] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:-translate-y-0.5 hover:shadow-md ${isOver ? "border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/30" : "border-[var(--color-border)]"} ${isDragging ? "opacity-40" : ""}`}
     >
       <Link
         to={`/app/folders/${f.id}`}
@@ -510,7 +510,7 @@ function DraggableDocCard({
       ref={setNodeRef}
       {...listeners}
       {...attributes}
-      className={`group relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-colors hover:bg-[var(--color-surface-muted)] ${isDragging ? "opacity-40" : ""}`}
+      className={`group relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:-translate-y-0.5 hover:shadow-md ${isDragging ? "opacity-40" : ""}`}
     >
       <Link
         to={`/app/d/${docID(d)}`}

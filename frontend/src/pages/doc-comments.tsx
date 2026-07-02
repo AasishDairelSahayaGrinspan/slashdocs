@@ -180,7 +180,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   return (
     <article
       ref={cardRef}
-      className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-colors hover:border-[var(--color-border-strong)] ${active ? "border-[var(--color-border-strong)] ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
+      className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-[border-color,box-shadow,opacity] duration-200 ease-out hover:border-[var(--color-border-strong)] hover:shadow-sm ${active ? "border-[var(--color-border-strong)] shadow-sm ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
       onClick={() => setActiveComment(active ? undefined : c.id)}
     >
       <div className="mb-1 flex items-center justify-between">

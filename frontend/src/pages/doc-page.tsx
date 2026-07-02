@@ -1,6 +1,7 @@
 import { useTitle } from "@/lib/use-title";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -215,18 +216,26 @@ export function DocumentPage() {
           <section className="relative flex-1 bg-[var(--color-surface-muted)]">
             {current ? <RenderFrame /> : <Center>No version available.</Center>}
           </section>
-          {panelOpen && (
-            <aside
-              className="relative hidden shrink-0 flex-col border-l border-[var(--color-border)] bg-[var(--color-surface)] md:flex"
-              style={{ width: panelWidth }}
-            >
-              <div
-                className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
-                onPointerDown={onResizePointerDown}
-              />
-              <Comments />
-            </aside>
-          )}
+          <AnimatePresence initial={false}>
+            {panelOpen && (
+              <motion.aside
+                key="comments-panel"
+                initial={{ width: 0 }}
+                animate={{ width: panelWidth }}
+                exit={{ width: 0 }}
+                transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                className="relative hidden shrink-0 overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface)] md:block"
+              >
+                <div className="flex h-full flex-col" style={{ width: panelWidth }}>
+                  <div
+                    className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
+                    onPointerDown={onResizePointerDown}
+                  />
+                  <Comments />
+                </div>
+              </motion.aside>
+            )}
+          </AnimatePresence>
         </div>
       </div>
       )}
