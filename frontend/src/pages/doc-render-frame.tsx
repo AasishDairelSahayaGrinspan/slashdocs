@@ -102,10 +102,7 @@ export function RenderFrame() {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       }
       if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
-        setScale((s) => {
-          const next = s * (1 - e.data.deltaY * 0.005);
-          return Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
-        });
+        applyZoom(e.data.deltaY);
       }
       if (e.data?.type === "aidocs:ready") {
         readyRef.current = true;
@@ -127,26 +124,58 @@ export function RenderFrame() {
 
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
+  // Zoom is anchored to the cursor position (magnifying-glass feel).
   const MIN_SCALE = 0.25;
   const MAX_SCALE = 4;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
+  const scaleRef = useRef(1);
+  const cursorRef = useRef({ x: 0, y: 0 });
+
+  const applyZoom = useCallback((deltaY: number) => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const oldScale = scaleRef.current;
+    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)));
+    if (newScale === oldScale) return;
+
+    const rect = el.getBoundingClientRect();
+    const cx = cursorRef.current.x - rect.left;
+    const cy = cursorRef.current.y - rect.top;
+
+    // Point in unscaled document space under cursor
+    const docX = (el.scrollLeft + cx) / oldScale;
+    const docY = (el.scrollTop + cy) / oldScale;
+
+    scaleRef.current = newScale;
+    setScale(newScale);
+
+    // After scale change, adjust scroll so the same doc point stays under cursor
+    requestAnimationFrame(() => {
+      el.scrollLeft = docX * newScale - cx;
+      el.scrollTop = docY * newScale - cy;
+    });
+  }, []);
 
   useEffect(() => {
     const el = wrapperRef.current;
     if (!el) return;
     const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;          // normal scroll — let it through
-      e.preventDefault();              // block browser zoom
-      setScale((s) => {
-        const next = s * (1 - e.deltaY * 0.005);
-        return Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
-      });
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      cursorRef.current = { x: e.clientX, y: e.clientY };
+      applyZoom(e.deltaY);
     };
-    // Must be non-passive to preventDefault on wheel.
+    const onMouseMove = (e: MouseEvent) => {
+      cursorRef.current = { x: e.clientX, y: e.clientY };
+    };
     el.addEventListener("wheel", onWheel, { passive: false });
-    return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+    el.addEventListener("mousemove", onMouseMove);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("mousemove", onMouseMove);
+    };
+  }, [applyZoom]);
 
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.
