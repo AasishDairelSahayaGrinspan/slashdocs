@@ -363,12 +363,40 @@ function bridge() {
     applyTheme(curTheme);
     d.addEventListener("mouseup", () => setTimeout(selection, 0));
     d.addEventListener("keyup", () => setTimeout(selection, 0));
-    // Touch devices don't fire a reliable mouseup after selecting text.
-    // touchend catches tap-to-select; selectionchange (debounced) catches
-    // dragging the selection handles on mobile.
-    d.addEventListener("touchend", () => setTimeout(selection, 0));
+    // Touch devices: while a finger is down the user is still adjusting the
+    // selection (long-press then drag the handles), so we must NOT emit yet
+    // — doing so pops the comments sheet and steals the drag. We only emit
+    // once the finger lifts (touchend), i.e. the gesture has settled.
+    var touching = false;
+    var touchEmitTimer = null;
+    d.addEventListener("touchstart", function () {
+      touching = true;
+      // A new touch (e.g. grabbing a selection handle to drag) cancels a
+      // pending emit from the previous touchend.
+      if (touchEmitTimer) {
+        clearTimeout(touchEmitTimer);
+        touchEmitTimer = null;
+      }
+    }, { passive: true });
+    d.addEventListener("touchend", function () {
+      touching = false;
+      // Wait after the finger lifts before emitting. If the user grabs a
+      // selection handle to keep dragging, touchstart cancels this timer, so
+      // the sheet only appears once they've truly finished selecting.
+      if (touchEmitTimer) clearTimeout(touchEmitTimer);
+      touchEmitTimer = setTimeout(function () {
+        touchEmitTimer = null;
+        selection();
+      }, 450);
+    });
+    d.addEventListener("touchcancel", function () {
+      touching = false;
+    });
+    // selectionchange handles mouse drag-selection on desktop; on touch it
+    // fires continuously mid-drag, so skip it while a finger is down.
     var selTimer = null;
     d.addEventListener("selectionchange", function () {
+      if (touching) return;
       if (selTimer) clearTimeout(selTimer);
       selTimer = setTimeout(selection, 350);
     });
