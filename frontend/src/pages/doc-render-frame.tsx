@@ -157,27 +157,36 @@ export function RenderFrame() {
 
   return (
     <div ref={wrapperRef} className="relative h-full w-full overflow-auto">
-      <iframe
-        ref={ref}
-        title="Rendered document"
-        // Match the frame to the resolved theme so dark readers don't see a
-        // white flash before the document paints.
-        className="h-full w-full"
+      {/* Spacer creates the scrollable area at zoomed size */}
+      <div
         style={{
-          background: theme === "dark" ? "#0b0d12" : "#fff",
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
-          width: `${100 / scale}%`,
-          height: `${100 / scale}%`,
+          position: "relative",
+          width: `${Math.max(100, scale * 100)}%`,
+          height: `${Math.max(100, scale * 100)}%`,
         }}
-        src={frameSrc}
-        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-      />
+      >
+        <iframe
+          ref={ref}
+          title="Rendered document"
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            width: `${100 / scale}%`,
+            height: `${100 / scale}%`,
+            transform: `scale(${scale})`,
+            transformOrigin: "0 0",
+            background: theme === "dark" ? "#0b0d12" : "#fff",
+          }}
+          src={frameSrc}
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        />
+      </div>
       {showZoomBadge && (
         <button
           type="button"
           onClick={() => setScale(1)}
-          className="absolute bottom-3 right-3 z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"
+          className="sticky bottom-3 left-[calc(100%-3.5rem)] z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"
           title="Reset zoom"
         >
           {Math.round(scale * 100)}%
