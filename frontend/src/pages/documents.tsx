@@ -556,7 +556,7 @@ export function UnifiedTable({
             <th className="w-12 px-2 py-2.5"></th>
           </tr>
         </thead>
-        <tbody>
+        <tbody className="stagger-rows">
           {entries.map((e) => {
             if (e.type === "folder" && e.folder) {
               return (
