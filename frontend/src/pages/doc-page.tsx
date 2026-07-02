@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
@@ -109,6 +109,31 @@ export function DocumentPage() {
     if (isMobile) setMobilePanelOpen((o) => !o);
     else setPanelOpen((o) => !o);
   }, [isMobile]);
+
+  // On mobile the comments sheet should be dismissable with the browser/OS
+  // Back gesture, without leaving the document. We push a dedicated history
+  // entry when it opens; Back pops that entry (closing the sheet) instead of
+  // navigating away. Closing via the UI removes the entry we added.
+  const sheetHistoryRef = useRef(false);
+  useEffect(() => {
+    if (!mobilePanelOpen) return;
+    window.history.pushState({ aidocsCommentsSheet: true }, "");
+    sheetHistoryRef.current = true;
+    const onPop = () => {
+      sheetHistoryRef.current = false;
+      setMobilePanelOpen(false);
+    };
+    window.addEventListener("popstate", onPop);
+    return () => {
+      window.removeEventListener("popstate", onPop);
+      // If the sheet closed via the UI (not via Back), remove the entry we
+      // pushed so the next Back returns to the documents list as expected.
+      if (sheetHistoryRef.current) {
+        sheetHistoryRef.current = false;
+        window.history.back();
+      }
+    };
+  }, [mobilePanelOpen]);
 
   // Radix Dialog's scroll-lock (react-remove-scroll) can leave the body
   // with `overflow: hidden` / `pointer-events: none` after the mobile
