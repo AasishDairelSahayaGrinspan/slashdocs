@@ -375,7 +375,15 @@ function bridge() {
       if (!ev.ctrlKey) return;
       ev.preventDefault();
       var t = appOrigin === "self" ? "*" : appOrigin;
-      parent.postMessage({ type: "aidocs:zoom", deltaY: ev.deltaY }, t);
+      parent.postMessage(
+        {
+          type: "aidocs:zoom",
+          deltaY: ev.deltaY,
+          clientX: ev.clientX,
+          clientY: ev.clientY,
+        },
+        t,
+      );
     }, { passive: false });
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);

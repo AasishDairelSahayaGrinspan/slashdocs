@@ -87,6 +87,66 @@ export function RenderFrame() {
     );
   }, [theme, frameOrigin]);
 
+  // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
+  // a CSS scale to the iframe instead of zooming the entire browser page.
+  // Zoom is anchored to the cursor position (magnifying-glass feel).
+  const MIN_SCALE = 0.25;
+  const MAX_SCALE = 4;
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+  const scaleRef = useRef(1);
+  const cursorRef = useRef({ x: 0, y: 0 });
+
+  const applyZoom = useCallback((deltaY: number, cursor?: { x: number; y: number }) => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const oldScale = scaleRef.current;
+    const newScale = Math.min(
+      MAX_SCALE,
+      Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)),
+    );
+    if (newScale === oldScale) return;
+
+    const anchor = cursor ?? cursorRef.current;
+    cursorRef.current = anchor;
+
+    const rect = el.getBoundingClientRect();
+    const cx = anchor.x - rect.left;
+    const cy = anchor.y - rect.top;
+
+    // Point in unscaled document space under cursor.
+    const docX = (el.scrollLeft + cx) / oldScale;
+    const docY = (el.scrollTop + cy) / oldScale;
+
+    scaleRef.current = newScale;
+    setScale(newScale);
+
+    // After scale change, adjust scroll so the same doc point stays under cursor.
+    requestAnimationFrame(() => {
+      el.scrollLeft = docX * newScale - cx;
+      el.scrollTop = docY * newScale - cy;
+    });
+  }, []);
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      applyZoom(e.deltaY, { x: e.clientX, y: e.clientY });
+    };
+    const onMouseMove = (e: MouseEvent) => {
+      cursorRef.current = { x: e.clientX, y: e.clientY };
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    el.addEventListener("mousemove", onMouseMove);
+    return () => {
+      el.removeEventListener("wheel", onWheel);
+      el.removeEventListener("mousemove", onMouseMove);
+    };
+  }, [applyZoom]);
+
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (!frameOrigin || e.origin !== frameOrigin) return;
@@ -102,7 +162,17 @@ export function RenderFrame() {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       }
       if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
-        applyZoom(e.data.deltaY);
+        const frameRect = ref.current?.getBoundingClientRect();
+        const cursor =
+          frameRect &&
+          typeof e.data.clientX === "number" &&
+          typeof e.data.clientY === "number"
+            ? {
+                x: frameRect.left + e.data.clientX * scaleRef.current,
+                y: frameRect.top + e.data.clientY * scaleRef.current,
+              }
+            : undefined;
+        applyZoom(e.data.deltaY, cursor);
       }
       if (e.data?.type === "aidocs:ready") {
         readyRef.current = true;
@@ -115,67 +185,12 @@ export function RenderFrame() {
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [frameOrigin, paint, setSelection, handleDocCommentClick, theme]);
+  }, [frameOrigin, paint, setSelection, handleDocCommentClick, theme, applyZoom]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {
     paint();
   }, [paint]);
-
-  // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
-  // a CSS scale to the iframe instead of zooming the entire browser page.
-  // Zoom is anchored to the cursor position (magnifying-glass feel).
-  const MIN_SCALE = 0.25;
-  const MAX_SCALE = 4;
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const [scale, setScale] = useState(1);
-  const scaleRef = useRef(1);
-  const cursorRef = useRef({ x: 0, y: 0 });
-
-  const applyZoom = useCallback((deltaY: number) => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const oldScale = scaleRef.current;
-    const newScale = Math.min(MAX_SCALE, Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)));
-    if (newScale === oldScale) return;
-
-    const rect = el.getBoundingClientRect();
-    const cx = cursorRef.current.x - rect.left;
-    const cy = cursorRef.current.y - rect.top;
-
-    // Point in unscaled document space under cursor
-    const docX = (el.scrollLeft + cx) / oldScale;
-    const docY = (el.scrollTop + cy) / oldScale;
-
-    scaleRef.current = newScale;
-    setScale(newScale);
-
-    // After scale change, adjust scroll so the same doc point stays under cursor
-    requestAnimationFrame(() => {
-      el.scrollLeft = docX * newScale - cx;
-      el.scrollTop = docY * newScale - cy;
-    });
-  }, []);
-
-  useEffect(() => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (!e.ctrlKey) return;
-      e.preventDefault();
-      cursorRef.current = { x: e.clientX, y: e.clientY };
-      applyZoom(e.deltaY);
-    };
-    const onMouseMove = (e: MouseEvent) => {
-      cursorRef.current = { x: e.clientX, y: e.clientY };
-    };
-    el.addEventListener("wheel", onWheel, { passive: false });
-    el.addEventListener("mousemove", onMouseMove);
-    return () => {
-      el.removeEventListener("wheel", onWheel);
-      el.removeEventListener("mousemove", onMouseMove);
-    };
-  }, [applyZoom]);
 
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.
@@ -214,7 +229,10 @@ export function RenderFrame() {
       {showZoomBadge && (
         <button
           type="button"
-          onClick={() => setScale(1)}
+          onClick={() => {
+            scaleRef.current = 1;
+            setScale(1);
+          }}
           className="sticky bottom-3 left-[calc(100%-3.5rem)] z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"
           title="Reset zoom"
         >
