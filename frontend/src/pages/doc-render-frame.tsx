@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api, type Anchor } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -119,20 +119,64 @@ export function RenderFrame() {
     paint();
   }, [paint]);
 
+  // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
+  // a CSS scale to the iframe instead of zooming the entire browser page.
+  const MIN_SCALE = 0.25;
+  const MAX_SCALE = 4;
+  const wrapperRef = useRef<HTMLDivElement>(null);
+  const [scale, setScale] = useState(1);
+
+  useEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (!e.ctrlKey) return;          // normal scroll — let it through
+      e.preventDefault();              // block browser zoom
+      setScale((s) => {
+        const next = s * (1 - e.deltaY * 0.005);
+        return Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+      });
+    };
+    // Must be non-passive to preventDefault on wheel.
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
+
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.
   if (token.isLoading) return <Center>Preparing secure render…</Center>;
   if (token.error) return <Center>Could not create render token.</Center>;
+
+  const showZoomBadge = Math.round(scale * 100) !== 100;
+
   return (
-    <iframe
-      ref={ref}
-      title="Rendered document"
-      // Match the frame to the resolved theme so dark readers don't see a
-      // white flash before the document paints.
-      className="h-full w-full"
-      style={{ background: theme === "dark" ? "#0b0d12" : "#fff" }}
-      src={frameSrc}
-      sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
-    />
+    <div ref={wrapperRef} className="relative h-full w-full overflow-auto">
+      <iframe
+        ref={ref}
+        title="Rendered document"
+        // Match the frame to the resolved theme so dark readers don't see a
+        // white flash before the document paints.
+        className="h-full w-full"
+        style={{
+          background: theme === "dark" ? "#0b0d12" : "#fff",
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
+          width: `${100 / scale}%`,
+          height: `${100 / scale}%`,
+        }}
+        src={frameSrc}
+        sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+      />
+      {showZoomBadge && (
+        <button
+          type="button"
+          onClick={() => setScale(1)}
+          className="absolute bottom-3 right-3 z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"
+          title="Reset zoom"
+        >
+          {Math.round(scale * 100)}%
+        </button>
+      )}
+    </div>
   );
 }
