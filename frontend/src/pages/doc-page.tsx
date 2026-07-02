@@ -6,6 +6,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { useIsMobile } from "@/lib/use-media-query";
 import { DocProvider, type PendingSelection } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
@@ -80,15 +82,33 @@ export function DocumentPage() {
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
   const [selectedVersion, setSelectedVersion] = useState<string>();
+  const isMobile = useIsMobile();
   const [panelOpen, setPanelOpen] = useState(true);
+  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
-  const handleDocCommentClick = useCallback((commentId: string) => {
-    setActiveComment(commentId);
-    if (!fullscreen) setPanelOpen(true);
-  }, [fullscreen]);
+  const handleDocCommentClick = useCallback(
+    (commentId: string) => {
+      setActiveComment(commentId);
+      if (fullscreen) return;
+      if (isMobile) setMobilePanelOpen(true);
+      else setPanelOpen(true);
+    },
+    [fullscreen, isMobile],
+  );
+
+  // On mobile, a text selection from the rendered doc should pop the
+  // comments sheet open so the compose flow is reachable.
+  useEffect(() => {
+    if (isMobile && !fullscreen && selection?.quote) setMobilePanelOpen(true);
+  }, [isMobile, fullscreen, selection]);
+
+  const toggleComments = useCallback(() => {
+    if (isMobile) setMobilePanelOpen((o) => !o);
+    else setPanelOpen((o) => !o);
+  }, [isMobile]);
 
   const versionItems = versions.data?.items || [];
   const latest =
@@ -212,7 +232,8 @@ export function DocumentPage() {
         <div className="relative h-full bg-[var(--color-surface-muted)]">
           {showFullscreenHint ? (
             <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
-              Press Esc to exit full screen
+              <span className="hidden sm:inline">Press Esc to exit full screen</span>
+              <span className="sm:hidden">Go back to exit full screen</span>
             </div>
           ) : null}
           {current ? <RenderFrame /> : <Center>No version available.</Center>}
@@ -235,8 +256,8 @@ export function DocumentPage() {
           latest={latest}
           versions={versions.data?.items || []}
           onSelectVersion={setSelectedVersion}
-          commentsOpen={panelOpen}
-          onToggleComments={() => setPanelOpen((o) => !o)}
+          commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
+          onToggleComments={toggleComments}
         />
         </motion.div>
         <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
@@ -264,6 +285,20 @@ export function DocumentPage() {
             )}
           </AnimatePresence>
         </motion.div>
+
+        {/* Mobile: comments live in a slide-over sheet */}
+        <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
+          <SheetContent
+            side="right"
+            className="w-full max-w-md p-0 md:hidden"
+            aria-describedby={undefined}
+          >
+            <SheetHeader className="sr-only">
+              <SheetTitle>Comments</SheetTitle>
+            </SheetHeader>
+            <Comments />
+          </SheetContent>
+        </Sheet>
       </motion.div>
       )}
     </DocProvider>

@@ -279,3 +279,42 @@
 .stagger-rows > tr:nth-child(10) { animation-delay: 315ms; }
 .stagger-rows > tr:nth-child(11) { animation-delay: 350ms; }
 .stagger-rows > tr:nth-child(12) { animation-delay: 385ms; }
+
+/* ── Mobile delights & touch polish ─────────────────────── */
+@media (hover: none) and (pointer: coarse) {
+  /* Kill the flashy grey tap highlight; we do our own feedback */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* Card/link tap feedback — a soft press that springs back */
+  a[class*="rounded"],
+  .group[class*="rounded"] {
+    transition:
+      transform 0.12s cubic-bezier(0.25, 0.4, 0.25, 1),
+      background-color 0.2s ease-out,
+      box-shadow 0.2s ease-out;
+  }
+  a[class*="rounded"]:active,
+  .group[class*="rounded"]:active {
+    transform: scale(0.98);
+  }
+
+  /* Momentum scrolling for scroll containers */
+  .overflow-y-auto,
+  .overflow-auto {
+    -webkit-overflow-scrolling: touch;
+  }
+}
+
+/* Respect reduced-motion preferences everywhere */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

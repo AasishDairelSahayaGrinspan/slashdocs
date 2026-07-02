@@ -90,8 +90,8 @@ export function DocBar({
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
-    <div className="flex h-16 items-center gap-3 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4">
-      <Button asChild variant="ghost" size="icon">
+    <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
+      <Button asChild variant="ghost" size="icon" className="shrink-0">
         <Link to="/app/documents" aria-label="Back to documents">
           <ArrowLeft className="h-4 w-4" />
         </Link>
@@ -116,8 +116,14 @@ export function DocBar({
         ) : null}
       </div>
       {isViewingOlder ? (
-        <Button variant="secondary" size="sm" onClick={() => onSelectVersion(latest)}>
-          Back to latest
+        <Button
+          variant="secondary"
+          size="sm"
+          className="shrink-0 px-2 sm:px-3"
+          onClick={() => onSelectVersion(latest)}
+        >
+          <span className="hidden sm:inline">Back to latest</span>
+          <span className="sm:hidden">Latest</span>
         </Button>
       ) : null}
       <VersionHistoryDialog
@@ -133,8 +139,14 @@ export function DocBar({
       </Button>
       <Sheet>
         <SheetTrigger asChild>
-          <Button variant="outline" size="sm">
-            <Share2 className="h-4 w-4" /> Share
+          <Button
+            variant="outline"
+            size="sm"
+            className="shrink-0 px-2.5 sm:px-3"
+            aria-label="Share"
+          >
+            <Share2 className="h-4 w-4" />
+            <span className="hidden sm:inline">Share</span>
           </Button>
         </SheetTrigger>
         <ShareSheet docId={docId} canManageAccess={canManageAccess} />
@@ -144,7 +156,7 @@ export function DocBar({
         size="icon"
         onClick={onToggleComments}
         aria-label={commentsOpen ? "Hide comments" : "Show comments"}
-        className="hidden md:inline-flex"
+        className="shrink-0"
       >
         {commentsOpen ? (
           <PanelRightClose className="h-4 w-4" />
@@ -154,11 +166,19 @@ export function DocBar({
       </Button>
       <Dropdown>
         <DropdownTrigger asChild>
-          <Button variant="ghost" size="icon" aria-label="More">
+          <Button variant="ghost" size="icon" className="shrink-0" aria-label="More">
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownTrigger>
         <DropdownContent>
+          <DropdownItem
+            className="sm:hidden"
+            onSelect={() =>
+              nav(`/app/d/${docId}?fullscreen=1&version=${current}`)
+            }
+          >
+            <Maximize2 className="h-4 w-4" /> Full screen
+          </DropdownItem>
           <DropdownItem
             onSelect={() =>
               window.open(

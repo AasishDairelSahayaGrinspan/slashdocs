@@ -24,7 +24,7 @@ export function ProfilePage() {
 
   if (me.isLoading) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-10">
+      <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
         <Skeleton className="mb-6 h-8 w-40" />
         <Skeleton className="h-28 w-full" />
       </div>
@@ -34,7 +34,7 @@ export function ProfilePage() {
     return <Center>Could not load your profile.</Center>;
   }
   return (
-    <div className="mx-auto max-w-2xl px-6 py-10">
+    <div className="mx-auto max-w-2xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="mb-6">
         <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
       </div>
