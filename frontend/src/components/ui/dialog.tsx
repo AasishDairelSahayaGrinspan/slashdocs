@@ -14,10 +14,10 @@ export function DialogContent({
 }: React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content>) {
   return (
     <DialogPrimitive.Portal>
-      <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm transition-opacity duration-150 ease-out data-[state=closed]:opacity-0 data-[state=open]:opacity-100" />
+      <DialogPrimitive.Overlay className="sheet-overlay fixed inset-0 z-50 bg-black/40 backdrop-blur-sm" />
       <DialogPrimitive.Content
         className={cn(
-          "fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl transition-[opacity,transform] duration-200 ease-out data-[state=closed]:-translate-y-[calc(50%-4px)] data-[state=open]:-translate-y-1/2 data-[state=closed]:scale-[0.98] data-[state=open]:scale-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
+          "dialog-content fixed left-1/2 top-1/2 z-50 w-full max-w-lg -translate-x-1/2 -translate-y-1/2 rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-xl focus:outline-none",
           className,
         )}
         {...p}
