@@ -45,7 +45,7 @@ export function ServiceAccountsPage() {
   const selected = items.find((s) => s.id === selectedId) || items[0] || null;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Bots</h1>
@@ -55,8 +55,9 @@ export function ServiceAccountsPage() {
             runs without you.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)}>
-          <Plus className="h-4 w-4" /> New bot
+        <Button onClick={() => setCreating(true)} className="shrink-0 px-3 sm:px-4">
+          <Plus className="h-4 w-4 sm:mr-1" />
+          <span className="hidden sm:inline">New bot</span>
         </Button>
       </div>
       <NewBotDialog

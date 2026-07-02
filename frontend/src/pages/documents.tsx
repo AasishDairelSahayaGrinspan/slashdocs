@@ -235,8 +235,8 @@ export function DocumentsPage() {
   const empty = !searching && documents.length === 0 && folders.length === 0;
 
   return (
-    <div className="mx-auto max-w-6xl px-6 py-10">
-      <div className="mb-6 flex items-end justify-between gap-4">
+    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
           <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
@@ -244,16 +244,16 @@ export function DocumentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-initial">
             <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-muted)]" />
             <Input
               value={q}
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search…"
-              className="w-56 pl-8"
+              className="w-full pl-8 sm:w-56"
             />
           </div>
-          <div className="flex rounded-md border border-[var(--color-border)]">
+          <div className="flex shrink-0 rounded-md border border-[var(--color-border)]">
             <Button
               variant="ghost"
               size="icon"
@@ -273,12 +273,18 @@ export function DocumentsPage() {
               <List className="h-4 w-4" />
             </Button>
           </div>
-          <Button variant="outline" size="md" onClick={() => setNewFolderOpen(true)}>
-            <Plus className="mr-1.5 h-3.5 w-3.5" /> New folder
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => setNewFolderOpen(true)}
+            className="shrink-0 px-3 sm:px-4"
+          >
+            <Plus className="h-3.5 w-3.5 sm:mr-1.5" />{" "}
+            <span className="hidden sm:inline">New folder</span>
           </Button>
           <Dropdown>
             <DropdownTrigger asChild>
-              <Button variant="outline" size="icon" aria-label="More">
+              <Button variant="outline" size="icon" className="shrink-0" aria-label="More">
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownTrigger>
