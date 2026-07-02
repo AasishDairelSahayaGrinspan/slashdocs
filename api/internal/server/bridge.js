@@ -363,6 +363,15 @@ function bridge() {
     applyTheme(curTheme);
     d.addEventListener("mouseup", () => setTimeout(selection, 0));
     d.addEventListener("keyup", () => setTimeout(selection, 0));
+    // Touch devices don't fire a reliable mouseup after selecting text.
+    // touchend catches tap-to-select; selectionchange (debounced) catches
+    // dragging the selection handles on mobile.
+    d.addEventListener("touchend", () => setTimeout(selection, 0));
+    var selTimer = null;
+    d.addEventListener("selectionchange", function () {
+      if (selTimer) clearTimeout(selTimer);
+      selTimer = setTimeout(selection, 350);
+    });
     d.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") {
         const t = appOrigin === "self" ? "*" : appOrigin;
