@@ -15,6 +15,26 @@ const MIN_PANEL_WIDTH = 240;
 const MAX_PANEL_WIDTH = 640;
 const DEFAULT_PANEL_WIDTH = 380;
 
+const pageStagger = {
+  hidden: {},
+  visible: { transition: { staggerChildren: 0.1, delayChildren: 0.05 } },
+};
+const barSlide = {
+  hidden: { opacity: 0, y: -8 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.35, ease: [0.25, 0.4, 0.25, 1] as const },
+  },
+};
+const contentFade = {
+  hidden: { opacity: 0 },
+  visible: {
+    opacity: 1,
+    transition: { duration: 0.4, ease: [0.25, 0.4, 0.25, 1] as const },
+  },
+};
+
 function DocumentErrorState({
   title,
   description,
@@ -198,7 +218,13 @@ export function DocumentPage() {
           {current ? <RenderFrame /> : <Center>No version available.</Center>}
         </div>
       ) : (
-      <div className="flex h-full flex-col">
+      <motion.div
+        className="flex h-full flex-col"
+        initial="hidden"
+        animate="visible"
+        variants={pageStagger}
+      >
+        <motion.div variants={barSlide}>
         <DocBar
           title={docTitle(doc.data)}
           docId={id}
@@ -212,7 +238,8 @@ export function DocumentPage() {
           commentsOpen={panelOpen}
           onToggleComments={() => setPanelOpen((o) => !o)}
         />
-        <div className="flex flex-1 overflow-hidden">
+        </motion.div>
+        <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
           <section className="relative flex-1 bg-[var(--color-surface-muted)]">
             {current ? <RenderFrame /> : <Center>No version available.</Center>}
           </section>
@@ -236,8 +263,8 @@ export function DocumentPage() {
               </motion.aside>
             )}
           </AnimatePresence>
-        </div>
-      </div>
+        </motion.div>
+      </motion.div>
       )}
     </DocProvider>
   );
