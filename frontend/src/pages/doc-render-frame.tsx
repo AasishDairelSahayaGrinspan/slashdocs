@@ -101,6 +101,12 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       }
+      if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
+        setScale((s) => {
+          const next = s * (1 - e.data.deltaY * 0.005);
+          return Math.min(MAX_SCALE, Math.max(MIN_SCALE, next));
+        });
+      }
       if (e.data?.type === "aidocs:ready") {
         readyRef.current = true;
         paint();

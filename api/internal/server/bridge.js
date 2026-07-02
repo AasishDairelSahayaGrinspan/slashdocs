@@ -369,6 +369,14 @@ function bridge() {
         parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, t);
       }
     });
+    // Forward trackpad pinch-to-zoom (wheel + ctrlKey) to parent so the
+    // app can scale only the document iframe instead of browser-zooming.
+    d.addEventListener("wheel", function (ev) {
+      if (!ev.ctrlKey) return;
+      ev.preventDefault();
+      var t = appOrigin === "self" ? "*" : appOrigin;
+      parent.postMessage({ type: "aidocs:zoom", deltaY: ev.deltaY }, t);
+    }, { passive: false });
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
     const targetOrigin = appOrigin === "self" ? "*" : appOrigin;
