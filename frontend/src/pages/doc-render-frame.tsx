@@ -20,8 +20,13 @@ export function RenderFrame() {
     handleDocCommentClick,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
-  const readyRef = useRef(false);
+  const [ready, setReady] = useState(false);
   const theme = useResolvedTheme();
+  // Latest resolved theme, readable from stable event handlers without
+  // forcing them to re-register (which caused a race where aidocs:ready
+  // could arrive during listener teardown and be missed).
+  const themeRef = useRef(theme);
+  themeRef.current = theme;
 
   const token = useQuery({
     queryKey: queryKeys.render(version),
@@ -55,7 +60,7 @@ export function RenderFrame() {
 
   // Reset readiness whenever we load a different frame.
   useEffect(() => {
-    readyRef.current = false;
+    setReady(false);
   }, [frameOrigin, token.data?.url]);
 
   // The resolved theme is baked into the iframe URL so the bridge can apply
@@ -71,21 +76,25 @@ export function RenderFrame() {
   }, [token.data?.url]);
 
   const paint = useCallback(() => {
-    if (!readyRef.current || !frameOrigin) return;
+    if (!ready || !frameOrigin) return;
     ref.current?.contentWindow?.postMessage(
       { type: "aidocs:paint", comments: paintPayload, active: activeComment },
       frameOrigin,
     );
-  }, [paintPayload, activeComment, frameOrigin]);
+  }, [ready, paintPayload, activeComment, frameOrigin]);
 
-  // Push live theme changes to the bridge once the frame is ready.
+  // Push the theme to the bridge whenever it changes OR once the frame
+  // becomes ready. Depending on `ready` (state, not a ref) guarantees this
+  // re-runs after the frame signals ready, so a theme set while the frame
+  // was still loading is always applied — fixing the intermittent wrong
+  // theme and the "switch does nothing" cases.
   useEffect(() => {
-    if (!readyRef.current || !frameOrigin) return;
+    if (!ready || !frameOrigin) return;
     ref.current?.contentWindow?.postMessage(
       { type: "aidocs:theme", theme },
       frameOrigin,
     );
-  }, [theme, frameOrigin]);
+  }, [theme, ready, frameOrigin]);
 
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
@@ -175,17 +184,16 @@ export function RenderFrame() {
         applyZoom(e.data.deltaY, cursor);
       }
       if (e.data?.type === "aidocs:ready") {
-        readyRef.current = true;
-        paint();
+        setReady(true);
         ref.current?.contentWindow?.postMessage(
-          { type: "aidocs:theme", theme },
+          { type: "aidocs:theme", theme: themeRef.current },
           frameOrigin,
         );
       }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [frameOrigin, paint, setSelection, handleDocCommentClick, theme, applyZoom]);
+  }, [frameOrigin, setSelection, handleDocCommentClick, applyZoom]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {
