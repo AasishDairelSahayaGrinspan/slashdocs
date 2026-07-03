@@ -16,6 +16,7 @@ import { CodeBlock } from "@/components/ui/misc";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 import { useFrontendSignedOut } from "@/lib/auth-state";
 import { useMe } from "@/lib/hooks";
+import { publicURL } from "@/lib/config";
 
 // Shared animation variants for the landing page
 const stagger = {
@@ -40,11 +41,6 @@ const fadeUpSoft = {
     transition: { duration: 0.5, ease: [0.25, 0.4, 0.25, 1] as const },
   },
 };
-
-const INSTALL_SNIPPET = `curl -fsSL https://aidocs.concierge.razorpay.com/install.sh | bash
-
-aidocs auth login
-aidocs docs create report.html`;
 
 const useCases = [
   { icon: FileText, title: "Incident reports & RCAs" },
@@ -175,6 +171,13 @@ function Hero() {
 }
 
 function Install() {
+  // Origin comes from the server-injected AIDOCS_APP_ORIGIN (same pattern as
+  // the setup guide and developers page), so the snippet matches this
+  // instance instead of a hard-coded host.
+  const installSnippet = `curl -fsSL ${publicURL()}/install.sh | bash
+
+aidocs auth login
+aidocs docs create report.html`;
   return (
     <motion.section
       id="install"
@@ -195,7 +198,7 @@ function Install() {
         </div>
         <div className="relative">
           <div aria-hidden className="pointer-events-none absolute -inset-4 rounded-2xl bg-[var(--color-accent)] opacity-[0.04] blur-2xl" />
-          <CodeBlock>{INSTALL_SNIPPET}</CodeBlock>
+          <CodeBlock>{installSnippet}</CodeBlock>
         </div>
         <p className="mt-4 text-center text-sm text-[var(--color-fg-muted)]">
           Other install methods are documented in the{" "}

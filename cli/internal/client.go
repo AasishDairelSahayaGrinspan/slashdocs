@@ -14,7 +14,12 @@ import (
 )
 
 // defaultServer is the single source of truth for the default API server URL.
-const defaultServer = "https://aidocs.concierge.razorpay.com"
+//
+// TODO(tech-debt): this is hard-coded. The frontend already resolves the
+// host dynamically from the server-injected AIDOCS_APP_ORIGIN; the CLI
+// should be migrated to a dynamic/configurable default the same way instead
+// of baking the URL into the binary.
+const defaultServer = "https://aidocs.razorpay.com"
 
 // Client is a thin HTTP transport for the aidocs API.
 type Client struct {
