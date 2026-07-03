@@ -78,7 +78,7 @@ function Nav() {
     <header className="sticky top-0 z-30 border-b border-[var(--color-border)]/50 bg-[var(--color-bg)]/70 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <Link to="/" className="group flex items-center gap-2 font-semibold">
-          <img src="/favicon.svg" alt="" className="h-10 w-10 transition-transform duration-300 ease-out group-hover:rotate-[-8deg] group-hover:scale-110" />
+          <img src="/logo.svg" alt="" className="h-10 w-10 transition-transform duration-300 ease-out group-hover:rotate-[-8deg] group-hover:scale-110" />
           aidocs
         </Link>
         <nav className="flex items-center gap-2">

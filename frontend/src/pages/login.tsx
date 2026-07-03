@@ -70,7 +70,7 @@ export function LoginPage() {
       >
         <motion.div variants={loginFadeUp} className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 elevate-subtle">
           <div className="mb-7 flex flex-col items-center text-center">
-            <img src="/favicon.svg" alt="" className="mb-4 h-14 w-14" />
+            <img src="/logo.svg" alt="" className="mb-4 h-14 w-14" />
             <h1 className="text-2xl font-semibold tracking-tight">Sign in to aidocs</h1>
             <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
               The review layer for documents your agents write.
