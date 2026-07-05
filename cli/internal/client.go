@@ -29,6 +29,22 @@ type Client struct {
 
 // client builds a Client from flags, environment, and the active config context.
 func client(g *globals) (*Client, error) {
+	c, err := clientFromConfig(g, false)
+	if err != nil {
+		return nil, err
+	}
+	if c.Base == "" {
+		return nil, errors.New("not logged in; run aidocs auth login [server]")
+	}
+	return c, nil
+}
+
+// publicClient builds a Client for unauthenticated endpoints. It still honors
+// --server/AIDOCS_SERVER and the active context, but falls back to the hosted
+// server when no login or context exists.
+func publicClient(g *globals) (*Client, error) { return clientFromConfig(g, true) }
+
+func clientFromConfig(g *globals, allowDefault bool) (*Client, error) {
 	srv := first(g.server, os.Getenv("AIDOCS_SERVER"))
 	tok := first(g.token, os.Getenv("AIDOCS_TOKEN"))
 	cfg, err := loadConfig()
@@ -46,13 +62,14 @@ func client(g *globals) (*Client, error) {
 			tok = credentialToken(ctxName(srv), c.Credential)
 		}
 	}
-	if srv == "" {
-		if tok == "" {
-			return nil, errors.New("not logged in; run aidocs auth login [server]")
-		}
+	if srv == "" && (allowDefault || tok != "") {
 		srv = defaultServer
 	}
-	return &Client{Base: normalizeServer(srv), Token: tok, HTTP: http.DefaultClient}, nil
+	base := ""
+	if srv != "" {
+		base = normalizeServer(srv)
+	}
+	return &Client{Base: base, Token: tok, HTTP: http.DefaultClient}, nil
 }
 
 // APIError represents a non-2xx response from the API.

@@ -33,7 +33,7 @@ const store = createPersistentStore<OnboardingState>(
   },
 );
 
-const requiredSteps = ["cli_installed", "cli_authed", "agent_configured"] as const;
+const requiredSteps = ["cli_installed", "cli_authed"] as const;
 
 export function useOnboarding() {
   const state = store.useStore();

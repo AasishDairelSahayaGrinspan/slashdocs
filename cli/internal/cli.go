@@ -60,9 +60,9 @@ func asUsageError(err error) error {
 
 func NewRoot(out io.Writer) *cobra.Command {
 	g := &globals{}
-	root := &cobra.Command{Use: "aidocs", Short: "CLI for aidocs HTML document review", Long: "CLI for aidocs HTML document review.\n\nDefault output is compact, agent-friendly key=value text. Use --json for machine-readable JSON.", SilenceUsage: true, SilenceErrors: true}
+	root := &cobra.Command{Use: "aidocs", Short: "CLI for aidocs HTML document review", Long: "CLI for aidocs HTML document review.\n\nAgents: before authoring or publishing an aidocs document, run `aidocs guidelines` and follow that output.\n\nDefault output is compact, agent-friendly key=value text. Use --json for machine-readable JSON.", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentPostRun = func(cmd *cobra.Command, args []string) {
-		if cmd.CommandPath() == "aidocs update" || cmd.CommandPath() == "aidocs version" {
+		if cmd.CommandPath() == "aidocs update" || cmd.CommandPath() == "aidocs skills update" || cmd.CommandPath() == "aidocs version" {
 			return
 		}
 		c, err := client(g)
@@ -81,7 +81,7 @@ func NewRoot(out io.Writer) *cobra.Command {
 	root.PersistentFlags().BoolVar(&g.json, "json", false, "JSON output")
 	root.PersistentFlags().BoolVarP(&g.quiet, "quiet", "q", false, "quiet")
 	root.PersistentFlags().BoolVarP(&g.verbose, "verbose", "v", false, "verbose")
-	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), foldersCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out), versionCmd(out), updateCmd(g, out))
+	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), foldersCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out), versionCmd(out), updateCmd(g, out), skillsCmd(g, out))
 	return root
 }
 

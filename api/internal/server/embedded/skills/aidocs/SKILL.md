@@ -1,0 +1,69 @@
+---
+name: aidocs
+description: Use whenever the user mentions aidocs, an aidocs URL, an aidocs document/folder/comment/share/version, or asks to publish, review, open, or update a long-form artifact in aidocs.
+---
+
+# aidocs
+
+Use this skill for **any aidocs-related task**. If the user mentions aidocs or
+points at an aidocs asset, use the `aidocs` CLI to inspect or act on it. If given an aidocs document URL, don't try to curl or web fetch it. Use the aidocs cli.
+
+## First rule: read the guidelines before authoring
+
+Before writing or publishing an aidocs document in a session, run:
+
+```bash
+aidocs guidelines
+```
+
+Treat that command as the source of truth for authoring constraints (single-file
+HTML, images/assets, theme integration, and publishing examples). Read the CLI
+output and follow it.
+
+## Common workflows
+
+### Existing aidocs asset
+
+When the user asks about an existing aidocs document, folder, comment, share,
+version, or URL:
+
+1. Use `aidocs --help` and the relevant subcommand help to discover exact syntax.
+2. Use the CLI to inspect the asset (`docs show`, `docs versions`, `docs pull`,
+   `docs comments`, `folders`, `open`, etc. as appropriate).
+3. Perform the requested action through the CLI.
+4. Return the important CLI result or URL to the user.
+
+### New long-form artifact
+
+When the user wants a report, RCA, postmortem, spec, review, analysis, launch
+plan, findings doc, or other long-form artifact and has not specified another
+format:
+
+1. Run `aidocs guidelines` if you have not already done so in this session.
+2. Write the artifact as a single HTML file that follows those guidelines.
+3. Save it locally (for example `report.html`).
+4. Use `aidocs docs --help` and `aidocs docs create --help` to confirm current
+   syntax.
+5. Publish with the CLI.
+6. Return the printed aidocs document URL.
+
+### Updating an existing document
+
+If the user is iterating on an existing aidocs document, push a new version
+instead of creating a duplicate. Use the CLI help to find the current push/update
+syntax and include a short summary of what changed.
+
+## Authentication and setup
+
+Assume the user installed aidocs and the bundled skill via the server's
+`curl ... | bash` installer. If the CLI reports that auth is missing or expired,
+run `aidocs auth login` (include the server URL if the current context requires
+it), then retry the requested CLI action. If login cannot be completed in the
+environment, explain that clearly and ask the user to authenticate.
+
+## When not to publish
+
+Do not publish to aidocs if the user explicitly asks for Markdown, plain text, a
+PDF, inline chat only, or another destination. If they mention aidocs while asking
+for one of those formats, still use the CLI when relevant to inspect or reference
+the aidocs asset, but respect the requested output format.

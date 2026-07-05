@@ -20,6 +20,13 @@ var (
 //go:embed download_dist/*
 var downloadDist embed.FS
 
+// Keep this file in sync with ../../../../skills/aidocs/SKILL.md. It is
+// embedded into the server binary so self-hosted installs do not depend on
+// GitHub access, npx, or a Node runtime to install the agent skill.
+//
+//go:embed embedded/skills/aidocs/SKILL.md
+var aidocsSkillMD []byte
+
 type cliAsset struct {
 	OS     string `json:"os"`
 	Arch   string `json:"arch"`
@@ -54,6 +61,16 @@ func (h handlers) versionJSON(c *gin.Context) {
 		assets = append(assets, asset)
 	}
 	c.JSON(http.StatusOK, gin.H{"version": releaseVersion(), "commit": releaseCommit(), "install": "/install.sh", "assets": assets})
+}
+
+func (h handlers) downloadSkill(c *gin.Context) {
+	name := strings.TrimSpace(c.Param("name"))
+	if name != "aidocs" {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "skill is not available", nil))
+		return
+	}
+	c.Header("Content-Disposition", `attachment; filename="SKILL.md"`)
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", aidocsSkillMD)
 }
 
 func (h handlers) downloadCLI(c *gin.Context) {
@@ -170,12 +187,17 @@ if [ -n "$old_path" ] && [ "$old_path" != "$BIN_PATH" ]; then
   exit 1
 fi
 
-tmp="$(mktemp)"
-trap 'rm -f "$tmp"' EXIT
+bin_tmp="$(mktemp)"
+skill_tmp="$(mktemp)"
+trap 'rm -f "$bin_tmp" "$skill_tmp"' EXIT
 url="$BASE_URL/cli/$os/$arch"
 echo "Downloading aidocs from $url"
-curl -fsSL "$url" -o "$tmp"
-chmod +x "$tmp"
+curl -fsSL "$url" -o "$bin_tmp"
+chmod +x "$bin_tmp"
+
+skill_url="$BASE_URL/skills/aidocs/SKILL.md"
+echo "Downloading aidocs skill from $skill_url"
+curl -fsSL "$skill_url" -o "$skill_tmp"
 
 if [ ! -d "$BIN_DIR" ]; then
   if [ "$INSTALL_MODE" = "system" ]; then
@@ -185,9 +207,9 @@ if [ ! -d "$BIN_DIR" ]; then
   fi
 fi
 if [ -w "$BIN_DIR" ]; then
-  mv "$tmp" "$BIN_PATH"
+  mv "$bin_tmp" "$BIN_PATH"
 elif [ "$INSTALL_MODE" = "system" ]; then
-  sudo mv "$tmp" "$BIN_PATH"
+  sudo mv "$bin_tmp" "$BIN_PATH"
 else
   echo "install dir is not writable: $BIN_DIR" >&2
   echo "Try: curl -fsSL $BASE_URL/install.sh | bash -s -- --system" >&2
@@ -196,6 +218,18 @@ else
 fi
 
 echo "Installed $($BIN_PATH version 2>/dev/null || echo aidocs) at $BIN_PATH"
+
+install_skill_dir() {
+  skill_dir="$1"
+  mkdir -p "$skill_dir"
+  cp "$skill_tmp" "$skill_dir/SKILL.md"
+}
+
+install_skill_dir "$HOME/.agents/skills/aidocs"
+install_skill_dir "$HOME/.claude/skills/aidocs"
+echo "Installed aidocs skill at:"
+echo "  $HOME/.agents/skills/aidocs/SKILL.md"
+echo "  $HOME/.claude/skills/aidocs/SKILL.md"
 
 case ":$PATH:" in
   *":$BIN_DIR:"*) ;;

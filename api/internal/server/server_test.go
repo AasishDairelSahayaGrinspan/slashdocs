@@ -663,6 +663,50 @@ func TestInstallScriptUsesConfiguredAppOriginNotForwardedHost(t *testing.T) {
 	}
 }
 
+func TestInstallScriptInstallsBundledSkill(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.example", SessionSecret: "test-secret"})
+	req := httptest.NewRequest(http.MethodGet, "/install.sh", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	body := rr.Body.String()
+	for _, want := range []string{
+		`$BASE_URL/skills/aidocs/SKILL.md`,
+		`$HOME/.agents/skills/aidocs`,
+		`$HOME/.claude/skills/aidocs`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("install script missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestDownloadSkillServesAidocsSkill(t *testing.T) {
+	h := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/skills/aidocs/SKILL.md", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	if ct := rr.Header().Get("Content-Type"); !strings.HasPrefix(ct, "text/markdown") {
+		t.Fatalf("Content-Type = %q, want text/markdown", ct)
+	}
+	body := rr.Body.String()
+	if !strings.Contains(body, "name: aidocs") || !strings.Contains(body, "aidocs docs create") {
+		t.Fatalf("unexpected skill body: %q", body)
+	}
+}
+
+func TestDownloadSkillRejectsUnknownSkill(t *testing.T) {
+	h := newTestServer()
+	req := httptest.NewRequest(http.MethodGet, "/skills/unknown/SKILL.md", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusNotFound)
+}
+
 func TestInstallScriptRequiresConfiguredAppOriginForNonLocalHost(t *testing.T) {
 	h := newConfiguredTestServer(server.Config{Environment: "test", SessionSecret: "test-secret"})
 	req := httptest.NewRequest(http.MethodGet, "/install.sh", nil)

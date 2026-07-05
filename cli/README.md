@@ -54,6 +54,16 @@ Disable all `sa` commands in a packaged environment:
 AIDOCS_DISABLE_SA_COMMANDS=1 aidocs sa list
 ```
 
+## Skills
+
+Refresh the bundled agent skill from the connected aidocs server:
+
+```bash
+aidocs skills update
+```
+
+The command installs the latest server-served `aidocs` skill into `~/.agents/skills/aidocs/SKILL.md` and `~/.claude/skills/aidocs/SKILL.md`.
+
 ## Output
 
 Use `--json` for machine-readable output. Without `--json`, commands print concise human-readable summaries.

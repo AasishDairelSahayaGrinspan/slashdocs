@@ -1,109 +1,69 @@
 ---
 name: aidocs
-description: Publish a long-form artifact (report, RCA, postmortem, architecture review, product spec, QA findings, data analysis, design proposal, launch plan, incident timeline) to aidocs as a reviewable HTML document. Use this whenever the user asks for a "doc", "document", "report", "review", "writeup", "spec", "RCA", "postmortem", "analysis", or "findings" and hasn't specified a different output format. Produces a single HTML file (inline code and external stylesheets/fonts/scripts/Mermaid/CDN assets allowed; aidocs does not host assets, so embed images as base64 or reference assets from URLs you control) and uploads it via the `aidocs` CLI so a human can review and leave anchored comments in the browser.
+description: Use whenever the user mentions aidocs, an aidocs URL, an aidocs document/folder/comment/share/version, or asks to publish, review, open, or update a long-form artifact in aidocs.
 ---
 
 # aidocs
 
-When the user wants a long-form artifact and hasn't specified a format,
-publish it to aidocs instead of dumping the content inline in chat.
+Use this skill for **any aidocs-related task**. If the user mentions aidocs or
+points at an aidocs asset, use the `aidocs` CLI to inspect or act on it. If given an aidocs document URL, don't try to curl or web fetch it. Use the aidocs cli.
 
-## Workflow
+## First rule: read the guidelines before authoring
 
-1. Read the authoring rules first: run `aidocs guidelines`. It is the
-   source of truth for the single-file/base64-image constraints and the
-   reader-theme contract below.
-2. Write the artifact as one HTML file. Anything reasonable that fits in a
-   single .html file is fine, including inline code and external stylesheets,
-   fonts, scripts, Mermaid/CDN assets, iframes, workers, media, data: URLs,
-   and blob: URLs. aidocs does NOT host assets, so embed images as base64
-   data URLs or reference assets from URLs you already control. Use inline
-   SVG or Mermaid for diagrams.
-3. Make the document follow the reader's aidocs theme (see below).
-4. Save it locally (e.g. `report.html`).
-5. Publish it with the CLI. Discover the exact syntax from
-   `aidocs --help` and the relevant subcommand help — don't assume.
-6. Return the printed document URL to the user so they can open and
-   review it.
+Before writing or publishing an aidocs document in a session, run:
 
-## Follow the reader's theme
-
-The aidocs viewer has a light/dark toggle and the render layer exposes the
-chosen theme to your document. Opt in so the doc matches the reader's
-chrome instead of shipping its own toggle.
-
-The render bridge sets and keeps in sync, on `<html>` inside your document:
-`data-aidocs-theme="light|dark"`. Drive the page from CSS variables keyed on
-that attribute:
-
-```css
-:root {
-  --bg: #fff;
-  --ink: #111;
-}
-:root[data-aidocs-theme="dark"] {
-  --bg: #0b0d12;
-  --ink: #e7ecf3;
-}
-body {
-  background: var(--bg);
-  color: var(--ink);
-}
-html {
-  color-scheme: light;
-}
-:root[data-aidocs-theme="dark"] {
-  color-scheme: dark;
-}
+```bash
+aidocs guidelines
 ```
 
-Notes:
+Treat that command as the source of truth for authoring constraints (single-file
+HTML, images/assets, theme integration, and publishing examples). Read the CLI
+output and follow it.
 
-- `system` is resolved to a concrete `light`/`dark` before it reaches you,
-  and the attribute updates live when the reader toggles — CSS reacts on
-  its own.
-- For JS, listen on your own window:
-  `window.addEventListener('aidocs:theme', e => e.detail.theme)`.
-- Do NOT add your own theme switch; the aidocs UI is the single control.
-- Theming is opt-in: a document that never references `data-aidocs-theme`
-  keeps its hard-coded look.
-- `aidocs guidelines` prints this same contract if you need it inline.
+## Common workflows
 
-## Discovering the CLI
+### Existing aidocs asset
 
-The `aidocs` CLI is the source of truth. Run these to find the current
-commands and flags rather than guessing:
+When the user asks about an existing aidocs document, folder, comment, share,
+version, or URL:
 
-```
-aidocs --help
-aidocs docs --help
-aidocs docs create --help
-```
+1. Use `aidocs --help` and the relevant subcommand help to discover exact syntax.
+2. Use the CLI to inspect the asset (`docs show`, `docs versions`, `docs pull`,
+   `docs comments`, `folders`, `open`, etc. as appropriate).
+3. Perform the requested action through the CLI.
+4. Return the important CLI result or URL to the user.
 
-The CLI supports `--json` for structured output if you need to parse
-identifiers (e.g. the new document ID) reliably.
+### New long-form artifact
 
-## When NOT to use this skill
+When the user wants a report, RCA, postmortem, spec, review, analysis, launch
+plan, findings doc, or other long-form artifact and has not specified another
+format:
 
-- Short answers, code snippets, or anything under ~10 paragraphs —
-  reply inline as usual.
-- The user explicitly asked for Markdown, plain text, a PDF, or a
-  different destination.
-- The user asked to edit an existing local file rather than publish a
-  new document.
-- The user is working in an environment where the `aidocs` CLI is not
-  installed or not authenticated — surface that to them instead of
-  trying to install or authenticate on their behalf.
+1. Run `aidocs guidelines` if you have not already done so in this session.
+2. Write the artifact as a single HTML file that follows those guidelines.
+3. Save it locally (for example `report.html`).
+4. Use `aidocs docs --help` and `aidocs docs create --help` to confirm current
+   syntax.
+5. Publish with the CLI.
+6. Return the printed aidocs document URL.
 
-## Authentication
+### Updating an existing document
 
-Assume the user has already run `aidocs auth login` interactively at
-least once. If the CLI reports an auth error, show the error to the
-user verbatim and stop; do not attempt to re-authenticate.
+If the user is iterating on an existing aidocs document, push a new version
+instead of creating a duplicate. Use the CLI help to find the current push/update
+syntax and include a short summary of what changed.
 
-## Updating an existing document
+## Authentication and setup
 
-If the user is iterating on a document that already exists in aidocs,
-push a new version rather than creating a duplicate. Use the CLI help
-to find the exact `push` (or equivalent) subcommand and pass a short
-`--summary` describing what changed.
+Assume the user installed aidocs and the bundled skill via the server's
+`curl ... | bash` installer. If the CLI reports that auth is missing or expired,
+run `aidocs auth login` (include the server URL if the current context requires
+it), then retry the requested CLI action. If login cannot be completed in the
+environment, explain that clearly and ask the user to authenticate.
+
+## When not to publish
+
+Do not publish to aidocs if the user explicitly asks for Markdown, plain text, a
+PDF, inline chat only, or another destination. If they mention aidocs while asking
+for one of those formats, still use the CLI when relevant to inspect or reference
+the aidocs asset, but respect the requested output format.

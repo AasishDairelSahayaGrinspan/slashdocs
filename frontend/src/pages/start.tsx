@@ -26,17 +26,6 @@ import {
 
 type StepKey = keyof OnboardingState["steps"];
 
-const SKILL_REPO = "github:razorpay/aidocs";
-
-const AGENT_TARGETS = [
-  { id: "claude-code", label: "Claude Code" },
-  { id: "codex", label: "Codex" },
-  { id: "cursor", label: "Cursor" },
-  { id: "pi", label: "Pi" },
-  { id: "opencode", label: "OpenCode" },
-  { id: "aider", label: "Aider" },
-];
-
 export function StartPage() {
   useTitle("Get started");
   const { state, setStep, skip } = useOnboarding();
@@ -59,8 +48,7 @@ export function StartPage() {
     nav("/app/documents");
   };
 
-  const allRequiredDone =
-    state.steps.cli_installed && state.steps.cli_authed && state.steps.agent_configured;
+  const allRequiredDone = state.steps.cli_installed && state.steps.cli_authed;
 
   return (
     <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
@@ -74,7 +62,7 @@ export function StartPage() {
           </h1>
           <p className="mt-2 max-w-xl text-sm text-[var(--color-fg-muted)]">
             aidocs is meant to be driven by your AI agent — Claude Code, Codex, Cursor,
-            Pi, OpenCode, Aider, or anything else. These three steps wire it up. About 2
+            Pi, OpenCode, Aider, or anything else. These steps wire it up. About 2
             minutes.
           </p>
         </div>
@@ -122,18 +110,21 @@ export function StartPage() {
       <ol className="space-y-3">
         <Step
           n={1}
-          title="Install the CLI on your machine"
+          title="Install the CLI and aidocs skill"
           stepKey="cli_installed"
           state={state}
           setStep={setStep}
         >
           <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time, on the machine where your agent runs. Your agent calls this CLI
-            under the hood — you won't need to use it directly.
+            One-time, on the machine where your agent runs. This installs the aidocs
+            CLI plus the bundled agent skill, so your agent knows when to publish docs
+            to aidocs.
           </p>
           <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash`}</CodeBlock>
           <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
-            Works on macOS and Linux.
+            Works on macOS and Linux. The skill is fetched from this aidocs server and
+            installed into the standard agent skills directory and Claude's skills
+            directory — no GitHub auth or npx step required.
           </p>
         </Step>
 
@@ -153,16 +144,6 @@ export function StartPage() {
 
         <Step
           n={3}
-          title="Teach your agent the aidocs skill"
-          stepKey="agent_configured"
-          state={state}
-          setStep={setStep}
-        >
-          <AgentConfigure />
-        </Step>
-
-        <Step
-          n={4}
           title="Try it end-to-end (optional)"
           stepKey="first_doc_seen"
           state={state}
@@ -198,7 +179,6 @@ function Step({
   const requiredOrder: StepKey[] = [
     "cli_installed",
     "cli_authed",
-    "agent_configured",
     "first_doc_seen",
   ];
   const firstIncomplete = requiredOrder.find((k) => !state.steps[k]);
@@ -273,51 +253,6 @@ function Step({
         )}
       </Card>
     </li>
-  );
-}
-
-function AgentConfigure() {
-  // `--all` installs the skill across every coding agent on the machine, so the
-  // command is the same regardless of agent. The chips below are a static
-  // compatibility list, not a selector.
-  const cmd = `npx skills add ${SKILL_REPO} -s aidocs --all`;
-  return (
-    <div>
-      <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-        Run this once to install the aidocs skill into the agents you use. It tells
-        them: "when the user asks for a doc / report / RCA / spec, publish it to
-        aidocs". <code>--all</code> installs across every coding agent it finds on your
-        machine.
-      </p>
-      <CodeBlock>{cmd}</CodeBlock>
-      <div className="mt-4">
-        <div className="mb-2 text-xs font-medium text-[var(--color-fg-muted)]">
-          Works with
-        </div>
-        <div className="flex flex-wrap gap-1.5">
-          {AGENT_TARGETS.map((t) => (
-            <span
-              key={t.id}
-              className="rounded-full border border-[var(--color-border)] px-2.5 py-1 text-xs text-[var(--color-fg-muted)]"
-            >
-              {t.label}
-            </span>
-          ))}
-        </div>
-      </div>
-      <p className="mt-4 text-xs text-[var(--color-fg-muted)]">
-        Skill source:{" "}
-        <a
-          href="https://github.com/razorpay/aidocs/tree/main/skills/aidocs"
-          target="_blank"
-          rel="noreferrer"
-          className="text-[var(--color-fg)] underline-offset-2 hover:underline"
-        >
-          skills/aidocs/SKILL.md
-        </a>
-        . Read it, fork it, change the trigger wording — it's just a Markdown file.
-      </p>
-    </div>
   );
 }
 

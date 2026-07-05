@@ -22,19 +22,29 @@ func updateCmd(g *globals, out io.Writer) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			v, changed, err := updateCLI(ctx, c, force)
+			v, binaryChanged, skillRefreshed, err := updateCLI(ctx, c, force)
 			if err != nil {
 				return err
 			}
-			if !changed {
-				if v.Version == "" {
-					_, _ = fmt.Fprintln(out, "No update information available.")
-					return nil
+			if binaryChanged {
+				_, _ = fmt.Fprintf(out, "Updated aidocs to %s.\n", v.Version)
+				if skillRefreshed {
+					_, _ = fmt.Fprintln(out, "Refreshed aidocs skill.")
 				}
-				_, _ = fmt.Fprintf(out, "aidocs is already up to date (%s).\n", v.Version)
 				return nil
 			}
-			_, _ = fmt.Fprintf(out, "Updated aidocs to %s.\n", v.Version)
+			if skillRefreshed {
+				_, _ = fmt.Fprintln(out, "Refreshed aidocs skill.")
+				if v.Version != "" {
+					_, _ = fmt.Fprintf(out, "aidocs is already up to date (%s).\n", v.Version)
+				}
+				return nil
+			}
+			if v.Version == "" {
+				_, _ = fmt.Fprintln(out, "No update information available.")
+				return nil
+			}
+			_, _ = fmt.Fprintf(out, "aidocs is already up to date (%s).\n", v.Version)
 			return nil
 		},
 	}

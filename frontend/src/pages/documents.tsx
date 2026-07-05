@@ -96,8 +96,7 @@ export function DocumentsPage() {
     if (
       onb.status === "active" &&
       !onb.steps.cli_installed &&
-      !onb.steps.cli_authed &&
-      !onb.steps.agent_configured
+      !onb.steps.cli_authed
     ) {
       nav("/app/start", { replace: true });
     }
