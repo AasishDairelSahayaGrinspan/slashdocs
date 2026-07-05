@@ -15,6 +15,15 @@ export type DocContextValue = {
   commentsLoading: boolean;
   commentsError: boolean;
   principal?: Principal;
+  htmlEditMode: boolean;
+  setHtmlEditMode: (enabled: boolean) => void;
+  htmlEditDirty: boolean;
+  setHtmlEditDirty: (dirty: boolean) => void;
+  htmlEditSaving: boolean;
+  setHtmlEditSaving: (saving: boolean) => void;
+  htmlEditSaveRequest: number;
+  requestHtmlEditSave: () => void;
+  handleHtmlVersionSaved: (versionID: string) => void;
   selection: PendingSelection | null;
   setSelection: (s: PendingSelection | null) => void;
   activeComment?: string;

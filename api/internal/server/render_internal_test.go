@@ -55,6 +55,21 @@ func TestBridgeHandlesDocumentLinks(t *testing.T) {
 	}
 }
 
+func TestBridgeImplementsEditModeContract(t *testing.T) {
+	for _, needle := range []string{
+		"aidocs:edit-mode",
+		"aidocs:edit-dirty",
+		"aidocs:edit-request-html",
+		"aidocs:edit-html",
+		"contenteditable",
+		"isParentMessage",
+	} {
+		if !strings.Contains(bridgeJSSource, needle) {
+			t.Fatalf("bridge.js missing edit-mode hook %q", needle)
+		}
+	}
+}
+
 func TestRenderWrapperLeavesScriptSubstringInJSAlone(t *testing.T) {
 	userHTML := []byte(`<html><body><script>var s = "</script>oops";</script></body></html>`)
 	out := string(renderWrapperHTML(userHTML, "https://app.example"))

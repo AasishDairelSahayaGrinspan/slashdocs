@@ -12,8 +12,11 @@ import {
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
+  Save,
   Share2,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +38,7 @@ import {
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
-import { canManageSharing } from "@/lib/constants";
+import { canManageSharing, ROLE_RANK } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { ShareSheet } from "./doc-share-sheet";
 import { UploadVersionItem } from "./doc-upload-version";
@@ -52,6 +55,11 @@ export function DocBar({
   onSelectVersion,
   commentsOpen,
   onToggleComments,
+  htmlEditMode,
+  htmlEditDirty,
+  htmlEditSaving,
+  onToggleHtmlEdit,
+  onSaveHtmlEdit,
 }: {
   title: string;
   docId: string;
@@ -64,6 +72,11 @@ export function DocBar({
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
+  htmlEditMode: boolean;
+  htmlEditDirty: boolean;
+  htmlEditSaving: boolean;
+  onToggleHtmlEdit: () => void;
+  onSaveHtmlEdit: () => void;
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
@@ -80,6 +93,9 @@ export function DocBar({
     samePrincipal(item.principal, principal),
   )?.effective_role;
   const canManageAccess = canManage || canManageSharing(currentAccessRole);
+  const canEditHtml =
+    canManage || (ROLE_RANK[currentAccessRole || ""] || 0) >= ROLE_RANK.editor;
+  const canEditCurrentHtml = canEditHtml && !isViewingOlder;
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -125,6 +141,29 @@ export function DocBar({
           <span className="hidden sm:inline">Back to latest</span>
           <span className="sm:hidden">Latest</span>
         </Button>
+      ) : null}
+      {canEditCurrentHtml ? (
+        <div className="hidden shrink-0 items-center gap-1 sm:flex">
+          {htmlEditDirty ? (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={onSaveHtmlEdit}
+              disabled={htmlEditSaving}
+            >
+              <Save className="h-4 w-4" />
+              {htmlEditSaving ? "Saving..." : "Save"}
+            </Button>
+          ) : null}
+          <Button
+            variant={htmlEditMode ? "secondary" : "outline"}
+            size="sm"
+            onClick={onToggleHtmlEdit}
+          >
+            {htmlEditMode ? <X className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
+            {htmlEditMode ? "Cancel" : "Edit"}
+          </Button>
+        </div>
       ) : null}
       <VersionHistoryDialog
         current={current}
@@ -173,12 +212,32 @@ export function DocBar({
         <DropdownContent>
           <DropdownItem
             className="sm:hidden"
-            onSelect={() =>
-              nav(`/app/d/${docId}?fullscreen=1&version=${current}`)
-            }
+            onSelect={() => nav(`/app/d/${docId}?fullscreen=1&version=${current}`)}
           >
             <Maximize2 className="h-4 w-4" /> Full screen
           </DropdownItem>
+          {canEditCurrentHtml ? (
+            <>
+              {htmlEditDirty ? (
+                <DropdownItem
+                  className="sm:hidden"
+                  disabled={htmlEditSaving}
+                  onSelect={() => onSaveHtmlEdit()}
+                >
+                  <Save className="h-4 w-4" />
+                  {htmlEditSaving ? "Saving edits..." : "Save edits"}
+                </DropdownItem>
+              ) : null}
+              <DropdownItem className="sm:hidden" onSelect={() => onToggleHtmlEdit()}>
+                {htmlEditMode ? (
+                  <X className="h-4 w-4" />
+                ) : (
+                  <Pencil className="h-4 w-4" />
+                )}
+                {htmlEditMode ? "Cancel edits" : "Edit HTML"}
+              </DropdownItem>
+            </>
+          ) : null}
           <DropdownItem
             onSelect={() =>
               window.open(

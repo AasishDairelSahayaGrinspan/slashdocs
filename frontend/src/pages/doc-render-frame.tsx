@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { api, type Anchor } from "@/api";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { api, APIError, type Anchor } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { COMMENT_STATUS } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
+import { errorMessage } from "@/lib/errors";
 import { useDoc } from "./doc-context";
 
 // Renders the sandboxed document iframe and exchanges selection and paint
@@ -16,12 +18,22 @@ export function RenderFrame() {
     version,
     comments,
     activeComment,
+    htmlEditMode,
+    setHtmlEditMode,
+    setHtmlEditDirty,
+    htmlEditSaveRequest,
+    setHtmlEditSaving,
+    handleHtmlVersionSaved,
     setSelection,
     handleDocCommentClick,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
+  const q = useQueryClient();
   const [ready, setReady] = useState(false);
   const theme = useResolvedTheme();
+  const pendingSaveRequestRef = useRef<string | null>(null);
+  const handledSaveRequestRef = useRef(0);
+  const saveTimeoutRef = useRef<number | undefined>(undefined);
   // Latest resolved theme, readable from stable event handlers without
   // forcing them to re-register (which caused a race where aidocs:ready
   // could arrive during listener teardown and be missed).
@@ -33,6 +45,37 @@ export function RenderFrame() {
     queryFn: () => api.renderToken(docId, version),
     staleTime: 4 * 60_000,
     enabled: !!version,
+  });
+
+  const saveEditedHtml = useMutation({
+    mutationFn: (html: string) => {
+      const file = new File([html], `aidocs-${docId}-${Date.now()}.html`, {
+        type: "text/html",
+      });
+      return api.createVersion(docId, version, "Manual HTML edit", file);
+    },
+    onSuccess: (saved) => {
+      toast.success("Edited HTML saved as a new version.");
+      setHtmlEditMode(false);
+      setHtmlEditDirty(false);
+      handleHtmlVersionSaved(saved.id);
+      q.invalidateQueries({ queryKey: queryKeys.document(docId) });
+      q.invalidateQueries({ queryKey: queryKeys.versions(docId) });
+      q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
+      q.invalidateQueries({ queryKey: ["render"] });
+    },
+    onError: (e) => {
+      if (e instanceof APIError && e.code === "version_conflict") {
+        toast.error(
+          "A newer version exists. Your edits are still on screen; copy them before switching to the latest version.",
+        );
+        q.invalidateQueries({ queryKey: queryKeys.document(docId) });
+        q.invalidateQueries({ queryKey: queryKeys.versions(docId) });
+        return;
+      }
+      toast.error(errorMessage(e, "Could not save edited HTML"));
+    },
+    onSettled: () => setHtmlEditSaving(false),
   });
 
   const paintPayload = useMemo(
@@ -76,12 +119,12 @@ export function RenderFrame() {
   }, [token.data?.url]);
 
   const paint = useCallback(() => {
-    if (!ready || !frameOrigin) return;
+    if (!ready || !frameOrigin || htmlEditMode) return;
     ref.current?.contentWindow?.postMessage(
       { type: "aidocs:paint", comments: paintPayload, active: activeComment },
       frameOrigin,
     );
-  }, [ready, paintPayload, activeComment, frameOrigin]);
+  }, [ready, paintPayload, activeComment, frameOrigin, htmlEditMode]);
 
   // Push the theme to the bridge whenever it changes OR once the frame
   // becomes ready. Depending on `ready` (state, not a ref) guarantees this
@@ -95,6 +138,55 @@ export function RenderFrame() {
       frameOrigin,
     );
   }, [theme, ready, frameOrigin]);
+
+  useEffect(() => {
+    if (!ready || !frameOrigin) return;
+    ref.current?.contentWindow?.postMessage(
+      { type: "aidocs:edit-mode", enabled: htmlEditMode },
+      frameOrigin,
+    );
+  }, [htmlEditMode, ready, frameOrigin]);
+
+  useEffect(
+    () => () => {
+      if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!htmlEditSaveRequest) return;
+    if (handledSaveRequestRef.current === htmlEditSaveRequest) return;
+    if (saveEditedHtml.isPending) return;
+    handledSaveRequestRef.current = htmlEditSaveRequest;
+    if (!ready || !frameOrigin) {
+      toast.error("Rendered document is not ready to save yet.");
+      return;
+    }
+    const requestId =
+      typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `${htmlEditSaveRequest}:${Date.now()}:${Math.random()}`;
+    pendingSaveRequestRef.current = requestId;
+    setHtmlEditSaving(true);
+    ref.current?.contentWindow?.postMessage(
+      { type: "aidocs:edit-request-html", requestId },
+      frameOrigin,
+    );
+    if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+    saveTimeoutRef.current = window.setTimeout(() => {
+      if (pendingSaveRequestRef.current !== requestId) return;
+      pendingSaveRequestRef.current = null;
+      setHtmlEditSaving(false);
+      toast.error("Could not read the edited HTML from the renderer.");
+    }, 5000);
+  }, [
+    htmlEditSaveRequest,
+    ready,
+    frameOrigin,
+    saveEditedHtml.isPending,
+    setHtmlEditSaving,
+  ]);
 
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
@@ -159,6 +251,7 @@ export function RenderFrame() {
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (!frameOrigin || e.origin !== frameOrigin) return;
+      if (e.source !== ref.current?.contentWindow) return;
       if (e.data?.type === "aidocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
@@ -183,17 +276,45 @@ export function RenderFrame() {
             : undefined;
         applyZoom(e.data.deltaY, cursor);
       }
+      if (e.data?.type === "aidocs:edit-dirty") {
+        setHtmlEditDirty(!!e.data.dirty);
+      }
+      if (e.data?.type === "aidocs:edit-html") {
+        const requestId = String(e.data.requestId || "");
+        if (pendingSaveRequestRef.current !== requestId) return;
+        pendingSaveRequestRef.current = null;
+        if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+        if (typeof e.data.html !== "string") {
+          setHtmlEditSaving(false);
+          toast.error("Could not read the edited HTML from the renderer.");
+          return;
+        }
+        saveEditedHtml.mutate(e.data.html);
+      }
       if (e.data?.type === "aidocs:ready") {
         setReady(true);
         ref.current?.contentWindow?.postMessage(
           { type: "aidocs:theme", theme: themeRef.current },
           frameOrigin,
         );
+        ref.current?.contentWindow?.postMessage(
+          { type: "aidocs:edit-mode", enabled: htmlEditMode },
+          frameOrigin,
+        );
       }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [frameOrigin, setSelection, handleDocCommentClick, applyZoom]);
+  }, [
+    frameOrigin,
+    setSelection,
+    handleDocCommentClick,
+    applyZoom,
+    setHtmlEditDirty,
+    setHtmlEditSaving,
+    saveEditedHtml,
+    htmlEditMode,
+  ]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {
