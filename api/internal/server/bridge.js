@@ -11,6 +11,11 @@ function bridge() {
   let kvRequestID = 0;
   const kvPending = {};
   const kvRequestTimeoutMS = 10000;
+  const kvHistoryLimit = 100;
+  let kvUndoStack = [];
+  let kvRedoStack = [];
+  let kvMutationQueue = Promise.resolve();
+  let kvHistoryGeneration = 0;
 
   function doc() {
     try {
@@ -48,6 +53,226 @@ function bridge() {
     const text = JSON.stringify(value);
     if (text === undefined) throw new TypeError("KV value must be JSON serializable");
     return JSON.parse(text);
+  }
+
+  function emptyKVPatch() {
+    return { set: {}, delete: [] };
+  }
+
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj || {}, key);
+  }
+
+  function hasKVPatchChanges(patch) {
+    return (
+      Object.keys((patch && patch.set) || {}).length > 0 ||
+      !!(patch && patch.delete && patch.delete.length)
+    );
+  }
+
+  function cloneKVPatch(patch) {
+    const set = {};
+    Object.keys((patch && patch.set) || {}).forEach((key) => {
+      set[key] = jsonValue(patch.set[key]);
+    });
+    return { set, delete: ((patch && patch.delete) || []).map(String) };
+  }
+
+  function pushKVStack(stack, entry) {
+    stack.push(entry);
+    while (stack.length > kvHistoryLimit) stack.shift();
+  }
+
+  function resetKVHistory() {
+    kvHistoryGeneration++;
+    kvUndoStack = [];
+    kvRedoStack = [];
+    kvMutationQueue = Promise.resolve();
+  }
+
+  function kvPatchFromSet(key, value) {
+    if (value === undefined) {
+      throw new TypeError("aidocs.kv.set requires a JSON value");
+    }
+    const patch = emptyKVPatch();
+    const k = String(key);
+    if (value === null) patch.delete.push(k);
+    else patch.set[k] = jsonValue(value);
+    return patch;
+  }
+
+  function kvPatchFromDelete(key) {
+    const patch = emptyKVPatch();
+    patch.delete.push(String(key));
+    return patch;
+  }
+
+  function kvPatchFromObject(object) {
+    if (!object || typeof object !== "object" || Array.isArray(object)) {
+      throw new TypeError("aidocs.kv.patch requires an object");
+    }
+    const patch = emptyKVPatch();
+    Object.keys(object).forEach((key) => {
+      const value = object[key];
+      if (value === null || value === undefined) {
+        patch.delete.push(key);
+      } else {
+        patch.set[key] = jsonValue(value);
+      }
+    });
+    return patch;
+  }
+
+  function kvRequestItems() {
+    return kvRequest("all").then((res) =>
+      res && res.items && typeof res.items === "object" ? res.items : {},
+    );
+  }
+
+  function kvInversePatch(forward, items) {
+    const inverse = emptyKVPatch();
+    const keys = {};
+    Object.keys((forward && forward.set) || {}).forEach((key) => {
+      keys[key] = true;
+    });
+    ((forward && forward.delete) || []).forEach((key) => {
+      keys[key] = true;
+    });
+    Object.keys(keys).forEach((key) => {
+      if (hasOwn(items, key)) inverse.set[key] = jsonValue(items[key]);
+      else inverse.delete.push(key);
+    });
+    return inverse;
+  }
+
+  function sameKVValue(a, b) {
+    if (Object.is(a, b)) return true;
+    if (a === null || b === null) return a === b;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== "object") return false;
+    const aIsArray = Array.isArray(a);
+    const bIsArray = Array.isArray(b);
+    if (aIsArray || bIsArray) {
+      if (!aIsArray || !bIsArray || a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (!sameKVValue(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    const aKeys = Object.keys(a).sort();
+    const bKeys = Object.keys(b).sort();
+    if (aKeys.length !== bKeys.length) return false;
+    for (let i = 0; i < aKeys.length; i++) {
+      const key = aKeys[i];
+      if (key !== bKeys[i] || !sameKVValue(a[key], b[key])) return false;
+    }
+    return true;
+  }
+
+  function kvPatchMatchesItems(patch, items) {
+    const set = (patch && patch.set) || {};
+    for (const key of Object.keys(set)) {
+      if (!hasOwn(items, key) || !sameKVValue(items[key], set[key])) return false;
+    }
+    for (const key of (patch && patch.delete) || []) {
+      if (hasOwn(items, key)) return false;
+    }
+    return true;
+  }
+
+  function rejectStaleKVHistory(message) {
+    resetKVHistory();
+    return Promise.reject(new Error(message));
+  }
+
+  function rejectResetKVHistory() {
+    return Promise.reject(new Error("KV history was reset"));
+  }
+
+  function queueKVMutation(task) {
+    const run = kvMutationQueue.then(task, task);
+    kvMutationQueue = run.catch(() => {});
+    return run;
+  }
+
+  function kvApplyPatch(patch, operation) {
+    const outgoing = cloneKVPatch(patch);
+    return kvRequest("patch", {
+      set: outgoing.set,
+      delete: outgoing.delete,
+      source: "local",
+      kvOperation: operation,
+    });
+  }
+
+  function kvApplyLocalPatch(forward, operation) {
+    const generation = kvHistoryGeneration;
+    const patch = cloneKVPatch(forward);
+    return queueKVMutation(() => {
+      if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+      if (!hasKVPatchChanges(patch)) return kvApplyPatch(patch, operation);
+      return kvRequestItems().then((items) => {
+        if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+        const inverse = kvInversePatch(patch, items);
+        return kvApplyPatch(patch, operation).then((result) => {
+          if (generation === kvHistoryGeneration) {
+            pushKVStack(kvUndoStack, { forward: patch, inverse });
+            kvRedoStack = [];
+          }
+          return result;
+        });
+      });
+    });
+  }
+
+  function kvUndo() {
+    const generation = kvHistoryGeneration;
+    return queueKVMutation(() => {
+      if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+      const entry = kvUndoStack.pop();
+      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "undo" });
+      return kvRequestItems().then((items) => {
+        if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+        if (!kvPatchMatchesItems(entry.forward, items)) {
+          return rejectStaleKVHistory("KV undo history is stale");
+        }
+        return kvApplyPatch(entry.inverse, "undo").then(
+          (result) => {
+            if (generation === kvHistoryGeneration) pushKVStack(kvRedoStack, entry);
+            return result;
+          },
+          (err) => {
+            if (generation === kvHistoryGeneration) kvUndoStack.push(entry);
+            throw err;
+          },
+        );
+      });
+    });
+  }
+
+  function kvRedo() {
+    const generation = kvHistoryGeneration;
+    return queueKVMutation(() => {
+      if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+      const entry = kvRedoStack.pop();
+      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "redo" });
+      return kvRequestItems().then((items) => {
+        if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+        if (!kvPatchMatchesItems(entry.inverse, items)) {
+          return rejectStaleKVHistory("KV redo history is stale");
+        }
+        return kvApplyPatch(entry.forward, "redo").then(
+          (result) => {
+            if (generation === kvHistoryGeneration) pushKVStack(kvUndoStack, entry);
+            return result;
+          },
+          (err) => {
+            if (generation === kvHistoryGeneration) kvRedoStack.push(entry);
+            throw err;
+          },
+        );
+      });
+    });
   }
 
   function kvRequest(operation, payload) {
@@ -123,41 +348,19 @@ function bridge() {
         return kvRequest("all").then((res) => res.items || {});
       },
       set(key, value) {
-        if (value === undefined) {
-          throw new TypeError("aidocs.kv.set requires a JSON value");
-        }
-        const set = {};
-        set[String(key)] = jsonValue(value);
-        return kvRequest("patch", { set, delete: [], source: "local", kvOperation: "set" });
+        return kvApplyLocalPatch(kvPatchFromSet(key, value), "set");
       },
       delete(key) {
-        return kvRequest("patch", {
-          set: {},
-          delete: [String(key)],
-          source: "local",
-          kvOperation: "delete",
-        });
+        return kvApplyLocalPatch(kvPatchFromDelete(key), "delete");
       },
       patch(object) {
-        if (!object || typeof object !== "object" || Array.isArray(object)) {
-          throw new TypeError("aidocs.kv.patch requires an object");
-        }
-        const set = {};
-        const deleteKeys = [];
-        Object.keys(object).forEach((key) => {
-          const value = object[key];
-          if (value === null || value === undefined) {
-            deleteKeys.push(key);
-          } else {
-            set[key] = jsonValue(value);
-          }
-        });
-        return kvRequest("patch", {
-          set,
-          delete: deleteKeys,
-          source: "local",
-          kvOperation: "patch",
-        });
+        return kvApplyLocalPatch(kvPatchFromObject(object), "patch");
+      },
+      undo() {
+        return kvUndo();
+      },
+      redo() {
+        return kvRedo();
       },
     };
     existing.kv = kv;
@@ -714,6 +917,56 @@ function bridge() {
     }
   }
 
+  function isTextEditingTarget(target) {
+    if (editMode) return true;
+    const d = doc();
+    if (d && String(d.designMode || "").toLowerCase() === "on") return true;
+    const keyTarget = target || (d && d.activeElement);
+    const el =
+      keyTarget && keyTarget.nodeType === 1
+        ? keyTarget
+        : keyTarget && keyTarget.parentElement
+          ? keyTarget.parentElement
+          : null;
+    if (!el || !el.closest) return false;
+    const editable = el.closest("input,textarea,[contenteditable],[role='textbox']");
+    if (!editable) return false;
+    if (editable.matches && editable.matches("[contenteditable]")) {
+      return (
+        String(editable.getAttribute("contenteditable") || "").toLowerCase() !==
+        "false"
+      );
+    }
+    const role = String(editable.getAttribute("role") || "").toLowerCase();
+    if (role === "textbox") return true;
+    const tag = String(editable.tagName || "").toLowerCase();
+    if (tag === "textarea") return true;
+    if (tag !== "input") return false;
+    const type = String(editable.getAttribute("type") || "text").toLowerCase();
+    return !/^(button|checkbox|radio|submit|reset|file|image|color|range|hidden)$/.test(
+      type,
+    );
+  }
+
+  function handleKVUndoRedoShortcut(ev) {
+    if (ev.defaultPrevented || isTextEditingTarget(ev.target)) return;
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+    const key = String(ev.key || "").toLowerCase();
+    const wantsRedo = key === "y" || (key === "z" && ev.shiftKey);
+    const wantsUndo = key === "z" && !ev.shiftKey;
+    if (wantsRedo) {
+      if (!kvRedoStack.length) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      kvRedo().catch(() => {});
+      return;
+    }
+    if (!wantsUndo || !kvUndoStack.length) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    kvUndo().catch(() => {});
+  }
+
   curTheme = initialTheme();
   frame.addEventListener("load", () => {
     const d = doc();
@@ -724,6 +977,7 @@ function bridge() {
     originalDocAttrs = null;
     preparedLinkID = 0;
     Object.keys(preparedLinks).forEach((key) => delete preparedLinks[key]);
+    resetKVHistory();
     rememberOriginalDocAttrs(d);
     injectStyles();
     installAidocsAPI();
@@ -778,6 +1032,7 @@ function bridge() {
       if (ev.key === "Escape") {
         parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
       }
+      handleKVUndoRedoShortcut(ev);
     });
     // Forward trackpad pinch-to-zoom (wheel + ctrlKey) to parent so the
     // app can scale only the document iframe instead of browser-zooming.

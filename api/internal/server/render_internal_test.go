@@ -82,9 +82,32 @@ func TestBridgeImplementsDocumentKVContract(t *testing.T) {
 		"set(key, value)",
 		"delete(key)",
 		"patch(object)",
+		"undo()",
+		"redo()",
 	} {
 		if !strings.Contains(bridgeJSSource, needle) {
 			t.Fatalf("bridge.js missing KV hook %q", needle)
+		}
+	}
+}
+
+func TestBridgeImplementsDocumentKVUndoRedoContract(t *testing.T) {
+	for _, needle := range []string{
+		"kvUndoStack",
+		"kvRedoStack",
+		"kvInversePatch",
+		`kvApplyPatch(entry.inverse, "undo")`,
+		`kvApplyPatch(entry.forward, "redo")`,
+		"kvOperation: operation",
+		"handleKVUndoRedoShortcut",
+		"isTextEditingTarget",
+		"ev.ctrlKey",
+		"ev.metaKey",
+		"ev.shiftKey",
+		"editMode",
+	} {
+		if !strings.Contains(bridgeJSSource, needle) {
+			t.Fatalf("bridge.js missing KV undo/redo hook %q", needle)
 		}
 	}
 }
@@ -95,6 +118,8 @@ func TestRenderWrapperInstallsKVBootstrap(t *testing.T) {
 		"aidocs-bootstrap",
 		"__aidocsKVQueue",
 		"window.aidocs",
+		`undo:function(){return enqueue(&#34;undo&#34;,arguments);}`,
+		`redo:function(){return enqueue(&#34;redo&#34;,arguments);}`,
 	} {
 		if !strings.Contains(out, needle) {
 			t.Fatalf("render wrapper missing KV bootstrap hook %q: %s", needle, out)
