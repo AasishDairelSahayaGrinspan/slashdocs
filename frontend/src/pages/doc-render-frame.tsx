@@ -252,10 +252,91 @@ export function RenderFrame() {
     const onMsg = (e: MessageEvent) => {
       if (!frameOrigin || e.origin !== frameOrigin) return;
       if (e.source !== ref.current?.contentWindow) return;
+      const requestWindow = e.source;
+      const postToFrame = (message: unknown) => {
+        if (!requestWindow || ref.current?.contentWindow !== requestWindow) return;
+        requestWindow.postMessage(message, frameOrigin);
+      };
+      const handleKVRequest = async (data: Record<string, unknown>) => {
+        const requestId = String(data.requestId || "");
+        const operation = String(data.operation || "");
+        const sendError = (err: unknown) => {
+          postToFrame({
+            type: "aidocs:kv-response",
+            requestId,
+            ok: false,
+            error:
+              err instanceof APIError
+                ? { message: err.message, code: err.code, status: err.status }
+                : { message: errorMessage(err, "KV request failed") },
+          });
+        };
+        try {
+          if (operation === "all" || operation === "hydrate" || operation === "get") {
+            const snapshot = await api.listDocumentKV(docId);
+            const result =
+              operation === "get"
+                ? {
+                    revision: snapshot.revision,
+                    value:
+                      typeof data.key === "string"
+                        ? snapshot.items[data.key]
+                        : undefined,
+                  }
+                : snapshot;
+            postToFrame({
+              type: "aidocs:kv-response",
+              requestId,
+              ok: true,
+              result,
+            });
+            return;
+          }
+          if (operation === "patch") {
+            const set =
+              data.set && typeof data.set === "object" && !Array.isArray(data.set)
+                ? (data.set as Record<string, unknown>)
+                : {};
+            const deleteKeys = Array.isArray(data.delete)
+              ? data.delete.filter((key): key is string => typeof key === "string")
+              : [];
+            const result = await api.patchDocumentKV(docId, {
+              set,
+              delete: deleteKeys,
+            });
+            postToFrame({
+              type: "aidocs:kv-response",
+              requestId,
+              ok: true,
+              result,
+            });
+            postToFrame({
+              type: "aidocs:kv-event",
+              detail: {
+                ...result,
+                source: String(data.source || "local"),
+                operation: String(data.kvOperation || "patch"),
+              },
+            });
+            return;
+          }
+          postToFrame({
+            type: "aidocs:kv-response",
+            requestId,
+            ok: false,
+            error: { message: "unknown KV operation" },
+          });
+        } catch (err) {
+          sendError(err);
+        }
+      };
       if (e.data?.type === "aidocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
         if (quote) setSelection({ quote, anchor });
+      }
+      if (e.data?.type === "aidocs:kv-request") {
+        void handleKVRequest(e.data as Record<string, unknown>);
       }
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
@@ -306,6 +387,7 @@ export function RenderFrame() {
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, [
+    docId,
     frameOrigin,
     setSelection,
     handleDocCommentClick,

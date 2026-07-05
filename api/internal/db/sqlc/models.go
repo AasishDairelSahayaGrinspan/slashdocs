@@ -58,6 +58,19 @@ type Document struct {
 	ParentFolderID   pgtype.Text
 }
 
+type DocumentKv struct {
+	DocumentID     string
+	Key            string
+	Value          []byte
+	Revision       int64
+	UpdatedAt      pgtype.Timestamptz
+	UpdatedByType  string
+	UpdatedByID    string
+	UpdatedByEmail string
+	UpdatedByName  string
+	DeletedAt      pgtype.Timestamptz
+}
+
 type DocumentWorkspaceEntry struct {
 	DocumentID    string
 	PrincipalType string

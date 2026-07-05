@@ -2,10 +2,13 @@ package repo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 )
@@ -29,6 +32,21 @@ func MaxRole(a, b Role) Role {
 		return b
 	}
 	return a
+}
+
+func sortedKVKeys(m map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedStrings(items []string) []string {
+	out := append([]string(nil), items...)
+	sort.Strings(out)
+	return out
 }
 
 // ErrNotFound wraps auth.ErrNotFound so that packages which cannot import repo
@@ -193,6 +211,27 @@ type Comment struct {
 	Replies         []Comment      `json:"replies,omitempty"`
 }
 
+type DocumentKVSnapshot struct {
+	Revision int64                      `json:"revision"`
+	Items    map[string]json.RawMessage `json:"items"`
+}
+
+type DocumentKVChange struct {
+	Key       string          `json:"key"`
+	Value     json.RawMessage `json:"value,omitempty"`
+	Deleted   bool            `json:"deleted,omitempty"`
+	Revision  int64           `json:"revision"`
+	UpdatedAt string          `json:"updated_at,omitempty"`
+	UpdatedBy *auth.Principal `json:"updated_by,omitempty"`
+	Operation string          `json:"operation,omitempty"`
+}
+
+type DocumentKVPatchResult struct {
+	Revision  int64              `json:"revision"`
+	Changes   []DocumentKVChange `json:"changes"`
+	UpdatedBy *auth.Principal    `json:"updated_by,omitempty"`
+}
+
 // Repository is the application persistence boundary. The real implementation
 // will wrap sqlc-generated queries. API tests can provide fakes.
 type Repository interface {
@@ -244,6 +283,8 @@ type Repository interface {
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)
 	UpdateComment(ctx context.Context, id, body, status string) (Comment, error)
 	DeleteComment(ctx context.Context, id string) error
+	ListDocumentKV(ctx context.Context, documentID string) (DocumentKVSnapshot, error)
+	PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error)
 	CreateFolder(ctx context.Context, owner auth.Principal, title, parentFolderID string) (Folder, error)
 	ListFolder(ctx context.Context, principal auth.Principal, folderID, path string) ([]FolderEntry, bool, *Folder, error)
 	SearchFoldersByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Folder, error)
@@ -281,6 +322,8 @@ type Memory struct {
 	cliCreds  []cliCredRecord
 	sas       map[string]ServiceAccount
 	comments  map[string]Comment
+	kv        map[string]map[string]DocumentKVChange
+	kvRev     map[string]int64
 	transfers map[string]OwnershipTransfer
 
 	docWorkspace    map[string]map[string]bool // docID -> "type:id" -> true
@@ -305,7 +348,7 @@ type cliCredRecord struct {
 // behaves like a freshly migrated database; tests that need the canonical
 // fixture graph call NewMemorySeeded instead.
 func NewMemory() *Memory {
-	return &Memory{docs: map[string]Document{}, folders: map[string]Folder{}, pins: map[string]Pin{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, transfers: map[string]OwnershipTransfer{}}
+	return &Memory{docs: map[string]Document{}, folders: map[string]Folder{}, pins: map[string]Pin{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, kv: map[string]map[string]DocumentKVChange{}, kvRev: map[string]int64{}, transfers: map[string]OwnershipTransfer{}}
 }
 
 func (m *Memory) ResolveBearerToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
@@ -649,6 +692,8 @@ func (m *Memory) DeleteDocument(ctx context.Context, id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	delete(m.docs, id)
+	delete(m.kv, id)
+	delete(m.kvRev, id)
 	return nil
 }
 func (m *Memory) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error) {
@@ -783,6 +828,52 @@ func (m *Memory) DeleteComment(ctx context.Context, id string) error {
 	defer m.mu.Unlock()
 	delete(m.comments, id)
 	return nil
+}
+
+func (m *Memory) ListDocumentKV(ctx context.Context, documentID string) (DocumentKVSnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.docs[documentID]; !ok {
+		return DocumentKVSnapshot{}, ErrNotFound
+	}
+	items := map[string]json.RawMessage{}
+	for key, item := range m.kv[documentID] {
+		if item.Deleted {
+			continue
+		}
+		items[key] = append(json.RawMessage(nil), item.Value...)
+	}
+	return DocumentKVSnapshot{Revision: m.kvRev[documentID], Items: items}, nil
+}
+
+func (m *Memory) PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.docs[documentID]; !ok {
+		return DocumentKVPatchResult{}, ErrNotFound
+	}
+	if len(set) == 0 && len(deleteKeys) == 0 {
+		return DocumentKVPatchResult{Revision: m.kvRev[documentID], Changes: []DocumentKVChange{}, UpdatedBy: &actor}, nil
+	}
+	m.kvRev[documentID]++
+	rev := m.kvRev[documentID]
+	if m.kv[documentID] == nil {
+		m.kv[documentID] = map[string]DocumentKVChange{}
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	changes := make([]DocumentKVChange, 0, len(set)+len(deleteKeys))
+	for _, key := range sortedKVKeys(set) {
+		value := append(json.RawMessage(nil), set[key]...)
+		ch := DocumentKVChange{Key: key, Value: value, Revision: rev, UpdatedAt: now, UpdatedBy: &actor, Operation: "set"}
+		m.kv[documentID][key] = ch
+		changes = append(changes, ch)
+	}
+	for _, key := range sortedStrings(deleteKeys) {
+		ch := DocumentKVChange{Key: key, Deleted: true, Revision: rev, UpdatedAt: now, UpdatedBy: &actor, Operation: "delete"}
+		m.kv[documentID][key] = ch
+		changes = append(changes, ch)
+	}
+	return DocumentKVPatchResult{Revision: rev, Changes: changes, UpdatedBy: &actor}, nil
 }
 
 func (m *Memory) CreateOwnershipTransfer(ctx context.Context, saID string, from auth.Principal, toEmail string) (OwnershipTransfer, error) {

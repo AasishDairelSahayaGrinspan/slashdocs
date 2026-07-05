@@ -75,7 +75,21 @@ func (h handlers) createRenderToken(c *gin.Context) {
 	}
 	subject := renderAudiencePrefix + v.DocumentID + "/" + v.ID
 	token := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).SignForAudience(subject, "render", 5*time.Minute)
-	path := "/v/" + v.DocumentID + "/" + v.ID + "?token=" + url.QueryEscape(token)
+	renderPath := "/v/" + v.DocumentID + "/" + v.ID
+	path := renderPath
+	if h.deps.renderOrigin == "" || sameOrigin(h.deps.appOrigin, h.deps.renderOrigin) {
+		http.SetCookie(c.Writer, &http.Cookie{
+			Name:     "aidocs_render_token",
+			Value:    token,
+			Path:     renderPath,
+			HttpOnly: true,
+			SameSite: http.SameSiteLaxMode,
+			Secure:   secureRenderCookie(c, h.deps.appOrigin),
+			MaxAge:   300,
+		})
+	} else {
+		path += "?token=" + url.QueryEscape(token)
+	}
 	if h.deps.renderOrigin != "" {
 		path = strings.TrimRight(h.deps.renderOrigin, "/") + path
 	}
@@ -98,7 +112,13 @@ func (h handlers) renderVersion(c *gin.Context) {
 		return
 	}
 	docID, vid := c.Param("id"), c.Param("version_id")
-	uid, ok := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).VerifyAudience(c.Query("token"), "render")
+	token := c.Query("token")
+	if token == "" {
+		if cookie, err := c.Request.Cookie("aidocs_render_token"); err == nil {
+			token = cookie.Value
+		}
+	}
+	uid, ok := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).VerifyAudience(token, "render")
 	if !ok || uid != renderAudiencePrefix+docID+"/"+vid {
 		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "invalid render token", nil))
 		return
@@ -114,10 +134,30 @@ func (h handlers) renderVersion(c *gin.Context) {
 		appOrigin = "'self'"
 	}
 	c.Header("Content-Security-Policy", "default-src 'none'; img-src * data: blob:; media-src * data: blob:; font-src * data: blob:; style-src * 'unsafe-inline'; script-src * 'unsafe-inline' 'unsafe-eval'; connect-src *; frame-src *; worker-src * blob:; object-src 'none'; frame-ancestors "+appOrigin)
+	c.Header("Referrer-Policy", "no-referrer")
 	c.Header("X-Content-Type-Options", "nosniff")
 	observeHTML("render", len(b))
 	incRender("rendered", "success")
 	c.Data(http.StatusOK, "text/html; charset=utf-8", renderWrapperHTML(b, appOrigin))
+}
+
+func sameOrigin(a, b string) bool {
+	if a == "" || b == "" {
+		return false
+	}
+	au, errA := url.Parse(a)
+	bu, errB := url.Parse(b)
+	return errA == nil && errB == nil && au.Scheme == bu.Scheme && au.Host == bu.Host
+}
+
+func secureRenderCookie(c *gin.Context, appOrigin string) bool {
+	if u, err := url.Parse(appOrigin); err == nil && u.Scheme == "https" {
+		return true
+	}
+	if c.Request.TLS != nil {
+		return true
+	}
+	return strings.EqualFold(c.GetHeader("X-Forwarded-Proto"), "https")
 }
 
 // ListVersions godoc

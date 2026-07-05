@@ -79,6 +79,28 @@ export type Pin = {
   resource_type: "document" | "folder";
   resource_id: string;
 };
+export type DocumentKVSnapshot = {
+  revision: number;
+  items: Record<string, unknown>;
+};
+export type DocumentKVChange = {
+  key: string;
+  value?: unknown;
+  deleted?: boolean;
+  revision: number;
+  updated_at?: string;
+  updated_by?: Principal;
+  operation?: string;
+};
+export type DocumentKVPatch = {
+  set?: Record<string, unknown>;
+  delete?: string[];
+};
+export type DocumentKVPatchResult = {
+  revision: number;
+  changes: DocumentKVChange[];
+  updated_by?: Principal;
+};
 export type AccessSource = {
   resource_type: string;
   resource_id: string;
@@ -184,6 +206,13 @@ export const api = {
       `/v1/documents/${doc}/versions/${version}/render-token`,
       { method: "POST" },
     ),
+  listDocumentKV: (doc: string) =>
+    request<DocumentKVSnapshot>(`/v1/documents/${doc}/kv`),
+  patchDocumentKV: (doc: string, patch: DocumentKVPatch) =>
+    request<DocumentKVPatchResult>(`/v1/documents/${doc}/kv`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   listComments: (doc: string, version?: string) =>
     request<{ items: Comment[] }>(
       `/v1/documents/${doc}/comments${version ? `?version_id=${encodeURIComponent(version)}` : ""}`,

@@ -8,6 +8,9 @@ function bridge() {
   let originalDocAttrs = null;
   let preparedLinkID = 0;
   const preparedLinks = {};
+  let kvRequestID = 0;
+  const kvPending = {};
+  const kvRequestTimeoutMS = 10000;
 
   function doc() {
     try {
@@ -31,6 +34,161 @@ function bridge() {
     if (e.source !== parent) return false;
     const origin = targetOrigin();
     return origin === "*" || e.origin === origin;
+  }
+
+  function innerWindow() {
+    try {
+      return frame.contentWindow;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function jsonValue(value) {
+    const text = JSON.stringify(value);
+    if (text === undefined) throw new TypeError("KV value must be JSON serializable");
+    return JSON.parse(text);
+  }
+
+  function kvRequest(operation, payload) {
+    const requestId = "kv_" + ++kvRequestID + "_" + Date.now();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        delete kvPending[requestId];
+        reject(new Error("KV request timed out"));
+      }, kvRequestTimeoutMS);
+      kvPending[requestId] = {
+        resolve(value) {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject(error) {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      parent.postMessage(
+        Object.assign({ type: "aidocs:kv-request", requestId, operation }, payload || {}),
+        targetOrigin(),
+      );
+    });
+  }
+
+  function emitKVChange(detail) {
+    const w = innerWindow();
+    if (!w) return;
+    try {
+      const ev = new w.CustomEvent("kvchange", { detail });
+      w.dispatchEvent(ev);
+    } catch (e) {}
+    const handlers =
+      (w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange) || [];
+    handlers.slice().forEach((handler) => {
+      try {
+        handler(detail);
+      } catch (e) {
+        setTimeout(() => {
+          throw e;
+        }, 0);
+      }
+    });
+  }
+
+  function installAidocsAPI() {
+    const w = innerWindow();
+    if (!w) return;
+    const existing = w.aidocs && typeof w.aidocs === "object" ? w.aidocs : {};
+    const handlers =
+      w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange
+        ? w.__aidocsKVHandlers
+        : { kvchange: [] };
+    w.__aidocsKVHandlers = handlers;
+
+    function off(event, handler) {
+      if (event !== "kvchange") return;
+      handlers.kvchange = handlers.kvchange.filter((h) => h !== handler);
+    }
+    function on(event, handler) {
+      if (event !== "kvchange" || typeof handler !== "function") return;
+      handlers.kvchange.push(handler);
+      return function unsubscribe() {
+        off(event, handler);
+      };
+    }
+    const kv = {
+      get(key) {
+        return kvRequest("get", { key: String(key) }).then((res) => res.value);
+      },
+      all() {
+        return kvRequest("all").then((res) => res.items || {});
+      },
+      set(key, value) {
+        if (value === undefined) {
+          throw new TypeError("aidocs.kv.set requires a JSON value");
+        }
+        const set = {};
+        set[String(key)] = jsonValue(value);
+        return kvRequest("patch", { set, delete: [], source: "local", kvOperation: "set" });
+      },
+      delete(key) {
+        return kvRequest("patch", {
+          set: {},
+          delete: [String(key)],
+          source: "local",
+          kvOperation: "delete",
+        });
+      },
+      patch(object) {
+        if (!object || typeof object !== "object" || Array.isArray(object)) {
+          throw new TypeError("aidocs.kv.patch requires an object");
+        }
+        const set = {};
+        const deleteKeys = [];
+        Object.keys(object).forEach((key) => {
+          const value = object[key];
+          if (value === null || value === undefined) {
+            deleteKeys.push(key);
+          } else {
+            set[key] = jsonValue(value);
+          }
+        });
+        return kvRequest("patch", {
+          set,
+          delete: deleteKeys,
+          source: "local",
+          kvOperation: "patch",
+        });
+      },
+    };
+    existing.kv = kv;
+    existing.on = on;
+    existing.off = off;
+    try {
+      w.aidocs = existing;
+    } catch (e) {}
+
+    const queued = w.__aidocsKVQueue || [];
+    w.__aidocsKVQueue = [];
+    queued.forEach((entry) => {
+      const fn = kv[entry && entry.op];
+      if (!fn) {
+        entry.reject && entry.reject(new Error("unknown aidocs KV operation"));
+        return;
+      }
+      Promise.resolve()
+        .then(() => fn.apply(kv, entry.args || []))
+        .then(entry.resolve, entry.reject);
+    });
+  }
+
+  function hydrateKV() {
+    kvRequest("hydrate", { source: "initial", operation: "hydrate" })
+      .then((res) => {
+        emitKVChange(
+          Object.assign({ source: "initial", operation: "hydrate", changes: [] }, res || {}),
+        );
+      })
+      .catch(() => {});
   }
 
   function textNodes(root) {
@@ -162,7 +320,7 @@ function bridge() {
       delete t.dataset.cid;
     });
     root
-      .querySelectorAll("#aidocs-highlight-style,#aidocs-edit-style")
+      .querySelectorAll("#aidocs-highlight-style,#aidocs-edit-style,#aidocs-bootstrap")
       .forEach((s) => s.remove());
     root.classList.remove("aidocs-edit-mode");
     setOrRemoveAttr(
@@ -568,6 +726,7 @@ function bridge() {
     Object.keys(preparedLinks).forEach((key) => delete preparedLinks[key]);
     rememberOriginalDocAttrs(d);
     injectStyles();
+    installAidocsAPI();
     prepareLinks();
     applyTheme(curTheme);
     d.addEventListener("mouseup", () => setTimeout(selection, 0));
@@ -642,6 +801,7 @@ function bridge() {
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
+    hydrateKV();
   });
 
   window.addEventListener("message", (e) => {
@@ -652,5 +812,15 @@ function bridge() {
     else if (e.data.type === "aidocs:edit-mode") applyEditMode(!!e.data.enabled);
     else if (e.data.type === "aidocs:edit-request-html")
       sendEditedHTML(e.data.requestId);
+    else if (e.data.type === "aidocs:kv-response") {
+      const requestId = String(e.data.requestId || "");
+      const pending = kvPending[requestId];
+      if (!pending) return;
+      delete kvPending[requestId];
+      if (e.data.ok) pending.resolve(e.data.result || {});
+      else pending.reject(new Error((e.data.error && e.data.error.message) || "KV request failed"));
+    } else if (e.data.type === "aidocs:kv-event") {
+      emitKVChange(e.data.detail || {});
+    }
   });
 }
