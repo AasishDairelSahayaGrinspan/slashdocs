@@ -93,6 +93,9 @@ func (h handlers) createGrant(c *gin.Context) {
 		} `json:"principal"`
 		Role repo.Role `json:"role"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid grant")
 		return
@@ -149,6 +152,9 @@ func (h handlers) patchGrant(c *gin.Context) {
 	}
 	var in struct {
 		Role repo.Role `json:"role"`
+	}
+	if !requireJSON(c) {
+		return
 	}
 	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) {
 		badRequest(c, "invalid grant")
