@@ -355,9 +355,11 @@ function bridge() {
   }
 
   curTheme = initialTheme();
-  frame.addEventListener("load", () => {
+  let setupDoc = null;
+  function setupFrame() {
     const d = doc();
-    if (!d) return;
+    if (!d || !d.documentElement || !d.body || setupDoc === d) return;
+    setupDoc = d;
     injectStyles();
     prepareLinks();
     applyTheme(curTheme);
@@ -426,7 +428,13 @@ function bridge() {
     d.addEventListener("click", handleLinkClick);
     const targetOrigin = appOrigin === "self" ? "*" : appOrigin;
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin);
-  });
+  }
+
+  frame.addEventListener("load", setupFrame);
+  try {
+    const d = doc();
+    if (d && d.readyState !== "loading") setTimeout(setupFrame, 0);
+  } catch (e) {}
 
   window.addEventListener("message", (e) => {
     if (!e.data) return;
