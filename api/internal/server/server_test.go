@@ -168,6 +168,83 @@ func TestMeWithServiceAccountPrincipal(t *testing.T) {
 	}`)
 }
 
+func TestCookieAuthRejectsRenderOriginUnsafeRequest(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.razorpay.com"})
+	rr := do(t, h, http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "anyone" },
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"Cookie":           "aidocs_session=test-session",
+		"Origin":           "https://aidocs-render.razorpay.com",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	assertStatus(t, rr, http.StatusForbidden)
+	assertJSON(t, rr.Body.Bytes(), `{
+	  "error": { "code": "forbidden", "message": "csrf check failed" }
+	}`)
+}
+
+func TestCookieAuthAllowsAppOriginUnsafeRequest(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.razorpay.com"})
+	rr := do(t, h, http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "anyone" },
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"Cookie":           "aidocs_session=test-session",
+		"Origin":           "https://aidocs.razorpay.com",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	assertStatus(t, rr, http.StatusCreated)
+}
+
+func TestCookieAuthAllowsAppRefererUnsafeRequest(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.razorpay.com"})
+	rr := do(t, h, http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "anyone" },
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"Cookie":           "aidocs_session=test-session",
+		"Referer":          "https://aidocs.razorpay.com/app/d/doc_1",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	assertStatus(t, rr, http.StatusCreated)
+}
+
+func TestUnsafeRequestWithoutSessionCookieBypassesCSRFGuard(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.razorpay.com"})
+	rr := do(t, h, http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "anyone" },
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"Origin":           "https://aidocs-render.razorpay.com",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	assertStatus(t, rr, http.StatusCreated)
+}
+
+func TestJSONMutationRejectsTextPlain(t *testing.T) {
+	rr := do(t, newTestServer(), http.MethodPost, "/v1/documents/doc_1/grants", `{
+	  "principal": { "type": "anyone" },
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "text/plain",
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+
+	assertStatus(t, rr, http.StatusUnsupportedMediaType)
+	assertJSON(t, rr.Body.Bytes(), `{
+	  "error": { "code": "unsupported_media_type", "message": "content-type must be application/json" }
+	}`)
+}
+
 func TestCreateDocument(t *testing.T) {
 	body, contentType := multipartBody(t, map[string]string{
 		"title": "Q3 business review",

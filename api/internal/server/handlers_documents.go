@@ -125,6 +125,9 @@ func (h handlers) patchDocument(c *gin.Context) {
 		return
 	}
 	var in struct{ Title string }
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid body")
 		return

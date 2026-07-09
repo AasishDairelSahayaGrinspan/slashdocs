@@ -1,8 +1,12 @@
 package server
 
 import (
+	"mime"
+	"net/http"
 	"net/url"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -31,6 +35,20 @@ func validGrantRole(role repo.Role) bool {
 	return role == repo.RoleViewer || role == repo.RoleCommenter || role == repo.RoleEditor
 }
 
+func requireJSON(c *gin.Context) bool {
+	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if err != nil || !strings.EqualFold(mediaType, "application/json") {
+		c.JSON(http.StatusUnsupportedMediaType, errorResponse("unsupported_media_type", "content-type must be application/json", nil))
+		return false
+	}
+	return true
+}
+
+func requestHasBody(c *gin.Context) bool {
+	r := c.Request
+	return r.Body != nil && r.Body != http.NoBody && (r.ContentLength != 0 || len(r.TransferEncoding) > 0)
+}
+
 func hostMatchesOrigin(host, origin string) bool {
 	u, err := url.Parse(origin)
 	if err != nil || u.Host == "" {
@@ -45,6 +63,12 @@ func canonicalHTTPOrigin(origin string) (string, bool) {
 		return "", false
 	}
 	return u.Scheme + "://" + u.Host, true
+}
+
+func sameHTTPOrigin(a, b string) bool {
+	ca, okA := canonicalHTTPOrigin(a)
+	cb, okB := canonicalHTTPOrigin(b)
+	return okA && okB && strings.EqualFold(ca, cb)
 }
 
 func sanitizeHost(host string) string {
