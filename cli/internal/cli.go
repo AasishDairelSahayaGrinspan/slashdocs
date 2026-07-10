@@ -62,7 +62,7 @@ func NewRoot(out io.Writer) *cobra.Command {
 	g := &globals{}
 	root := &cobra.Command{Use: "aidocs", Short: "CLI for aidocs HTML document review", Long: "CLI for aidocs HTML document review.\n\nAgents: before authoring or publishing an aidocs document, run `aidocs guidelines` and follow that output.\n\nDefault output is compact, agent-friendly key=value text. Use --json for machine-readable JSON.", SilenceUsage: true, SilenceErrors: true}
 	root.PersistentPostRun = func(cmd *cobra.Command, args []string) {
-		if cmd.CommandPath() == "aidocs update" || cmd.CommandPath() == "aidocs skills update" || cmd.CommandPath() == "aidocs version" {
+		if cmd.CommandPath() == "aidocs update" || cmd.CommandPath() == "aidocs skills update" || cmd.CommandPath() == "aidocs version" || cmd.CommandPath() == "aidocs guidelines" {
 			return
 		}
 		c, err := client(g)

@@ -3,6 +3,7 @@
 package server_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -341,6 +342,179 @@ func TestGrantDocumentAccessToUserByEmail(t *testing.T) {
 	}`)
 }
 
+func TestDocumentKVAccessAndImmediatePersistence(t *testing.T) {
+	h := newTestServer()
+	patch := do(t, h, http.MethodPatch, "/v1/documents/doc_1/kv", `{
+	  "set": { "count": 1, "name": "demo" },
+	  "delete": ["old"]
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:editor_1:editor@example.com:Editor",
+	})
+	assertStatus(t, patch, http.StatusOK)
+	var patched struct {
+		Revision  int64                   `json:"revision"`
+		Changes   []repo.DocumentKVChange `json:"changes"`
+		UpdatedBy *auth.Principal         `json:"updated_by"`
+	}
+	if err := json.Unmarshal(patch.Body.Bytes(), &patched); err != nil {
+		t.Fatalf("bad patch JSON: %v", err)
+	}
+	if patched.Revision != 1 || len(patched.Changes) != 3 {
+		t.Fatalf("patch result = revision %d changes %d, want revision 1 changes 3: %s", patched.Revision, len(patched.Changes), patch.Body.String())
+	}
+	if patched.UpdatedBy == nil || patched.UpdatedBy.ID != "editor_1" {
+		t.Fatalf("updated_by = %#v, want editor_1", patched.UpdatedBy)
+	}
+
+	for _, principal := range []string{
+		"user:viewer_1:viewer@example.com:Viewer",
+		"user:commenter_1:commenter@example.com:Commenter",
+		"user:editor_1:editor@example.com:Editor",
+		"user:owner_1:owner@example.com:Owner",
+	} {
+		rr := do(t, h, http.MethodGet, "/v1/documents/doc_1/kv", "", map[string]string{
+			"X-Test-Principal": principal,
+		})
+		assertStatus(t, rr, http.StatusOK)
+		assertJSON(t, rr.Body.Bytes(), `{
+		  "revision": 1,
+		  "items": { "count": 1, "name": "demo" }
+		}`)
+	}
+
+	viewerWrite := do(t, h, http.MethodPatch, "/v1/documents/doc_1/kv", `{"set":{"count":2}}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:viewer_1:viewer@example.com:Viewer",
+	})
+	assertStatus(t, viewerWrite, http.StatusForbidden)
+
+	versions := do(t, h, http.MethodGet, "/v1/documents/doc_1/versions", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, versions, http.StatusOK)
+	var listed struct {
+		Items []repo.Version `json:"items"`
+	}
+	if err := json.Unmarshal(versions.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("bad versions JSON: %v", err)
+	}
+	if len(listed.Items) != 1 {
+		t.Fatalf("versions after KV write = %d, want 1", len(listed.Items))
+	}
+}
+
+func TestDocumentKVScopesKeysByDocument(t *testing.T) {
+	mem := repo.NewMemorySeeded()
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "owner_1", Email: "owner@example.com", Name: "Owner"}
+	if _, _, err := mem.CreateDocument(context.Background(), owner, "first", []byte("<html></html>")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := mem.CreateDocument(context.Background(), owner, "second", []byte("<html></html>")); err != nil {
+		t.Fatal(err)
+	}
+	h := server.New(server.Config{Environment: "test"}, server.WithRepository(mem), server.WithAuthenticator(testPrincipalAuth{})).Handler()
+
+	for docID, value := range map[string]string{"doc_1": "one", "doc_2": "two"} {
+		rr := do(t, h, http.MethodPatch, "/v1/documents/"+docID+"/kv", fmt.Sprintf(`{"set":{"sharedKey":%q}}`, value), map[string]string{
+			"Content-Type":     "application/json",
+			"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+		})
+		assertStatus(t, rr, http.StatusOK)
+	}
+
+	doc1 := do(t, h, http.MethodGet, "/v1/documents/doc_1/kv", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, doc1, http.StatusOK)
+	assertJSON(t, doc1.Body.Bytes(), `{"revision":1,"items":{"sharedKey":"one"}}`)
+
+	doc2 := do(t, h, http.MethodGet, "/v1/documents/doc_2/kv", "", map[string]string{
+		"X-Test-Principal": "user:owner_1:owner@example.com:Owner",
+	})
+	assertStatus(t, doc2, http.StatusOK)
+	assertJSON(t, doc2.Body.Bytes(), `{"revision":1,"items":{"sharedKey":"two"}}`)
+}
+
+func TestDocumentKVEventStreamReplaysStoredEvents(t *testing.T) {
+	h := newTestServer()
+	patch := do(t, h, http.MethodPatch, "/v1/documents/doc_1/kv", `{"set":{"review.checked":true}}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:editor_1:editor@example.com:Editor",
+	})
+	assertStatus(t, patch, http.StatusOK)
+
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v1/documents/doc_1/kv/events?after_revision=0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-Principal", "user:viewer_1:viewer@example.com:Viewer")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("content-type = %q, want event stream", ct)
+	}
+
+	event := readDocumentKVSSEEvent(t, bufio.NewReader(resp.Body))
+	if event.Revision != 1 || len(event.Changes) != 1 {
+		t.Fatalf("event = revision %d changes %d, want revision 1 changes 1", event.Revision, len(event.Changes))
+	}
+	if event.DocumentID != "doc_1" || event.Changes[0].Key != "review.checked" {
+		t.Fatalf("event = %#v, want doc_1 review.checked", event)
+	}
+}
+
+func TestDocumentKVEventStreamReceivesLiveEvents(t *testing.T) {
+	h := newTestServer()
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v1/documents/doc_1/kv/events?after_revision=0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-Principal", "user:viewer_1:viewer@example.com:Viewer")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	readSSEComment(t, reader, ": connected")
+
+	patchReq, err := http.NewRequest(http.MethodPatch, ts.URL+"/v1/documents/doc_1/kv", strings.NewReader(`{"set":{"review.checked":true}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchReq.Header.Set("X-Test-Principal", "user:editor_1:editor@example.com:Editor")
+	patchResp, err := ts.Client().Do(patchReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(patchResp.Body)
+		t.Fatalf("patch status = %d, want 200: %s", patchResp.StatusCode, body)
+	}
+
+	event := readDocumentKVSSEEvent(t, reader)
+	if event.Revision != 1 || len(event.Changes) != 1 || event.Changes[0].Key != "review.checked" {
+		t.Fatalf("event = %#v, want live revision 1 review.checked", event)
+	}
+}
+
 func TestGrantDocumentAccessRejectsUnknownUserEmail(t *testing.T) {
 	rr := do(t, newTestServer(), http.MethodPost, "/v1/documents/doc_1/grants", `{
 	  "principal": { "type": "user", "email": "reviewer@example.com" },
@@ -652,8 +826,18 @@ func TestRenderCSPAllowsConfiguredAppOrigin(t *testing.T) {
 	if err := json.Unmarshal(tokRR.Body.Bytes(), &tok); err != nil {
 		t.Fatal(err)
 	}
+	if strings.Contains(tok.URL, "token=") {
+		t.Fatalf("same-origin render URL leaked token in query: %q", tok.URL)
+	}
+	if cookies := tokRR.Result().Cookies(); len(cookies) == 0 {
+		t.Fatalf("render token response did not set a cookie")
+	} else if cookies[0].Name != "aidocs_render_token" || !cookies[0].HttpOnly {
+		t.Fatalf("render token cookie = %#v, want HttpOnly aidocs_render_token", cookies[0])
+	}
 
-	rr := do(t, h, http.MethodGet, "/v/doc_1/ver_1?token="+tok.Token, "", nil)
+	rr := doRaw(t, h, http.MethodGet, tok.URL, nil, map[string]string{
+		"Cookie": tokRR.Result().Cookies()[0].String(),
+	})
 	assertStatus(t, rr, http.StatusOK)
 	csp := rr.Header().Get("Content-Security-Policy")
 	for _, want := range []string{
@@ -671,6 +855,9 @@ func TestRenderCSPAllowsConfiguredAppOrigin(t *testing.T) {
 		if !strings.Contains(csp, want) {
 			t.Fatalf("CSP = %q, want %q", csp, want)
 		}
+	}
+	if got := rr.Header().Get("Referrer-Policy"); got != "no-referrer" {
+		t.Fatalf("Referrer-Policy = %q, want no-referrer", got)
 	}
 }
 
@@ -966,7 +1153,11 @@ func TestRenderRouteReturnsWrapperNotRawHTML(t *testing.T) {
 
 	rr := do(t, h, http.MethodGet, "/v/doc_1/ver_1?token="+tok.Token, "", nil)
 	assertStatus(t, rr, http.StatusOK)
-	if !strings.Contains(rr.Body.String(), `<iframe id="aidocs-doc"`) || !strings.Contains(rr.Body.String(), "&lt;html&gt;&lt;/html&gt;") {
+	wrapperBody := rr.Body.String()
+	if !strings.Contains(wrapperBody, `<iframe id="aidocs-doc"`) ||
+		!strings.Contains(wrapperBody, "aidocs-bootstrap") ||
+		!strings.Contains(wrapperBody, "&lt;html&gt;") ||
+		!strings.Contains(wrapperBody, "&lt;/html&gt;") {
 		t.Fatalf("body = %q, want render wrapper with escaped srcdoc", rr.Body.String())
 	}
 }
@@ -1017,6 +1208,50 @@ func (r *contextCheckingRepo) ListDocuments(ctx context.Context, p auth.Principa
 		r.sawMarker = true
 	}
 	return r.Memory.ListDocuments(ctx, p)
+}
+
+func readDocumentKVSSEEvent(t *testing.T, r *bufio.Reader) repo.DocumentKVEvent {
+	t.Helper()
+	for {
+		lines := readSSEBlock(t, r)
+		for _, line := range lines {
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var event repo.DocumentKVEvent
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+				t.Fatalf("bad SSE event JSON %q: %v", line, err)
+			}
+			return event
+		}
+	}
+}
+
+func readSSEComment(t *testing.T, r *bufio.Reader, want string) {
+	t.Helper()
+	for {
+		for _, line := range readSSEBlock(t, r) {
+			if line == want {
+				return
+			}
+		}
+	}
+}
+
+func readSSEBlock(t *testing.T, r *bufio.Reader) []string {
+	t.Helper()
+	var lines []string
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read SSE stream: %v", err)
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			return lines
+		}
+		lines = append(lines, line)
+	}
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {

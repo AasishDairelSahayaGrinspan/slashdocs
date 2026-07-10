@@ -48,6 +48,7 @@ type dependencies struct {
 	deployment          string
 	orgName             string
 	readinessChecks     []readinessCheck
+	documentKVEvents    *documentKVEventHub
 }
 
 // Option configures the Server.
@@ -105,6 +106,7 @@ func New(cfg Config, opts ...Option) *Server {
 		allowedOAuthDomains: cfg.AllowedOAuthDomains,
 		deployment:          cfg.Deployment,
 		orgName:             cfg.OrgName,
+		documentKVEvents:    newDocumentKVEventHub(),
 	}
 	for _, opt := range opts {
 		opt(&deps)
@@ -187,6 +189,9 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/versions/:version_id/render-token", h.createRenderToken)
 	authed.POST("/documents/:id/comments", h.createComment)
 	authed.GET("/documents/:id/comments", h.listComments)
+	authed.GET("/documents/:id/kv", h.listDocumentKV)
+	authed.GET("/documents/:id/kv/events", h.streamDocumentKVEvents)
+	authed.PATCH("/documents/:id/kv", h.patchDocumentKV)
 	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)
 	authed.DELETE("/documents/:id/comments/:comment_id", h.deleteComment)

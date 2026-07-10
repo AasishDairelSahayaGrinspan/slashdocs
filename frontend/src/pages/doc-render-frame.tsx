@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { api, type Anchor } from "@/api";
+import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { COMMENT_STATUS } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
+import { errorMessage } from "@/lib/errors";
 import { useDoc } from "./doc-context";
 
 // Renders the sandboxed document iframe and exchanges selection and paint
@@ -27,6 +28,11 @@ export function RenderFrame() {
   // could arrive during listener teardown and be missed).
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  const kvRevisionRef = useRef(0);
+
+  useEffect(() => {
+    kvRevisionRef.current = 0;
+  }, [docId]);
 
   const token = useQuery({
     queryKey: queryKeys.render(version),
@@ -57,6 +63,19 @@ export function RenderFrame() {
       return null;
     }
   }, [token.data]);
+
+  const rememberKVRevision = useCallback((revision: unknown) => {
+    if (typeof revision !== "number" || !Number.isFinite(revision)) return;
+    kvRevisionRef.current = Math.max(kvRevisionRef.current, revision);
+  }, []);
+
+  const postToCurrentFrame = useCallback(
+    (message: unknown) => {
+      if (!frameOrigin) return;
+      ref.current?.contentWindow?.postMessage(message, frameOrigin);
+    },
+    [frameOrigin],
+  );
 
   // Reset readiness whenever we load a different frame.
   useEffect(() => {
@@ -159,10 +178,97 @@ export function RenderFrame() {
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (!frameOrigin || e.origin !== frameOrigin) return;
+      if (e.source !== ref.current?.contentWindow) return;
+      const requestWindow = e.source;
+      const postToFrame = (message: unknown) => {
+        if (!requestWindow || ref.current?.contentWindow !== requestWindow) return;
+        requestWindow.postMessage(message, frameOrigin);
+      };
+      const handleKVRequest = async (data: Record<string, unknown>) => {
+        const requestId = String(data.requestId || "");
+        const operation = String(data.operation || "");
+        const sendError = (err: unknown) => {
+          postToFrame({
+            type: "aidocs:kv-response",
+            requestId,
+            ok: false,
+            error:
+              err instanceof APIError
+                ? { message: err.message, code: err.code, status: err.status }
+                : { message: errorMessage(err, "KV request failed") },
+          });
+        };
+        try {
+          if (operation === "all" || operation === "hydrate" || operation === "get") {
+            const snapshot = await api.listDocumentKV(docId);
+            rememberKVRevision(snapshot.revision);
+            const result =
+              operation === "get"
+                ? {
+                    revision: snapshot.revision,
+                    value:
+                      typeof data.key === "string"
+                        ? snapshot.items[data.key]
+                        : undefined,
+                  }
+                : snapshot;
+            postToFrame({
+              type: "aidocs:kv-response",
+              requestId,
+              ok: true,
+              result,
+            });
+            return;
+          }
+          if (operation === "patch") {
+            const set =
+              data.set && typeof data.set === "object" && !Array.isArray(data.set)
+                ? (data.set as Record<string, unknown>)
+                : {};
+            const deleteKeys = Array.isArray(data.delete)
+              ? data.delete.filter((key): key is string => typeof key === "string")
+              : [];
+            const result = await api.patchDocumentKV(docId, {
+              set,
+              delete: deleteKeys,
+            });
+            const alreadyDelivered = result.revision <= kvRevisionRef.current;
+            rememberKVRevision(result.revision);
+            postToFrame({
+              type: "aidocs:kv-response",
+              requestId,
+              ok: true,
+              result,
+            });
+            if (!alreadyDelivered) {
+              postToFrame({
+                type: "aidocs:kv-event",
+                detail: {
+                  ...result,
+                  source: String(data.source || "local"),
+                  operation: String(data.kvOperation || "patch"),
+                },
+              });
+            }
+            return;
+          }
+          postToFrame({
+            type: "aidocs:kv-response",
+            requestId,
+            ok: false,
+            error: { message: "unknown KV operation" },
+          });
+        } catch (err) {
+          sendError(err);
+        }
+      };
       if (e.data?.type === "aidocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
         if (quote) setSelection({ quote, anchor });
+      }
+      if (e.data?.type === "aidocs:kv-request") {
+        void handleKVRequest(e.data as Record<string, unknown>);
       }
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
@@ -193,7 +299,42 @@ export function RenderFrame() {
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
-  }, [frameOrigin, setSelection, handleDocCommentClick, applyZoom]);
+  }, [
+    docId,
+    frameOrigin,
+    setSelection,
+    handleDocCommentClick,
+    applyZoom,
+    rememberKVRevision,
+  ]);
+
+  useEffect(() => {
+    if (!ready || !frameOrigin || !docId) return;
+    const source = new EventSource(
+      `/v1/documents/${encodeURIComponent(docId)}/kv/events?after_revision=${kvRevisionRef.current}`,
+      { withCredentials: true },
+    );
+    source.onmessage = (event) => {
+      let detail: DocumentKVEvent;
+      try {
+        detail = JSON.parse(event.data) as DocumentKVEvent;
+      } catch {
+        return;
+      }
+      if (!detail || typeof detail.revision !== "number") return;
+      if (detail.revision <= kvRevisionRef.current) return;
+      rememberKVRevision(detail.revision);
+      postToCurrentFrame({
+        type: "aidocs:kv-event",
+        detail: {
+          ...detail,
+          source: "sync",
+          operation: "sync",
+        },
+      });
+    };
+    return () => source.close();
+  }, [docId, frameOrigin, ready, postToCurrentFrame, rememberKVRevision]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {

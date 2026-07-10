@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -29,6 +29,251 @@ import {
   type CommentFilter,
 } from "@/lib/constants";
 import { useDoc } from "./doc-context";
+
+type MentionTarget = {
+  start: number;
+  end: number;
+  query: string;
+};
+
+const MENTION_BOUNDARY = "\u2063";
+
+function principalLabel(p: Principal) {
+  return p.name || p.email || p.id;
+}
+
+function getMentionTarget(value: string, caret: number): MentionTarget | null {
+  const beforeCaret = value.slice(0, caret);
+  const match = /(^|[\s([{])@([A-Za-z0-9._%+-]*)$/.exec(beforeCaret);
+  if (!match) return null;
+  const start = match.index + match[1].length;
+  return { start, end: caret, query: match[2] };
+}
+
+function MentionTextarea({
+  value,
+  onChange,
+  onKeyDown,
+  placeholder,
+  rows,
+  className,
+  autoFocus,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
+  placeholder?: string;
+  rows?: number;
+  className?: string;
+  autoFocus?: boolean;
+}) {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [target, setTarget] = useState<MentionTarget | null>(null);
+  const [suggestions, setSuggestions] = useState<Principal[]>([]);
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [open, setOpen] = useState(false);
+
+  const syncTarget = (el: HTMLTextAreaElement) => {
+    const nextCaret = el.selectionStart ?? 0;
+    setCaret(nextCaret);
+    setTarget(getMentionTarget(el.value, nextCaret));
+  };
+
+  useEffect(() => {
+    setTarget(getMentionTarget(value, caret));
+  }, [value, caret]);
+
+  useEffect(() => {
+    const query = target?.query.trim() || "";
+    if (query.length < 2) {
+      setSuggestions([]);
+      setOpen(false);
+      return;
+    }
+    let cancelled = false;
+    const timeout = window.setTimeout(async () => {
+      try {
+        const result = await api.searchUsers(query);
+        if (cancelled) return;
+        setSuggestions(result.items || []);
+        setActiveIndex(0);
+        setOpen((result.items || []).length > 0);
+      } catch {
+        if (!cancelled) {
+          setSuggestions([]);
+          setOpen(false);
+        }
+      }
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+    };
+  }, [target?.query]);
+
+  const accept = (user: Principal) => {
+    if (!target) return;
+    const mention = `@${principalLabel(user)}${MENTION_BOUNDARY} `;
+    const nextValue = value.slice(0, target.start) + mention + value.slice(target.end);
+    const nextCaret = target.start + mention.length;
+    onChange(nextValue);
+    setOpen(false);
+    setSuggestions([]);
+    setCaret(nextCaret);
+    window.requestAnimationFrame(() => {
+      ref.current?.focus();
+      ref.current?.setSelectionRange(nextCaret, nextCaret);
+    });
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (open && suggestions.length > 0) {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setActiveIndex((index) => (index + 1) % suggestions.length);
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setActiveIndex(
+          (index) => (index - 1 + suggestions.length) % suggestions.length,
+        );
+        return;
+      }
+      if (event.key === "Enter" || event.key === "Tab") {
+        event.preventDefault();
+        accept(suggestions[activeIndex]);
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setOpen(false);
+        return;
+      }
+    }
+    onKeyDown?.(event);
+  };
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      <Textarea
+        ref={ref}
+        autoFocus={autoFocus}
+        rows={rows}
+        value={value}
+        onChange={(event) => {
+          onChange(event.target.value);
+          syncTarget(event.target);
+        }}
+        onClick={(event) => syncTarget(event.currentTarget)}
+        onBlur={() => window.setTimeout(() => setOpen(false), 100)}
+        onKeyUp={(event) => syncTarget(event.currentTarget)}
+        onSelect={(event) => syncTarget(event.currentTarget)}
+        onKeyDown={handleKeyDown}
+        placeholder={placeholder}
+        className={className}
+      />
+      {open && suggestions.length > 0 ? (
+        <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
+          {suggestions.map((user, index) => {
+            const active = index === activeIndex;
+            return (
+              <button
+                key={user.id || user.email}
+                type="button"
+                className={`block w-full px-3 py-2 text-left text-sm transition-colors ${active ? "bg-[var(--color-surface-muted)] text-[var(--color-fg)]" : "text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]"}`}
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  accept(user);
+                }}
+              >
+                <span className="block truncate font-medium">
+                  {principalLabel(user)}
+                </span>
+                {user.email && user.email !== principalLabel(user) ? (
+                  <span className="block truncate text-xs text-[var(--color-fg-muted)]">
+                    {user.email}
+                  </span>
+                ) : null}
+              </button>
+            );
+          })}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+const MENTION_PATTERN =
+  /@(?:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[A-Za-z][A-Za-z0-9._'-]*(?: [A-Z][A-Za-z0-9._'-]*){0,3})/g;
+const EXPLICIT_MENTION_PATTERN = new RegExp(
+  `@([^${MENTION_BOUNDARY}\\n]+)${MENTION_BOUNDARY}`,
+  "g",
+);
+
+function mentionNode(mention: string, key: string) {
+  return (
+    <span
+      key={key}
+      className="rounded bg-[var(--color-accent-muted)] px-1 py-0.5 font-medium text-[var(--color-accent)]"
+    >
+      {mention}
+    </span>
+  );
+}
+
+function renderFallbackMentionText(text: string, keyPrefix = ""): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = MENTION_PATTERN.exec(text))) {
+    const raw = match[0];
+    const trailing = raw.match(/[.,;:!?)]$/)?.[0] || "";
+    const mention = trailing ? raw.slice(0, -trailing.length) : raw;
+    const start = match.index;
+    const end = start + mention.length;
+    if (start > lastIndex) parts.push(text.slice(lastIndex, start));
+    parts.push(mentionNode(mention, `${keyPrefix}${start}-${mention}`));
+    if (trailing) parts.push(trailing);
+    lastIndex = start + raw.length;
+  }
+  const rest = text.slice(lastIndex).replaceAll(MENTION_BOUNDARY, "");
+  if (rest) parts.push(rest);
+  return parts;
+}
+
+function renderMentionText(text: string): ReactNode[] {
+  const parts: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  while ((match = EXPLICIT_MENTION_PATTERN.exec(text))) {
+    if (match.index > lastIndex) {
+      parts.push(
+        ...renderFallbackMentionText(
+          text.slice(lastIndex, match.index),
+          `plain-${lastIndex}-`,
+        ),
+      );
+    }
+    const mention = `@${match[1].trimEnd()}`;
+    parts.push(mentionNode(mention, `explicit-${match.index}-${mention}`));
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    parts.push(
+      ...renderFallbackMentionText(text.slice(lastIndex), `plain-${lastIndex}-`),
+    );
+  }
+  return parts;
+}
+
+function CommentBody({ text }: { text: string }) {
+  return (
+    <p className="whitespace-pre-wrap break-words text-sm">{renderMentionText(text)}</p>
+  );
+}
 
 export function Comments() {
   const {
@@ -111,11 +356,11 @@ export function Comments() {
             <div className="border-l-2 border-[var(--color-accent)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
               “{quote.length > 80 ? quote.slice(0, 80) + "…" : quote}”
             </div>
-            <Textarea
+            <MentionTextarea
               autoFocus
               rows={3}
               value={body}
-              onChange={(e) => setBody(e.target.value)}
+              onChange={setBody}
               onKeyDown={(e) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                   e.preventDefault();
@@ -151,14 +396,21 @@ export function Comments() {
             className="space-y-3"
             initial="hidden"
             animate="visible"
-            variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.06 } } }}
+            variants={{
+              hidden: {},
+              visible: { transition: { staggerChildren: 0.06 } },
+            }}
           >
             {items.map((c) => (
               <motion.div
                 key={c.id}
                 variants={{
                   hidden: { opacity: 0, x: 12 },
-                  visible: { opacity: 1, x: 0, transition: { duration: 0.3, ease: [0.25, 0.4, 0.25, 1] as const } },
+                  visible: {
+                    opacity: 1,
+                    x: 0,
+                    transition: { duration: 0.3, ease: [0.25, 0.4, 0.25, 1] as const },
+                  },
                 }}
               >
                 <CommentCard c={c} docId={docId} />
@@ -221,7 +473,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
         </blockquote>
       )}
       <div className="flex items-start justify-between gap-2">
-        <p className="text-sm">{c.body}</p>
+        <CommentBody text={c.body} />
         <DeleteCommentButton
           c={c}
           docId={docId}
@@ -280,7 +532,7 @@ function ReplyItem({
           className="opacity-0 transition-opacity group-hover/reply:opacity-100"
         />
       </div>
-      <p className="text-sm">{r.body}</p>
+      <CommentBody text={r.body} />
     </div>
   );
 }
@@ -303,14 +555,19 @@ function ReplyComposer({
         setBody("");
       }}
     >
-      <Textarea
+      <MentionTextarea
         rows={1}
         value={body}
-        onChange={(e) => setBody(e.target.value)}
+        onChange={setBody}
         placeholder="Reply…"
         className="min-h-9 text-sm"
       />
-      <Button size="sm" type="submit" disabled={!body.trim() || pending}>
+      <Button
+        size="sm"
+        type="submit"
+        disabled={!body.trim() || pending}
+        className="shrink-0"
+      >
         Reply
       </Button>
     </form>

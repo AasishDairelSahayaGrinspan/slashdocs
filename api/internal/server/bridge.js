@@ -2,6 +2,14 @@ function bridge() {
   const appOrigin = window.__AIDOCS_APP_ORIGIN__ || "*";
   const frame = document.getElementById("aidocs-doc");
   const svgNS = "http://www.w3.org/2000/svg";
+  let kvRequestID = 0;
+  const kvPending = {};
+  const kvRequestTimeoutMS = 10000;
+  const kvHistoryLimit = 100;
+  let kvUndoStack = [];
+  let kvRedoStack = [];
+  let kvMutationQueue = Promise.resolve();
+  let kvHistoryGeneration = 0;
 
   function doc() {
     try {
@@ -9,6 +17,375 @@ function bridge() {
     } catch (e) {
       return null;
     }
+  }
+
+  function targetOrigin() {
+    if (!appOrigin || appOrigin === "*") return "*";
+    if (appOrigin === "self" || appOrigin === "'self'") return window.location.origin;
+    try {
+      return new URL(appOrigin, window.location.href).origin;
+    } catch (e) {
+      return "*";
+    }
+  }
+
+  function isParentMessage(e) {
+    if (e.source !== parent) return false;
+    const origin = targetOrigin();
+    return origin === "*" || e.origin === origin;
+  }
+
+  function innerWindow() {
+    try {
+      return frame.contentWindow;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function jsonValue(value) {
+    const text = JSON.stringify(value);
+    if (text === undefined) throw new TypeError("KV value must be JSON serializable");
+    return JSON.parse(text);
+  }
+
+  function emptyKVPatch() {
+    return { set: {}, delete: [] };
+  }
+
+  function hasOwn(obj, key) {
+    return Object.prototype.hasOwnProperty.call(obj || {}, key);
+  }
+
+  function hasKVPatchChanges(patch) {
+    return (
+      Object.keys((patch && patch.set) || {}).length > 0 ||
+      !!(patch && patch.delete && patch.delete.length)
+    );
+  }
+
+  function cloneKVPatch(patch) {
+    const set = {};
+    Object.keys((patch && patch.set) || {}).forEach((key) => {
+      set[key] = jsonValue(patch.set[key]);
+    });
+    return { set, delete: ((patch && patch.delete) || []).map(String) };
+  }
+
+  function pushKVStack(stack, entry) {
+    stack.push(entry);
+    while (stack.length > kvHistoryLimit) stack.shift();
+  }
+
+  function resetKVHistory() {
+    kvHistoryGeneration++;
+    kvUndoStack = [];
+    kvRedoStack = [];
+    kvMutationQueue = Promise.resolve();
+  }
+
+  function kvPatchFromSet(key, value) {
+    if (value === undefined) {
+      throw new TypeError("aidocs.kv.set requires a JSON value");
+    }
+    const patch = emptyKVPatch();
+    const k = String(key);
+    if (value === null) patch.delete.push(k);
+    else patch.set[k] = jsonValue(value);
+    return patch;
+  }
+
+  function kvPatchFromDelete(key) {
+    const patch = emptyKVPatch();
+    patch.delete.push(String(key));
+    return patch;
+  }
+
+  function kvPatchFromObject(object) {
+    if (!object || typeof object !== "object" || Array.isArray(object)) {
+      throw new TypeError("aidocs.kv.patch requires an object");
+    }
+    const patch = emptyKVPatch();
+    Object.keys(object).forEach((key) => {
+      const value = object[key];
+      if (value === null || value === undefined) {
+        patch.delete.push(key);
+      } else {
+        patch.set[key] = jsonValue(value);
+      }
+    });
+    return patch;
+  }
+
+  function kvRequestItems() {
+    return kvRequest("all").then((res) =>
+      res && res.items && typeof res.items === "object" ? res.items : {},
+    );
+  }
+
+  function kvInversePatch(forward, items) {
+    const inverse = emptyKVPatch();
+    const keys = {};
+    Object.keys((forward && forward.set) || {}).forEach((key) => {
+      keys[key] = true;
+    });
+    ((forward && forward.delete) || []).forEach((key) => {
+      keys[key] = true;
+    });
+    Object.keys(keys).forEach((key) => {
+      if (hasOwn(items, key)) inverse.set[key] = jsonValue(items[key]);
+      else inverse.delete.push(key);
+    });
+    return inverse;
+  }
+
+  function sameKVValue(a, b) {
+    if (Object.is(a, b)) return true;
+    if (a === null || b === null) return a === b;
+    if (typeof a !== typeof b) return false;
+    if (typeof a !== "object") return false;
+    const aIsArray = Array.isArray(a);
+    const bIsArray = Array.isArray(b);
+    if (aIsArray || bIsArray) {
+      if (!aIsArray || !bIsArray || a.length !== b.length) return false;
+      for (let i = 0; i < a.length; i++) {
+        if (!sameKVValue(a[i], b[i])) return false;
+      }
+      return true;
+    }
+    const aKeys = Object.keys(a).sort();
+    const bKeys = Object.keys(b).sort();
+    if (aKeys.length !== bKeys.length) return false;
+    for (let i = 0; i < aKeys.length; i++) {
+      const key = aKeys[i];
+      if (key !== bKeys[i] || !sameKVValue(a[key], b[key])) return false;
+    }
+    return true;
+  }
+
+  function kvPatchMatchesItems(patch, items) {
+    const set = (patch && patch.set) || {};
+    for (const key of Object.keys(set)) {
+      if (!hasOwn(items, key) || !sameKVValue(items[key], set[key])) return false;
+    }
+    for (const key of (patch && patch.delete) || []) {
+      if (hasOwn(items, key)) return false;
+    }
+    return true;
+  }
+
+  function rejectStaleKVHistory(message) {
+    resetKVHistory();
+    return Promise.reject(new Error(message));
+  }
+
+  function rejectResetKVHistory() {
+    return Promise.reject(new Error("KV history was reset"));
+  }
+
+  function queueKVMutation(task) {
+    const run = kvMutationQueue.then(task, task);
+    kvMutationQueue = run.catch(() => {});
+    return run;
+  }
+
+  function kvApplyPatch(patch, operation) {
+    const outgoing = cloneKVPatch(patch);
+    return kvRequest("patch", {
+      set: outgoing.set,
+      delete: outgoing.delete,
+      source: "local",
+      kvOperation: operation,
+    });
+  }
+
+  function kvApplyLocalPatch(forward, operation) {
+    const generation = kvHistoryGeneration;
+    const patch = cloneKVPatch(forward);
+    return queueKVMutation(() => {
+      if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+      if (!hasKVPatchChanges(patch)) return kvApplyPatch(patch, operation);
+      return kvRequestItems().then((items) => {
+        if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+        const inverse = kvInversePatch(patch, items);
+        return kvApplyPatch(patch, operation).then((result) => {
+          if (generation === kvHistoryGeneration) {
+            pushKVStack(kvUndoStack, { forward: patch, inverse });
+            kvRedoStack = [];
+          }
+          return result;
+        });
+      });
+    });
+  }
+
+  function kvUndo() {
+    const generation = kvHistoryGeneration;
+    return queueKVMutation(() => {
+      if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+      const entry = kvUndoStack.pop();
+      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "undo" });
+      return kvRequestItems().then((items) => {
+        if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+        if (!kvPatchMatchesItems(entry.forward, items)) {
+          return rejectStaleKVHistory("KV undo history is stale");
+        }
+        return kvApplyPatch(entry.inverse, "undo").then(
+          (result) => {
+            if (generation === kvHistoryGeneration) pushKVStack(kvRedoStack, entry);
+            return result;
+          },
+          (err) => {
+            if (generation === kvHistoryGeneration) kvUndoStack.push(entry);
+            throw err;
+          },
+        );
+      });
+    });
+  }
+
+  function kvRedo() {
+    const generation = kvHistoryGeneration;
+    return queueKVMutation(() => {
+      if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+      const entry = kvRedoStack.pop();
+      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "redo" });
+      return kvRequestItems().then((items) => {
+        if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
+        if (!kvPatchMatchesItems(entry.inverse, items)) {
+          return rejectStaleKVHistory("KV redo history is stale");
+        }
+        return kvApplyPatch(entry.forward, "redo").then(
+          (result) => {
+            if (generation === kvHistoryGeneration) pushKVStack(kvUndoStack, entry);
+            return result;
+          },
+          (err) => {
+            if (generation === kvHistoryGeneration) kvRedoStack.push(entry);
+            throw err;
+          },
+        );
+      });
+    });
+  }
+
+  function kvRequest(operation, payload) {
+    const requestId = "kv_" + ++kvRequestID + "_" + Date.now();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        delete kvPending[requestId];
+        reject(new Error("KV request timed out"));
+      }, kvRequestTimeoutMS);
+      kvPending[requestId] = {
+        resolve(value) {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject(error) {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      parent.postMessage(
+        Object.assign({ type: "aidocs:kv-request", requestId, operation }, payload || {}),
+        targetOrigin(),
+      );
+    });
+  }
+
+  function emitKVChange(detail) {
+    const w = innerWindow();
+    if (!w) return;
+    try {
+      const ev = new w.CustomEvent("kvchange", { detail });
+      w.dispatchEvent(ev);
+    } catch (e) {}
+    const handlers =
+      (w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange) || [];
+    handlers.slice().forEach((handler) => {
+      try {
+        handler(detail);
+      } catch (e) {
+        setTimeout(() => {
+          throw e;
+        }, 0);
+      }
+    });
+  }
+
+  function installAidocsAPI() {
+    const w = innerWindow();
+    if (!w) return;
+    const existing = w.aidocs && typeof w.aidocs === "object" ? w.aidocs : {};
+    const handlers =
+      w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange
+        ? w.__aidocsKVHandlers
+        : { kvchange: [] };
+    w.__aidocsKVHandlers = handlers;
+
+    function off(event, handler) {
+      if (event !== "kvchange") return;
+      handlers.kvchange = handlers.kvchange.filter((h) => h !== handler);
+    }
+    function on(event, handler) {
+      if (event !== "kvchange" || typeof handler !== "function") return;
+      handlers.kvchange.push(handler);
+      return function unsubscribe() {
+        off(event, handler);
+      };
+    }
+    const kv = {
+      get(key) {
+        return kvRequest("get", { key: String(key) }).then((res) => res.value);
+      },
+      all() {
+        return kvRequest("all").then((res) => res.items || {});
+      },
+      set(key, value) {
+        return kvApplyLocalPatch(kvPatchFromSet(key, value), "set");
+      },
+      delete(key) {
+        return kvApplyLocalPatch(kvPatchFromDelete(key), "delete");
+      },
+      patch(object) {
+        return kvApplyLocalPatch(kvPatchFromObject(object), "patch");
+      },
+      undo() {
+        return kvUndo();
+      },
+      redo() {
+        return kvRedo();
+      },
+    };
+    existing.kv = kv;
+    existing.on = on;
+    existing.off = off;
+    try {
+      w.aidocs = existing;
+    } catch (e) {}
+
+    const queued = w.__aidocsKVQueue || [];
+    w.__aidocsKVQueue = [];
+    queued.forEach((entry) => {
+      const fn = kv[entry && entry.op];
+      if (!fn) {
+        entry.reject && entry.reject(new Error("unknown aidocs KV operation"));
+        return;
+      }
+      Promise.resolve()
+        .then(() => fn.apply(kv, entry.args || []))
+        .then(entry.resolve, entry.reject);
+    });
+  }
+
+  function hydrateKV() {
+    kvRequest("hydrate", { source: "initial", operation: "hydrate" })
+      .then((res) => {
+        emitKVChange(
+          Object.assign({ source: "initial", operation: "hydrate", changes: [] }, res || {}),
+        );
+      })
+      .catch(() => {});
   }
 
   function textNodes(root) {
@@ -195,8 +572,7 @@ function bridge() {
       e.target.closest &&
       e.target.closest("mark.aidocs-mark,.aidocs-svg-mark-text,.aidocs-svg-mark-rect");
     if (!m || !m.dataset.cid) return;
-    const targetOrigin = appOrigin === "self" ? "*" : appOrigin;
-    parent.postMessage({ type: "aidocs:activate", id: m.dataset.cid }, targetOrigin);
+    parent.postMessage({ type: "aidocs:activate", id: m.dataset.cid }, targetOrigin());
   }
 
   function cssString(s) {
@@ -337,7 +713,6 @@ function bridge() {
       pre = body.slice(Math.max(0, start - 64), start);
       suf = body.slice(end, end + 64);
     } catch (e) {}
-    const targetOrigin = appOrigin === "self" ? "*" : appOrigin;
     parent.postMessage(
       {
         type: "aidocs:selection",
@@ -350,8 +725,57 @@ function bridge() {
           end_offset: end,
         },
       },
-      targetOrigin,
+      targetOrigin(),
     );
+  }
+
+  function isTextEditingTarget(target) {
+    const d = doc();
+    if (d && String(d.designMode || "").toLowerCase() === "on") return true;
+    const keyTarget = target || (d && d.activeElement);
+    const el =
+      keyTarget && keyTarget.nodeType === 1
+        ? keyTarget
+        : keyTarget && keyTarget.parentElement
+          ? keyTarget.parentElement
+          : null;
+    if (!el || !el.closest) return false;
+    const editable = el.closest("input,textarea,[contenteditable],[role='textbox']");
+    if (!editable) return false;
+    if (editable.matches && editable.matches("[contenteditable]")) {
+      return (
+        String(editable.getAttribute("contenteditable") || "").toLowerCase() !==
+        "false"
+      );
+    }
+    const role = String(editable.getAttribute("role") || "").toLowerCase();
+    if (role === "textbox") return true;
+    const tag = String(editable.tagName || "").toLowerCase();
+    if (tag === "textarea") return true;
+    if (tag !== "input") return false;
+    const type = String(editable.getAttribute("type") || "text").toLowerCase();
+    return !/^(button|checkbox|radio|submit|reset|file|image|color|range|hidden)$/.test(
+      type,
+    );
+  }
+
+  function handleKVUndoRedoShortcut(ev) {
+    if (ev.defaultPrevented || isTextEditingTarget(ev.target)) return;
+    if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
+    const key = String(ev.key || "").toLowerCase();
+    const wantsRedo = key === "y" || (key === "z" && ev.shiftKey);
+    const wantsUndo = key === "z" && !ev.shiftKey;
+    if (wantsRedo) {
+      if (!kvRedoStack.length) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      kvRedo().catch(() => {});
+      return;
+    }
+    if (!wantsUndo || !kvUndoStack.length) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    kvUndo().catch(() => {});
   }
 
   curTheme = initialTheme();
@@ -360,7 +784,9 @@ function bridge() {
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
     setupDoc = d;
+    resetKVHistory();
     injectStyles();
+    installAidocsAPI();
     prepareLinks();
     applyTheme(curTheme);
     d.addEventListener("mouseup", () => setTimeout(selection, 0));
@@ -371,15 +797,19 @@ function bridge() {
     // once the finger lifts (touchend), i.e. the gesture has settled.
     var touching = false;
     var touchEmitTimer = null;
-    d.addEventListener("touchstart", function () {
-      touching = true;
-      // A new touch (e.g. grabbing a selection handle to drag) cancels a
-      // pending emit from the previous touchend.
-      if (touchEmitTimer) {
-        clearTimeout(touchEmitTimer);
-        touchEmitTimer = null;
-      }
-    }, { passive: true });
+    d.addEventListener(
+      "touchstart",
+      function () {
+        touching = true;
+        // A new touch (e.g. grabbing a selection handle to drag) cancels a
+        // pending emit from the previous touchend.
+        if (touchEmitTimer) {
+          clearTimeout(touchEmitTimer);
+          touchEmitTimer = null;
+        }
+      },
+      { passive: true },
+    );
     d.addEventListener("touchend", function () {
       touching = false;
       // Wait after the finger lifts before emitting. If the user grabs a
@@ -404,30 +834,33 @@ function bridge() {
     });
     d.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") {
-        const t = appOrigin === "self" ? "*" : appOrigin;
-        parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, t);
+        parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
       }
+      handleKVUndoRedoShortcut(ev);
     });
     // Forward trackpad pinch-to-zoom (wheel + ctrlKey) to parent so the
     // app can scale only the document iframe instead of browser-zooming.
-    d.addEventListener("wheel", function (ev) {
-      if (!ev.ctrlKey) return;
-      ev.preventDefault();
-      var t = appOrigin === "self" ? "*" : appOrigin;
-      parent.postMessage(
-        {
-          type: "aidocs:zoom",
-          deltaY: ev.deltaY,
-          clientX: ev.clientX,
-          clientY: ev.clientY,
-        },
-        t,
-      );
-    }, { passive: false });
+    d.addEventListener(
+      "wheel",
+      function (ev) {
+        if (!ev.ctrlKey) return;
+        ev.preventDefault();
+        parent.postMessage(
+          {
+            type: "aidocs:zoom",
+            deltaY: ev.deltaY,
+            clientX: ev.clientX,
+            clientY: ev.clientY,
+          },
+          targetOrigin(),
+        );
+      },
+      { passive: false },
+    );
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
-    const targetOrigin = appOrigin === "self" ? "*" : appOrigin;
-    parent.postMessage({ type: "aidocs:ready" }, targetOrigin);
+    parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
+    hydrateKV();
   }
 
   frame.addEventListener("load", setupFrame);
@@ -438,7 +871,18 @@ function bridge() {
 
   window.addEventListener("message", (e) => {
     if (!e.data) return;
+    if (!isParentMessage(e)) return;
     if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
     else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
+    else if (e.data.type === "aidocs:kv-response") {
+      const requestId = String(e.data.requestId || "");
+      const pending = kvPending[requestId];
+      if (!pending) return;
+      delete kvPending[requestId];
+      if (e.data.ok) pending.resolve(e.data.result || {});
+      else pending.reject(new Error((e.data.error && e.data.error.message) || "KV request failed"));
+    } else if (e.data.type === "aidocs:kv-event") {
+      emitKVChange(e.data.detail || {});
+    }
   });
 }

@@ -79,6 +79,35 @@ export type Pin = {
   resource_type: "document" | "folder";
   resource_id: string;
 };
+export type DocumentKVSnapshot = {
+  revision: number;
+  items: Record<string, unknown>;
+};
+export type DocumentKVChange = {
+  key: string;
+  value?: unknown;
+  deleted?: boolean;
+  revision: number;
+  updated_at?: string;
+  updated_by?: Principal;
+  operation?: string;
+};
+export type DocumentKVPatch = {
+  set?: Record<string, unknown>;
+  delete?: string[];
+};
+export type DocumentKVPatchResult = {
+  revision: number;
+  changes: DocumentKVChange[];
+  updated_by?: Principal;
+};
+export type DocumentKVEvent = {
+  document_id: string;
+  revision: number;
+  changes: DocumentKVChange[];
+  updated_at?: string;
+  updated_by?: Principal;
+};
 export type AccessSource = {
   resource_type: string;
   resource_id: string;
@@ -104,6 +133,7 @@ export class APIError extends Error {
     public status: number,
     public code: string,
     message: string,
+    public details?: unknown,
   ) {
     super(message);
   }
@@ -114,23 +144,23 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     credentials: "include",
     ...init,
     headers: {
-      ...(init.body instanceof FormData
-        ? {}
-        : { "Content-Type": "application/json" }),
+      ...(init.body instanceof FormData ? {} : { "Content-Type": "application/json" }),
       ...(init.headers || {}),
     },
   });
   if (!res.ok) {
     let msg = res.statusText;
     let code = "http_error";
+    let details: unknown;
     try {
       const payload = (await res.json()) as {
-        error?: { message?: string; code?: string };
+        error?: { message?: string; code?: string; details?: unknown };
       };
       msg = payload.error?.message || msg;
       code = payload.error?.code || code;
+      details = payload.error?.details;
     } catch {}
-    throw new APIError(res.status, code, msg);
+    throw new APIError(res.status, code, msg, details);
   }
   if (res.status === 204) return undefined as T;
   const ct = res.headers.get("content-type") || "";
@@ -161,10 +191,10 @@ export const api = {
     const fd = new FormData();
     fd.set("title", title);
     fd.set("file", file);
-    return request<{ id: string; current_version_id: string }>(
-      "/v1/documents",
-      { method: "POST", body: fd },
-    );
+    return request<{ id: string; current_version_id: string }>("/v1/documents", {
+      method: "POST",
+      body: fd,
+    });
   },
   listVersions: (doc: string) =>
     request<{ items: Version[] }>(`/v1/documents/${doc}/versions`),
@@ -183,6 +213,13 @@ export const api = {
       `/v1/documents/${doc}/versions/${version}/render-token`,
       { method: "POST" },
     ),
+  listDocumentKV: (doc: string) =>
+    request<DocumentKVSnapshot>(`/v1/documents/${doc}/kv`),
+  patchDocumentKV: (doc: string, patch: DocumentKVPatch) =>
+    request<DocumentKVPatchResult>(`/v1/documents/${doc}/kv`, {
+      method: "PATCH",
+      body: JSON.stringify(patch),
+    }),
   listComments: (doc: string, version?: string) =>
     request<{ items: Comment[] }>(
       `/v1/documents/${doc}/comments${version ? `?version_id=${encodeURIComponent(version)}` : ""}`,
@@ -292,13 +329,16 @@ export const api = {
       body: JSON.stringify({ title, parent_folder_id: parentFolderId || undefined }),
     }),
   updateFolder: (id: string, title?: string, parentFolderId?: string | null) =>
-    request<Folder & { permission_warning?: { kind: string; message: string } }>(`/v1/folders/${id}`, {
-      method: "PATCH",
-      body: JSON.stringify({
-        ...(title ? { title } : {}),
-        ...(parentFolderId !== undefined ? { parent_folder_id: parentFolderId } : {}),
-      }),
-    }),
+    request<Folder & { permission_warning?: { kind: string; message: string } }>(
+      `/v1/folders/${id}`,
+      {
+        method: "PATCH",
+        body: JSON.stringify({
+          ...(title ? { title } : {}),
+          ...(parentFolderId !== undefined ? { parent_folder_id: parentFolderId } : {}),
+        }),
+      },
+    ),
   deleteFolder: (id: string) =>
     request<void>(`/v1/folders/${id}`, { method: "DELETE" }),
   createFolderGrant: (id: string, address: string, role: string) =>
@@ -323,10 +363,14 @@ export const api = {
   listFolderDocuments: (id: string) =>
     request<{ items: Document[] }>(`/v1/folders/${id}/documents`),
   moveDocumentToFolder: (folderId: string, documentId: string) =>
-    request<{ document_id: string; moved: boolean; permission_warning?: { message: string } }>(
-      `/v1/folders/${folderId}/documents`,
-      { method: "POST", body: JSON.stringify({ document_id: documentId }) },
-    ),
+    request<{
+      document_id: string;
+      moved: boolean;
+      permission_warning?: { message: string };
+    }>(`/v1/folders/${folderId}/documents`, {
+      method: "POST",
+      body: JSON.stringify({ document_id: documentId }),
+    }),
   moveDocumentToRoot: (folderId: string, documentId: string) =>
     request<void>(`/v1/folders/${folderId}/documents/${documentId}`, {
       method: "DELETE",
@@ -347,6 +391,5 @@ export const api = {
 
 export const docID = (d: Partial<Document>) => d.id || "";
 export const docTitle = (d: Partial<Document>) => d.title || "Untitled";
-export const currentVersionID = (d: Partial<Document>) =>
-  d.current_version_id || "";
+export const currentVersionID = (d: Partial<Document>) => d.current_version_id || "";
 export const versionID = (v: Partial<Version>) => v.id || "";

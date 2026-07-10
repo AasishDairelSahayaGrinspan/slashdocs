@@ -173,9 +173,7 @@ export function DocBar({
         <DropdownContent>
           <DropdownItem
             className="sm:hidden"
-            onSelect={() =>
-              nav(`/app/d/${docId}?fullscreen=1&version=${current}`)
-            }
+            onSelect={() => nav(`/app/d/${docId}?fullscreen=1&version=${current}`)}
           >
             <Maximize2 className="h-4 w-4" /> Full screen
           </DropdownItem>

@@ -188,13 +188,19 @@ const searchUsersByEmail = `-- name: SearchUsersByEmail :many
 SELECT id,email,name,picture_url
 FROM users
 WHERE google_sub IS NOT NULL
-  AND lower(email) LIKE '%' || lower($1) || '%'
+  AND (
+    lower(email) LIKE '%' || lower($1) || '%'
+    OR lower(name) LIKE '%' || lower($1) || '%'
+  )
 ORDER BY
   CASE
     WHEN lower(email) = lower($1) THEN 0
-    WHEN lower(email) LIKE lower($1) || '%' THEN 1
-    ELSE 2
+    WHEN lower(name) = lower($1) THEN 1
+    WHEN lower(email) LIKE lower($1) || '%' THEN 2
+    WHEN lower(name) LIKE lower($1) || '%' THEN 3
+    ELSE 4
   END,
+  name,
   email
 LIMIT 8
 `
