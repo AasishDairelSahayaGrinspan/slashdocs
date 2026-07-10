@@ -13,6 +13,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os/exec"
 	"strconv"
 	"strings"
 	"testing"
@@ -939,6 +940,45 @@ func TestInstallScriptInstallsBundledSkill(t *testing.T) {
 		`$BASE_URL/skills/aidocs/SKILL.md`,
 		`$HOME/.agents/skills/aidocs`,
 		`$HOME/.claude/skills/aidocs`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("install script missing %q in:\n%s", want, body)
+		}
+	}
+}
+
+func TestInstallScriptIsValidBash(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.example", SessionSecret: "test-secret"})
+	req := httptest.NewRequest(http.MethodGet, "/install.sh", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	body := rr.Body.String()
+	cmd := exec.Command("bash", "-n")
+	cmd.Stdin = strings.NewReader(body)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("install script is not valid bash: %v\n%s\nscript:\n%s", err, out, body)
+	}
+}
+
+func TestInstallScriptAddsInstallDirToPath(t *testing.T) {
+	h := newConfiguredTestServer(server.Config{Environment: "test", AppOrigin: "https://aidocs.example", SessionSecret: "test-secret"})
+	req := httptest.NewRequest(http.MethodGet, "/install.sh", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+
+	assertStatus(t, rr, http.StatusOK)
+	body := rr.Body.String()
+	for _, want := range []string{
+		`ensure_bin_dir_on_path`,
+		`export PATH="$BIN_DIR:$PATH"`,
+		`echo "# Added by aidocs installer"`,
+		`echo "Added $BIN_DIR to PATH in $profile."`,
+		`echo "$HOME/.zshrc"`,
+		`echo "$HOME/.bashrc"`,
+		`echo "$HOME/.bash_profile"`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("install script missing %q in:\n%s", want, body)

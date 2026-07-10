@@ -231,10 +231,61 @@ echo "Installed aidocs skill at:"
 echo "  $HOME/.agents/skills/aidocs/SKILL.md"
 echo "  $HOME/.claude/skills/aidocs/SKILL.md"
 
-case ":$PATH:" in
-  *":$BIN_DIR:"*) ;;
-  *) echo "Add $BIN_DIR to PATH to use this install." ;;
-esac
+profile_for_current_shell() {
+  shell_name="$(basename "${SHELL:-}")"
+  case "$shell_name" in
+    zsh) echo "$HOME/.zshrc" ;;
+    bash)
+      if [ "$os" = "darwin" ]; then
+        echo "$HOME/.bash_profile"
+      else
+        echo "$HOME/.bashrc"
+      fi
+      ;;
+    fish) echo "$HOME/.config/fish/config.fish" ;;
+    *) echo "$HOME/.profile" ;;
+  esac
+}
+
+ensure_bin_dir_on_path() {
+  case ":$PATH:" in
+    *":$BIN_DIR:"*) return ;;
+  esac
+
+  export PATH="$BIN_DIR:$PATH"
+
+  profile="$(profile_for_current_shell)"
+  shell_name="$(basename "${SHELL:-}")"
+  path_line="export PATH=\"$BIN_DIR:\$PATH\""
+  if [ "$shell_name" = "fish" ]; then
+    mkdir -p "$(dirname "$profile")" 2>/dev/null || {
+      echo "Add $BIN_DIR to PATH to use this install."
+      return
+    }
+    path_line="set -gx PATH \"$BIN_DIR\" \$PATH"
+  fi
+
+  touch "$profile" 2>/dev/null || {
+    echo "Add $BIN_DIR to PATH to use this install."
+    return
+  }
+  if grep -F "$BIN_DIR" "$profile" >/dev/null 2>&1; then
+    echo "Exported $BIN_DIR into PATH for this install. It already appears in $profile."
+    return
+  fi
+  {
+    echo ""
+    echo "# Added by aidocs installer"
+    echo "$path_line"
+  } >> "$profile" || {
+    echo "Add $BIN_DIR to PATH to use this install."
+    return
+  }
+  echo "Added $BIN_DIR to PATH in $profile."
+  echo "New terminals will pick this up automatically."
+}
+
+ensure_bin_dir_on_path
 
 active_path="$(command -v aidocs 2>/dev/null || true)"
 if [ -n "$active_path" ] && [ "$active_path" != "$BIN_PATH" ]; then
