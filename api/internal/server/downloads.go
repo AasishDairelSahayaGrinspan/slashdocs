@@ -282,7 +282,7 @@ ensure_bin_dir_on_path() {
     return
   }
   echo "Added $BIN_DIR to PATH in $profile."
-  echo "Restart your shell to use aidocs from new terminals."
+  echo "New terminals will pick this up automatically."
 }
 
 ensure_bin_dir_on_path

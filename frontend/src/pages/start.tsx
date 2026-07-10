@@ -120,7 +120,8 @@ export function StartPage() {
             CLI plus the bundled agent skill, so your agent knows when to publish docs
             to aidocs.
           </p>
-          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash`}</CodeBlock>
+          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash
+export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
           <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
             Works on macOS and Linux. The skill is fetched from this aidocs server and
             installed into the standard agent skills directory and Claude's skills
