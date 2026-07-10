@@ -71,6 +71,17 @@ type DocumentKv struct {
 	DeletedAt      pgtype.Timestamptz
 }
 
+type DocumentKvEvent struct {
+	DocumentID     string
+	Revision       int64
+	Changes        []byte
+	UpdatedAt      pgtype.Timestamptz
+	UpdatedByType  string
+	UpdatedByID    string
+	UpdatedByEmail string
+	UpdatedByName  string
+}
+
 type DocumentWorkspaceEntry struct {
 	DocumentID    string
 	PrincipalType string

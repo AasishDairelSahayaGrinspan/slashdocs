@@ -79,7 +79,7 @@ version for the active context, so --base-version is optional.
 Publishing model:
   - Creating a document stores the uploaded HTML as version 1.
   - Pushing HTML creates a new immutable version.
-  - Manual template edits in the aidocs UI also use the save/version flow.
+  - The aidocs UI is for review; agents and CLI/API publishers create versions.
   - Runtime KV changes from uploaded HTML do not create versions; see:
       aidocs guidelines interactivity kv
 
@@ -234,7 +234,7 @@ Semantics:
   - KV is document-level state, not version-level state.
   - KV writes persist immediately. There is no Save button for KV updates.
   - KV writes do not create document versions.
-  - Document template/HTML edits still use the ordinary save/version flow.
+  - Template/HTML updates still go through the ordinary publish/version flow.
   - Viewers can read KV values. Editors can write KV values.
   - Values must be JSON-serializable.
   - null is a delete sentinel. set(key, null) deletes key, and passing null or

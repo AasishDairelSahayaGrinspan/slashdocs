@@ -101,6 +101,13 @@ export type DocumentKVPatchResult = {
   changes: DocumentKVChange[];
   updated_by?: Principal;
 };
+export type DocumentKVEvent = {
+  document_id: string;
+  revision: number;
+  changes: DocumentKVChange[];
+  updated_at?: string;
+  updated_by?: Principal;
+};
 export type AccessSource = {
   resource_type: string;
   resource_id: string;

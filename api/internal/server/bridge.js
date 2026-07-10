@@ -2,12 +2,6 @@ function bridge() {
   const appOrigin = window.__AIDOCS_APP_ORIGIN__ || "*";
   const frame = document.getElementById("aidocs-doc");
   const svgNS = "http://www.w3.org/2000/svg";
-  let editMode = false;
-  let editDirty = false;
-  let originalBodyAttrs = null;
-  let originalDocAttrs = null;
-  let preparedLinkID = 0;
-  const preparedLinks = {};
   let kvRequestID = 0;
   const kvPending = {};
   const kvRequestTimeoutMS = 10000;
@@ -415,16 +409,6 @@ function bridge() {
     (d.head || d.documentElement).appendChild(s);
   }
 
-  function injectEditStyles() {
-    const d = doc();
-    if (!d || d.getElementById("aidocs-edit-style")) return;
-    const s = d.createElement("style");
-    s.id = "aidocs-edit-style";
-    s.textContent =
-      "html.aidocs-edit-mode body{min-height:100vh!important;outline:2px solid rgba(37,99,235,.65)!important;outline-offset:-2px!important;cursor:text!important;caret-color:#2563eb!important}html.aidocs-edit-mode body:focus{outline:2px solid rgba(37,99,235,.9)!important}";
-    (d.head || d.documentElement).appendChild(s);
-  }
-
   function clear() {
     const d = doc();
     if (!d) return;
@@ -437,144 +421,6 @@ function bridge() {
       delete t.dataset.cid;
     });
     d.body && d.body.normalize();
-  }
-
-  function rememberOriginalBodyAttrs(d) {
-    if (originalBodyAttrs || !d || !d.body) return;
-    originalBodyAttrs = {
-      contenteditable: d.body.getAttribute("contenteditable"),
-      spellcheck: d.body.getAttribute("spellcheck"),
-      aidocsEditing: d.body.getAttribute("data-aidocs-editing"),
-      designMode: d.designMode || "off",
-    };
-  }
-
-  function rememberOriginalDocAttrs(d) {
-    if (originalDocAttrs || !d || !d.documentElement) return;
-    originalDocAttrs = {
-      aidocsTheme: d.documentElement.getAttribute("data-aidocs-theme"),
-    };
-  }
-
-  function setOrRemoveAttr(el, name, value) {
-    if (value === null || value === undefined) el.removeAttribute(name);
-    else el.setAttribute(name, value);
-  }
-
-  function restoreBodyAttrs(body) {
-    if (!body) return;
-    if (!originalBodyAttrs) {
-      body.removeAttribute("contenteditable");
-      body.removeAttribute("spellcheck");
-      body.removeAttribute("data-aidocs-editing");
-      return;
-    }
-    setOrRemoveAttr(body, "contenteditable", originalBodyAttrs.contenteditable);
-    setOrRemoveAttr(body, "spellcheck", originalBodyAttrs.spellcheck);
-    setOrRemoveAttr(body, "data-aidocs-editing", originalBodyAttrs.aidocsEditing);
-  }
-
-  function postEditDirty() {
-    parent.postMessage({ type: "aidocs:edit-dirty", dirty: editDirty }, targetOrigin());
-  }
-
-  function markEditDirty() {
-    if (!editMode || editDirty) return;
-    editDirty = true;
-    postEditDirty();
-  }
-
-  function applyEditMode(enabled) {
-    const d = doc();
-    if (!d || !d.body) return;
-    editMode = !!enabled;
-    rememberOriginalBodyAttrs(d);
-    injectEditStyles();
-    if (editMode) {
-      clear();
-      d.documentElement.classList.add("aidocs-edit-mode");
-      d.body.setAttribute("contenteditable", "true");
-      d.body.setAttribute("spellcheck", "true");
-      d.body.setAttribute("data-aidocs-editing", "true");
-      try {
-        d.designMode = "off";
-        d.body.focus({ preventScroll: true });
-      } catch (e) {}
-    } else {
-      d.documentElement.classList.remove("aidocs-edit-mode");
-      restoreBodyAttrs(d.body);
-      try {
-        d.designMode =
-          originalBodyAttrs && originalBodyAttrs.designMode
-            ? originalBodyAttrs.designMode
-            : "off";
-      } catch (e) {}
-    }
-    postEditDirty();
-  }
-
-  function cleanupCloneForSave(root) {
-    root
-      .querySelectorAll("mark.aidocs-mark")
-      .forEach((m) => m.replaceWith(...m.childNodes));
-    root.querySelectorAll(".aidocs-svg-mark-rect").forEach((r) => r.remove());
-    root.querySelectorAll(".aidocs-svg-mark-text").forEach((t) => {
-      t.classList.remove("aidocs-svg-mark-text");
-      delete t.dataset.cid;
-    });
-    root
-      .querySelectorAll("#aidocs-highlight-style,#aidocs-edit-style,#aidocs-bootstrap")
-      .forEach((s) => s.remove());
-    root.classList.remove("aidocs-edit-mode");
-    setOrRemoveAttr(
-      root,
-      "data-aidocs-theme",
-      originalDocAttrs ? originalDocAttrs.aidocsTheme : null,
-    );
-    root.querySelectorAll("a[data-aidocs-link-bridge-id]").forEach((a) => {
-      const id = a.getAttribute("data-aidocs-link-bridge-id");
-      const original = preparedLinks[id] || {};
-      if (original.target === null || original.target === undefined) {
-        a.removeAttribute("target");
-      } else {
-        a.setAttribute("target", original.target);
-      }
-      if (original.rel === null || original.rel === undefined) {
-        a.removeAttribute("rel");
-      } else {
-        a.setAttribute("rel", original.rel);
-      }
-      if (original.hadBridgeID) {
-        a.setAttribute("data-aidocs-link-bridge-id", original.bridgeID || "");
-      } else {
-        a.removeAttribute("data-aidocs-link-bridge-id");
-      }
-    });
-    restoreBodyAttrs(root.querySelector("body"));
-  }
-
-  function doctypeString(d) {
-    const dt = d && d.doctype;
-    if (!dt) return "<!doctype html>";
-    let out = "<!doctype " + dt.name;
-    if (dt.publicId) out += ' PUBLIC "' + dt.publicId + '"';
-    if (dt.systemId) out += (dt.publicId ? "" : " SYSTEM") + ' "' + dt.systemId + '"';
-    return out + ">";
-  }
-
-  function editedHTML() {
-    const d = doc();
-    if (!d || !d.documentElement) return "";
-    const root = d.documentElement.cloneNode(true);
-    cleanupCloneForSave(root);
-    return doctypeString(d) + "\n" + root.outerHTML;
-  }
-
-  function sendEditedHTML(requestId) {
-    parent.postMessage(
-      { type: "aidocs:edit-html", requestId, html: editedHTML() },
-      targetOrigin(),
-    );
   }
 
   function norm(s) {
@@ -721,7 +567,6 @@ function bridge() {
   }
 
   function activate(e) {
-    if (editMode) return;
     const m =
       e.target &&
       e.target.closest &&
@@ -768,10 +613,6 @@ function bridge() {
     if (!d || !e.target || !e.target.closest) return;
     const a = e.target.closest("a[href]");
     if (!a) return;
-    if (editMode) {
-      e.preventDefault();
-      return;
-    }
     const href = a.getAttribute("href") || "";
     if (!href || /^javascript:/i.test(href)) {
       e.preventDefault();
@@ -809,18 +650,6 @@ function bridge() {
     d.querySelectorAll("a[href]").forEach((a) => {
       const href = a.getAttribute("href") || "";
       if (href && !/^#|javascript:/i.test(href)) {
-        const hadBridgeID = a.hasAttribute("data-aidocs-link-bridge-id");
-        const bridgeID = hadBridgeID
-          ? a.getAttribute("data-aidocs-link-bridge-id") || ""
-          : "";
-        const id = String(++preparedLinkID);
-        preparedLinks[id] = {
-          target: a.hasAttribute("target") ? a.getAttribute("target") || "" : null,
-          rel: a.hasAttribute("rel") ? a.getAttribute("rel") || "" : null,
-          hadBridgeID,
-          bridgeID,
-        };
-        a.setAttribute("data-aidocs-link-bridge-id", id);
         a.setAttribute("target", "_blank");
         a.setAttribute("rel", "noopener noreferrer");
       }
@@ -860,7 +689,6 @@ function bridge() {
   }
 
   function selection() {
-    if (editMode) return;
     const d = doc();
     if (!d) return;
     const s = d.getSelection();
@@ -901,24 +729,7 @@ function bridge() {
     );
   }
 
-  function handleEditPaste(ev) {
-    if (!editMode) return;
-    const text = ev.clipboardData && ev.clipboardData.getData("text/plain");
-    if (!text) return;
-    ev.preventDefault();
-    try {
-      doc().execCommand("insertText", false, text);
-    } catch (e) {
-      const s = doc().getSelection();
-      if (!s || s.rangeCount < 1) return;
-      s.deleteFromDocument();
-      s.getRangeAt(0).insertNode(doc().createTextNode(text));
-      s.collapseToEnd();
-    }
-  }
-
   function isTextEditingTarget(target) {
-    if (editMode) return true;
     const d = doc();
     if (d && String(d.designMode || "").toLowerCase() === "on") return true;
     const keyTarget = target || (d && d.activeElement);
@@ -971,22 +782,13 @@ function bridge() {
   frame.addEventListener("load", () => {
     const d = doc();
     if (!d) return;
-    editMode = false;
-    editDirty = false;
-    originalBodyAttrs = null;
-    originalDocAttrs = null;
-    preparedLinkID = 0;
-    Object.keys(preparedLinks).forEach((key) => delete preparedLinks[key]);
     resetKVHistory();
-    rememberOriginalDocAttrs(d);
     injectStyles();
     installAidocsAPI();
     prepareLinks();
     applyTheme(curTheme);
     d.addEventListener("mouseup", () => setTimeout(selection, 0));
     d.addEventListener("keyup", () => setTimeout(selection, 0));
-    d.addEventListener("input", markEditDirty);
-    d.addEventListener("paste", handleEditPaste);
     // Touch devices: while a finger is down the user is still adjusting the
     // selection (long-press then drag the handles), so we must NOT emit yet
     // — doing so pops the comments sheet and steals the drag. We only emit
@@ -1064,9 +866,6 @@ function bridge() {
     if (!isParentMessage(e)) return;
     if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
     else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
-    else if (e.data.type === "aidocs:edit-mode") applyEditMode(!!e.data.enabled);
-    else if (e.data.type === "aidocs:edit-request-html")
-      sendEditedHTML(e.data.requestId);
     else if (e.data.type === "aidocs:kv-response") {
       const requestId = String(e.data.requestId || "");
       const pending = kvPending[requestId];

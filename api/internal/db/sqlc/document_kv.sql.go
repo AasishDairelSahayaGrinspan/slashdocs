@@ -59,6 +59,34 @@ func (q *Queries) GetDocumentKVRevision(ctx context.Context, documentID string) 
 	return column_1, err
 }
 
+const insertDocumentKVEvent = `-- name: InsertDocumentKVEvent :exec
+INSERT INTO document_kv_events(document_id,revision,changes,updated_by_type,updated_by_id,updated_by_email,updated_by_name)
+VALUES($1,$2,$3,$4,$5,$6,$7)
+`
+
+type InsertDocumentKVEventParams struct {
+	DocumentID     string
+	Revision       int64
+	Changes        []byte
+	UpdatedByType  string
+	UpdatedByID    string
+	UpdatedByEmail string
+	UpdatedByName  string
+}
+
+func (q *Queries) InsertDocumentKVEvent(ctx context.Context, arg InsertDocumentKVEventParams) error {
+	_, err := q.db.Exec(ctx, insertDocumentKVEvent,
+		arg.DocumentID,
+		arg.Revision,
+		arg.Changes,
+		arg.UpdatedByType,
+		arg.UpdatedByID,
+		arg.UpdatedByEmail,
+		arg.UpdatedByName,
+	)
+	return err
+}
+
 const listDocumentKV = `-- name: ListDocumentKV :many
 SELECT key,value,revision,updated_at,updated_by_type,updated_by_id,updated_by_email,updated_by_name
 FROM document_kv
@@ -90,6 +118,49 @@ func (q *Queries) ListDocumentKV(ctx context.Context, documentID string) ([]List
 			&i.Key,
 			&i.Value,
 			&i.Revision,
+			&i.UpdatedAt,
+			&i.UpdatedByType,
+			&i.UpdatedByID,
+			&i.UpdatedByEmail,
+			&i.UpdatedByName,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listDocumentKVEventsAfter = `-- name: ListDocumentKVEventsAfter :many
+SELECT document_id,revision,changes,updated_at,updated_by_type,updated_by_id,updated_by_email,updated_by_name
+FROM document_kv_events
+WHERE document_id=$1 AND revision>$2
+ORDER BY revision
+LIMIT $3
+`
+
+type ListDocumentKVEventsAfterParams struct {
+	DocumentID string
+	Revision   int64
+	Limit      int32
+}
+
+func (q *Queries) ListDocumentKVEventsAfter(ctx context.Context, arg ListDocumentKVEventsAfterParams) ([]DocumentKvEvent, error) {
+	rows, err := q.db.Query(ctx, listDocumentKVEventsAfter, arg.DocumentID, arg.Revision, arg.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []DocumentKvEvent
+	for rows.Next() {
+		var i DocumentKvEvent
+		if err := rows.Scan(
+			&i.DocumentID,
+			&i.Revision,
+			&i.Changes,
 			&i.UpdatedAt,
 			&i.UpdatedByType,
 			&i.UpdatedByID,

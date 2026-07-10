@@ -10,6 +10,17 @@ ORDER BY key;
 -- name: GetDocumentKVRevision :one
 SELECT COALESCE(MAX(revision), 0)::bigint FROM document_kv WHERE document_id=$1;
 
+-- name: InsertDocumentKVEvent :exec
+INSERT INTO document_kv_events(document_id,revision,changes,updated_by_type,updated_by_id,updated_by_email,updated_by_name)
+VALUES($1,$2,$3,$4,$5,$6,$7);
+
+-- name: ListDocumentKVEventsAfter :many
+SELECT document_id,revision,changes,updated_at,updated_by_type,updated_by_id,updated_by_email,updated_by_name
+FROM document_kv_events
+WHERE document_id=$1 AND revision>$2
+ORDER BY revision
+LIMIT $3;
+
 -- name: UpsertDocumentKV :exec
 INSERT INTO document_kv(document_id,key,value,revision,updated_by_type,updated_by_id,updated_by_email,updated_by_name,deleted_at)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULL)

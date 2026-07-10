@@ -63,7 +63,7 @@ func TestGuidelinesKVAliasDocumentsPrimitive(t *testing.T) {
 		"KV writes persist immediately",
 		"KV writes do not create document versions",
 		"One document's keys are not visible to another",
-		"Document template/HTML edits still use the ordinary save/version flow",
+		"Template/HTML updates still go through the ordinary publish/version flow",
 		"Editors can write KV values",
 		"set(key, null) deletes key",
 		"event.changes exists on writes",

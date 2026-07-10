@@ -442,6 +442,13 @@ func sortedStrings(items []string) []string {
 	return out
 }
 
+func pgTimeRFC3339(ts pgtype.Timestamptz) string {
+	if !ts.Valid {
+		return ""
+	}
+	return ts.Time.UTC().Format(time.RFC3339Nano)
+}
+
 func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Document, error) {
 	rows, err := s.q.ListDocuments(ctx, dbsqlc.ListDocumentsParams{OwnerID: p.ID, OwnerType: string(p.Type)})
 	if err != nil {
@@ -706,6 +713,58 @@ func (s *Store) ListDocumentKV(ctx context.Context, documentID string) (repo.Doc
 	return repo.DocumentKVSnapshot{Revision: rev, Items: items}, nil
 }
 
+func (s *Store) ListDocumentKVEvents(ctx context.Context, documentID string, afterRevision int64, limit int32) ([]repo.DocumentKVEvent, error) {
+	tx, err := s.db.BeginTx(ctx, pgx.TxOptions{
+		IsoLevel:   pgx.RepeatableRead,
+		AccessMode: pgx.ReadOnly,
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+	q := s.q.WithTx(tx)
+	if _, err := q.GetDocumentOwner(ctx, documentID); errors.Is(err, pgx.ErrNoRows) {
+		return nil, repo.ErrNotFound
+	} else if err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	rows, err := q.ListDocumentKVEventsAfter(ctx, dbsqlc.ListDocumentKVEventsAfterParams{
+		DocumentID: documentID,
+		Revision:   afterRevision,
+		Limit:      limit,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.DocumentKVEvent, 0, len(rows))
+	for _, row := range rows {
+		var changes []repo.DocumentKVChange
+		if err := json.Unmarshal(row.Changes, &changes); err != nil {
+			return nil, err
+		}
+		actor := auth.Principal{
+			Type:  auth.PrincipalType(row.UpdatedByType),
+			ID:    row.UpdatedByID,
+			Email: row.UpdatedByEmail,
+			Name:  row.UpdatedByName,
+		}
+		out = append(out, repo.DocumentKVEvent{
+			DocumentID: row.DocumentID,
+			Revision:   row.Revision,
+			Changes:    changes,
+			UpdatedAt:  pgTimeRFC3339(row.UpdatedAt),
+			UpdatedBy:  &actor,
+		})
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (s *Store) PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (repo.DocumentKVPatchResult, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -744,6 +803,13 @@ func (s *Store) PatchDocumentKV(ctx context.Context, documentID string, set map[
 			return repo.DocumentKVPatchResult{}, err
 		}
 		changes = append(changes, repo.DocumentKVChange{Key: key, Deleted: true, Revision: rev, UpdatedAt: now, UpdatedBy: &actor, Operation: "delete"})
+	}
+	rawChanges, err := json.Marshal(changes)
+	if err != nil {
+		return repo.DocumentKVPatchResult{}, err
+	}
+	if err := q.InsertDocumentKVEvent(ctx, dbsqlc.InsertDocumentKVEventParams{DocumentID: documentID, Revision: rev, Changes: rawChanges, UpdatedByType: actorType, UpdatedByID: actor.ID, UpdatedByEmail: actor.Email, UpdatedByName: actor.Name}); err != nil {
+		return repo.DocumentKVPatchResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return repo.DocumentKVPatchResult{}, err

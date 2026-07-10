@@ -87,11 +87,6 @@ export function DocumentPage() {
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
-  const [htmlEditMode, setHtmlEditMode] = useState(false);
-  const [htmlEditDirty, setHtmlEditDirty] = useState(false);
-  const [htmlEditSaving, setHtmlEditSaving] = useState(false);
-  const [htmlEditSaveRequest, setHtmlEditSaveRequest] = useState(0);
-  const [htmlEditFrameReset, setHtmlEditFrameReset] = useState(0);
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
   const handleDocCommentClick = useCallback(
@@ -165,33 +160,6 @@ export function DocumentPage() {
     versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || queryVersion || latest;
 
-  useEffect(() => {
-    setHtmlEditMode(false);
-    setHtmlEditDirty(false);
-    setHtmlEditSaving(false);
-  }, [current]);
-
-  const requestHtmlEditSave = useCallback(() => {
-    setHtmlEditSaveRequest((request) => request + 1);
-  }, []);
-
-  const toggleHtmlEdit = useCallback(() => {
-    if (htmlEditMode) {
-      setHtmlEditMode(false);
-      setHtmlEditDirty(false);
-      setHtmlEditSaving(false);
-      setHtmlEditFrameReset((reset) => reset + 1);
-      return;
-    }
-    setHtmlEditMode(true);
-  }, [htmlEditMode]);
-
-  const handleHtmlVersionSaved = useCallback((versionID: string) => {
-    setSelectedVersion(versionID);
-    setHtmlEditMode(false);
-    setHtmlEditDirty(false);
-  }, []);
-
   const exitFullscreen = useCallback(() => {
     setSearchParams(
       (params) => {
@@ -225,15 +193,6 @@ export function DocumentPage() {
       commentsLoading: comments.isLoading,
       commentsError: !!comments.error,
       principal: me.data?.principal,
-      htmlEditMode,
-      setHtmlEditMode,
-      htmlEditDirty,
-      setHtmlEditDirty,
-      htmlEditSaving,
-      setHtmlEditSaving,
-      htmlEditSaveRequest,
-      requestHtmlEditSave,
-      handleHtmlVersionSaved,
       selection,
       setSelection,
       activeComment,
@@ -247,13 +206,6 @@ export function DocumentPage() {
       comments.isLoading,
       comments.error,
       me.data,
-      htmlEditMode,
-      htmlEditDirty,
-      htmlEditSaving,
-      htmlEditSaveRequest,
-      requestHtmlEditSave,
-      toggleHtmlEdit,
-      handleHtmlVersionSaved,
       selection,
       activeComment,
       setActiveComment,
@@ -353,20 +305,11 @@ export function DocumentPage() {
               onSelectVersion={setSelectedVersion}
               commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
               onToggleComments={toggleComments}
-              htmlEditMode={htmlEditMode}
-              htmlEditDirty={htmlEditDirty}
-              htmlEditSaving={htmlEditSaving}
-              onToggleHtmlEdit={toggleHtmlEdit}
-              onSaveHtmlEdit={requestHtmlEditSave}
             />
           </motion.div>
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
             <section className="relative flex-1 bg-[var(--color-surface-muted)]">
-              {current ? (
-                <RenderFrame key={`${current}:${htmlEditFrameReset}`} />
-              ) : (
-                <Center>No version available.</Center>
-              )}
+              {current ? <RenderFrame /> : <Center>No version available.</Center>}
             </section>
             <AnimatePresence initial={false}>
               {panelOpen && (

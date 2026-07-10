@@ -3,6 +3,7 @@
 package server_test
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -356,6 +357,85 @@ func TestDocumentKVScopesKeysByDocument(t *testing.T) {
 	})
 	assertStatus(t, doc2, http.StatusOK)
 	assertJSON(t, doc2.Body.Bytes(), `{"revision":1,"items":{"sharedKey":"two"}}`)
+}
+
+func TestDocumentKVEventStreamReplaysStoredEvents(t *testing.T) {
+	h := newTestServer()
+	patch := do(t, h, http.MethodPatch, "/v1/documents/doc_1/kv", `{"set":{"review.checked":true}}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": "user:editor_1:editor@example.com:Editor",
+	})
+	assertStatus(t, patch, http.StatusOK)
+
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v1/documents/doc_1/kv/events?after_revision=0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-Principal", "user:viewer_1:viewer@example.com:Viewer")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want 200", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/event-stream") {
+		t.Fatalf("content-type = %q, want event stream", ct)
+	}
+
+	event := readDocumentKVSSEEvent(t, bufio.NewReader(resp.Body))
+	if event.Revision != 1 || len(event.Changes) != 1 {
+		t.Fatalf("event = revision %d changes %d, want revision 1 changes 1", event.Revision, len(event.Changes))
+	}
+	if event.DocumentID != "doc_1" || event.Changes[0].Key != "review.checked" {
+		t.Fatalf("event = %#v, want doc_1 review.checked", event)
+	}
+}
+
+func TestDocumentKVEventStreamReceivesLiveEvents(t *testing.T) {
+	h := newTestServer()
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v1/documents/doc_1/kv/events?after_revision=0", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("X-Test-Principal", "user:viewer_1:viewer@example.com:Viewer")
+	resp, err := ts.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	reader := bufio.NewReader(resp.Body)
+	readSSEComment(t, reader, ": connected")
+
+	patchReq, err := http.NewRequest(http.MethodPatch, ts.URL+"/v1/documents/doc_1/kv", strings.NewReader(`{"set":{"review.checked":true}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	patchReq.Header.Set("Content-Type", "application/json")
+	patchReq.Header.Set("X-Test-Principal", "user:editor_1:editor@example.com:Editor")
+	patchResp, err := ts.Client().Do(patchReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer patchResp.Body.Close()
+	if patchResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(patchResp.Body)
+		t.Fatalf("patch status = %d, want 200: %s", patchResp.StatusCode, body)
+	}
+
+	event := readDocumentKVSSEEvent(t, reader)
+	if event.Revision != 1 || len(event.Changes) != 1 || event.Changes[0].Key != "review.checked" {
+		t.Fatalf("event = %#v, want live revision 1 review.checked", event)
+	}
 }
 
 func TestGrantDocumentAccessRejectsUnknownUserEmail(t *testing.T) {
@@ -1051,6 +1131,50 @@ func (r *contextCheckingRepo) ListDocuments(ctx context.Context, p auth.Principa
 		r.sawMarker = true
 	}
 	return r.Memory.ListDocuments(ctx, p)
+}
+
+func readDocumentKVSSEEvent(t *testing.T, r *bufio.Reader) repo.DocumentKVEvent {
+	t.Helper()
+	for {
+		lines := readSSEBlock(t, r)
+		for _, line := range lines {
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var event repo.DocumentKVEvent
+			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
+				t.Fatalf("bad SSE event JSON %q: %v", line, err)
+			}
+			return event
+		}
+	}
+}
+
+func readSSEComment(t *testing.T, r *bufio.Reader, want string) {
+	t.Helper()
+	for {
+		for _, line := range readSSEBlock(t, r) {
+			if line == want {
+				return
+			}
+		}
+	}
+}
+
+func readSSEBlock(t *testing.T, r *bufio.Reader) []string {
+	t.Helper()
+	var lines []string
+	for {
+		line, err := r.ReadString('\n')
+		if err != nil {
+			t.Fatalf("read SSE stream: %v", err)
+		}
+		line = strings.TrimRight(line, "\r\n")
+		if line == "" {
+			return lines
+		}
+		lines = append(lines, line)
+	}
 }
 
 func do(t *testing.T, h http.Handler, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {

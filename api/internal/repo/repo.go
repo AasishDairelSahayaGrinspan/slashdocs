@@ -232,6 +232,14 @@ type DocumentKVPatchResult struct {
 	UpdatedBy *auth.Principal    `json:"updated_by,omitempty"`
 }
 
+type DocumentKVEvent struct {
+	DocumentID string             `json:"document_id"`
+	Revision   int64              `json:"revision"`
+	Changes    []DocumentKVChange `json:"changes"`
+	UpdatedAt  string             `json:"updated_at,omitempty"`
+	UpdatedBy  *auth.Principal    `json:"updated_by,omitempty"`
+}
+
 // Repository is the application persistence boundary. The real implementation
 // will wrap sqlc-generated queries. API tests can provide fakes.
 type Repository interface {
@@ -284,6 +292,7 @@ type Repository interface {
 	UpdateComment(ctx context.Context, id, body, status string) (Comment, error)
 	DeleteComment(ctx context.Context, id string) error
 	ListDocumentKV(ctx context.Context, documentID string) (DocumentKVSnapshot, error)
+	ListDocumentKVEvents(ctx context.Context, documentID string, afterRevision int64, limit int32) ([]DocumentKVEvent, error)
 	PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error)
 	CreateFolder(ctx context.Context, owner auth.Principal, title, parentFolderID string) (Folder, error)
 	ListFolder(ctx context.Context, principal auth.Principal, folderID, path string) ([]FolderEntry, bool, *Folder, error)
@@ -324,6 +333,7 @@ type Memory struct {
 	comments  map[string]Comment
 	kv        map[string]map[string]DocumentKVChange
 	kvRev     map[string]int64
+	kvEvents  map[string][]DocumentKVEvent
 	transfers map[string]OwnershipTransfer
 
 	docWorkspace    map[string]map[string]bool // docID -> "type:id" -> true
@@ -348,7 +358,7 @@ type cliCredRecord struct {
 // behaves like a freshly migrated database; tests that need the canonical
 // fixture graph call NewMemorySeeded instead.
 func NewMemory() *Memory {
-	return &Memory{docs: map[string]Document{}, folders: map[string]Folder{}, pins: map[string]Pin{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, kv: map[string]map[string]DocumentKVChange{}, kvRev: map[string]int64{}, transfers: map[string]OwnershipTransfer{}}
+	return &Memory{docs: map[string]Document{}, folders: map[string]Folder{}, pins: map[string]Pin{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, kv: map[string]map[string]DocumentKVChange{}, kvRev: map[string]int64{}, kvEvents: map[string][]DocumentKVEvent{}, transfers: map[string]OwnershipTransfer{}}
 }
 
 func (m *Memory) ResolveBearerToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
@@ -694,6 +704,7 @@ func (m *Memory) DeleteDocument(ctx context.Context, id string) error {
 	delete(m.docs, id)
 	delete(m.kv, id)
 	delete(m.kvRev, id)
+	delete(m.kvEvents, id)
 	return nil
 }
 func (m *Memory) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error) {
@@ -846,6 +857,29 @@ func (m *Memory) ListDocumentKV(ctx context.Context, documentID string) (Documen
 	return DocumentKVSnapshot{Revision: m.kvRev[documentID], Items: items}, nil
 }
 
+func (m *Memory) ListDocumentKVEvents(ctx context.Context, documentID string, afterRevision int64, limit int32) ([]DocumentKVEvent, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.docs[documentID]; !ok {
+		return nil, ErrNotFound
+	}
+	if limit <= 0 {
+		limit = 100
+	}
+	events := m.kvEvents[documentID]
+	out := make([]DocumentKVEvent, 0, min(int(limit), len(events)))
+	for _, ev := range events {
+		if ev.Revision <= afterRevision {
+			continue
+		}
+		out = append(out, cloneDocumentKVEvent(ev))
+		if int32(len(out)) >= limit {
+			break
+		}
+	}
+	return out, nil
+}
+
 func (m *Memory) PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -873,7 +907,39 @@ func (m *Memory) PatchDocumentKV(ctx context.Context, documentID string, set map
 		m.kv[documentID][key] = ch
 		changes = append(changes, ch)
 	}
+	m.kvEvents[documentID] = append(m.kvEvents[documentID], cloneDocumentKVEvent(DocumentKVEvent{
+		DocumentID: documentID,
+		Revision:   rev,
+		Changes:    changes,
+		UpdatedAt:  now,
+		UpdatedBy:  &actor,
+	}))
 	return DocumentKVPatchResult{Revision: rev, Changes: changes, UpdatedBy: &actor}, nil
+}
+
+func cloneDocumentKVEvent(ev DocumentKVEvent) DocumentKVEvent {
+	out := ev
+	if ev.UpdatedBy != nil {
+		actor := *ev.UpdatedBy
+		out.UpdatedBy = &actor
+	}
+	out.Changes = make([]DocumentKVChange, len(ev.Changes))
+	for i, ch := range ev.Changes {
+		out.Changes[i] = cloneDocumentKVChange(ch)
+	}
+	return out
+}
+
+func cloneDocumentKVChange(ch DocumentKVChange) DocumentKVChange {
+	out := ch
+	if ch.Value != nil {
+		out.Value = append(json.RawMessage(nil), ch.Value...)
+	}
+	if ch.UpdatedBy != nil {
+		actor := *ch.UpdatedBy
+		out.UpdatedBy = &actor
+	}
+	return out
 }
 
 func (m *Memory) CreateOwnershipTransfer(ctx context.Context, saID string, from auth.Principal, toEmail string) (OwnershipTransfer, error) {

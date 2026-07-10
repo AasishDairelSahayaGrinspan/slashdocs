@@ -55,17 +55,16 @@ func TestBridgeHandlesDocumentLinks(t *testing.T) {
 	}
 }
 
-func TestBridgeImplementsEditModeContract(t *testing.T) {
+func TestBridgeDoesNotExposeManualEditContract(t *testing.T) {
 	for _, needle := range []string{
 		"aidocs:edit-mode",
 		"aidocs:edit-dirty",
 		"aidocs:edit-request-html",
 		"aidocs:edit-html",
-		"contenteditable",
-		"isParentMessage",
+		"aidocs-edit-mode",
 	} {
-		if !strings.Contains(bridgeJSSource, needle) {
-			t.Fatalf("bridge.js missing edit-mode hook %q", needle)
+		if strings.Contains(bridgeJSSource, needle) {
+			t.Fatalf("bridge.js still exposes manual edit hook %q", needle)
 		}
 	}
 }
@@ -104,7 +103,6 @@ func TestBridgeImplementsDocumentKVUndoRedoContract(t *testing.T) {
 		"ev.ctrlKey",
 		"ev.metaKey",
 		"ev.shiftKey",
-		"editMode",
 	} {
 		if !strings.Contains(bridgeJSSource, needle) {
 			t.Fatalf("bridge.js missing KV undo/redo hook %q", needle)

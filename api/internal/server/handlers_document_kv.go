@@ -67,6 +67,18 @@ func (h handlers) patchDocumentKV(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	if len(out.Changes) > 0 && h.deps.documentKVEvents != nil {
+		event := repo.DocumentKVEvent{
+			DocumentID: docID,
+			Revision:   out.Revision,
+			Changes:    out.Changes,
+			UpdatedBy:  out.UpdatedBy,
+		}
+		if out.Changes[0].UpdatedAt != "" {
+			event.UpdatedAt = out.Changes[0].UpdatedAt
+		}
+		h.deps.documentKVEvents.publish(event)
+	}
 	c.JSON(http.StatusOK, out)
 }
 
