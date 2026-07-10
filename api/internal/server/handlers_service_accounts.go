@@ -62,6 +62,9 @@ func (h handlers) createServiceAccount(c *gin.Context) {
 		Label  string `json:"label"`
 		Domain string `json:"domain"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "Tell us a name for your bot.")
 		return
@@ -122,6 +125,9 @@ func (h handlers) createOwnershipTransfer(c *gin.Context) {
 	}
 	var in struct {
 		ToUserEmail string `json:"to_user_email"`
+	}
+	if !requireJSON(c) {
+		return
 	}
 	if err := c.ShouldBindJSON(&in); err != nil || in.ToUserEmail == "" {
 		badRequest(c, "to_user_email is required")
@@ -229,6 +235,9 @@ func (h handlers) patchServiceAccount(c *gin.Context) {
 		Name     string `json:"name"`
 		Disabled *bool  `json:"disabled"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid body")
 		return
@@ -257,7 +266,15 @@ func (h handlers) createServiceAccountKey(c *gin.Context) {
 		Name string `json:"name"`
 	}
 	// Body is optional here; an absent name defaults to "default".
-	_ = c.ShouldBindJSON(&in)
+	if requestHasBody(c) {
+		if !requireJSON(c) {
+			return
+		}
+		if err := c.ShouldBindJSON(&in); err != nil {
+			badRequest(c, "invalid body")
+			return
+		}
+	}
 	if in.Name == "" {
 		in.Name = "default"
 	}

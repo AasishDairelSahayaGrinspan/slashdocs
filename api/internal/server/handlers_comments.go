@@ -28,6 +28,9 @@ func (h handlers) createComment(c *gin.Context) {
 		Body      string      `json:"body"`
 		Anchor    repo.Anchor `json:"anchor"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil || in.VersionID == "" || in.Body == "" || in.Anchor.Quote == "" {
 		badRequest(c, "invalid comment")
 		return
@@ -96,6 +99,9 @@ func (h handlers) createCommentReply(c *gin.Context) {
 	var in struct {
 		Body string `json:"body"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil || in.Body == "" {
 		badRequest(c, "invalid reply")
 		return
@@ -127,6 +133,9 @@ func (h handlers) patchComment(c *gin.Context) {
 		return
 	}
 	var in struct{ Body, Status string }
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid body")
 		return

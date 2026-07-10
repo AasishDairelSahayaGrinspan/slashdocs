@@ -779,9 +779,11 @@ function bridge() {
   }
 
   curTheme = initialTheme();
-  frame.addEventListener("load", () => {
+  let setupDoc = null;
+  function setupFrame() {
     const d = doc();
-    if (!d) return;
+    if (!d || !d.documentElement || !d.body || setupDoc === d) return;
+    setupDoc = d;
     resetKVHistory();
     injectStyles();
     installAidocsAPI();
@@ -859,7 +861,13 @@ function bridge() {
     d.addEventListener("click", handleLinkClick);
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
     hydrateKV();
-  });
+  }
+
+  frame.addEventListener("load", setupFrame);
+  try {
+    const d = doc();
+    if (d && d.readyState !== "loading") setTimeout(setupFrame, 0);
+  } catch (e) {}
 
   window.addEventListener("message", (e) => {
     if (!e.data) return;

@@ -24,6 +24,9 @@ func (h handlers) createFolder(c *gin.Context) {
 		Title          string `json:"title"`
 		ParentFolderID string `json:"parent_folder_id"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if c.ShouldBindJSON(&in) != nil || in.Title == "" {
 		badRequest(c, "invalid folder")
 		return
@@ -125,6 +128,9 @@ func (h handlers) patchFolder(c *gin.Context) {
 	var raw struct {
 		Title          string          `json:"title"`
 		ParentFolderID json.RawMessage `json:"parent_folder_id"`
+	}
+	if !requireJSON(c) {
+		return
 	}
 	if c.ShouldBindJSON(&raw) != nil {
 		badRequest(c, "invalid folder")
@@ -228,6 +234,9 @@ func (h handlers) moveDocToFolder(c *gin.Context) {
 	var in struct {
 		DocumentID string `json:"document_id"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if c.ShouldBindJSON(&in) != nil || in.DocumentID == "" {
 		badRequest(c, "invalid document")
 		return
@@ -280,6 +289,9 @@ func (h handlers) createFolderGrant(c *gin.Context) {
 		} `json:"principal"`
 		Role repo.Role `json:"role"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) {
 		badRequest(c, "invalid grant")
 		return
@@ -315,6 +327,9 @@ func (h handlers) patchFolderGrant(c *gin.Context) {
 	}
 	var in struct {
 		Role repo.Role `json:"role"`
+	}
+	if !requireJSON(c) {
+		return
 	}
 	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) {
 		badRequest(c, "invalid grant")

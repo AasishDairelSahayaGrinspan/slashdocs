@@ -158,7 +158,7 @@ func (s *Server) routes(deps dependencies) {
 	v1.POST("/auth/cli/exchange", h.cliExchange)
 
 	// Every route below requires authentication.
-	authed := v1.Group("", requireAuth(deps.authenticator))
+	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin))
 	authed.GET("/me", h.me)
 	authed.GET("/users", h.searchUsers)
 	authed.GET("/auth/cli/credentials", h.listCLICredentials)
@@ -223,7 +223,7 @@ func (h handlers) needDocRole(c *gin.Context, docID string, need repo.Role) bool
 	return true
 }
 
-func requireAuth(a auth.Authenticator) gin.HandlerFunc {
+func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p, err := a.Authenticate(c.Request)
 		if err != nil {
@@ -240,10 +240,40 @@ func requireAuth(a auth.Authenticator) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, errorResponse("unauthorized", "authentication required", nil))
 			return
 		}
+		if !allowCookieUnsafeRequest(c, appOrigin) {
+			incAuth("request", "failure")
+			c.Abort()
+			forbidden(c, "csrf check failed")
+			return
+		}
 		incAuth("request", "success")
 		c.Set("principal", p)
 		c.Next()
 	}
+}
+
+func allowCookieUnsafeRequest(c *gin.Context, appOrigin string) bool {
+	switch c.Request.Method {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+	default:
+		return true
+	}
+	if auth.BearerFromHeader(c.GetHeader("Authorization")) != "" {
+		return true
+	}
+	if _, err := c.Request.Cookie(sessionCookieName); err != nil {
+		return true
+	}
+	if appOrigin == "" {
+		return true
+	}
+	if origin := c.GetHeader("Origin"); origin != "" {
+		return sameHTTPOrigin(origin, appOrigin)
+	}
+	if referer := c.GetHeader("Referer"); referer != "" {
+		return sameHTTPOrigin(referer, appOrigin)
+	}
+	return false
 }
 
 func wantsBrowserLogin(c *gin.Context) bool {

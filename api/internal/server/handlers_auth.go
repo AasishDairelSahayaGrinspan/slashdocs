@@ -134,6 +134,9 @@ func (h handlers) cliExchange(c *gin.Context) {
 		CodeVerifier string `json:"code_verifier"`
 		Name         string `json:"name"`
 	}
+	if !requireJSON(c) {
+		return
+	}
 	if err := c.ShouldBindJSON(&in); err != nil || in.Code == "" || in.CodeVerifier == "" {
 		badRequest(c, "invalid cli exchange")
 		return
@@ -205,7 +208,15 @@ func (h handlers) setSessionCookie(c *gin.Context, p auth.Principal) {
 	cookie := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).Sign(p.ID)
 	// The Secure flag is set only in production; local http logins need it off.
 	secure := h.deps.appOrigin != "" && strings.HasPrefix(h.deps.appOrigin, "https://")
-	c.SetCookie(sessionCookieName, cookie, sessionTTLSeconds, "/", "", secure, true)
+	http.SetCookie(c.Writer, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    cookie,
+		MaxAge:   sessionTTLSeconds,
+		Path:     "/",
+		Secure:   secure,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+	})
 }
 
 // Discovery godoc

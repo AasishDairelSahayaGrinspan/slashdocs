@@ -25,6 +25,7 @@ func TestBridgeImplementsThemeContract(t *testing.T) {
 		"data-aidocs-theme",
 		"aidocs_theme",
 		"aidocs:theme",
+		"readyState !== \"loading\"",
 	} {
 		if !strings.Contains(bridgeJSSource, needle) {
 			t.Fatalf("bridge.js missing theme-handshake hook %q", needle)
