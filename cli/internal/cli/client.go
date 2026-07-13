@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"bytes"
@@ -7,19 +7,42 @@ import (
 	"fmt"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
-// defaultServer is the single source of truth for the default API server URL.
-//
-// TODO(tech-debt): this is hard-coded. The frontend already resolves the
-// host dynamically from the server-injected AIDOCS_APP_ORIGIN; the CLI
-// should be migrated to a dynamic/configurable default the same way instead
-// of baking the URL into the binary.
-const defaultServer = "https://aidocs.razorpay.com"
+// errNoServer is returned when no server can be resolved from flags,
+// environment, or config. There is deliberately no built-in default host: the
+// CLI only ever talks to a server the user (or the server's own install.sh)
+// pointed it at.
+var errNoServer = errors.New("no aidocs server configured; pass --server <url> (e.g. --server https://aidocs.example.com), set AIDOCS_SERVER, or run `aidocs auth login <server>`")
+
+// newHTTPClient builds an http.Client with explicit connection and overall
+// timeouts so a slow or unreachable server can never hang the CLI.
+func newHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			Proxy:               http.ProxyFromEnvironment,
+			DialContext:         (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+			ForceAttemptHTTP2:   true,
+			TLSHandshakeTimeout: 10 * time.Second,
+			IdleConnTimeout:     90 * time.Second,
+		},
+	}
+}
+
+var (
+	// apiHTTPClient serves user-initiated API calls.
+	apiHTTPClient = newHTTPClient(30 * time.Second)
+	// updateHTTPClient serves the best-effort update check that runs after
+	// commands; it stays short so it never noticeably delays the CLI.
+	updateHTTPClient = newHTTPClient(5 * time.Second)
+)
 
 // Client is a thin HTTP transport for the aidocs API.
 type Client struct {
@@ -29,22 +52,6 @@ type Client struct {
 
 // client builds a Client from flags, environment, and the active config context.
 func client(g *globals) (*Client, error) {
-	c, err := clientFromConfig(g, false)
-	if err != nil {
-		return nil, err
-	}
-	if c.Base == "" {
-		return nil, errors.New("not logged in; run aidocs auth login [server]")
-	}
-	return c, nil
-}
-
-// publicClient builds a Client for unauthenticated endpoints. It still honors
-// --server/AIDOCS_SERVER and the active context, but falls back to the hosted
-// server when no login or context exists.
-func publicClient(g *globals) (*Client, error) { return clientFromConfig(g, true) }
-
-func clientFromConfig(g *globals, allowDefault bool) (*Client, error) {
 	srv := first(g.server, os.Getenv("AIDOCS_SERVER"))
 	tok := first(g.token, os.Getenv("AIDOCS_TOKEN"))
 	cfg, err := loadConfig()
@@ -54,22 +61,18 @@ func clientFromConfig(g *globals, allowDefault bool) (*Client, error) {
 	if srv == "" && cfg.ActiveContext != "" {
 		srv = cfg.Contexts[cfg.ActiveContext].serverOr(srv)
 	}
+	if srv == "" {
+		return nil, errNoServer
+	}
 	// Look up a stored token for whichever server we're targeting, whether it
 	// came from a flag/env or the active context, so an explicit --server that
 	// the user is logged into still authenticates.
-	if tok == "" && srv != "" {
+	if tok == "" {
 		if c := cfg.Contexts[ctxName(srv)]; c != nil {
 			tok = credentialToken(ctxName(srv), c.Credential)
 		}
 	}
-	if srv == "" && (allowDefault || tok != "") {
-		srv = defaultServer
-	}
-	base := ""
-	if srv != "" {
-		base = normalizeServer(srv)
-	}
-	return &Client{Base: base, Token: tok, HTTP: http.DefaultClient}, nil
+	return &Client{Base: normalizeServer(srv), Token: tok, HTTP: apiHTTPClient}, nil
 }
 
 // APIError represents a non-2xx response from the API.
@@ -102,8 +105,13 @@ func (c *Client) do(method, path string, body io.Reader, ct string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
-	b, _ := io.ReadAll(res.Body)
+	defer func() {
+		_ = res.Body.Close()
+	}()
+	b, err := io.ReadAll(res.Body)
+	if err != nil {
+		return nil, err
+	}
 	if res.StatusCode >= 400 {
 		ae := &APIError{Status: res.StatusCode, Message: strings.TrimSpace(string(b)), Body: string(b)}
 		var payload struct {

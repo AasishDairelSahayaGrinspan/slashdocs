@@ -11,14 +11,16 @@ go build -o bin/aidocs ./cli
 ## Auth
 
 ```bash
-aidocs auth login                         # hosted default
-aidocs auth login aidocs.razorpay.com     # self-hosted/internal
+aidocs auth login aidocs.example.com       # log in to your aidocs server
+aidocs auth login                          # reuses the active context's server
 aidocs auth whoami
 aidocs auth logout                         # revokes server credential by default
-AIDOCS_NO_KEYCHAIN=1 aidocs auth login     # force file-only token storage
+AIDOCS_NO_KEYCHAIN=1 aidocs auth login ... # force file-only token storage
 ```
 
-Self-hosted login only needs the server URL. The server owns Google OAuth config (`GOOGLE_OAUTH_CLIENT_ID`/secret); the CLI uses server-mediated loopback PKCE.
+There is no built-in default server. Installing via `curl https://<your-server>/install.sh | bash` preconfigures the CLI to use that server; otherwise pass the server URL to `aidocs auth login`, use `--server`, or set `AIDOCS_SERVER`.
+
+Self-hosted login only needs the server URL. The server owns the OIDC configuration (generic `AIDOCS_OIDC_*` variables or the Google aliases); the CLI uses server-mediated loopback PKCE.
 
 By default, login stores the secret token in the OS keychain when available and keeps only metadata plus a `token_ref` in `~/.config/aidocs/config.json`. If the keychain is unavailable, it falls back to storing the token in the config file with `0600` permissions. Set `AIDOCS_NO_KEYCHAIN=1` to force file-only storage.
 
@@ -53,6 +55,23 @@ Disable all `sa` commands in a packaged environment:
 ```bash
 AIDOCS_DISABLE_SA_COMMANDS=1 aidocs sa list
 ```
+
+## MCP server
+
+The aidocs application server exposes a remote Streamable HTTP MCP endpoint at:
+
+```bash
+https://<your-aidocs-host>/mcp
+```
+
+Connect that URL directly from an MCP client—there is no local MCP process or
+CLI installation to manage. Interactive clients use the server's browser OAuth
+flow. Headless clients can send a service-account key as an `Authorization:
+Bearer …` header; create one in the aidocs web application's service-account
+settings.
+
+The remote server exposes the same document, version, comment, sharing, folder,
+and service-account operations as the CLI.
 
 ## Skills
 

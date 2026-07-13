@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"context"
@@ -36,6 +36,10 @@ func maybeAutoUpdate(g *globals, c *Client) {
 	if Version == "" || os.Getenv("AIDOCS_DISABLE_AUTO_UPDATE") != "" {
 		return
 	}
+	// This check is best-effort housekeeping after a command: use the
+	// short-timeout client and bound the whole operation so a slow server
+	// never noticeably delays the CLI. Failures stay silent unless --verbose.
+	c = &Client{Base: c.Base, Token: c.Token, HTTP: updateHTTPClient}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if g.verbose {
@@ -104,7 +108,9 @@ func fetchServerVersion(ctx context.Context, c *Client) (serverVersion, bool) {
 	if err != nil {
 		return serverVersion{}, false
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	if res.StatusCode != http.StatusOK {
 		return serverVersion{}, false
 	}
@@ -138,7 +144,9 @@ func installBundledSkillFromServer(ctx context.Context, c *Client) ([]string, er
 	if err != nil {
 		return nil, err
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	if res.StatusCode == http.StatusNotFound {
 		// Older/self-hosted servers may not expose the skill endpoint yet.
 		return nil, nil
@@ -163,10 +171,12 @@ func installBundledSkillBytes(b []byte) ([]string, error) {
 	}
 	installed := make([]string, 0, len(dirs))
 	for _, dir := range dirs {
+		//nolint:gosec // G301: agent skill directories contain public documentation and are intentionally traversable.
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return nil, err
 		}
 		p := filepath.Join(dir, "SKILL.md")
+		//nolint:gosec // G306: bundled SKILL.md is public documentation, not user data or credentials.
 		if err := os.WriteFile(p, b, 0o644); err != nil {
 			return nil, err
 		}
@@ -207,7 +217,9 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() {
+		_ = res.Body.Close()
+	}()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("download returned HTTP %d", res.StatusCode)
 	}
@@ -217,7 +229,9 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 		return err
 	}
 	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
+	defer func() {
+		_ = os.Remove(tmpName)
+	}()
 	h := sha256.New()
 	written, err := io.Copy(io.MultiWriter(tmp, h), res.Body)
 	if closeErr := tmp.Close(); err == nil {
@@ -235,6 +249,7 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 			return fmt.Errorf("download sha256 mismatch")
 		}
 	}
+	//nolint:gosec // G302: the checksum-verified CLI follows the installer's conventional world-executable mode.
 	if err := os.Chmod(tmpName, 0o755); err != nil {
 		return err
 	}

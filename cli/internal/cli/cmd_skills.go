@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"context"
@@ -22,7 +22,7 @@ func skillsUpdateCmd(g *globals, out io.Writer) *cobra.Command {
 		Short: "Refresh bundled agent skills from the aidocs server",
 		Args:  exactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := publicClient(g)
+			c, err := client(g)
 			if err != nil {
 				return err
 			}
@@ -42,7 +42,9 @@ func skillsUpdateCmd(g *globals, out io.Writer) *cobra.Command {
 				}
 				return render(out, g, b)
 			}
-			confirm(out, g, "Updated aidocs skill from "+c.Base)
+			if err := confirm(out, g, "Updated aidocs skill from "+c.Base); err != nil {
+				return err
+			}
 			for _, p := range paths {
 				_, _ = fmt.Fprintln(out, "  "+p)
 			}

@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"encoding/json"
@@ -32,8 +32,7 @@ func contextCmd(g *globals, out io.Writer) *cobra.Command {
 		if err := saveConfig(cfg); err != nil {
 			return err
 		}
-		confirm(out, g, "Switched to context "+name+".")
-		return nil
+		return confirm(out, g, "Switched to context "+name+".")
 	}})
 	return c
 }

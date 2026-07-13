@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"bytes"
@@ -35,8 +35,8 @@ func renderHint(out io.Writer, g *globals, b []byte, hint string) error {
 			enc.SetIndent("", "  ")
 			return enc.Encode(x)
 		}
-		fmt.Fprintln(out, humanize(hint, x))
-		return nil
+		_, err := fmt.Fprintln(out, humanize(hint, x))
+		return err
 	}
 	_, err := out.Write(append(bytes.TrimSpace(b), '\n'))
 	return err
@@ -44,28 +44,30 @@ func renderHint(out io.Writer, g *globals, b []byte, hint string) error {
 
 // message writes a plain human-facing status line, honoring --quiet. It is the
 // single path for non-payload status text (e.g. "Logged in").
-func message(out io.Writer, g *globals, text string) {
+func message(out io.Writer, g *globals, text string) error {
 	if g.quiet {
-		return
+		return nil
 	}
-	fmt.Fprintln(out, text)
+	_, err := fmt.Fprintln(out, text)
+	return err
 }
 
 // confirm writes a conversational, action-indicative status line (prefixed with
 // a check mark) so the caller can see what just happened rather than an
 // API-shaped payload. Honors --quiet.
-func confirm(out io.Writer, g *globals, text string) {
+func confirm(out io.Writer, g *globals, text string) error {
 	if g.quiet {
-		return
+		return nil
 	}
-	fmt.Fprintln(out, "\u2713 "+text)
+	_, err := fmt.Fprintln(out, "\u2713 "+text)
+	return err
 }
 
 // action performs a mutating call and reports it conversationally. With --json
 // it prints the raw payload (machine-readable); with --quiet it prints nothing;
 // otherwise it prints the confirmation built from the decoded response.
 type actionOptions struct {
-	after      func()
+	after      func() error
 	jsonFields func() map[string]any
 }
 
@@ -99,9 +101,11 @@ func action(g *globals, out io.Writer, fn func(*Client) ([]byte, error), msg fun
 	}
 	var m map[string]any
 	_ = json.Unmarshal(b, &m)
-	confirm(out, g, msg(m))
+	if err := confirm(out, g, msg(m)); err != nil {
+		return err
+	}
 	if len(opts) > 0 && opts[0].after != nil {
-		opts[0].after()
+		return opts[0].after()
 	}
 	return nil
 }
@@ -129,9 +133,10 @@ func printPushedVersion(out io.Writer, g *globals, docID, server string, b []byt
 	}
 	num := fmt.Sprint(value(m, "number"))
 	id := fmt.Sprint(value(m, "id"))
-	confirm(out, g, fmt.Sprintf("Pushed version %s (%s) to %s. Review it at %s", num, id, docID, url))
-	printOrgWideViewerNudge(out, g, docID)
-	return nil
+	if err := confirm(out, g, fmt.Sprintf("Pushed version %s (%s) to %s. Review it at %s", num, id, docID, url)); err != nil {
+		return err
+	}
+	return printOrgWideViewerNudge(out, g, docID)
 }
 
 func humanize(hint string, x any) string {
@@ -229,6 +234,9 @@ func compactRow(m map[string]any) string {
 			parts = append(parts, "created_by="+label)
 		}
 	}
+	if mentions := mentionLabels(value(m, "mentions")); len(mentions) > 0 {
+		parts = append(parts, "mentions="+strings.Join(mentions, ","))
+	}
 	if len(parts) == 0 {
 		return fmt.Sprintf("%v", m)
 	}
@@ -242,4 +250,30 @@ func principalLabel(p map[string]any) string {
 		}
 	}
 	return ""
+}
+
+func mentionLabels(raw any) []string {
+	items, _ := raw.([]any)
+	labels := make([]string, 0, len(items))
+	seen := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		mention, _ := item.(map[string]any)
+		principal, _ := value(mention, "principal").(map[string]any)
+		principalType, _ := value(principal, "type").(string)
+		principalID, _ := value(principal, "id").(string)
+		if principalType == "" || principalID == "" {
+			continue
+		}
+		key := principalType + ":" + principalID
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		label := principalLabel(principal)
+		if label == "" {
+			continue
+		}
+		seen[key] = struct{}{}
+		labels = append(labels, "@"+label)
+	}
+	return labels
 }

@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"encoding/json"
@@ -78,13 +78,15 @@ func orgWideViewerNudge(g *globals, docID string) string {
 	return fmt.Sprintf("Give org-wide read-only access? We are transparent here at %s. You can do it with: aidocs docs grants add %s --everyone --role viewer", org, docID)
 }
 
-func printOrgWideViewerNudge(out io.Writer, g *globals, docID string) {
+func printOrgWideViewerNudge(out io.Writer, g *globals, docID string) error {
 	if g.quiet || g.json {
-		return
+		return nil
 	}
 	if nudge := orgWideViewerNudge(g, docID); nudge != "" {
-		fmt.Fprintln(out, nudge)
+		_, err := fmt.Fprintln(out, nudge)
+		return err
 	}
+	return nil
 }
 
 func documentHasGrants(g *globals, docID string) bool {

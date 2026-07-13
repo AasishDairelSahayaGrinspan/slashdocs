@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"bytes"
@@ -39,30 +39,34 @@ func Execute(args []string) (string, error) {
 	root := NewRoot(&out)
 	root.SetArgs(args)
 	err := root.Execute()
-	return out.String(), asUsageError(err)
-}
-
-// asUsageError classifies cobra's untyped "unknown command" error as a
-// usageError so it maps to the usage exit code.
-func asUsageError(err error) error {
-	if err == nil {
-		return nil
-	}
-	var ue usageError
-	if errors.As(err, &ue) {
-		return err
-	}
-	if strings.Contains(err.Error(), "unknown command") {
-		return usageError{err}
-	}
-	return err
+	return out.String(), err
 }
 
 func NewRoot(out io.Writer) *cobra.Command {
 	g := &globals{}
 	root := &cobra.Command{Use: "aidocs", Short: "CLI for aidocs HTML document review", Long: "CLI for aidocs HTML document review.\n\nAgents: before authoring or publishing an aidocs document, run `aidocs guidelines` and follow that output.\n\nDefault output is compact, agent-friendly key=value text. Use --json for machine-readable JSON.", SilenceUsage: true, SilenceErrors: true}
+	// The root command has no action of its own, so any leftover positional
+	// argument is an unknown subcommand. Classifying it here as a typed
+	// usageError keeps the usage exit code reliable without string-matching
+	// cobra's error text. Root needs a RunE (help, matching cobra's default
+	// for bare `aidocs`) because cobra only validates Args on runnable
+	// commands.
+	root.RunE = func(cmd *cobra.Command, args []string) error { return cmd.Help() }
+	root.Args = func(cmd *cobra.Command, args []string) error {
+		if len(args) == 0 {
+			return nil
+		}
+		msg := fmt.Sprintf("unknown command %q for %q", args[0], cmd.CommandPath())
+		if s := cmd.SuggestionsFor(args[0]); len(s) > 0 {
+			msg += "\n\nDid you mean this?\n\t" + strings.Join(s, "\n\t")
+		}
+		return usageError{errors.New(msg)}
+	}
 	root.PersistentPostRun = func(cmd *cobra.Command, args []string) {
-		if cmd.CommandPath() == "aidocs update" || cmd.CommandPath() == "aidocs skills update" || cmd.CommandPath() == "aidocs version" || cmd.CommandPath() == "aidocs guidelines" {
+		// Bare `aidocs` (help) is excluded so printing usage never hits the
+		// network; root only became runnable to get typed unknown-command
+		// errors from Args validation.
+		if cmd.CommandPath() == "aidocs" || cmd.CommandPath() == "aidocs update" || cmd.CommandPath() == "aidocs skills update" || cmd.CommandPath() == "aidocs version" || cmd.CommandPath() == "aidocs guidelines" {
 			return
 		}
 		c, err := client(g)
@@ -235,6 +239,7 @@ func readFileArg(p string) ([]byte, string, error) {
 		b, err := io.ReadAll(os.Stdin)
 		return b, "stdin.html", err
 	}
+	//nolint:gosec // G304: p is the explicit document path supplied by the CLI user.
 	b, err := os.ReadFile(p)
 	return b, filepath.Base(p), err
 }
@@ -259,11 +264,12 @@ func openBrowserErr(u string) error {
 	cmds := [][]string{{"open", u}, {"xdg-open", u}, {"rundll32", "url.dll,FileProtocolHandler", u}}
 	var last error
 	for _, c := range cmds {
-		if err := exec.Command(c[0], c[1:]...).Start(); err == nil {
+		//nolint:gosec // G204: command names and arguments are fixed URL opener forms; u is passed directly without a shell.
+		err := exec.Command(c[0], c[1:]...).Start()
+		if err == nil {
 			return nil
-		} else {
-			last = err
 		}
+		last = err
 	}
 	return fmt.Errorf("could not open browser: %w", last)
 }

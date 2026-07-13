@@ -1,11 +1,10 @@
-package internal
+package cli
 
 import (
 	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -54,10 +53,7 @@ func TestUpdateCLIRefreshesBundledSkillWhenBinaryIsCurrent(t *testing.T) {
 		filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"),
 		filepath.Join(home, ".claude", "skills", "aidocs", "SKILL.md"),
 	} {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatalf("read %s: %v", p, err)
-		}
+		b := readTestFile(t, p)
 		if string(b) != "---\nname: aidocs\ndescription: test skill\n---\n" {
 			t.Fatalf("%s content = %q", p, string(b))
 		}
@@ -97,10 +93,7 @@ func TestUpdateCLIRefreshesBundledSkillFromDevServer(t *testing.T) {
 	if changed {
 		t.Fatalf("changed = true, want false because dev server published no binary asset")
 	}
-	b, err := os.ReadFile(filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"))
-	if err != nil {
-		t.Fatalf("read skill: %v", err)
-	}
+	b := readTestFile(t, filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"))
 	if string(b) != "---\nname: aidocs\ndescription: dev skill\n---\n" {
 		t.Fatalf("skill content = %q", string(b))
 	}

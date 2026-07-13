@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"encoding/json"
@@ -100,7 +100,13 @@ func currentContext(g *globals) (string, *Context, Config) {
 }
 
 func currentContextFrom(g *globals, cfg Config) (string, *Context, Config) {
-	srv := first(g.server, os.Getenv("AIDOCS_SERVER"), cfg.ActiveContext, defaultServer)
+	srv := first(g.server, os.Getenv("AIDOCS_SERVER"), cfg.ActiveContext)
+	if srv == "" {
+		// No server anywhere: hand back an unnamed, unsaved context so
+		// read-only callers keep working; anything that needs a real server
+		// goes through client() and fails with errNoServer.
+		return "", &Context{Pulled: map[string]string{}}, cfg
+	}
 	name := ctxName(srv)
 	cx := cfg.Contexts[name]
 	if cx == nil {

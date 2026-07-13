@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"encoding/json"
@@ -53,8 +53,8 @@ func foldersCmd(g *globals, out io.Writer) *cobra.Command {
 			var ae *APIError
 			if errors.As(err, &ae) && ae.Code == "ambiguous_path" {
 				if g.json {
-					fmt.Fprintln(out, ae.Body)
-					return nil
+					_, writeErr := fmt.Fprintln(out, ae.Body)
+					return writeErr
 				}
 				return renderAmbiguousPath(out, ae.Body)
 			}
@@ -213,14 +213,20 @@ func renderFolderList(out io.Writer, b []byte) error {
 			}
 		}
 		if row != nil {
-			fmt.Fprintln(out, compactRow(row))
+			if _, err := fmt.Fprintln(out, compactRow(row)); err != nil {
+				return err
+			}
 		}
 	}
 	if resp.HasMore {
-		fmt.Fprintln(out, "Showing the first 50 folders. There are more. Use `aidocs folders search <name>` to find a folder.")
+		if _, err := fmt.Fprintln(out, "Showing the first 50 folders. There are more. Use `aidocs folders search <name>` to find a folder."); err != nil {
+			return err
+		}
 	}
 	if len(resp.Items) == 0 {
-		fmt.Fprintln(out, "No items.")
+		if _, err := fmt.Fprintln(out, "No items."); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -240,10 +246,15 @@ func renderAmbiguousPath(out io.Writer, body string) error {
 		} `json:"candidates"`
 	}
 	if err := json.Unmarshal([]byte(body), &resp); err != nil {
-		fmt.Fprintln(out, body)
-		return nil
+		_, writeErr := fmt.Fprintln(out, body)
+		return writeErr
 	}
-	fmt.Fprintf(out, "Ambiguous path: multiple folders match.\n\n")
+	if _, err := fmt.Fprintln(out, "Ambiguous path: multiple folders match."); err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintln(out); err != nil {
+		return err
+	}
 	for i, c := range resp.Candidates {
 		owner := c.Owner.Name
 		if owner == "" {
@@ -252,8 +263,10 @@ func renderAmbiguousPath(out io.Writer, body string) error {
 		if owner == "" {
 			owner = "unknown"
 		}
-		fmt.Fprintf(out, "  %d. %s (owner: %s)\n     --folder-id %s\n\n", i+1, c.Title, owner, c.ID)
+		if _, err := fmt.Fprintf(out, "  %d. %s (owner: %s)\n     --folder-id %s\n\n", i+1, c.Title, owner, c.ID); err != nil {
+			return err
+		}
 	}
-	fmt.Fprintf(out, "Re-run with --folder-id to specify which one.\n")
-	return nil
+	_, err := fmt.Fprintln(out, "Re-run with --folder-id to specify which one.")
+	return err
 }

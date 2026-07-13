@@ -1,4 +1,4 @@
-package internal
+package cli
 
 import (
 	"fmt"
@@ -317,8 +317,8 @@ func guidelinesCmd(_ *globals, out io.Writer) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Fprint(out, text)
-			return nil
+			_, err = fmt.Fprint(out, text)
+			return err
 		},
 	}
 }

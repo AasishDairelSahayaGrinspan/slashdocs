@@ -1,10 +1,9 @@
-package internal
+package cli
 
 import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -38,10 +37,7 @@ func TestSkillsUpdateRefreshesFromServer(t *testing.T) {
 		filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"),
 		filepath.Join(home, ".claude", "skills", "aidocs", "SKILL.md"),
 	} {
-		b, err := os.ReadFile(p)
-		if err != nil {
-			t.Fatalf("read %s: %v", p, err)
-		}
+		b := readTestFile(t, p)
 		if string(b) != skill {
 			t.Fatalf("%s content = %q", p, string(b))
 		}

@@ -1,13 +1,11 @@
-package internal
+package cli
 
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -16,38 +14,38 @@ import (
 // e2eMux builds the mock aidocs API used by the CLI end-to-end tests.
 func e2eMux(t *testing.T) *http.ServeMux {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/v1/me", jsonH(map[string]any{"principal": map[string]any{"type": "user", "id": "usr_1"}, "user": map[string]any{"id": "usr_1", "email": "me@example.com", "name": "Me"}}))
-	mux.HandleFunc("/v1/config", jsonH(map[string]any{"deployment": "org", "org_name": "Razorpay", "everyone_label": "Razorpay"}))
+	mux.HandleFunc("/v1/me", jsonH(t, map[string]any{"principal": map[string]any{"type": "user", "id": "usr_1"}, "user": map[string]any{"id": "usr_1", "email": "me@example.com", "name": "Me"}}))
+	mux.HandleFunc("/v1/config", jsonH(t, map[string]any{"deployment": "org", "org_name": "Acme", "everyone_label": "Acme"}))
 	mux.HandleFunc("/skills/aidocs/SKILL.md", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		_, _ = io.WriteString(w, "---\nname: aidocs\ndescription: e2e skill\n---\n")
+		writeTestString(t, w, "---\nname: aidocs\ndescription: e2e skill\n---\n")
 	})
 	mux.HandleFunc("/v1/documents", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":
-			json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "doc_1", "title": "Doc", "current_version_id": "ver_1"}}})
+			writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{"id": "doc_1", "title": "Doc", "current_version_id": "ver_1"}}})
 		case "POST":
 			requireMultipart(t, r)
-			json.NewEncoder(w).Encode(map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
+			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
 		default:
 			w.WriteHeader(405)
 		}
 	})
 	mux.HandleFunc("/v1/documents/doc_1", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]any{"id": "doc_1", "title": "Doc", "current_version_id": "ver_1"})
+		writeTestJSON(t, w, map[string]any{"id": "doc_1", "title": "Doc", "current_version_id": "ver_1"})
 	})
 	mux.HandleFunc("/v1/documents/doc_1/versions", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
 			requireMultipart(t, r)
-			json.NewEncoder(w).Encode(map[string]any{"id": "ver_2", "number": 2, "sha256": "abc"})
+			writeTestJSON(t, w, map[string]any{"id": "ver_2", "number": 2, "sha256": "abc"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "ver_1", "number": 1}}})
+		writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{"id": "ver_1", "number": 1}}})
 	})
-	mux.HandleFunc("/v1/documents/doc_1/versions/ver_1", jsonH(map[string]any{"id": "ver_1", "number": 1}))
+	mux.HandleFunc("/v1/documents/doc_1/versions/ver_1", jsonH(t, map[string]any{"id": "ver_1", "number": 1}))
 	mux.HandleFunc("/v1/documents/doc_1/versions/ver_1/html", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
-		io.WriteString(w, "<h1>ok</h1>")
+		writeTestString(t, w, "<h1>ok</h1>")
 	})
 	mux.HandleFunc("/v1/documents/doc_1/comments", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
@@ -56,10 +54,10 @@ func e2eMux(t *testing.T) *http.ServeMux {
 			if in["version_id"] != "ver_1" {
 				t.Fatalf("comment create used wrong version payload: %#v", in)
 			}
-			json.NewEncoder(w).Encode(map[string]any{"id": "cmt_new", "status": "open"})
+			writeTestJSON(t, w, map[string]any{"id": "cmt_new", "status": "open"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "cmt_1", "body": "fix", "status": "open"}}})
+		writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{"id": "cmt_1", "body": "fix", "status": "open"}}})
 	})
 	mux.HandleFunc("/v1/documents/doc_1/comments/cmt_1/replies", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "POST" {
@@ -70,29 +68,40 @@ func e2eMux(t *testing.T) *http.ServeMux {
 		if in["body"] != "reply" {
 			t.Fatalf("reply create used wrong payload: %#v", in)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "cmt_reply", "status": "open"})
+		writeTestJSON(t, w, map[string]any{"id": "cmt_reply", "status": "open"})
 	})
 	mux.HandleFunc("/v1/documents/doc_1/comments/cmt_1", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "DELETE" {
 			w.WriteHeader(204)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "cmt_1", "status": "ok"})
+		if r.Method == "PATCH" {
+			var in map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+				t.Fatal(err)
+			}
+			_, hasBody := in["body"]
+			_, hasStatus := in["status"]
+			if hasBody == hasStatus {
+				t.Fatalf("comment PATCH must contain exactly the supplied field: %#v", in)
+			}
+		}
+		writeTestJSON(t, w, map[string]any{"id": "cmt_1", "status": "ok"})
 	})
-	mux.HandleFunc("/v1/documents/doc_1/access", jsonH(map[string]any{"items": []any{map[string]any{"effective_role": "viewer", "principal": map[string]any{"type": "user", "id": "usr_2"}}}}))
+	mux.HandleFunc("/v1/documents/doc_1/access", jsonH(t, map[string]any{"items": []any{map[string]any{"effective_role": "viewer", "principal": map[string]any{"type": "user", "id": "usr_2"}}}}))
 	mux.HandleFunc("/v1/documents/doc_1/grants", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
-			json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+			writeTestJSON(t, w, map[string]any{"items": []any{}})
 			return
 		}
 		if r.Method != "POST" {
 			t.Fatalf("doc grant collection used unexpected method: %s", r.Method)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "gr_1"})
+		writeTestJSON(t, w, map[string]any{"id": "gr_1"})
 	})
 	mux.HandleFunc("/v1/documents/doc_new/grants", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "GET" {
-			json.NewEncoder(w).Encode(map[string]any{"items": []any{}})
+			writeTestJSON(t, w, map[string]any{"items": []any{}})
 			return
 		}
 		if r.Method != "POST" {
@@ -107,29 +116,29 @@ func e2eMux(t *testing.T) *http.ServeMux {
 		if p["type"] != "anyone" {
 			t.Fatalf("new doc grant used wrong principal: %#v", in)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "gr_new"})
+		writeTestJSON(t, w, map[string]any{"id": "gr_new"})
 	})
 	mux.HandleFunc("/v1/documents/doc_1/grants/gr_1", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "DELETE" {
 			w.WriteHeader(204)
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "gr_1", "role": "editor"})
+		writeTestJSON(t, w, map[string]any{"id": "gr_1", "role": "editor"})
 	})
 	mux.HandleFunc("/v1/service-accounts", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
-			json.NewEncoder(w).Encode(map[string]any{"id": "sa_1", "name": "bot"})
+			writeTestJSON(t, w, map[string]any{"id": "sa_1", "name": "bot"})
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "sa_1", "name": "bot"}}})
+		writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{"id": "sa_1", "name": "bot"}}})
 	})
-	mux.HandleFunc("/v1/service-accounts/sa_1", jsonH(map[string]any{"id": "sa_1", "name": "bot"}))
+	mux.HandleFunc("/v1/service-accounts/sa_1", jsonH(t, map[string]any{"id": "sa_1", "name": "bot"}))
 	mux.HandleFunc("/v1/service-accounts/sa_1/keys", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
-			json.NewEncoder(w).Encode(map[string]any{"id": "sak_1", "token": "aidocs_sa_x"})
+			writeTestJSON(t, w, map[string]any{"id": "sak_1", "token": "aidocs_sa_x"}) //nolint:gosec // This fixed value is a mock response, not a credential.
 			return
 		}
-		json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"id": "sak_1", "name": "k"}}})
+		writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{"id": "sak_1", "name": "k"}}})
 	})
 	mux.HandleFunc("/v1/service-accounts/sa_1/keys/sak_1", func(w http.ResponseWriter, r *http.Request) { w.WriteHeader(204) })
 	mux.HandleFunc("/v1/service-accounts/sa_1/transfer", func(w http.ResponseWriter, r *http.Request) {
@@ -138,11 +147,11 @@ func e2eMux(t *testing.T) *http.ServeMux {
 		if in["to_user_email"] != "new@example.com" {
 			t.Fatalf("transfer used wrong payload: %#v", in)
 		}
-		json.NewEncoder(w).Encode(map[string]any{"id": "xfer_1", "status": "pending"})
+		writeTestJSON(t, w, map[string]any{"id": "xfer_1", "status": "pending"})
 	})
-	mux.HandleFunc("/v1/service-accounts/transfers", jsonH(map[string]any{"items": []any{map[string]any{"id": "xfer_1"}}}))
-	mux.HandleFunc("/v1/service-accounts/transfers/xfer_1/accept", jsonH(map[string]any{"id": "xfer_1", "status": "accepted"}))
-	mux.HandleFunc("/v1/service-accounts/transfers/xfer_1/decline", jsonH(map[string]any{"id": "xfer_1", "status": "declined"}))
+	mux.HandleFunc("/v1/service-accounts/transfers", jsonH(t, map[string]any{"items": []any{map[string]any{"id": "xfer_1"}}}))
+	mux.HandleFunc("/v1/service-accounts/transfers/xfer_1/accept", jsonH(t, map[string]any{"id": "xfer_1", "status": "accepted"}))
+	mux.HandleFunc("/v1/service-accounts/transfers/xfer_1/decline", jsonH(t, map[string]any{"id": "xfer_1", "status": "declined"}))
 	return mux
 }
 
@@ -154,9 +163,9 @@ func TestCLICommandsE2E(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_NO_BROWSER", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
-	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
 	out := filepath.Join(t.TempDir(), "out.html")
-	cmds := [][]string{{"auth", "whoami"}, {"docs", "list"}, {"docs", "create", html}, {"docs", "show", "doc_1"}, {"docs", "update", "doc_1", "--title", "New"}, {"docs", "versions", "list", "doc_1"}, {"docs", "versions", "show", "doc_1", "ver_1"}, {"docs", "versions", "html", "doc_1", "ver_1"}, {"docs", "pull", "doc_1", "--out", out}, {"docs", "push", "doc_1", html}, {"docs", "comments", "list", "doc_1"}, {"docs", "comments", "create", "doc_1", "--body", "hi", "--quote", "x", "--version", "ver_1"}, {"docs", "comments", "reply", "doc_1", "cmt_1", "--body", "reply"}, {"docs", "comments", "update", "doc_1", "cmt_1", "--status", "resolved"}, {"docs", "comments", "delete", "doc_1", "cmt_1"}, {"docs", "comments", "resolve", "doc_1", "cmt_1"}, {"docs", "comments", "reopen", "doc_1", "cmt_1"}, {"docs", "grants", "list", "doc_1"}, {"docs", "grants", "add", "doc_1", "--principal", "user:a@b.com", "--role", "viewer"}, {"docs", "grants", "update", "doc_1", "gr_1", "--role", "editor"}, {"docs", "grants", "revoke", "doc_1", "gr_1"}, {"sa", "list"}, {"sa", "create", "bot"}, {"sa", "update", "sa_1", "--disable"}, {"sa", "key", "list", "sa_1"}, {"sa", "key", "create", "sa_1"}, {"sa", "key", "revoke", "sa_1", "sak_1"}, {"sa", "transfer", "sa_1", "--to", "new@example.com"}, {"sa", "transfers", "list"}, {"sa", "transfer", "accept", "xfer_1"}, {"sa", "transfer", "decline", "xfer_1"}, {"context", "list"}, {"context", "use", srv.URL}, {"skills", "update"}, {"open", "doc_1"}}
+	cmds := [][]string{{"auth", "whoami"}, {"docs", "list"}, {"docs", "create", html}, {"docs", "show", "doc_1"}, {"docs", "update", "doc_1", "--title", "New"}, {"docs", "versions", "list", "doc_1"}, {"docs", "versions", "show", "doc_1", "ver_1"}, {"docs", "versions", "html", "doc_1", "ver_1"}, {"docs", "pull", "doc_1", "--out", out}, {"docs", "push", "doc_1", html}, {"docs", "comments", "list", "doc_1"}, {"docs", "comments", "create", "doc_1", "--body", "hi", "--quote", "x", "--version", "ver_1"}, {"docs", "comments", "reply", "doc_1", "cmt_1", "--body", "reply"}, {"docs", "comments", "update", "doc_1", "cmt_1", "--status", "resolved"}, {"docs", "comments", "update", "doc_1", "cmt_1", "--body", "revised"}, {"docs", "comments", "delete", "doc_1", "cmt_1"}, {"docs", "comments", "resolve", "doc_1", "cmt_1"}, {"docs", "comments", "reopen", "doc_1", "cmt_1"}, {"docs", "grants", "list", "doc_1"}, {"docs", "grants", "add", "doc_1", "--principal", "user:a@b.com", "--role", "viewer"}, {"docs", "grants", "update", "doc_1", "gr_1", "--role", "editor"}, {"docs", "grants", "revoke", "doc_1", "gr_1"}, {"sa", "list"}, {"sa", "create", "bot"}, {"sa", "update", "sa_1", "--disable"}, {"sa", "key", "list", "sa_1"}, {"sa", "key", "create", "sa_1"}, {"sa", "key", "revoke", "sa_1", "sak_1"}, {"sa", "transfer", "sa_1", "--to", "new@example.com"}, {"sa", "transfers", "list"}, {"sa", "transfer", "accept", "xfer_1"}, {"sa", "transfer", "decline", "xfer_1"}, {"context", "list"}, {"context", "use", srv.URL}, {"skills", "update"}, {"open", "doc_1"}}
 	for _, c := range cmds {
 		t.Run(strings.Join(c, " "), func(t *testing.T) {
 			if _, err := Execute(c); err != nil {
@@ -164,7 +173,7 @@ func TestCLICommandsE2E(t *testing.T) {
 			}
 		})
 	}
-	if b, _ := os.ReadFile(out); string(b) != "<h1>ok</h1>" {
+	if b := readTestFile(t, out); string(b) != "<h1>ok</h1>" {
 		t.Fatalf("pull wrote %q", b)
 	}
 }
@@ -180,7 +189,7 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_NO_BROWSER", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
-	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
 	out := filepath.Join(t.TempDir(), "out.html")
 
 	cases := []struct {
@@ -188,7 +197,7 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 		want []string
 	}{
 		{[]string{"auth", "whoami"}, []string{"me@example.com", "server=" + srv.URL}},
-		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Give org-wide read-only access", "Razorpay", "aidocs docs grants add doc_new --everyone --role viewer"}},
+		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Give org-wide read-only access", "Acme", "aidocs docs grants add doc_new --everyone --role viewer"}},
 		{[]string{"docs", "update", "doc_1", "--title", "New"}, []string{"Renamed document", "doc_1"}},
 		{[]string{"docs", "pull", "doc_1", "--out", out}, []string{"Pulled version", "doc_1"}},
 		{[]string{"docs", "push", "doc_1", html}, []string{"Pushed version", "ver_2"}},
@@ -256,7 +265,7 @@ func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_NO_BROWSER", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
-	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
 	cases := []struct {
 		args    []string
@@ -291,7 +300,7 @@ func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents":
 			requireMultipart(t, r)
-			json.NewEncoder(w).Encode(map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
+			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents/doc_new/grants":
 			granted = true
 			var in map[string]any
@@ -303,7 +312,7 @@ func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
 			if p["type"] != "anyone" {
 				t.Fatalf("grant principal = %#v, want anyone", p)
 			}
-			json.NewEncoder(w).Encode(map[string]any{"id": "gr_new"})
+			writeTestJSON(t, w, map[string]any{"id": "gr_new"})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -315,7 +324,7 @@ func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
 	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
 	t.Setenv(orgWideViewerEnv, "1")
 	html := filepath.Join(t.TempDir(), "x.html")
-	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
 	got, err := Execute([]string{"docs", "create", html})
 	if err != nil {
@@ -338,7 +347,7 @@ func TestCreateWithoutIDDoesNotPrintBrokenURL(t *testing.T) {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
 		requireMultipart(t, r)
-		json.NewEncoder(w).Encode(map[string]any{"current_version_id": "ver_new"})
+		writeTestJSON(t, w, map[string]any{"current_version_id": "ver_new"})
 	}))
 	defer srv.Close()
 	t.Setenv("AIDOCS_TOKEN", "tok")
@@ -346,7 +355,7 @@ func TestCreateWithoutIDDoesNotPrintBrokenURL(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
-	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
 	got, err := Execute([]string{"docs", "create", html})
 	if err != nil {
@@ -365,7 +374,7 @@ func TestWhoamiServiceAccountParity(t *testing.T) {
 		if r.URL.Path != "/v1/me" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
-		json.NewEncoder(w).Encode(map[string]any{
+		writeTestJSON(t, w, map[string]any{
 			"principal":       map[string]any{"type": "service_account", "id": "sa_1"},
 			"service_account": map[string]any{"id": "sa_1", "name": "n8n-prod@brave.otter.bot", "disabled": false, "owner": map[string]any{"id": "usr_1", "email": "owner@example.com", "name": "Owner"}},
 		})
@@ -436,8 +445,32 @@ func TestExitCodeMapping(t *testing.T) {
 	if got := ExitCode(usageError{fmt.Errorf("unknown flag: --wat")}); got != 2 {
 		t.Fatalf("usage error got %d", got)
 	}
-	if got := ExitCode(asUsageError(fmt.Errorf(`unknown command "wat" for "aidocs"`))); got != 2 {
+	_, err := Execute([]string{"wat"})
+	if err == nil || !strings.Contains(err.Error(), `unknown command "wat"`) {
+		t.Fatalf("expected unknown command error, got %v", err)
+	}
+	if got := ExitCode(err); got != 2 {
 		t.Fatalf("unknown command got %d", got)
+	}
+}
+
+// TestNoServerConfiguredFailsWithGuidance locks in that a CLI with no config,
+// flag, or environment never targets a baked-in default host: it fails and
+// tells the user how to point it at a server.
+func TestNoServerConfiguredFailsWithGuidance(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AIDOCS_SERVER", "")
+	t.Setenv("AIDOCS_TOKEN", "")
+	for _, args := range [][]string{{"auth", "login"}, {"docs", "list"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			_, err := Execute(args)
+			if err == nil || !strings.Contains(err.Error(), "--server <url>") {
+				t.Fatalf("expected no-server guidance, got %v", err)
+			}
+		})
+	}
+	if _, err := Execute([]string{"auth", "login"}); ExitCode(err) != 2 {
+		t.Fatalf("login without server should be a usage error, got %v", err)
 	}
 }
 
@@ -449,10 +482,11 @@ func TestSACommandsCanBeDisabled(t *testing.T) {
 	}
 }
 
-func jsonH(v any) http.HandlerFunc {
+func jsonH(t *testing.T, v any) http.HandlerFunc {
+	t.Helper()
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(v)
+		writeTestJSON(t, w, v)
 	}
 }
 func requireMultipart(t *testing.T, r *http.Request) {
@@ -460,7 +494,7 @@ func requireMultipart(t *testing.T, r *http.Request) {
 	if _, ok := r.Body.(*multipart.Part); ok {
 		fmt.Println()
 	}
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
+	if err := r.ParseMultipartForm(32 << 20); err != nil { //nolint:gosec // The in-process fixture body is fixed and bounded by the test.
 		t.Fatalf("multipart: %v", err)
 	}
 }
