@@ -13,6 +13,21 @@ jobs:
   test:
     name: Test aidocs
     runs-on: [k8s-runner, linux-amd64]
+    # Go tests need PostgreSQL. A service container is used here because the
+    # runner cannot start testcontainers itself; locally, plain `go test ./...`
+    # starts a disposable container via Docker (see api/internal/testdb).
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
@@ -40,7 +55,9 @@ jobs:
         run: npm run build --prefix frontend
 
       - name: Test Go
-        run: go test -tags testfixtures ./...
+        run: go test ./...
+        env:
+          AIDOCS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
   docker:
     name: Build Docker image
