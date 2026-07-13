@@ -188,6 +188,15 @@ func (q *Queries) LockDocumentForKV(ctx context.Context, id string) (string, err
 	return id_2, err
 }
 
+const notifyDocumentKVEvent = `-- name: NotifyDocumentKVEvent :exec
+SELECT pg_notify('aidocs_kv_events', $1::text)
+`
+
+func (q *Queries) NotifyDocumentKVEvent(ctx context.Context, documentID string) error {
+	_, err := q.db.Exec(ctx, notifyDocumentKVEvent, documentID)
+	return err
+}
+
 const upsertDocumentKV = `-- name: UpsertDocumentKV :exec
 INSERT INTO document_kv(document_id,key,value,revision,updated_by_type,updated_by_id,updated_by_email,updated_by_name,deleted_at)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,NULL)
