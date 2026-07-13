@@ -107,6 +107,28 @@ spec:
             - name: DATABASE_URL
               # nosemgrep: generic_postgres_string
               value: "postgres://$(DATABASE_USER):$(DATABASE_PASSWORD)@$(DATABASE_HOST):{{ .Values.database.port }}/$(DATABASE_NAME)?sslmode={{ .Values.database.sslMode }}"
+            {{- if .Values.oidc.issuerURL }}
+            - name: AIDOCS_OIDC_ISSUER_URL
+              value: {{ .Values.oidc.issuerURL | quote }}
+            {{- if .Values.oidc.providerName }}
+            - name: AIDOCS_OIDC_PROVIDER_NAME
+              value: {{ .Values.oidc.providerName | quote }}
+            {{- end }}
+            {{- if .Values.oidc.internalIssuerURL }}
+            - name: AIDOCS_OIDC_INTERNAL_ISSUER_URL
+              value: {{ .Values.oidc.internalIssuerURL | quote }}
+            {{- end }}
+            - name: AIDOCS_OIDC_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.oidc.existingSecret }}
+                  key: {{ .Values.oidc.clientIDKey }}
+            - name: AIDOCS_OIDC_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.oidc.existingSecret }}
+                  key: {{ .Values.oidc.clientSecretKey }}
+            {{- else }}
             - name: GOOGLE_OAUTH_CLIENT_ID
               valueFrom:
                 secretKeyRef:
@@ -117,6 +139,7 @@ spec:
                 secretKeyRef:
                   name: {{ default (include "aidocs.secretName" .) .Values.googleOAuth.existingSecret }}
                   key: {{ .Values.googleOAuth.clientSecretKey }}
+            {{- end }}
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:

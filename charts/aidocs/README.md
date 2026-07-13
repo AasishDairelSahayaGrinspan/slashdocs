@@ -1,6 +1,10 @@
 # aidocs Helm chart
 
-Deploy `aidocs` to Kubernetes as one application Deployment and Service. You bring Postgres, S3-compatible blob storage, and Google OAuth credentials.
+Deploy `aidocs` to Kubernetes as one application Deployment and Service. You bring Postgres, S3-compatible blob storage, and an OIDC identity provider (Google, Okta, Entra ID, Keycloak, Dex, ...).
+
+## Two origins, on purpose
+
+aidocs serves uploaded document HTML — untrusted content — in a sandboxed frame on a dedicated render origin (`origins.render`). Keep it on a **different host** from the app origin (`origins.app`): if documents rendered on the app origin, an uploaded script could run same-origin with the authenticated application and its session cookies. The chart defaults reflect this (`aidocs.example.com` vs `render.aidocs.example.com`), and when the Traefik `ingressRoute` is enabled, template rendering fails unless `ingressRoute.renderHost` is set and differs from `ingressRoute.host`. Route both hosts to the same Service.
 
 ## Install
 
@@ -15,7 +19,7 @@ helm upgrade --install aidocs ./charts/aidocs \
 
 ```yaml
 image:
-  repository: harbor.razorpay.com/razorpay/aidocs
+  repository: razorpay/aidocs
   tag: "0.1.0"
 
 origins:
@@ -25,6 +29,14 @@ origins:
 googleOAuth:
   clientID: "..."
   clientSecret: "..."
+
+# Or any other OIDC provider instead of googleOAuth (setting oidc.issuerURL
+# switches the chart over):
+# oidc:
+#   issuerURL: https://sso.example.com
+#   providerName: Okta
+#   clientID: aidocs
+#   clientSecret: "..."
 
 session:
   secret: "replace-with-at-least-32-random-bytes"
@@ -57,10 +69,15 @@ ingress:
       paths:
         - path: /
           pathType: Prefix
+    - host: render.aidocs.example.com
+      paths:
+        - path: /
+          pathType: Prefix
   tls:
     - secretName: aidocs-tls
       hosts:
         - aidocs.example.com
+        - render.aidocs.example.com
 ```
 
 ## Existing secrets
@@ -90,10 +107,16 @@ blob:
   secretAccessKeyKey: secret-access-key
 ```
 
-## Google OAuth callback
+## Redirect URIs
 
 Configure this redirect URI in Google Cloud:
 
 ```text
 https://aidocs.example.com/v1/auth/google/callback
+```
+
+or, for a generic OIDC provider:
+
+```text
+https://aidocs.example.com/v1/auth/oidc/callback
 ```
