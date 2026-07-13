@@ -1,25 +1,90 @@
-function bridge() {
+type KVItems = Record<string, unknown>;
+
+interface KVPatch {
+  set: KVItems;
+  delete: string[];
+}
+
+interface KVHistoryEntry {
+  forward: KVPatch;
+  inverse: KVPatch;
+}
+
+interface KVPendingRequest {
+  resolve(value: KVItems): void;
+  reject(error: unknown): void;
+}
+
+type KVChangeHandler = (detail: unknown) => void;
+
+interface KVHandlers {
+  kvchange: KVChangeHandler[];
+}
+
+interface QueuedKVOperation {
+  op: string;
+  args?: never[];
+  resolve?: (value: unknown) => void;
+  reject?: (error: unknown) => void;
+}
+
+type KVFunction = (...args: never[]) => Promise<unknown>;
+
+interface AidocsPublicAPI {
+  kv?: Record<string, KVFunction>;
+  on?: (event: string, handler: KVChangeHandler) => (() => void) | undefined;
+  off?: (event: string, handler: KVChangeHandler) => void;
+  [key: string]: unknown;
+}
+
+interface Window {
+  __AIDOCS_APP_ORIGIN__?: string;
+  __aidocsKVHandlers?: KVHandlers;
+  __aidocsKVQueue?: QueuedKVOperation[];
+  aidocs?: AidocsPublicAPI;
+  CustomEvent: typeof CustomEvent;
+}
+
+interface CommentAnchor {
+  quote?: string;
+  prefix?: string;
+  suffix?: string;
+  dom_path?: string;
+  start_offset?: number;
+  end_offset?: number;
+}
+
+interface PaintItem {
+  id?: string;
+  anchor?: CommentAnchor;
+  quote?: string;
+  selected_text?: string;
+}
+
+type Theme = "dark" | "light";
+
+(function bridge(): void {
   const appOrigin = window.__AIDOCS_APP_ORIGIN__ || "*";
-  const frame = document.getElementById("aidocs-doc");
+  const frame = document.getElementById("aidocs-doc") as HTMLIFrameElement;
   const svgNS = "http://www.w3.org/2000/svg";
   let kvRequestID = 0;
-  const kvPending = {};
+  const kvPending: Record<string, KVPendingRequest> = {};
   const kvRequestTimeoutMS = 10000;
   const kvHistoryLimit = 100;
-  let kvUndoStack = [];
-  let kvRedoStack = [];
-  let kvMutationQueue = Promise.resolve();
+  let kvUndoStack: KVHistoryEntry[] = [];
+  let kvRedoStack: KVHistoryEntry[] = [];
+  let kvMutationQueue: Promise<unknown> = Promise.resolve();
   let kvHistoryGeneration = 0;
 
-  function doc() {
+  function doc(): Document | null {
     try {
-      return frame.contentDocument || frame.contentWindow.document;
+      return frame.contentDocument || frame.contentWindow!.document;
     } catch (e) {
       return null;
     }
   }
 
-  function targetOrigin() {
+  function targetOrigin(): string {
     if (!appOrigin || appOrigin === "*") return "*";
     if (appOrigin === "self" || appOrigin === "'self'") return window.location.origin;
     try {
@@ -29,13 +94,13 @@ function bridge() {
     }
   }
 
-  function isParentMessage(e) {
+  function isParentMessage(e: MessageEvent): boolean {
     if (e.source !== parent) return false;
     const origin = targetOrigin();
     return origin === "*" || e.origin === origin;
   }
 
-  function innerWindow() {
+  function innerWindow(): Window | null {
     try {
       return frame.contentWindow;
     } catch (e) {
@@ -43,48 +108,48 @@ function bridge() {
     }
   }
 
-  function jsonValue(value) {
+  function jsonValue(value: unknown): unknown {
     const text = JSON.stringify(value);
     if (text === undefined) throw new TypeError("KV value must be JSON serializable");
     return JSON.parse(text);
   }
 
-  function emptyKVPatch() {
+  function emptyKVPatch(): KVPatch {
     return { set: {}, delete: [] };
   }
 
-  function hasOwn(obj, key) {
+  function hasOwn(obj: object | null | undefined, key: PropertyKey): boolean {
     return Object.prototype.hasOwnProperty.call(obj || {}, key);
   }
 
-  function hasKVPatchChanges(patch) {
+  function hasKVPatchChanges(patch: KVPatch | null | undefined): boolean {
     return (
       Object.keys((patch && patch.set) || {}).length > 0 ||
       !!(patch && patch.delete && patch.delete.length)
     );
   }
 
-  function cloneKVPatch(patch) {
-    const set = {};
+  function cloneKVPatch(patch: KVPatch | null | undefined): KVPatch {
+    const set: KVItems = {};
     Object.keys((patch && patch.set) || {}).forEach((key) => {
-      set[key] = jsonValue(patch.set[key]);
+      set[key] = jsonValue(patch!.set[key]);
     });
     return { set, delete: ((patch && patch.delete) || []).map(String) };
   }
 
-  function pushKVStack(stack, entry) {
+  function pushKVStack(stack: KVHistoryEntry[], entry: KVHistoryEntry): void {
     stack.push(entry);
     while (stack.length > kvHistoryLimit) stack.shift();
   }
 
-  function resetKVHistory() {
+  function resetKVHistory(): void {
     kvHistoryGeneration++;
     kvUndoStack = [];
     kvRedoStack = [];
     kvMutationQueue = Promise.resolve();
   }
 
-  function kvPatchFromSet(key, value) {
+  function kvPatchFromSet(key: unknown, value: unknown): KVPatch {
     if (value === undefined) {
       throw new TypeError("aidocs.kv.set requires a JSON value");
     }
@@ -95,19 +160,19 @@ function bridge() {
     return patch;
   }
 
-  function kvPatchFromDelete(key) {
+  function kvPatchFromDelete(key: unknown): KVPatch {
     const patch = emptyKVPatch();
     patch.delete.push(String(key));
     return patch;
   }
 
-  function kvPatchFromObject(object) {
+  function kvPatchFromObject(object: unknown): KVPatch {
     if (!object || typeof object !== "object" || Array.isArray(object)) {
       throw new TypeError("aidocs.kv.patch requires an object");
     }
     const patch = emptyKVPatch();
     Object.keys(object).forEach((key) => {
-      const value = object[key];
+      const value = (object as KVItems)[key];
       if (value === null || value === undefined) {
         patch.delete.push(key);
       } else {
@@ -117,15 +182,15 @@ function bridge() {
     return patch;
   }
 
-  function kvRequestItems() {
+  function kvRequestItems(): Promise<KVItems> {
     return kvRequest("all").then((res) =>
-      res && res.items && typeof res.items === "object" ? res.items : {},
+      res && res.items && typeof res.items === "object" ? (res.items as KVItems) : {},
     );
   }
 
-  function kvInversePatch(forward, items) {
+  function kvInversePatch(forward: KVPatch, items: KVItems): KVPatch {
     const inverse = emptyKVPatch();
-    const keys = {};
+    const keys: Record<string, boolean> = {};
     Object.keys((forward && forward.set) || {}).forEach((key) => {
       keys[key] = true;
     });
@@ -139,7 +204,7 @@ function bridge() {
     return inverse;
   }
 
-  function sameKVValue(a, b) {
+  function sameKVValue(a: unknown, b: unknown): boolean {
     if (Object.is(a, b)) return true;
     if (a === null || b === null) return a === b;
     if (typeof a !== typeof b) return false;
@@ -154,16 +219,17 @@ function bridge() {
       return true;
     }
     const aKeys = Object.keys(a).sort();
-    const bKeys = Object.keys(b).sort();
+    const bKeys = Object.keys(b as object).sort();
     if (aKeys.length !== bKeys.length) return false;
     for (let i = 0; i < aKeys.length; i++) {
       const key = aKeys[i];
-      if (key !== bKeys[i] || !sameKVValue(a[key], b[key])) return false;
+      if (key !== bKeys[i] || !sameKVValue((a as KVItems)[key], (b as KVItems)[key]))
+        return false;
     }
     return true;
   }
 
-  function kvPatchMatchesItems(patch, items) {
+  function kvPatchMatchesItems(patch: KVPatch, items: KVItems): boolean {
     const set = (patch && patch.set) || {};
     for (const key of Object.keys(set)) {
       if (!hasOwn(items, key) || !sameKVValue(items[key], set[key])) return false;
@@ -174,22 +240,22 @@ function bridge() {
     return true;
   }
 
-  function rejectStaleKVHistory(message) {
+  function rejectStaleKVHistory(message: string): Promise<never> {
     resetKVHistory();
     return Promise.reject(new Error(message));
   }
 
-  function rejectResetKVHistory() {
+  function rejectResetKVHistory(): Promise<never> {
     return Promise.reject(new Error("KV history was reset"));
   }
 
-  function queueKVMutation(task) {
+  function queueKVMutation(task: () => Promise<unknown>): Promise<unknown> {
     const run = kvMutationQueue.then(task, task);
     kvMutationQueue = run.catch(() => {});
     return run;
   }
 
-  function kvApplyPatch(patch, operation) {
+  function kvApplyPatch(patch: KVPatch, operation: string): Promise<KVItems> {
     const outgoing = cloneKVPatch(patch);
     return kvRequest("patch", {
       set: outgoing.set,
@@ -199,7 +265,7 @@ function bridge() {
     });
   }
 
-  function kvApplyLocalPatch(forward, operation) {
+  function kvApplyLocalPatch(forward: KVPatch, operation: string): Promise<unknown> {
     const generation = kvHistoryGeneration;
     const patch = cloneKVPatch(forward);
     return queueKVMutation(() => {
@@ -219,12 +285,13 @@ function bridge() {
     });
   }
 
-  function kvUndo() {
+  function kvUndo(): Promise<unknown> {
     const generation = kvHistoryGeneration;
     return queueKVMutation(() => {
       if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
       const entry = kvUndoStack.pop();
-      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "undo" });
+      if (!entry)
+        return Promise.resolve({ changes: [], empty: true, operation: "undo" });
       return kvRequestItems().then((items) => {
         if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
         if (!kvPatchMatchesItems(entry.forward, items)) {
@@ -244,12 +311,13 @@ function bridge() {
     });
   }
 
-  function kvRedo() {
+  function kvRedo(): Promise<unknown> {
     const generation = kvHistoryGeneration;
     return queueKVMutation(() => {
       if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
       const entry = kvRedoStack.pop();
-      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "redo" });
+      if (!entry)
+        return Promise.resolve({ changes: [], empty: true, operation: "redo" });
       return kvRequestItems().then((items) => {
         if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
         if (!kvPatchMatchesItems(entry.inverse, items)) {
@@ -269,7 +337,7 @@ function bridge() {
     });
   }
 
-  function kvRequest(operation, payload) {
+  function kvRequest(operation: string, payload?: KVItems): Promise<KVItems> {
     const requestId = "kv_" + ++kvRequestID + "_" + Date.now();
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -287,21 +355,23 @@ function bridge() {
         },
       };
       parent.postMessage(
-        Object.assign({ type: "aidocs:kv-request", requestId, operation }, payload || {}),
+        Object.assign(
+          { type: "aidocs:kv-request", requestId, operation },
+          payload || {},
+        ),
         targetOrigin(),
       );
     });
   }
 
-  function emitKVChange(detail) {
+  function emitKVChange(detail: unknown): void {
     const w = innerWindow();
     if (!w) return;
     try {
       const ev = new w.CustomEvent("kvchange", { detail });
       w.dispatchEvent(ev);
     } catch (e) {}
-    const handlers =
-      (w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange) || [];
+    const handlers = (w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange) || [];
     handlers.slice().forEach((handler) => {
       try {
         handler(detail);
@@ -313,41 +383,42 @@ function bridge() {
     });
   }
 
-  function installAidocsAPI() {
+  function installAidocsAPI(): void {
     const w = innerWindow();
     if (!w) return;
-    const existing = w.aidocs && typeof w.aidocs === "object" ? w.aidocs : {};
+    const existing: AidocsPublicAPI =
+      w.aidocs && typeof w.aidocs === "object" ? w.aidocs : {};
     const handlers =
       w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange
         ? w.__aidocsKVHandlers
         : { kvchange: [] };
     w.__aidocsKVHandlers = handlers;
 
-    function off(event, handler) {
+    function off(event: string, handler: KVChangeHandler): void {
       if (event !== "kvchange") return;
       handlers.kvchange = handlers.kvchange.filter((h) => h !== handler);
     }
-    function on(event, handler) {
+    function on(event: string, handler: KVChangeHandler): (() => void) | undefined {
       if (event !== "kvchange" || typeof handler !== "function") return;
       handlers.kvchange.push(handler);
       return function unsubscribe() {
         off(event, handler);
       };
     }
-    const kv = {
-      get(key) {
+    const kv: Record<string, KVFunction> = {
+      get(key: unknown) {
         return kvRequest("get", { key: String(key) }).then((res) => res.value);
       },
       all() {
         return kvRequest("all").then((res) => res.items || {});
       },
-      set(key, value) {
+      set(key: unknown, value: unknown) {
         return kvApplyLocalPatch(kvPatchFromSet(key, value), "set");
       },
-      delete(key) {
+      delete(key: unknown) {
         return kvApplyLocalPatch(kvPatchFromDelete(key), "delete");
       },
-      patch(object) {
+      patch(object: unknown) {
         return kvApplyLocalPatch(kvPatchFromObject(object), "patch");
       },
       undo() {
@@ -378,28 +449,31 @@ function bridge() {
     });
   }
 
-  function hydrateKV() {
+  function hydrateKV(): void {
     kvRequest("hydrate", { source: "initial", operation: "hydrate" })
       .then((res) => {
         emitKVChange(
-          Object.assign({ source: "initial", operation: "hydrate", changes: [] }, res || {}),
+          Object.assign(
+            { source: "initial", operation: "hydrate", changes: [] },
+            res || {},
+          ),
         );
       })
       .catch(() => {});
   }
 
-  function textNodes(root) {
+  function textNodes(root: Node): Text[] {
     const w = (doc() || document).createTreeWalker(root, NodeFilter.SHOW_TEXT, {
       acceptNode: (n) =>
-        n.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
+        n.nodeValue!.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
     });
-    const a = [];
-    let n;
-    while ((n = w.nextNode())) a.push(n);
+    const a: Text[] = [];
+    let n: Node | null;
+    while ((n = w.nextNode())) a.push(n as Text);
     return a;
   }
 
-  function injectStyles() {
+  function injectStyles(): void {
     const d = doc();
     if (!d || d.getElementById("aidocs-highlight-style")) return;
     const s = d.createElement("style");
@@ -409,30 +483,30 @@ function bridge() {
     (d.head || d.documentElement).appendChild(s);
   }
 
-  function clear() {
+  function clear(): void {
     const d = doc();
     if (!d) return;
     d.querySelectorAll("mark.aidocs-mark").forEach((m) =>
       m.replaceWith(...m.childNodes),
     );
     d.querySelectorAll(".aidocs-svg-mark-rect").forEach((r) => r.remove());
-    d.querySelectorAll(".aidocs-svg-mark-text").forEach((t) => {
+    d.querySelectorAll<HTMLElement>(".aidocs-svg-mark-text").forEach((t) => {
       t.classList.remove("aidocs-svg-mark-text");
       delete t.dataset.cid;
     });
     d.body && d.body.normalize();
   }
 
-  function norm(s) {
+  function norm(s: string | null | undefined): string {
     return (s || "").replace(/\s+/g, " ").trim();
   }
 
-  function isSVGNode(n) {
+  function isSVGNode(n: Node | null): boolean {
     return !!(n && n.parentElement && n.parentElement.namespaceURI === svgNS);
   }
 
-  function svgHighlight(n, active, id) {
-    const el = n.parentElement;
+  function svgHighlight(n: Text, active: boolean, id?: string): number {
+    const el = n.parentElement as SVGGraphicsElement | null;
     if (!el || !el.getBBox) return 0;
     let box;
     try {
@@ -452,17 +526,17 @@ function bridge() {
     rect.setAttribute("y", String(box.y - 2));
     rect.setAttribute("width", String(box.width + 6));
     rect.setAttribute("height", String(box.height + 4));
-    el.parentNode.insertBefore(rect, el);
+    el.parentNode!.insertBefore(rect, el);
     el.classList.add("aidocs-svg-mark-text");
     if (active) el.scrollIntoView({ block: "center", behavior: "smooth" });
     return 1;
   }
 
-  function htmlHighlight(n, q, active, id) {
+  function htmlHighlight(n: Text, q: string, active: boolean, id?: string): number {
     const d = doc();
-    const raw = n.nodeValue;
+    const raw = n.nodeValue!;
     const i = raw.indexOf(q);
-    const r = d.createRange();
+    const r = d!.createRange();
     if (i >= 0) {
       r.setStart(n, i);
       r.setEnd(n, Math.min(raw.length, i + q.length));
@@ -472,15 +546,20 @@ function bridge() {
     return highlightRange(r, active, id);
   }
 
-  function rangeAtOffsets(d, nodes, start, end) {
+  function rangeAtOffsets(
+    d: Document,
+    nodes: Text[],
+    start: number,
+    end: number,
+  ): Range | null {
     if (start < 0 || end <= start) return null;
     let pos = 0;
-    let startNode = null;
+    let startNode: Text | null = null;
     let startOffset = 0;
-    let endNode = null;
+    let endNode: Text | null = null;
     let endOffset = 0;
     for (const n of nodes) {
-      const len = n.nodeValue.length;
+      const len = n.nodeValue!.length;
       const ns = pos;
       const ne = pos + len;
       if (!startNode && start >= ns && start <= ne) {
@@ -501,9 +580,9 @@ function bridge() {
     return r;
   }
 
-  function highlightRange(r, active, id) {
+  function highlightRange(r: Range, active: boolean, id?: string): number {
     const d = doc();
-    const m = d.createElement("mark");
+    const m = d!.createElement("mark");
     m.className = "aidocs-mark" + (active ? " aidocs-mark-active" : "");
     if (id) m.dataset.cid = id;
     try {
@@ -515,7 +594,11 @@ function bridge() {
     }
   }
 
-  function markAtAnchor(a, active, id) {
+  function markAtAnchor(
+    a: CommentAnchor | null | undefined,
+    active: boolean,
+    id?: string,
+  ): number {
     const d = doc();
     if (
       !d ||
@@ -531,19 +614,23 @@ function bridge() {
     if (a.quote && norm(r.toString()) !== norm(a.quote)) return 0;
 
     if (r.startContainer === r.endContainer && isSVGNode(r.startContainer)) {
-      return svgHighlight(r.startContainer, active, id);
+      return svgHighlight(r.startContainer as Text, active, id);
     }
     return highlightRange(r, active, id);
   }
 
-  function markQuote(q, active, id) {
+  function markQuote(
+    q: string | null | undefined,
+    active: boolean,
+    id?: string,
+  ): number {
     const d = doc();
     if (!d || !q) return 0;
     injectStyles();
     const nq = norm(q);
     if (!nq) return 0;
     for (const n of textNodes(d.body)) {
-      const raw = n.nodeValue;
+      const raw = n.nodeValue!;
       const nText = norm(raw);
       if (nText.indexOf(nq) < 0 && raw.indexOf(q) < 0) continue;
       if (isSVGNode(n)) {
@@ -555,7 +642,10 @@ function bridge() {
     return 0;
   }
 
-  function paint(items, active) {
+  function paint(
+    items: PaintItem[] | null | undefined,
+    active: string | null | undefined,
+  ): void {
     clear();
     injectStyles();
     (items || []).forEach((x) => {
@@ -566,22 +656,23 @@ function bridge() {
     });
   }
 
-  function activate(e) {
-    const m =
-      e.target &&
-      e.target.closest &&
-      e.target.closest("mark.aidocs-mark,.aidocs-svg-mark-text,.aidocs-svg-mark-rect");
+  function activate(e: MouseEvent): void {
+    const m = (e.target &&
+      (e.target as Element).closest &&
+      (e.target as Element).closest(
+        "mark.aidocs-mark,.aidocs-svg-mark-text,.aidocs-svg-mark-rect",
+      )) as HTMLElement | null;
     if (!m || !m.dataset.cid) return;
     parent.postMessage({ type: "aidocs:activate", id: m.dataset.cid }, targetOrigin());
   }
 
-  function cssString(s) {
+  function cssString(s: unknown): string {
     return String(s || "")
       .replace(/\\/g, "\\\\")
       .replace(/"/g, '\\"');
   }
 
-  function fragmentTarget(d, hash) {
+  function fragmentTarget(d: Document, hash: string): Element | null {
     if (!hash || hash === "#") return null;
     let id;
     try {
@@ -592,7 +683,7 @@ function bridge() {
     return d.getElementById(id) || d.querySelector('[name="' + cssString(id) + '"]');
   }
 
-  function openURL(url) {
+  function openURL(url: string): void {
     try {
       const w = window.open(url, "_blank", "noopener,noreferrer");
       if (w) w.opener = null;
@@ -608,10 +699,10 @@ function bridge() {
     } catch (e) {}
   }
 
-  function handleLinkClick(e) {
+  function handleLinkClick(e: MouseEvent): void {
     const d = doc();
-    if (!d || !e.target || !e.target.closest) return;
-    const a = e.target.closest("a[href]");
+    if (!d || !e.target || !(e.target as Element).closest) return;
+    const a = (e.target as Element).closest("a[href]") as HTMLAnchorElement | null;
     if (!a) return;
     const href = a.getAttribute("href") || "";
     if (!href || /^javascript:/i.test(href)) {
@@ -624,7 +715,7 @@ function bridge() {
         e.preventDefault();
         t.scrollIntoView({ block: "start", behavior: "smooth" });
         try {
-          d.defaultView.history.replaceState(null, "", href);
+          d.defaultView!.history.replaceState(null, "", href);
         } catch (err) {}
       }
       return;
@@ -644,10 +735,10 @@ function bridge() {
     }
   }
 
-  function prepareLinks() {
+  function prepareLinks(): void {
     const d = doc();
     if (!d) return;
-    d.querySelectorAll("a[href]").forEach((a) => {
+    d.querySelectorAll<HTMLAnchorElement>("a[href]").forEach((a) => {
       const href = a.getAttribute("href") || "";
       if (href && !/^#|javascript:/i.test(href)) {
         a.setAttribute("target", "_blank");
@@ -656,8 +747,8 @@ function bridge() {
     });
   }
 
-  let curTheme = null;
-  function initialTheme() {
+  let curTheme: Theme | null = null;
+  function initialTheme(): Theme | null {
     try {
       const t = new URLSearchParams(location.search).get("aidocs_theme");
       return t === "dark" || t === "light" ? t : null;
@@ -666,29 +757,29 @@ function bridge() {
     }
   }
 
-  function applyTheme(t) {
+  function applyTheme(t: unknown): void {
     if (t !== "dark" && t !== "light") return;
     curTheme = t;
     const d = doc();
     if (!d || !d.documentElement) return;
     d.documentElement.setAttribute("data-aidocs-theme", t);
     try {
-      d.defaultView.dispatchEvent(
+      d.defaultView!.dispatchEvent(
         new CustomEvent("aidocs:theme", { detail: { theme: t } }),
       );
     } catch (e) {}
   }
 
-  function offsetOfNode(nodes, target, offset) {
+  function offsetOfNode(nodes: Text[], target: Node, offset: number): number {
     let pos = 0;
     for (const n of nodes) {
       if (n === target) return pos + offset;
-      pos += n.nodeValue.length;
+      pos += n.nodeValue!.length;
     }
     return -1;
   }
 
-  function selection() {
+  function selection(): void {
     const d = doc();
     if (!d) return;
     const s = d.getSelection();
@@ -729,23 +820,22 @@ function bridge() {
     );
   }
 
-  function isTextEditingTarget(target) {
+  function isTextEditingTarget(target: EventTarget | null): boolean {
     const d = doc();
     if (d && String(d.designMode || "").toLowerCase() === "on") return true;
     const keyTarget = target || (d && d.activeElement);
     const el =
-      keyTarget && keyTarget.nodeType === 1
-        ? keyTarget
-        : keyTarget && keyTarget.parentElement
-          ? keyTarget.parentElement
+      keyTarget && (keyTarget as Node).nodeType === 1
+        ? (keyTarget as Element)
+        : keyTarget && (keyTarget as Node).parentElement
+          ? (keyTarget as Node).parentElement
           : null;
     if (!el || !el.closest) return false;
     const editable = el.closest("input,textarea,[contenteditable],[role='textbox']");
     if (!editable) return false;
     if (editable.matches && editable.matches("[contenteditable]")) {
       return (
-        String(editable.getAttribute("contenteditable") || "").toLowerCase() !==
-        "false"
+        String(editable.getAttribute("contenteditable") || "").toLowerCase() !== "false"
       );
     }
     const role = String(editable.getAttribute("role") || "").toLowerCase();
@@ -759,7 +849,7 @@ function bridge() {
     );
   }
 
-  function handleKVUndoRedoShortcut(ev) {
+  function handleKVUndoRedoShortcut(ev: KeyboardEvent): void {
     if (ev.defaultPrevented || isTextEditingTarget(ev.target)) return;
     if (!(ev.ctrlKey || ev.metaKey) || ev.altKey) return;
     const key = String(ev.key || "").toLowerCase();
@@ -779,8 +869,8 @@ function bridge() {
   }
 
   curTheme = initialTheme();
-  let setupDoc = null;
-  function setupFrame() {
+  let setupDoc: Document | null = null;
+  function setupFrame(): void {
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
     setupDoc = d;
@@ -796,7 +886,7 @@ function bridge() {
     // — doing so pops the comments sheet and steals the drag. We only emit
     // once the finger lifts (touchend), i.e. the gesture has settled.
     var touching = false;
-    var touchEmitTimer = null;
+    var touchEmitTimer: number | null = null;
     d.addEventListener(
       "touchstart",
       function () {
@@ -826,7 +916,7 @@ function bridge() {
     });
     // selectionchange handles mouse drag-selection on desktop; on touch it
     // fires continuously mid-drag, so skip it while a finger is down.
-    var selTimer = null;
+    var selTimer: number | null = null;
     d.addEventListener("selectionchange", function () {
       if (touching) return;
       if (selTimer) clearTimeout(selTimer);
@@ -880,9 +970,12 @@ function bridge() {
       if (!pending) return;
       delete kvPending[requestId];
       if (e.data.ok) pending.resolve(e.data.result || {});
-      else pending.reject(new Error((e.data.error && e.data.error.message) || "KV request failed"));
+      else
+        pending.reject(
+          new Error((e.data.error && e.data.error.message) || "KV request failed"),
+        );
     } else if (e.data.type === "aidocs:kv-event") {
       emitKVChange(e.data.detail || {});
     }
   });
-}
+})();
