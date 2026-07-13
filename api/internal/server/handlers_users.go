@@ -1,15 +1,18 @@
 package server
 
 import (
+	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/razorpay/aidocs/api/internal/auth"
 )
 
 func (h handlers) searchUsers(c *gin.Context) {
 	q := strings.TrimSpace(c.Query("q"))
 	if len(q) < 2 {
-		c.JSON(200, gin.H{"items": []any{}})
+		c.JSON(http.StatusOK, listResponse[auth.Principal]{Items: []auth.Principal{}})
 		return
 	}
 	items, err := h.deps.repository.SearchUsersByEmail(c.Request.Context(), q)
@@ -17,5 +20,5 @@ func (h handlers) searchUsers(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(200, gin.H{"items": items})
+	c.JSON(http.StatusOK, listResponse[auth.Principal]{Items: items})
 }

@@ -43,6 +43,30 @@ func allocateServiceAccountName(c *gin.Context, r repo.Repository, p auth.Princi
 	return repo.ServiceAccount{}, "", lastErr
 }
 
+// createServiceAccountResponse is the payload of POST /v1/service-accounts.
+// It carries the freshly minted key token, shown exactly once.
+type createServiceAccountResponse struct {
+	ID       string              `json:"id"`
+	Label    string              `json:"label"`
+	Name     string              `json:"name"`
+	Owner    serviceAccountOwner `json:"owner"`
+	Disabled bool                `json:"disabled"`
+	Grants   []any               `json:"grants"`
+	Key      serviceAccountKey   `json:"key"`
+}
+
+type serviceAccountOwner struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
+// serviceAccountKey is a newly created key with its one-time token; it is
+// also the payload of POST /v1/service-accounts/{id}/keys.
+type serviceAccountKey struct {
+	ID    string `json:"id"`
+	Token string `json:"token"`
+}
+
 // CreateServiceAccount godoc
 // @Summary Create service account
 // @Tags service-accounts
@@ -50,7 +74,7 @@ func allocateServiceAccountName(c *gin.Context, r repo.Repository, p auth.Princi
 // @Security cookieAuth
 // @Accept json
 // @Produce json
-// @Success 201 {object} map[string]interface{}
+// @Success 201 {object} createServiceAccountResponse
 // @Router /v1/service-accounts [post]
 func (h handlers) createServiceAccount(c *gin.Context) {
 	p := current(c)
@@ -100,14 +124,14 @@ func (h handlers) createServiceAccount(c *gin.Context) {
 	}
 	incServiceAccount("created", actorType(c))
 	incServiceAccount("key_created", actorType(c))
-	c.JSON(http.StatusCreated, gin.H{
-		"id":       sa.ID,
-		"label":    in.Label,
-		"name":     sa.Name,
-		"owner":    gin.H{"id": sa.Owner.ID, "email": sa.Owner.Email},
-		"disabled": sa.Disabled,
-		"grants":   []any{},
-		"key":      gin.H{"id": keyID, "token": token},
+	c.JSON(http.StatusCreated, createServiceAccountResponse{
+		ID:       sa.ID,
+		Label:    in.Label,
+		Name:     sa.Name,
+		Owner:    serviceAccountOwner{ID: sa.Owner.ID, Email: sa.Owner.Email},
+		Disabled: sa.Disabled,
+		Grants:   []any{},
+		Key:      serviceAccountKey{ID: keyID, Token: token},
 	})
 }
 
@@ -146,7 +170,7 @@ func (h handlers) createOwnershipTransfer(c *gin.Context) {
 // @Tags service-accounts
 // @Security bearerAuth
 // @Security cookieAuth
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} listResponse[repo.OwnershipTransfer]
 // @Router /v1/service-accounts/transfers [get]
 func (h handlers) listOwnershipTransfers(c *gin.Context) {
 	items, err := h.deps.repository.ListOwnershipTransfers(c.Request.Context(), *current(c))
@@ -154,7 +178,7 @@ func (h handlers) listOwnershipTransfers(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, listResponse[repo.OwnershipTransfer]{Items: items})
 }
 
 // AcceptOwnershipTransfer godoc
@@ -208,7 +232,7 @@ func (h handlers) declineOwnershipTransfer(c *gin.Context) {
 // @Tags service-accounts
 // @Security bearerAuth
 // @Security cookieAuth
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} listResponse[repo.ServiceAccount]
 // @Router /v1/service-accounts [get]
 func (h handlers) listServiceAccounts(c *gin.Context) {
 	items, err := h.deps.repository.ListServiceAccounts(c.Request.Context(), *current(c))
@@ -216,7 +240,7 @@ func (h handlers) listServiceAccounts(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, listResponse[repo.ServiceAccount]{Items: items})
 }
 
 // PatchServiceAccount godoc
@@ -256,7 +280,7 @@ func (h handlers) patchServiceAccount(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Param id path string true "Service account ID"
-// @Success 201 {object} map[string]interface{}
+// @Success 201 {object} serviceAccountKey
 // @Router /v1/service-accounts/{id}/keys [post]
 func (h handlers) createServiceAccountKey(c *gin.Context) {
 	if !h.needServiceAccountOwner(c, c.Param("id")) {
@@ -289,7 +313,7 @@ func (h handlers) createServiceAccountKey(c *gin.Context) {
 		return
 	}
 	incServiceAccount("key_created", actorType(c))
-	c.JSON(http.StatusCreated, gin.H{"id": id, "token": token})
+	c.JSON(http.StatusCreated, serviceAccountKey{ID: id, Token: token})
 }
 
 // ListServiceAccountKeys godoc
@@ -298,7 +322,7 @@ func (h handlers) createServiceAccountKey(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Param id path string true "Service account ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} listResponse[repo.ServiceAccountKey]
 // @Router /v1/service-accounts/{id}/keys [get]
 func (h handlers) listServiceAccountKeys(c *gin.Context) {
 	if !h.needServiceAccountOwner(c, c.Param("id")) {
@@ -309,7 +333,7 @@ func (h handlers) listServiceAccountKeys(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, listResponse[repo.ServiceAccountKey]{Items: items})
 }
 
 // RevokeServiceAccountKey godoc
@@ -340,6 +364,10 @@ func (h handlers) needServiceAccountOwner(c *gin.Context, saID string) bool {
 		return false
 	}
 	sa, err := h.deps.repository.GetServiceAccount(c.Request.Context(), saID)
+	if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		internalErr(c, err)
+		return false
+	}
 	if err != nil || sa.Owner.ID != p.ID {
 		forbidden(c, "service account owner required")
 		return false

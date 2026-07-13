@@ -2,11 +2,15 @@ package server
 
 import (
 	"mime"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/net/idna"
 
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -44,6 +48,24 @@ func requireJSON(c *gin.Context) bool {
 	return true
 }
 
+func requireCommentJSON(c *gin.Context) bool {
+	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if err == nil && (strings.EqualFold(mediaType, "application/json") || strings.EqualFold(mediaType, commentMentionsMediaType)) {
+		return true
+	}
+	c.JSON(http.StatusUnsupportedMediaType, errorResponse("unsupported_media_type", "content-type must be application/json or "+commentMentionsMediaType, nil))
+	return false
+}
+
+func requireStructuredCommentMediaType(c *gin.Context) bool {
+	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
+	if err == nil && strings.EqualFold(mediaType, commentMentionsMediaType) {
+		return true
+	}
+	c.JSON(http.StatusUnsupportedMediaType, errorResponse("unsupported_media_type", "structured comment mentions require content-type "+commentMentionsMediaType, nil))
+	return false
+}
+
 func requestHasBody(c *gin.Context) bool {
 	r := c.Request
 	return r.Body != nil && r.Body != http.NoBody && (r.ContentLength != 0 || len(r.TransferEncoding) > 0)
@@ -51,24 +73,108 @@ func requestHasBody(c *gin.Context) bool {
 
 func hostMatchesOrigin(host, origin string) bool {
 	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" {
+	if err != nil || u.Host == "" || host == "" || strings.ContainsAny(host, "/\\ \t\r\n@") {
 		return false
 	}
-	return strings.EqualFold(sanitizeHost(host), u.Host)
+	return sameHTTPOrigin(u.Scheme+"://"+host, origin)
 }
 
 func canonicalHTTPOrigin(origin string) (string, bool) {
 	u, err := url.Parse(origin)
-	if err != nil || u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
+	if err != nil || u.Host == "" || u.User != nil {
 		return "", false
 	}
-	return u.Scheme + "://" + u.Host, true
+
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return "", false
+	}
+	hostname, ok := canonicalHTTPHostname(u.Hostname())
+	if !ok {
+		return "", false
+	}
+	port, ok := canonicalHTTPPort(u.Port())
+	if !ok {
+		return "", false
+	}
+	if port == defaultHTTPPort(scheme) {
+		port = ""
+	}
+	if port != "" {
+		return scheme + "://" + net.JoinHostPort(hostname, port), true
+	}
+	if strings.Contains(hostname, ":") {
+		hostname = "[" + hostname + "]"
+	}
+	return scheme + "://" + hostname, true
+}
+
+func canonicalHTTPHostname(hostname string) (string, bool) {
+	if address, err := netip.ParseAddr(hostname); err == nil {
+		return address.String(), true
+	}
+	ascii, err := idna.Lookup.ToASCII(hostname)
+	if err != nil || ascii == "" {
+		return "", false
+	}
+	// The URL Standard parses a domain that ends in a numeric label as an
+	// IPv4 address, accepting legacy forms such as 127.1 and 0x7f000001.
+	// netip deliberately rejects those forms. Reject them here too instead of
+	// comparing a spelling that browsers will silently normalize to another
+	// origin (for example, 127.1 becomes 127.0.0.1).
+	if hostEndsInNumber(ascii) {
+		return "", false
+	}
+	return strings.ToLower(ascii), true
+}
+
+func hostEndsInNumber(hostname string) bool {
+	hostname = strings.TrimSuffix(hostname, ".")
+	last := hostname
+	if dot := strings.LastIndexByte(hostname, '.'); dot >= 0 {
+		last = hostname[dot+1:]
+	}
+	if len(last) >= 2 && strings.EqualFold(last[:2], "0x") {
+		for _, char := range last[2:] {
+			if !strings.ContainsRune("0123456789abcdefABCDEF", char) {
+				return false
+			}
+		}
+		return true
+	}
+	if last == "" {
+		return false
+	}
+	for _, char := range last {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func canonicalHTTPPort(port string) (string, bool) {
+	if port == "" {
+		return "", true
+	}
+	number, err := strconv.ParseUint(port, 10, 16)
+	if err != nil {
+		return "", false
+	}
+	return strconv.FormatUint(number, 10), true
 }
 
 func sameHTTPOrigin(a, b string) bool {
 	ca, okA := canonicalHTTPOrigin(a)
 	cb, okB := canonicalHTTPOrigin(b)
-	return okA && okB && strings.EqualFold(ca, cb)
+	return okA && okB && ca == cb
+}
+
+func defaultHTTPPort(scheme string) string {
+	if scheme == "http" {
+		return "80"
+	}
+	return "443"
 }
 
 func sanitizeHost(host string) string {
