@@ -1,12 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -16,66 +16,81 @@ import (
 
 const (
 	documentKVReplayLimit = 100
-	documentKVPollEvery   = 2 * time.Second
 	documentKVKeepAlive   = 25 * time.Second
 )
 
-type documentKVEventHub struct {
-	mu   sync.Mutex
-	next uint64
-	subs map[string]map[uint64]chan repo.DocumentKVEvent
+type documentKVStream struct {
+	ctx        context.Context
+	writer     http.ResponseWriter
+	flusher    http.Flusher
+	repository repo.Repository
+	documentID string
+	lastSent   int64
 }
 
-func newDocumentKVEventHub() *documentKVEventHub {
-	return &documentKVEventHub{subs: map[string]map[uint64]chan repo.DocumentKVEvent{}}
-}
-
-func (h *documentKVEventHub) subscribe(documentID string) (<-chan repo.DocumentKVEvent, func()) {
-	ch := make(chan repo.DocumentKVEvent, 32)
-	h.mu.Lock()
-	h.next++
-	id := h.next
-	if h.subs[documentID] == nil {
-		h.subs[documentID] = map[uint64]chan repo.DocumentKVEvent{}
-	}
-	h.subs[documentID][id] = ch
-	h.mu.Unlock()
-
-	var once sync.Once
-	unsubscribe := func() {
-		once.Do(func() {
-			h.mu.Lock()
-			if subs := h.subs[documentID]; subs != nil {
-				if _, ok := subs[id]; ok {
-					delete(subs, id)
-					close(ch)
-				}
-				if len(subs) == 0 {
-					delete(h.subs, documentID)
-				}
+func (s *documentKVStream) sendBacklog() error {
+	for {
+		events, err := s.repository.ListDocumentKVEvents(s.ctx, s.documentID, s.lastSent, documentKVReplayLimit)
+		if err != nil {
+			return err
+		}
+		for _, event := range events {
+			if event.Revision <= s.lastSent {
+				continue
 			}
-			h.mu.Unlock()
-		})
-	}
-	return ch, unsubscribe
-}
-
-func (h *documentKVEventHub) publish(event repo.DocumentKVEvent) {
-	if event.DocumentID == "" || len(event.Changes) == 0 {
-		return
-	}
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	for id, ch := range h.subs[event.DocumentID] {
-		select {
-		case ch <- event:
-		default:
-			delete(h.subs[event.DocumentID], id)
-			close(ch)
+			if err := writeDocumentKVSSE(s.writer, event); err != nil {
+				return err
+			}
+			s.lastSent = event.Revision
+		}
+		s.flusher.Flush()
+		if len(events) < documentKVReplayLimit {
+			return nil
 		}
 	}
-	if len(h.subs[event.DocumentID]) == 0 {
-		delete(h.subs, event.DocumentID)
+}
+
+func (s *documentKVStream) sendLive(event repo.DocumentKVEvent) error {
+	if event.Revision <= s.lastSent {
+		return nil
+	}
+	if event.Revision > s.lastSent+1 {
+		if err := s.sendBacklog(); err != nil {
+			return err
+		}
+		if event.Revision <= s.lastSent {
+			return nil
+		}
+	}
+	if err := writeDocumentKVSSE(s.writer, event); err != nil {
+		return err
+	}
+	s.lastSent = event.Revision
+	s.flusher.Flush()
+	return nil
+}
+
+func (s *documentKVStream) run(liveEvents <-chan repo.DocumentKVEvent) {
+	keepAlive := time.NewTicker(documentKVKeepAlive)
+	defer keepAlive.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case event, ok := <-liveEvents:
+			if !ok {
+				return
+			}
+			if err := s.sendLive(event); err != nil {
+				return
+			}
+		case <-keepAlive.C:
+			if _, err := fmt.Fprint(s.writer, ": keepalive\n\n"); err != nil {
+				return
+			}
+			s.flusher.Flush()
+		}
 	}
 }
 
@@ -94,38 +109,39 @@ func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 		internalErr(c, errors.New("streaming unsupported"))
 		return
 	}
+	liveEvents, unsubscribe, err := h.deps.documentKVEvents.Subscribe(c.Request.Context(), docID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+			return
+		}
+		internalErr(c, err)
+		return
+	}
+	defer unsubscribe()
+
+	// This stream outlives the server-wide read timeout; clear the connection
+	// deadlines so an expiring deadline doesn't sever the SSE response. The
+	// errors are ignored: recorders and exotic writers that don't support
+	// deadlines never had them to begin with.
+	rc := http.NewResponseController(c.Writer)
+	_ = rc.SetReadDeadline(time.Time{})
+	_ = rc.SetWriteDeadline(time.Time{})
 
 	c.Header("Content-Type", "text/event-stream")
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
-	liveEvents, unsubscribe := h.deps.documentKVEvents.subscribe(docID)
-	defer unsubscribe()
-
-	lastSent := afterRevision
-	sendBacklog := func() error {
-		for {
-			events, err := h.deps.repository.ListDocumentKVEvents(c.Request.Context(), docID, lastSent, documentKVReplayLimit)
-			if err != nil {
-				return err
-			}
-			for _, event := range events {
-				if event.Revision <= lastSent {
-					continue
-				}
-				if err := writeDocumentKVSSE(c.Writer, event); err != nil {
-					return err
-				}
-				lastSent = event.Revision
-			}
-			flusher.Flush()
-			if len(events) < documentKVReplayLimit {
-				return nil
-			}
-		}
+	stream := &documentKVStream{
+		ctx:        c.Request.Context(),
+		writer:     c.Writer,
+		flusher:    flusher,
+		repository: h.deps.repository,
+		documentID: docID,
+		lastSent:   afterRevision,
 	}
-	if err := sendBacklog(); err != nil {
+	if err := stream.sendBacklog(); err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
 			notFound(c)
 			return
@@ -137,47 +153,7 @@ func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 		return
 	}
 	flusher.Flush()
-
-	poll := time.NewTicker(documentKVPollEvery)
-	defer poll.Stop()
-	keepAlive := time.NewTicker(documentKVKeepAlive)
-	defer keepAlive.Stop()
-
-	for {
-		select {
-		case <-c.Request.Context().Done():
-			return
-		case event, ok := <-liveEvents:
-			if !ok {
-				return
-			}
-			if event.Revision <= lastSent {
-				continue
-			}
-			if event.Revision > lastSent+1 {
-				if err := sendBacklog(); err != nil {
-					return
-				}
-				if event.Revision <= lastSent {
-					continue
-				}
-			}
-			if err := writeDocumentKVSSE(c.Writer, event); err != nil {
-				return
-			}
-			lastSent = event.Revision
-			flusher.Flush()
-		case <-poll.C:
-			if err := sendBacklog(); err != nil {
-				return
-			}
-		case <-keepAlive.C:
-			if _, err := fmt.Fprint(c.Writer, ": keepalive\n\n"); err != nil {
-				return
-			}
-			flusher.Flush()
-		}
-	}
+	stream.run(liveEvents)
 }
 
 func parseKVEventRevision(raw string) (int64, error) {
