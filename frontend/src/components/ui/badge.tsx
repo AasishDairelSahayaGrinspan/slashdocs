@@ -11,7 +11,8 @@ export function Badge({
   const map: Record<Variant, string> = {
     default:
       "bg-[var(--color-surface-muted)] text-[var(--color-fg)] border border-[var(--color-border)]",
-    muted: "bg-transparent text-[var(--color-fg-muted)] border border-[var(--color-border)]",
+    muted:
+      "bg-transparent text-[var(--color-fg-muted)] border border-[var(--color-border)]",
     accent:
       "bg-[var(--color-accent-muted)] text-[var(--color-accent)] border border-transparent",
     success: "bg-green-100 text-green-800 dark:bg-green-950 dark:text-green-300",

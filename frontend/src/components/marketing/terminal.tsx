@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/cn";
+import { usePrefersReducedMotion } from "@/lib/use-media-query";
 
 type Line = { kind: "cmd" | "out"; text: string };
 
@@ -70,11 +71,7 @@ export function Terminal({
         <span className="h-2.5 w-2.5 rounded-full bg-green-400/80" />
         <span className="ml-2 text-[11px] text-zinc-500">~ aidocs</span>
       </div>
-      <div
-        className="p-4"
-        style={{ height, overflow: "hidden" }}
-        aria-live="polite"
-      >
+      <div className="p-4" style={{ height, overflow: "hidden" }} aria-live="polite">
         {lines.map((l, i) => {
           const isCurrent = i === shown.line;
           const reveal = i < shown.line ? l.text.length : isCurrent ? shown.col : 0;
@@ -98,16 +95,4 @@ export function Terminal({
       </div>
     </div>
   );
-}
-
-export function usePrefersReducedMotion() {
-  const [reduced, setReduced] = useState(false);
-  useEffect(() => {
-    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-    setReduced(mq.matches);
-    const fn = () => setReduced(mq.matches);
-    mq.addEventListener("change", fn);
-    return () => mq.removeEventListener("change", fn);
-  }, []);
-  return reduced;
 }

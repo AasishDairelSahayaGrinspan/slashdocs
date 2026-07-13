@@ -14,6 +14,7 @@ import {
 } from "lucide-react";
 import { api } from "@/api";
 import { publicURL } from "@/lib/config";
+import { queryKeys } from "@/lib/queryKeys";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/misc";
@@ -30,7 +31,7 @@ export function StartPage() {
   useTitle("Get started");
   const { state, setStep, skip } = useOnboarding();
   const config = useQuery({
-    queryKey: ["config"],
+    queryKey: queryKeys.config(),
     queryFn: () => api.getConfig(),
     staleTime: Infinity,
   });
@@ -99,7 +100,10 @@ export function StartPage() {
             className="relative h-full overflow-hidden bg-[var(--color-accent)] transition-all"
             style={{ width: `${(done / total) * 100}%` }}
           >
-            <div aria-hidden className="absolute inset-0 animate-[pill-shimmer_2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+            <div
+              aria-hidden
+              className="absolute inset-0 animate-[pill-shimmer_2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent"
+            />
           </div>
         </div>
         <span className="font-mono">
@@ -116,9 +120,9 @@ export function StartPage() {
           setStep={setStep}
         >
           <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time, on the machine where your agent runs. This installs the aidocs
-            CLI plus the bundled agent skill, so your agent knows when to publish docs
-            to aidocs.
+            One-time, on the machine where your agent runs. This installs the aidocs CLI
+            plus the bundled agent skill, so your agent knows when to publish docs to
+            aidocs.
           </p>
           <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
@@ -177,11 +181,7 @@ function Step({
 }) {
   const done = state.steps[stepKey];
   // Find the first incomplete step among required ones to default-expand.
-  const requiredOrder: StepKey[] = [
-    "cli_installed",
-    "cli_authed",
-    "first_doc_seen",
-  ];
+  const requiredOrder: StepKey[] = ["cli_installed", "cli_authed", "first_doc_seen"];
   const firstIncomplete = requiredOrder.find((k) => !state.steps[k]);
   const [forced, setForced] = useState<boolean | null>(null);
   const expanded = forced ?? (done ? false : firstIncomplete === stepKey);

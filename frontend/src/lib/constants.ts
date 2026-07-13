@@ -41,3 +41,6 @@ export const GENERAL_ACCESS_NONE = "none";
 // Bot addresses end in `.bot`. The server enforces this; the client uses it
 // only for inline hints.
 export const BOT_DOMAIN_SUFFIX = ".bot";
+
+// Example bot address shown in sharing placeholders and hints.
+export const BOT_ADDRESS_EXAMPLE = "report-creator@brave.otter.bot";

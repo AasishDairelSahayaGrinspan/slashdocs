@@ -37,6 +37,7 @@ import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
 import { canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
+import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
 import { UploadVersionItem } from "./doc-upload-version";
 
@@ -210,10 +211,6 @@ export function DocBar({
       </Dropdown>
     </div>
   );
-}
-
-function samePrincipal(a?: Principal, b?: Principal) {
-  return !!a && !!b && a.type === b.type && a.id === b.id;
 }
 
 function VersionHistoryDialog({

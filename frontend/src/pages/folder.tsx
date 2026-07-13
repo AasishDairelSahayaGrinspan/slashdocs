@@ -6,7 +6,6 @@ import { errorMessage } from "@/lib/errors";
 import { useTitle } from "@/lib/use-title";
 import {
   ChevronRight,
-  FileText,
   Folder as FolderIcon,
   MoreHorizontal,
   Pencil,
@@ -31,33 +30,29 @@ import {
   AlertDialogDescription,
   AlertDialogFooter,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  api,
-  docID,
-  type Folder,
-  type FolderEntry,
-  type Document,
-  type Principal,
-} from "@/api";
+import { api, docID, type FolderEntry } from "@/api";
 import { canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
+import { samePrincipal } from "@/lib/principals";
+import { viewModeStore } from "@/lib/view-mode";
 import { ShareSheet } from "@/pages/doc-share-sheet";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
-import { LayoutGrid, List } from "lucide-react";
-import { UnifiedGrid, UnifiedTable, viewModeStore } from "@/pages/documents";
+import { DRAG_TYPE, type ActiveDrag } from "@/components/browse/drag";
+import { BrowseDragOverlay } from "@/components/browse/drag-overlay";
+import { UnifiedGrid } from "@/components/browse/unified-grid";
+import { UnifiedTable } from "@/components/browse/unified-table";
+import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
+import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
 import {
   DndContext,
-  DragOverlay,
   PointerSensor,
   useSensor,
   useSensors,
@@ -107,7 +102,6 @@ export function FolderPage() {
   );
 
   const [newFolderOpen, setNewFolderOpen] = useState(false);
-  const [newFolderTitle, setNewFolderTitle] = useState("");
   const [renameOpen, setRenameOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [renameTitle, setRenameTitle] = useState("");
@@ -117,7 +111,7 @@ export function FolderPage() {
     onSuccess: () => {
       setDeleteOpen(false);
       toast.success("Deleted folder.");
-      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       qc.invalidateQueries({ queryKey: queryKeys.pins() });
       qc.removeQueries({ queryKey: queryKeys.folder(id) });
@@ -126,16 +120,6 @@ export function FolderPage() {
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
 
-  const createSub = useMutation({
-    mutationFn: () => api.createFolder(newFolderTitle, id),
-    onSuccess: () => {
-      setNewFolderOpen(false);
-      setNewFolderTitle("");
-      qc.invalidateQueries({ queryKey: queryKeys.folders(id) });
-      toast.success("Created subfolder.");
-    },
-    onError: (e) => toast.error(errorMessage(e, "Create failed")),
-  });
   const renameFolder = useMutation({
     mutationFn: () => api.updateFolder(id, renameTitle),
     onSuccess: () => {
@@ -146,11 +130,7 @@ export function FolderPage() {
     onError: (e) => toast.error(errorMessage(e, "Rename failed")),
   });
 
-  const [activeDrag, setActiveDrag] = useState<{
-    type: string;
-    id: string;
-    title: string;
-  } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
   );
@@ -166,7 +146,7 @@ export function FolderPage() {
       dragId: string;
       targetFolderId: string;
     }) => {
-      const isDoc = dragType === "doc" || dragType === "document";
+      const isDoc = dragType === DRAG_TYPE.document;
       if (targetFolderId === "__root__") {
         if (isDoc) {
           return api.moveDocumentToRoot(id, dragId);
@@ -181,7 +161,7 @@ export function FolderPage() {
       }
     },
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       qc.invalidateQueries({ queryKey: queryKeys.pins() });
       const warning = (data as Record<string, unknown>)?.permission_warning as
@@ -214,10 +194,10 @@ export function FolderPage() {
     const raw = event.active.id as string;
     const [type, did] = raw.split(":", 2);
     const entry = items.find((e) =>
-      type === "folder" ? e.folder?.id === did : e.document?.id === did,
+      type === DRAG_TYPE.folder ? e.folder?.id === did : e.document?.id === did,
     );
     const title =
-      type === "folder"
+      type === DRAG_TYPE.folder
         ? entry?.folder?.title || "Folder"
         : entry?.document?.title || "Document";
     setActiveDrag({ type, id: did, title });
@@ -229,7 +209,7 @@ export function FolderPage() {
     if (!over) return;
     const [dragType, dragId] = (active.id as string).split(":", 2);
     const targetFolderId = (over.id as string).replace("drop:", "");
-    if (dragType === "folder" && dragId === targetFolderId) return;
+    if (dragType === DRAG_TYPE.folder && dragId === targetFolderId) return;
     if (targetFolderId === id) return;
     moveMutation.mutate({ dragType, dragId, targetFolderId });
   }
@@ -269,33 +249,16 @@ export function FolderPage() {
           <div className="flex min-w-0 items-center gap-3">
             <FolderIcon className="h-6 w-6 shrink-0 text-[var(--color-accent)]" />
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold tracking-tight">{f.title}</h1>
+              <h1 className="truncate text-2xl font-semibold tracking-tight">
+                {f.title}
+              </h1>
               <p className="truncate text-sm text-[var(--color-fg-muted)]">
                 {f.owner?.name || f.owner?.email || ""}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <div className="flex shrink-0 rounded-md border border-[var(--color-border)]">
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`rounded-r-none ${viewMode === "gallery" ? "bg-[var(--color-surface-muted)]" : ""}`}
-                onClick={() => viewModeStore.write("gallery")}
-                aria-label="Gallery view"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className={`rounded-l-none border-l border-[var(--color-border)] ${viewMode === "list" ? "bg-[var(--color-surface-muted)]" : ""}`}
-                onClick={() => viewModeStore.write("list")}
-                aria-label="List view"
-              >
-                <List className="h-4 w-4" />
-              </Button>
-            </div>
+            <ViewModeToggle />
             <Button
               variant="outline"
               size="md"
@@ -351,8 +314,8 @@ export function FolderPage() {
           <AlertDialogContent>
             <AlertDialogTitle>Delete "{f.title}"?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will delete this folder, its subfolders, and all documents inside
-              them.
+              This deletes the folder and its subfolders. Documents inside them will
+              move to root.
             </AlertDialogDescription>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -380,41 +343,11 @@ export function FolderPage() {
         )}
 
         {/* New subfolder dialog */}
-        <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New subfolder</DialogTitle>
-            </DialogHeader>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                if (newFolderTitle.trim()) createSub.mutate();
-              }}
-            >
-              <Input
-                placeholder="Folder name"
-                value={newFolderTitle}
-                onChange={(e) => setNewFolderTitle(e.target.value)}
-                autoFocus
-              />
-              <DialogFooter className="mt-4">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setNewFolderOpen(false)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={!newFolderTitle.trim() || createSub.isPending}
-                >
-                  Create
-                </Button>
-              </DialogFooter>
-            </form>
-          </DialogContent>
-        </Dialog>
+        <NewFolderDialog
+          open={newFolderOpen}
+          onOpenChange={setNewFolderOpen}
+          parentFolderId={id}
+        />
 
         {/* Rename dialog */}
         <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
@@ -452,42 +385,12 @@ export function FolderPage() {
           </DialogContent>
         </Dialog>
 
-        <Dialog open={!!accessWarning} onOpenChange={() => setAccessWarning(null)}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Access may change</DialogTitle>
-              <DialogDescription>{accessWarning}</DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button onClick={() => setAccessWarning(null)}>Got it</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <AccessWarningDialog
+          warning={accessWarning}
+          onClose={() => setAccessWarning(null)}
+        />
       </div>
-      <DragOverlay dropAnimation={null}>
-        {activeDrag && viewMode === "gallery" && (
-          <div className="flex h-36 w-48 flex-col items-center justify-center rounded-lg border border-[var(--color-accent)] bg-[var(--color-surface)] opacity-30 shadow-xl">
-            {activeDrag.type === "folder" ? (
-              <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" />
-            ) : (
-              <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />
-            )}
-            <div className="mt-2 max-w-[10rem] truncate px-3 text-sm font-medium">
-              {activeDrag.title}
-            </div>
-          </div>
-        )}
-        {activeDrag && viewMode === "list" && (
-          <div className="flex w-64 items-center gap-2 rounded-md border border-[var(--color-accent)] bg-[var(--color-surface)] px-3 py-2 opacity-30 shadow-xl">
-            {activeDrag.type === "folder" ? (
-              <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
-            ) : (
-              <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
-            )}
-            <span className="truncate text-sm font-medium">{activeDrag.title}</span>
-          </div>
-        )}
-      </DragOverlay>
+      <BrowseDragOverlay activeDrag={activeDrag} viewMode={viewMode} />
     </DndContext>
   );
 }
@@ -527,10 +430,6 @@ function FolderContents({
   ) : (
     <UnifiedGrid entries={entries} pinnedIds={pinnedIds} />
   );
-}
-
-function samePrincipal(a?: Principal, b?: Principal) {
-  return !!a && !!b && a.type === b.type && a.id === b.id;
 }
 
 function DroppableBreadcrumb({
