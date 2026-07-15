@@ -140,36 +140,47 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 
 func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "grants", Short: "Manage document grants"}
-	var principal, address, role string
+	var principal, address, group, role string
 	var everyone bool
 	add := &cobra.Command{
 		Use:   "add <doc_id>",
-		Short: "Share a doc with a person, bot, or everyone",
-		Long: "Share a doc by passing an email or bot address, or use --everyone to grant\n" +
+		Short: "Share a doc with a person, bot, Google Group, or everyone",
+		Long: "Share a doc by passing an email, bot address, or verified Google Group, or use --everyone to grant\n" +
 			"access to everyone who can reach this server (anyone with the link on a\n" +
 			"public deployment, or everyone in the org on an org deployment).\n\n" +
 			"Examples:\n" +
 			"  aidocs docs grants add doc_… --to user@org.example --role commenter\n" +
 			"  aidocs docs grants add doc_… --to report-creator@brave.otter.bot --role editor\n" +
+			"  aidocs docs grants add doc_… --group tech-infra@org.example --role commenter\n" +
 			"  aidocs docs grants add doc_… --everyone --role viewer",
 		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body := map[string]any{"role": role}
 			var target string
+			selected := 0
+			for _, set := range []bool{address != "", group != "", everyone, principal != ""} {
+				if set {
+					selected++
+				}
+			}
+			if selected > 1 {
+				return usageError{errors.New("--group, --to, --everyone, and --principal are mutually exclusive")}
+			}
 			switch {
-			case everyone && (address != "" || principal != ""):
-				return errors.New("--everyone cannot be combined with --to or --principal")
 			case everyone:
 				body["principal"] = map[string]any{"type": "anyone"}
 				target = everyoneLabelFor(g)
 			case address != "":
 				body["address"] = address
 				target = address
+			case group != "":
+				body["principal"] = map[string]any{"type": "google_group", "email": group}
+				target = group
 			case principal != "":
 				body["principal"] = parsePrincipal(principal)
 				target = principal
 			default:
-				return errors.New("pass --to <email-or-bot-address> or --everyone")
+				return usageError{errors.New("pass --to <email-or-bot-address>, --group <email>, or --everyone")}
 			}
 			return action(g, out, func(c *Client) ([]byte, error) {
 				return c.doJSON("POST", apiPath("/v1/documents/%s/grants", args[0]), body)
@@ -179,9 +190,10 @@ func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 		},
 	}
 	add.Flags().StringVar(&address, "to", "", "email or bot address (e.g. user@org.example or report-creator@brave.otter.bot)")
+	add.Flags().StringVar(&group, "group", "", "verified organization Google Group email")
 	add.Flags().BoolVar(&everyone, "everyone", false, "share with everyone who can reach this server")
 	add.Flags().StringVar(&principal, "principal", "", "legacy: sa:<id> or user:<email>")
-	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, or editor")
+	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, editor, or owner (groups only)")
 	var r string
 	upd := &cobra.Command{Use: "update <doc_id> <grant_id>", Short: "Update a grant role", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		return action(g, out, func(c *Client) ([]byte, error) {

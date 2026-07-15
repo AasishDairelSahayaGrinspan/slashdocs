@@ -88,7 +88,20 @@ blob:
   existingSecret: aidocs-blob
   accessKeyIDKey: access-key-id
   secretAccessKeyKey: secret-access-key
+
+googleGroups:
+  enabled: true
+  customerID: C01234567
+  adminEmail: groups-reader-admin@example.com
+  existingSecret: aidocs-google-groups
+  credentialsKey: credentials.json
 ```
+
+Create `aidocs-google-groups` out of band with the delegated service-account
+JSON key. The chart mounts only that key, read-only, at
+`/var/run/secrets/aidocs-google-groups/credentials.json`. Google Group sharing
+also requires `deployment.mode: org`; it is intentionally not a readiness
+probe dependency.
 
 ## Google OAuth callback
 

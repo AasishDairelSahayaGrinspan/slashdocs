@@ -263,6 +263,14 @@ export function DocumentPage() {
           />
         );
       }
+      if (doc.error.code === "group_membership_unavailable") {
+        return (
+          <DocumentErrorState
+            title="Group access is temporarily unavailable"
+            description="Google Group membership could not be refreshed. Try again shortly; stale group access has not been used."
+          />
+        );
+      }
     }
     return (
       <DocumentErrorState

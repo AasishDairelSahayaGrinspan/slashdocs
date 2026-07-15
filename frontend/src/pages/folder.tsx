@@ -43,6 +43,7 @@ import {
 } from "@/components/ui/dialog";
 import {
   api,
+  APIError,
   docID,
   type Folder,
   type FolderEntry,
@@ -93,9 +94,7 @@ export function FolderPage() {
     enabled: !!id && !!me.data?.principal && !isOwner,
     staleTime: 30_000,
   });
-  const currentAccessRole = access.data?.items.find((item) =>
-    samePrincipal(item.principal, me.data?.principal),
-  )?.effective_role;
+  const currentAccessRole = access.data?.current_role;
   const canManageAccess = isOwner || canManageSharing(currentAccessRole);
 
   const viewMode = viewModeStore.useStore();
@@ -204,7 +203,19 @@ export function FolderPage() {
       </div>
     );
   }
-  if (folder.error || contents.error) return <Center>Could not load folder.</Center>;
+  if (folder.error || contents.error) {
+    const dependencyError = [folder.error, contents.error].some(
+      (error) =>
+        error instanceof APIError && error.code === "group_membership_unavailable",
+    );
+    return (
+      <Center>
+        {dependencyError
+          ? "Google Group access is temporarily unavailable. Try again shortly; stale group content has not been shown."
+          : "Could not load folder."}
+      </Center>
+    );
+  }
 
   const f = folder.data!;
   const items = contents.data?.items || [];
@@ -269,7 +280,9 @@ export function FolderPage() {
           <div className="flex min-w-0 items-center gap-3">
             <FolderIcon className="h-6 w-6 shrink-0 text-[var(--color-accent)]" />
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold tracking-tight">{f.title}</h1>
+              <h1 className="truncate text-2xl font-semibold tracking-tight">
+                {f.title}
+              </h1>
               <p className="truncate text-sm text-[var(--color-fg-muted)]">
                 {f.owner?.name || f.owner?.email || ""}
               </p>
@@ -316,6 +329,7 @@ export function FolderPage() {
                 resourceType="folder"
                 resourceId={id}
                 canManageAccess={canManageAccess}
+                isCanonicalOwner={isOwner}
               />
             </Sheet>
             <Dropdown>

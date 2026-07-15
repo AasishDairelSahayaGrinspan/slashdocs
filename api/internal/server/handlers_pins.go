@@ -16,17 +16,16 @@ func (h handlers) listPins(c *gin.Context) {
 }
 func (h handlers) putPin(c *gin.Context) {
 	rt, rid := c.Param("resource_type"), c.Param("resource_id")
-	ok := false
 	if rt == "document" {
-		role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), rid)
-		ok = atLeast(role, repo.RoleViewer)
-	}
-	if rt == "folder" {
-		role, _ := h.deps.repository.RoleForFolder(c.Request.Context(), *current(c), rid)
-		ok = atLeast(role, repo.RoleViewer)
-	}
-	if !ok {
-		forbidden(c, "viewer role required")
+		if !h.needDocRole(c, rid, repo.RoleViewer) {
+			return
+		}
+	} else if rt == "folder" {
+		if !h.needFolderRole(c, rid, repo.RoleViewer) {
+			return
+		}
+	} else {
+		badRequest(c, "resource_type must be document or folder")
 		return
 	}
 	if err := h.deps.repository.PutPin(c.Request.Context(), *current(c), rt, rid); err != nil {

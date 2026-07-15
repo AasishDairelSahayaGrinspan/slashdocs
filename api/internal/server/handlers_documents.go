@@ -58,6 +58,9 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Success 200 {object} map[string]interface{}
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
+	if !requireResolvedGroupsForAggregate(c) {
+		return
+	}
 	q := c.Query("q")
 	if q != "" {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
@@ -91,9 +94,7 @@ func (h handlers) getDocument(c *gin.Context) {
 		notFound(c)
 		return
 	}
-	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), d.ID)
-	if !atLeast(role, repo.RoleViewer) {
-		forbidden(c, "viewer role required")
+	if !h.needDocRole(c, d.ID, repo.RoleViewer) {
 		return
 	}
 	p := current(c)

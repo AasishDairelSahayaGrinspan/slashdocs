@@ -1056,7 +1056,8 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	assertJSON(t, public.Body.Bytes(), `{
 	  "deployment": "public",
 	  "org_name": "",
-	  "everyone_label": "Anyone with the link"
+	  "everyone_label": "Anyone with the link",
+	  "google_groups_enabled": false
 	}`)
 
 	org := newConfiguredTestServer(server.Config{Environment: "test", Deployment: "org", OrgName: "Acme"})
@@ -1065,7 +1066,8 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	assertJSON(t, rr.Body.Bytes(), `{
 	  "deployment": "org",
 	  "org_name": "Acme",
-	  "everyone_label": "Anyone in Acme"
+	  "everyone_label": "Anyone in Acme",
+	  "google_groups_enabled": false
 	}`)
 }
 

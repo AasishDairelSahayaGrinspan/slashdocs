@@ -108,6 +108,52 @@ AIDOCS_ORG_DOMAINS=acme.com,acme-labs.io
 AIDOCS_ORG_NAME=Acme
 ```
 
+## Configure Google Group sharing
+
+Google Group sharing is optional and is supported only when
+`AIDOCS_DEPLOYMENT=org`. It uses the Cloud Identity Groups API with the single
+OAuth scope `https://www.googleapis.com/auth/cloud-identity.groups.readonly`.
+Direct and nested membership resolution requires Workspace Enterprise
+Standard, Enterprise Plus, Enterprise for Education, or Cloud Identity
+Premium.
+
+1. Enable the Cloud Identity API in the deployment's Google Cloud project.
+2. Create a dedicated service account and enable domain-wide delegation.
+3. In Google Admin, authorize its OAuth client ID for only the read-only scope
+   above. Choose a delegated administrator that can view every organization
+   group aidocs may share with.
+4. Find the Workspace customer ID in Google Admin (it begins with `C`) and set
+   `GOOGLE_GROUPS_CUSTOMER_ID`.
+5. Mount the service-account JSON file read-only and configure:
+
+   ```text
+   AIDOCS_GOOGLE_GROUPS_ENABLED=true
+   GOOGLE_GROUPS_CUSTOMER_ID=C01234567
+   GOOGLE_GROUPS_ADMIN_EMAIL=groups-reader-admin@acme.com
+   GOOGLE_GROUPS_CREDENTIALS_FILE=/run/secrets/google-groups/credentials.json
+   GOOGLE_GROUPS_MEMBERSHIP_TTL=1m
+   GOOGLE_GROUPS_REQUEST_TIMEOUT=5s
+   ```
+
+The server validates this configuration at startup without calling Google, so
+Cloud Identity availability does not affect Kubernetes readiness. Credentials,
+OAuth tokens, user emails, and membership lists are not emitted in errors or
+metrics.
+
+### Rotation and staging verification
+
+Rotate the key by updating the mounted Secret and rolling all pods; revoke the
+old key only after the new rollout is healthy. Before production enablement,
+use a dedicated staging group to verify autocomplete, a direct member, a nested
+member, addition, removal, and the one-minute revocation target. Never use live
+Google credentials in CI.
+
+Roll out in two phases: first deploy migrations and group-aware code with the
+feature disabled; after every pod runs the new version and existing ACL tests
+pass, mount credentials and enable the feature. Do not create group grants
+while old and new server versions are mixed. To roll back, disable the feature;
+keep group and grant rows so re-enabling is non-destructive.
+
 ## Docker
 
 Build the image from source, or pull the prebuilt image from Razorpay Harbor.
@@ -331,6 +377,12 @@ Terminate TLS at nginx, Caddy, or any reverse proxy of your choice.
 | `AIDOCS_DEPLOYMENT` | `public` | `public` or `org`. An org deployment gates login to `AIDOCS_ORG_DOMAINS`. |
 | `AIDOCS_ORG_DOMAINS` | unset | Comma-separated org domains. Required when `AIDOCS_DEPLOYMENT=org`; also the login gate. |
 | `AIDOCS_ORG_NAME` | unset | Org display name used in share UI copy (e.g. "Anyone in Acme"). |
+| `AIDOCS_GOOGLE_GROUPS_ENABLED` | `false` | Enable verified Google Group sharing; requires an `org` deployment and all Google Group settings below. |
+| `GOOGLE_GROUPS_CUSTOMER_ID` | unset | Google Workspace customer ID beginning with `C`. |
+| `GOOGLE_GROUPS_ADMIN_EMAIL` | unset | Delegated administrator subject for Cloud Identity read access. |
+| `GOOGLE_GROUPS_CREDENTIALS_FILE` | unset | Read-only mounted service-account JSON key. |
+| `GOOGLE_GROUPS_MEMBERSHIP_TTL` | `1m` | Maximum membership snapshot age used for authorization. |
+| `GOOGLE_GROUPS_REQUEST_TIMEOUT` | `5s` | Per-request Cloud Identity deadline. |
 | `BLOB_REGION` | `us-east-1` | AWS region for the S3 client. |
 | `BLOB_ENDPOINT` | unset | Custom S3 endpoint (MinIO, R2, etc.). |
 | `BLOB_ACCESS_KEY_ID` | unset | Override AWS-SDK default credential chain. |
@@ -395,6 +447,9 @@ down-migration manually if needed; the binary does not auto-rollback.
 - [ ] `SESSION_SECRET` rotated to a fresh 32+ byte value, stored in a
       secret manager.
 - [ ] Google OAuth callback URLs match `AIDOCS_APP_ORIGIN`.
+- [ ] If Google Groups are enabled, domain-wide delegation uses only the
+      Cloud Identity groups read-only scope and staging membership/revocation
+      checks have passed.
 - [ ] `ALLOWED_OAUTH_DOMAINS` set if you don't want public sign-ups.
 - [ ] Postgres backups configured.
 - [ ] Blob storage versioning / lifecycle rules configured.

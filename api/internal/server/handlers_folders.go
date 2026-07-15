@@ -7,12 +7,17 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 func (h handlers) needFolderRole(c *gin.Context, id string, need repo.Role) bool {
 	role, _ := h.deps.repository.RoleForFolder(c.Request.Context(), *current(c), id)
 	if !atLeast(role, need) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return false
+		}
 		forbidden(c, string(need)+" role required")
 		return false
 	}
@@ -46,6 +51,9 @@ func (h handlers) createFolder(c *gin.Context) {
 	c.JSON(http.StatusCreated, f)
 }
 func (h handlers) listFolders(c *gin.Context) {
+	if !requireResolvedGroupsForAggregate(c) {
+		return
+	}
 	if q := c.Query("q"); q != "" {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
 		folders, err := h.deps.repository.SearchFoldersByTitle(c.Request.Context(), *current(c), q, includeOrgWide, 25)
@@ -201,7 +209,8 @@ func (h handlers) folderAccess(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	role, _ := h.deps.repository.RoleForFolder(c.Request.Context(), *current(c), c.Param("id"))
+	c.JSON(http.StatusOK, gin.H{"items": items, "current_role": role, "canonical_owner": h.isCanonicalOwner(c, "folder", c.Param("id"))})
 }
 func (h handlers) documentAccess(c *gin.Context) {
 	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
@@ -212,10 +221,14 @@ func (h handlers) documentAccess(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), c.Param("id"))
+	c.JSON(http.StatusOK, gin.H{"items": items, "current_role": role, "canonical_owner": h.isCanonicalOwner(c, "document", c.Param("id"))})
 }
 
 func (h handlers) listFolderDocs(c *gin.Context) {
+	if !requireResolvedGroupsForAggregate(c) {
+		return
+	}
 	if !h.needFolderRole(c, c.Param("id"), repo.RoleViewer) {
 		return
 	}
@@ -242,9 +255,7 @@ func (h handlers) moveDocToFolder(c *gin.Context) {
 		return
 	}
 	p := current(c)
-	docRole, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *p, in.DocumentID)
-	if !atLeast(docRole, repo.RoleEditor) {
-		forbidden(c, "editor role on the document is required")
+	if !h.needDocRole(c, in.DocumentID, repo.RoleEditor) {
 		return
 	}
 	hasGrants, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *p, folderID, in.DocumentID)
@@ -262,10 +273,7 @@ func (h handlers) moveDocToRoot(c *gin.Context) {
 	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
 		return
 	}
-	p := current(c)
-	docRole, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *p, c.Param("doc_id"))
-	if !atLeast(docRole, repo.RoleEditor) {
-		forbidden(c, "editor role on the document is required")
+	if !h.needDocRole(c, c.Param("doc_id"), repo.RoleEditor) {
 		return
 	}
 	if err := h.deps.repository.MoveDocumentToRoot(c.Request.Context(), c.Param("id"), c.Param("doc_id")); err != nil {
@@ -275,29 +283,29 @@ func (h handlers) moveDocToRoot(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// CreateFolderGrant godoc
+// @Summary Create folder grant
+// @Tags grants
+// @Security bearerAuth
+// @Security cookieAuth
+// @Param id path string true "Folder ID"
+// @Param grant body grantInput true "Grant target and role; google_group principals are resolved from principal.email"
+// @Success 201 {object} repo.Grant
+// @Router /v1/folders/{id}/grants [post]
 func (h handlers) createFolderGrant(c *gin.Context) {
 	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
 		return
 	}
-	var in struct {
-		Address   string `json:"address"`
-		Principal struct {
-			Type  auth.PrincipalType `json:"type"`
-			ID    string             `json:"id"`
-			Email string             `json:"email"`
-			Name  string             `json:"name"`
-		} `json:"principal"`
-		Role repo.Role `json:"role"`
-	}
+	var in grantInput
 	if !requireJSON(c) {
 		return
 	}
-	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) {
+	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRoleForPrincipal(in.Principal.Type, in.Role) {
 		badRequest(c, "invalid grant")
 		return
 	}
 	principal := auth.Principal{Type: in.Principal.Type, ID: in.Principal.ID, Email: in.Principal.Email, Name: in.Principal.Name}
-	resolved, err := resolveGrantPrincipal(c, h.deps.repository, in.Address, principal)
+	resolved, err := resolveGrantPrincipal(c, h.deps.repository, h.deps.googleGroupDirectory, h.deps.googleGroupsEnabled, in.Address, principal)
 	if err != nil {
 		switch {
 		case errors.Is(err, errInvalidAddress):
@@ -306,17 +314,32 @@ func (h handlers) createFolderGrant(c *gin.Context) {
 			badRequest(c, "principal id, user email, or service account name is required")
 		case errors.Is(err, errUnknownUserEmail):
 			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
+		case errors.Is(err, errGoogleGroupsDisabled):
+			badRequest(c, "Google Group sharing is disabled")
+		case errors.Is(err, errGoogleGroupEmailRequired), googlegroups.IsNotFound(err):
+			badRequest(c, "Select a verified Google Group result")
 		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
 		default:
-			internalErr(c, err)
+			if in.Principal.Type == auth.PrincipalGoogleGroup {
+				incGoogleGroupOperation("grant_resolution", "failure")
+				c.JSON(http.StatusServiceUnavailable, errorResponse("dependency_unavailable", "Google Group directory is temporarily unavailable", nil))
+			} else {
+				internalErr(c, err)
+			}
 		}
+		return
+	}
+	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "folder", c.Param("id"), repo.Grant{}, repo.Grant{Principal: resolved, Role: in.Role}) {
 		return
 	}
 	g, err := h.deps.repository.CreateGrant(c.Request.Context(), "folder", c.Param("id"), resolved, in.Role, *current(c))
 	if err != nil {
 		internalErr(c, err)
 		return
+	}
+	if resolved.Type == auth.PrincipalGoogleGroup {
+		incGoogleGroupOperation("grant_resolution", "success")
 	}
 	g.ResourceType, g.ResourceID = "folder", c.Param("id")
 	c.JSON(http.StatusCreated, g)
@@ -331,8 +354,20 @@ func (h handlers) patchFolderGrant(c *gin.Context) {
 	if !requireJSON(c) {
 		return
 	}
-	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) {
+	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid grant")
+		return
+	}
+	existing, err := h.deps.repository.GetGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"))
+	if err != nil {
+		notFound(c)
+		return
+	}
+	if !validGrantRoleForPrincipal(existing.Principal.Type, in.Role) {
+		badRequest(c, "invalid grant")
+		return
+	}
+	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "folder", c.Param("id"), existing, repo.Grant{Principal: existing.Principal, Role: in.Role}) {
 		return
 	}
 	g, err := h.deps.repository.UpdateGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"), in.Role)
@@ -348,6 +383,14 @@ func (h handlers) patchFolderGrant(c *gin.Context) {
 }
 func (h handlers) deleteFolderGrant(c *gin.Context) {
 	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
+		return
+	}
+	existing, err := h.deps.repository.GetGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"))
+	if err != nil {
+		notFound(c)
+		return
+	}
+	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "folder", c.Param("id"), existing, repo.Grant{}) {
 		return
 	}
 	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil {

@@ -254,9 +254,10 @@ func (h handlers) config(c *gin.Context) {
 		deployment = DeploymentPublic
 	}
 	c.JSON(http.StatusOK, gin.H{
-		"deployment":     deployment,
-		"org_name":       h.deps.orgName,
-		"everyone_label": everyoneLabel(deployment, h.deps.orgName),
+		"deployment":            deployment,
+		"org_name":              h.deps.orgName,
+		"everyone_label":        everyoneLabel(deployment, h.deps.orgName),
+		"google_groups_enabled": h.deps.googleGroupsEnabled,
 	})
 }
 

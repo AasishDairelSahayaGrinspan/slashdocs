@@ -77,6 +77,17 @@ googleOAuth:
   clientIDKey: GOOGLE_OAUTH_CLIENT_ID
   clientSecretKey: GOOGLE_OAUTH_CLIENT_SECRET
 
+# Optional Google Group sharing for org deployments. The service-account JSON
+# key is mounted from an existing Secret and is never copied into chart values.
+googleGroups:
+  enabled: false
+  customerID: ""
+  adminEmail: ""
+  existingSecret: ""
+  credentialsKey: credentials.json
+  membershipTTL: 1m
+  requestTimeout: 5s
+
 # Session secret must be at least 32 bytes.
 session:
   secret: ""

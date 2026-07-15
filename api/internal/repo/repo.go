@@ -174,6 +174,21 @@ type Grant struct {
 	GrantedBy    auth.Principal `json:"granted_by"`
 }
 
+type GoogleGroup struct {
+	ID             string    `json:"id"`
+	CustomerID     string    `json:"-"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name"`
+	LastVerifiedAt time.Time `json:"-"`
+}
+
+type GoogleGroupMembershipSnapshot struct {
+	GroupIDs      []string
+	LastAttemptAt time.Time
+	LastSuccessAt time.Time
+	LastErrorCode string
+}
+
 type Version struct {
 	ID            string         `json:"id"`
 	Number        int            `json:"number"`
@@ -277,8 +292,13 @@ type Repository interface {
 	UserByEmail(ctx context.Context, email string) (auth.Principal, error)
 	SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error)
 	EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error)
+	GoogleGroupMembershipSnapshot(ctx context.Context, userID string) (GoogleGroupMembershipSnapshot, error)
+	ReplaceGoogleGroupMemberships(ctx context.Context, userID string, groups []GoogleGroup, syncedAt time.Time) error
+	RecordGoogleGroupMembershipFailure(ctx context.Context, userID, errorCode string, attemptedAt time.Time) error
+	UpsertGoogleGroup(ctx context.Context, group GoogleGroup) error
 	CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
 	ListGrants(ctx context.Context, documentID string) ([]Grant, error)
+	GetGrant(ctx context.Context, resourceID, grantID string) (Grant, error)
 	UpdateGrant(ctx context.Context, documentID, grantID string, role Role) (Grant, error)
 	DeleteGrant(ctx context.Context, documentID, grantID string) error
 	CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal) (Version, error)
@@ -338,6 +358,8 @@ type Memory struct {
 
 	docWorkspace    map[string]map[string]bool // docID -> "type:id" -> true
 	folderWorkspace map[string]map[string]bool // folderID -> "type:id" -> true
+	googleGroups    map[string]GoogleGroup
+	groupSnapshots  map[string]GoogleGroupMembershipSnapshot
 
 	// Test-only fixtures, populated by NewMemorySeeded and consulted by
 	// RoleForDocument / PrincipalExists. Kept out of the users/grants stores so
@@ -358,7 +380,7 @@ type cliCredRecord struct {
 // behaves like a freshly migrated database; tests that need the canonical
 // fixture graph call NewMemorySeeded instead.
 func NewMemory() *Memory {
-	return &Memory{docs: map[string]Document{}, folders: map[string]Folder{}, pins: map[string]Pin{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, kv: map[string]map[string]DocumentKVChange{}, kvRev: map[string]int64{}, kvEvents: map[string][]DocumentKVEvent{}, transfers: map[string]OwnershipTransfer{}}
+	return &Memory{docs: map[string]Document{}, folders: map[string]Folder{}, pins: map[string]Pin{}, versions: map[string]Version{}, users: map[string]auth.Principal{}, creds: map[string]auth.Principal{}, sas: map[string]ServiceAccount{}, comments: map[string]Comment{}, kv: map[string]map[string]DocumentKVChange{}, kvRev: map[string]int64{}, kvEvents: map[string][]DocumentKVEvent{}, transfers: map[string]OwnershipTransfer{}, googleGroups: map[string]GoogleGroup{}, groupSnapshots: map[string]GoogleGroupMembershipSnapshot{}}
 }
 
 func (m *Memory) ResolveBearerToken(ctx context.Context, tokenHash string) (auth.Principal, error) {
@@ -458,7 +480,7 @@ func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, document
 		if !ids[g.ResourceID] && !ids[g.DocumentID] {
 			continue
 		}
-		if (g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone {
+		if principalMatchesGrant(p, g.Principal) {
 			best = MaxRole(best, g.Role)
 		}
 	}
@@ -469,6 +491,21 @@ func (m *Memory) RoleForDocument(ctx context.Context, p auth.Principal, document
 		return "", ErrNotFound
 	}
 	return best, nil
+}
+
+func principalMatchesGrant(p, granted auth.Principal) bool {
+	if granted.Type == auth.PrincipalAnyone || (granted.Type == p.Type && granted.ID == p.ID) {
+		return true
+	}
+	if p.Type != auth.PrincipalUser || granted.Type != auth.PrincipalGoogleGroup {
+		return false
+	}
+	for _, groupID := range p.GoogleGroupIDs {
+		if groupID == granted.ID {
+			return true
+		}
+	}
+	return false
 }
 
 func (m *Memory) CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error) {
@@ -538,6 +575,9 @@ func (m *Memory) PrincipalExists(ctx context.Context, p auth.Principal) (bool, e
 	case auth.PrincipalServiceAccount:
 		_, ok := m.sas[p.ID]
 		return ok, nil
+	case auth.PrincipalGoogleGroup:
+		_, ok := m.googleGroups[p.ID]
+		return ok, nil
 	}
 	return false, nil
 }
@@ -578,6 +618,45 @@ func (m *Memory) EnsureUserByEmail(ctx context.Context, email string) (auth.Prin
 	m.users[id] = p
 	return p, nil
 }
+
+func (m *Memory) GoogleGroupMembershipSnapshot(_ context.Context, userID string) (GoogleGroupMembershipSnapshot, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.groupSnapshots[userID]
+	s.GroupIDs = append([]string(nil), s.GroupIDs...)
+	return s, nil
+}
+
+func (m *Memory) ReplaceGoogleGroupMemberships(_ context.Context, userID string, groups []GoogleGroup, syncedAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	ids := make([]string, 0, len(groups))
+	for _, group := range groups {
+		group.LastVerifiedAt = syncedAt
+		m.googleGroups[group.ID] = group
+		ids = append(ids, group.ID)
+	}
+	m.groupSnapshots[userID] = GoogleGroupMembershipSnapshot{GroupIDs: ids, LastAttemptAt: syncedAt, LastSuccessAt: syncedAt}
+	return nil
+}
+
+func (m *Memory) RecordGoogleGroupMembershipFailure(_ context.Context, userID, errorCode string, attemptedAt time.Time) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	s := m.groupSnapshots[userID]
+	s.LastAttemptAt = attemptedAt
+	s.LastErrorCode = errorCode
+	m.groupSnapshots[userID] = s
+	return nil
+}
+
+func (m *Memory) UpsertGoogleGroup(_ context.Context, group GoogleGroup) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.googleGroups[group.ID] = group
+	return nil
+}
+
 func (m *Memory) CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -754,6 +833,16 @@ func (m *Memory) ListGrants(ctx context.Context, resourceID string) ([]Grant, er
 		}
 	}
 	return out, nil
+}
+func (m *Memory) GetGrant(_ context.Context, resourceID, grantID string) (Grant, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for _, g := range m.grants {
+		if g.ID == grantID && (g.ResourceID == resourceID || g.DocumentID == resourceID) {
+			return g, nil
+		}
+	}
+	return Grant{}, ErrNotFound
 }
 func (m *Memory) UpdateGrant(ctx context.Context, resourceID, grantID string, role Role) (Grant, error) {
 	m.mu.Lock()
@@ -1086,7 +1175,7 @@ func (m *Memory) RoleForFolder(ctx context.Context, p auth.Principal, folderID s
 		ids[fid] = true
 	}
 	for _, g := range m.grants {
-		if ids[g.ResourceID] && ((g.Principal.Type == p.Type && g.Principal.ID == p.ID) || g.Principal.Type == auth.PrincipalAnyone) {
+		if ids[g.ResourceID] && principalMatchesGrant(p, g.Principal) {
 			best = MaxRole(best, g.Role)
 		}
 	}
@@ -1179,7 +1268,7 @@ func (m *Memory) SearchFoldersByTitle(ctx context.Context, p auth.Principal, que
 	}
 	for _, g := range m.grants {
 		if g.ResourceType == "folder" {
-			if (g.Principal.Type == p.Type && g.Principal.ID == p.ID) || (includeOrgWide && g.Principal.Type == "anyone") {
+			if (g.Principal.Type != auth.PrincipalAnyone && principalMatchesGrant(p, g.Principal)) || (includeOrgWide && g.Principal.Type == auth.PrincipalAnyone) {
 				accessible[g.ResourceID] = true
 			}
 		}
@@ -1257,15 +1346,12 @@ func (m *Memory) UpdateFolder(ctx context.Context, id, title string, parent *str
 	m.folders[id] = f
 	return f, nil
 }
-func (m *Memory) DeleteFolder(ctx context.Context, id string, p auth.Principal) error {
+func (m *Memory) DeleteFolder(ctx context.Context, id string, _ auth.Principal) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	root, ok := m.folders[id]
+	_, ok := m.folders[id]
 	if !ok {
 		return ErrNotFound
-	}
-	if root.Owner.Type != p.Type || root.Owner.ID != p.ID {
-		return ErrForbidden
 	}
 	var del func(string)
 	del = func(fid string) {

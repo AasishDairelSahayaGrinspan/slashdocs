@@ -54,6 +54,24 @@ Disable all `sa` commands in a packaged environment:
 AIDOCS_DISABLE_SA_COMMANDS=1 aidocs sa list
 ```
 
+## Google Group sharing
+
+On organization deployments where Google Group sharing is enabled, add a
+verified Workspace group to a document or folder with the explicit `--group`
+flag:
+
+```bash
+aidocs docs grants add doc_123 --group platform@example.com --role commenter
+aidocs folders grants add fld_123 --group platform@example.com --role viewer
+aidocs --json docs grants add doc_123 --group owners@example.com --role owner
+```
+
+`--group` is mutually exclusive with `--to`, `--everyone`, and the legacy
+`--principal` flag. Owner-level Google Group grants are accepted only from the
+resource's canonical owner and do not replace that canonical owner. The server
+looks up the address and stores Google's immutable group ID; callers cannot
+supply or spoof that ID.
+
 ## Skills
 
 Refresh the bundled agent skill from the connected aidocs server:

@@ -673,6 +673,15 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "description": "Grant target and role; google_group principals are resolved from principal.email",
+                        "name": "grant",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.grantInput"
+                        }
                     }
                 ],
                 "responses": {
@@ -966,6 +975,98 @@ const docTemplate = `{
                 "responses": {
                     "200": {
                         "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/folders/{id}/grants": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "grants"
+                ],
+                "summary": "Create folder grant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Folder ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Grant target and role; google_group principals are resolved from principal.email",
+                        "name": "grant",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.grantInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/repo.Grant"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/google-groups": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "google-groups"
+                ],
+                "summary": "Search verified organization Google Groups",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Email or display-name query (minimum 2 characters)",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.googleGroupSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
                         "schema": {
                             "type": "object",
                             "additionalProperties": true
@@ -1347,12 +1448,14 @@ const docTemplate = `{
             "enum": [
                 "user",
                 "service_account",
+                "google_group",
                 "anyone",
                 "anonymous"
             ],
             "x-enum-varnames": [
                 "PrincipalUser",
                 "PrincipalServiceAccount",
+                "PrincipalGoogleGroup",
                 "PrincipalAnyone",
                 "PrincipalAnonymous"
             ]
@@ -1494,6 +1597,82 @@ const docTemplate = `{
                 },
                 "sha256": {
                     "type": "string"
+                }
+            }
+        },
+        "server.googleGroupSearchItem": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.googleGroupSearchResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.googleGroupSearchItem"
+                    }
+                }
+            }
+        },
+        "server.grantInput": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "principal": {
+                    "$ref": "#/definitions/server.grantPrincipalInput"
+                },
+                "role": {
+                    "enum": [
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/repo.Role"
+                        }
+                    ]
+                }
+            }
+        },
+        "server.grantPrincipalInput": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "enum": [
+                        "user",
+                        "service_account",
+                        "google_group",
+                        "anyone"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/auth.PrincipalType"
+                        }
+                    ]
                 }
             }
         }

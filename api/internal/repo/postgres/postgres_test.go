@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
@@ -73,6 +74,134 @@ func TestPostgresRepositoryDocumentGrantVersionCommentFlow(t *testing.T) {
 	}
 	if cm.SelectedText != "v2" || cm.Status != "open" {
 		t.Fatalf("bad comment: %+v", cm)
+	}
+}
+
+func TestPostgresGoogleGroupMembershipGrantAndInheritanceFlow(t *testing.T) {
+	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
+	if url == "" {
+		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
+	}
+	if err := db.Migrate(url); err != nil {
+		t.Fatal(err)
+	}
+	store, err := pgrepo.Connect(context.Background(), url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_group_owner", Email: "pg-group-owner@example.com", Name: "Owner"}
+	folder, err := store.CreateFolder(ctx, owner, "PG Group Parent", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, _, err := store.CreateDocument(ctx, owner, "PG Group Inherited Doc", []byte("<html>group</html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.MoveDocumentToFolder(ctx, owner, folder.ID, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+	rootDoc, _, err := store.CreateDocument(ctx, owner, "PG Group Root Doc", []byte("<html>root</html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	member, err := store.EnsureUserByEmail(ctx, "pg-group-member@example.com")
+	if err != nil {
+		t.Fatal(err)
+	}
+	group := repo.GoogleGroup{ID: "groups/pg-group-1", CustomerID: "C123", Email: "pg-group@example.com", Name: "PG Group", LastVerifiedAt: now}
+	if err := store.ReplaceGoogleGroupMemberships(ctx, member.ID, []repo.GoogleGroup{group}, now); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := store.GoogleGroupMembershipSnapshot(ctx, member.ID)
+	if err != nil || len(snapshot.GroupIDs) != 1 || snapshot.GroupIDs[0] != group.ID || !snapshot.LastSuccessAt.Equal(now) {
+		t.Fatalf("snapshot=%+v err=%v", snapshot, err)
+	}
+	groupPrincipal := auth.Principal{Type: auth.PrincipalGoogleGroup, ID: group.ID, Email: group.Email, Name: group.Name}
+	folderGrant, err := store.CreateGrant(ctx, "folder", folder.ID, groupPrincipal, repo.RoleEditor, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateGrant(ctx, "document", rootDoc.ID, groupPrincipal, repo.RoleViewer, owner); err != nil {
+		t.Fatal(err)
+	}
+	member.GoogleGroupIDs = snapshot.GroupIDs
+	if role, err := store.RoleForDocument(ctx, member, doc.ID); err != nil || role != repo.RoleEditor {
+		t.Fatalf("inherited role=%s err=%v", role, err)
+	}
+	if role, err := store.RoleForFolder(ctx, member, folder.ID); err != nil || role != repo.RoleEditor {
+		t.Fatalf("folder role=%s err=%v", role, err)
+	}
+	if !listed(t, store, member, rootDoc.ID) {
+		t.Fatal("direct group grant missing from workspace")
+	}
+	results, err := store.SearchDocumentsByTitle(ctx, member, "Inherited Doc", false, 25)
+	if err != nil || len(results) != 1 || results[0].ID != doc.ID {
+		t.Fatalf("group inherited search=%+v err=%v", results, err)
+	}
+	folders, err := store.SearchFoldersByTitle(ctx, member, "PG Group Parent", false, 25)
+	if err != nil || len(folders) != 1 || folders[0].ID != folder.ID {
+		t.Fatalf("group folder search=%+v err=%v", folders, err)
+	}
+	access, err := store.ListEffectiveAccess(ctx, "document", doc.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundGroupSource := false
+	for _, item := range access {
+		if item.Principal.Type == auth.PrincipalGoogleGroup && item.Principal.ID == group.ID && item.EffectiveRole == repo.RoleEditor && len(item.Sources) > 0 && item.Sources[0].GrantID == folderGrant.ID {
+			foundGroupSource = true
+		}
+	}
+	if !foundGroupSource {
+		t.Fatalf("effective access missing inherited group source: %+v", access)
+	}
+
+	group.Email = "pg-group-renamed@example.com"
+	group.Name = "PG Group Renamed"
+	group.LastVerifiedAt = now.Add(time.Second)
+	if err := store.UpsertGoogleGroup(ctx, group); err != nil {
+		t.Fatal(err)
+	}
+	gotGrant, err := store.GetGrant(ctx, folder.ID, folderGrant.ID)
+	if err != nil || gotGrant.Principal.Email != group.Email || gotGrant.Principal.ID != group.ID {
+		t.Fatalf("renamed grant=%+v err=%v", gotGrant, err)
+	}
+	if role, err := store.RoleForDocument(ctx, member, doc.ID); err != nil || role != repo.RoleEditor {
+		t.Fatalf("rename broke immutable-ID authorization: role=%s err=%v", role, err)
+	}
+
+	failedAt := now.Add(2 * time.Second)
+	if err := store.RecordGoogleGroupMembershipFailure(ctx, member.ID, "timeout", failedAt); err != nil {
+		t.Fatal(err)
+	}
+	snapshot, _ = store.GoogleGroupMembershipSnapshot(ctx, member.ID)
+	if len(snapshot.GroupIDs) != 1 || snapshot.LastErrorCode != "timeout" || !snapshot.LastSuccessAt.Equal(now) {
+		t.Fatalf("failed refresh did not preserve diagnostics snapshot: %+v", snapshot)
+	}
+	removedAt := now.Add(3 * time.Second)
+	if err := store.ReplaceGoogleGroupMemberships(ctx, member.ID, nil, removedAt); err != nil {
+		t.Fatal(err)
+	}
+	member.GoogleGroupIDs = nil
+	if role, err := store.RoleForDocument(ctx, member, doc.ID); err == nil || role != repo.RoleNone {
+		t.Fatalf("removed member retained access: role=%s err=%v", role, err)
+	}
+
+	ownerGrant, err := store.CreateGrant(ctx, "document", rootDoc.ID, groupPrincipal, repo.RoleOwner, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	member.GoogleGroupIDs = []string{group.ID}
+	if role, err := store.RoleForDocument(ctx, member, rootDoc.ID); err != nil || role != repo.RoleOwner {
+		t.Fatalf("owner group role=%s err=%v", role, err)
+	}
+	storedRoot, _ := store.GetDocument(ctx, rootDoc.ID)
+	if storedRoot.Owner.ID != owner.ID || ownerGrant.Principal.ID != group.ID {
+		t.Fatalf("owner grant replaced canonical owner: doc=%+v grant=%+v", storedRoot, ownerGrant)
 	}
 }
 

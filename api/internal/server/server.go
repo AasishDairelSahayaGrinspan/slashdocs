@@ -12,6 +12,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
@@ -26,6 +27,10 @@ type Config struct {
 	// Deployment is "public" or "org". OrgName labels the org in UI copy.
 	Deployment string
 	OrgName    string
+
+	GoogleGroupsEnabled       bool
+	GoogleGroupsMembershipTTL time.Duration
+	GoogleGroupsRetryCooldown time.Duration
 }
 
 // Server wraps the gin engine.
@@ -37,18 +42,21 @@ type readinessCheck struct {
 }
 
 type dependencies struct {
-	authenticator       auth.Authenticator
-	repository          repo.Repository
-	stateStore          auth.LoginStateStore
-	googleOAuth         auth.GoogleOAuth
-	sessionSecret       string
-	appOrigin           string
-	renderOrigin        string
-	allowedOAuthDomains []string
-	deployment          string
-	orgName             string
-	readinessChecks     []readinessCheck
-	documentKVEvents    *documentKVEventHub
+	authenticator        auth.Authenticator
+	repository           repo.Repository
+	stateStore           auth.LoginStateStore
+	googleOAuth          auth.GoogleOAuth
+	sessionSecret        string
+	appOrigin            string
+	renderOrigin         string
+	allowedOAuthDomains  []string
+	deployment           string
+	orgName              string
+	readinessChecks      []readinessCheck
+	documentKVEvents     *documentKVEventHub
+	googleGroupsEnabled  bool
+	googleGroupDirectory googlegroups.GoogleGroupDirectory
+	googleGroupResolver  *googlegroups.Resolver
 }
 
 // Option configures the Server.
@@ -59,6 +67,10 @@ func WithAuthenticator(a auth.Authenticator) Option {
 }
 
 func WithRepository(r repo.Repository) Option { return func(d *dependencies) { d.repository = r } }
+
+func WithGoogleGroupDirectory(directory googlegroups.GoogleGroupDirectory) Option {
+	return func(d *dependencies) { d.googleGroupDirectory = directory }
+}
 
 func WithStateStore(st auth.LoginStateStore) Option {
 	return func(d *dependencies) { d.stateStore = st }
@@ -106,6 +118,7 @@ func New(cfg Config, opts ...Option) *Server {
 		allowedOAuthDomains: cfg.AllowedOAuthDomains,
 		deployment:          cfg.Deployment,
 		orgName:             cfg.OrgName,
+		googleGroupsEnabled: cfg.GoogleGroupsEnabled,
 		documentKVEvents:    newDocumentKVEventHub(),
 	}
 	for _, opt := range opts {
@@ -119,6 +132,13 @@ func New(cfg Config, opts ...Option) *Server {
 		} else {
 			panic("server.New: repository is required (use server.WithRepository)")
 		}
+	}
+	if deps.googleGroupsEnabled && deps.googleGroupDirectory != nil {
+		deps.googleGroupResolver = googlegroups.NewResolver(googlegroups.ResolverConfig{
+			Store: deps.repository, Directory: deps.googleGroupDirectory,
+			TTL: cfg.GoogleGroupsMembershipTTL, RetryCooldown: cfg.GoogleGroupsRetryCooldown,
+			Observer: observeGoogleGroupMembership,
+		})
 	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
@@ -158,9 +178,10 @@ func (s *Server) routes(deps dependencies) {
 	v1.POST("/auth/cli/exchange", h.cliExchange)
 
 	// Every route below requires authentication.
-	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin))
+	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))
 	authed.GET("/me", h.me)
 	authed.GET("/users", h.searchUsers)
+	authed.GET("/google-groups", h.searchGoogleGroups)
 	authed.GET("/auth/cli/credentials", h.listCLICredentials)
 	authed.DELETE("/auth/cli/credentials/:id", h.revokeCLICredential)
 	authed.POST("/service-accounts", h.createServiceAccount)
@@ -217,13 +238,17 @@ type handlers struct{ deps dependencies }
 func (h handlers) needDocRole(c *gin.Context, docID string, need repo.Role) bool {
 	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
 	if !atLeast(role, need) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return false
+		}
 		forbidden(c, string(need)+" role required")
 		return false
 	}
 	return true
 }
 
-func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
+func requireAuth(a auth.Authenticator, appOrigin string, groups *googlegroups.Resolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p, err := a.Authenticate(c.Request)
 		if err != nil {
@@ -246,10 +271,34 @@ func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
 			forbidden(c, "csrf check failed")
 			return
 		}
+		if groups != nil {
+			p = groups.Resolve(c.Request.Context(), p)
+		}
 		incAuth("request", "success")
 		c.Set("principal", p)
 		c.Next()
 	}
+}
+
+func groupMembershipUnavailable(p *auth.Principal) bool {
+	return p != nil && p.Type == auth.PrincipalUser && p.GoogleGroupMembershipState == auth.GoogleGroupMembershipUnavailable
+}
+
+func groupMembershipUnavailableResponse(c *gin.Context) {
+	incGoogleGroupAuthorizationFailure()
+	c.JSON(http.StatusServiceUnavailable, errorResponse(
+		"group_membership_unavailable",
+		"Google Group membership could not be refreshed; try again shortly",
+		nil,
+	))
+}
+
+func requireResolvedGroupsForAggregate(c *gin.Context) bool {
+	if groupMembershipUnavailable(current(c)) {
+		groupMembershipUnavailableResponse(c)
+		return false
+	}
+	return true
 }
 
 func allowCookieUnsafeRequest(c *gin.Context, appOrigin string) bool {

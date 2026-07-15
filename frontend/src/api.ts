@@ -1,5 +1,5 @@
 export type Principal = {
-  type: "user" | "service_account" | "anyone";
+  type: "user" | "service_account" | "google_group" | "anyone";
   id: string;
   email?: string;
   name?: string;
@@ -18,7 +18,9 @@ export type ServerConfig = {
   deployment: "public" | "org";
   org_name: string;
   everyone_label: string;
+  google_groups_enabled: boolean;
 };
+export type GoogleGroup = { id: string; email: string; name: string };
 export type Version = {
   id: string;
   number: number;
@@ -187,6 +189,8 @@ export const api = {
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>
     request<{ items: Principal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
+  searchGoogleGroups: (q: string) =>
+    request<{ items: GoogleGroup[] }>(`/v1/google-groups?q=${encodeURIComponent(q)}`),
   createDocument: (title: string, file: File) => {
     const fd = new FormData();
     fd.set("title", title);
@@ -264,6 +268,14 @@ export const api = {
     request<Grant>(`/v1/documents/${doc}/grants`, {
       method: "POST",
       body: JSON.stringify({ address, role }),
+    }),
+  createGoogleGroupGrant: (doc: string, email: string, role: string) =>
+    request<Grant>(`/v1/documents/${doc}/grants`, {
+      method: "POST",
+      body: JSON.stringify({
+        principal: { type: "google_group", email },
+        role,
+      }),
     }),
   // setGeneralAccess upserts the "anyone" grant (everyone who can reach this
   // server). Pass role "" / null to remove it (no general access).
@@ -346,6 +358,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ address, role }),
     }),
+  createFolderGoogleGroupGrant: (id: string, email: string, role: string) =>
+    request<Grant>(`/v1/folders/${id}/grants`, {
+      method: "POST",
+      body: JSON.stringify({
+        principal: { type: "google_group", email },
+        role,
+      }),
+    }),
   setFolderGeneralAccess: (id: string, role: string) =>
     request<Grant>(`/v1/folders/${id}/grants`, {
       method: "POST",
@@ -376,9 +396,17 @@ export const api = {
       method: "DELETE",
     }),
   folderAccess: (id: string) =>
-    request<{ items: EffectiveAccessItem[] }>(`/v1/folders/${id}/access`),
+    request<{
+      items: EffectiveAccessItem[];
+      current_role: string;
+      canonical_owner: boolean;
+    }>(`/v1/folders/${id}/access`),
   documentAccess: (id: string) =>
-    request<{ items: EffectiveAccessItem[] }>(`/v1/documents/${id}/access`),
+    request<{
+      items: EffectiveAccessItem[];
+      current_role: string;
+      canonical_owner: boolean;
+    }>(`/v1/documents/${id}/access`),
   // Pins
   listPins: () => request<{ items: Pin[] }>("/v1/pins"),
   putPin: (resourceType: string, resourceId: string) =>

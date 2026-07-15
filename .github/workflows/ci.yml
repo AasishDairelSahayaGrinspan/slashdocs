@@ -13,6 +13,22 @@ jobs:
   test:
     name: Test aidocs
     runs-on: [k8s-runner, linux-amd64]
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: aidocs
+          POSTGRES_PASSWORD: aidocs
+          POSTGRES_DB: aidocs_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U aidocs -d aidocs_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      AIDOCS_TEST_DATABASE_URL: postgres://aidocs:aidocs@localhost:5432/aidocs_test?sslmode=disable
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
@@ -35,6 +51,15 @@ jobs:
 
       - name: Typecheck frontend
         run: cd frontend && npx tsc --noEmit
+
+      - name: Test frontend
+        run: npm test --prefix frontend -- --run
+
+      - name: Install browser test runtime
+        run: npm exec --prefix frontend -- playwright install --with-deps chromium
+
+      - name: Test group-sharing browser flows
+        run: npm run test:e2e --prefix frontend
 
       - name: Build frontend test assets
         run: npm run build --prefix frontend

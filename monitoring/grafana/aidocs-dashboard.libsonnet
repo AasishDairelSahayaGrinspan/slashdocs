@@ -125,4 +125,17 @@ grafana.dashboard.new('aidocs App Overview')
   table('Top slow routes p95', 12, 36, 12, 8, [
     prom('topk(10, histogram_quantile(0.95, sum(rate(aidocs_http_request_duration_seconds_bucket[$__rate_interval])) by (le, method, route)))', '{{method}} {{route}}'),
   ]),
+
+  timeseries('Google Group directory requests', 0, 44, 12, 8, [
+    prom('sum(rate(aidocs_google_group_requests_total[$__rate_interval])) by (operation, outcome)', '{{operation}} {{outcome}}'),
+  ], 'ops', 2),
+  timeseries('Google Group membership cache and refresh', 12, 44, 12, 8, [
+    prom('sum(rate(aidocs_google_group_membership_events_total[$__rate_interval])) by (event, outcome)', '{{event}} {{outcome}}'),
+  ], 'ops', 2),
+  timeseries('Google Group dependency authorization failures', 0, 52, 12, 8, [
+    prom('rate(aidocs_google_group_authorization_failures_total[$__rate_interval])', 'group_membership_unavailable'),
+  ], 'ops', 3),
+  timeseries('Google Group API latency p95', 12, 52, 12, 8, [
+    prom('histogram_quantile(0.95, sum(rate(aidocs_google_group_request_duration_seconds_bucket[$__rate_interval])) by (le, operation))', '{{operation}}'),
+  ], 's', 3),
 ])
