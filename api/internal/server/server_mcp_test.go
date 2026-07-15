@@ -22,8 +22,6 @@ var expectedMCPTools = []string{
 	"create_comment",
 	"create_document",
 	"create_folder",
-	"create_service_account",
-	"create_service_account_key",
 	"create_service_account_transfer",
 	"decline_service_account_transfer",
 	"delete_comment",
@@ -428,12 +426,19 @@ func TestMCPServiceAccountToolParity(t *testing.T) {
 	ownerToken := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
 	recipientToken := auth.NewMCPAccessToken(fixtureOwner.ID, e.resource, oauthTestSigningMaterial, time.Minute)
 
-	created := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "create_service_account", map[string]any{
-		"label": "mcp-parity-bot",
-	}), "aidocs_sa_"))
-	serviceAccountID := requiredMCPString(t, created, "id")
-	firstKey := requiredMCPObject(t, created, "key")
-	firstKeyID := requiredMCPString(t, firstKey, "id")
+	serviceAccount, err := e.store.CreateServiceAccount(context.Background(), fixtureUser, "mcp-parity-bot@example.bot")
+	if err != nil {
+		t.Fatalf("seed service account: %v", err)
+	}
+	_, firstKeyHash, err := auth.NewBearerToken(auth.ServiceAccountPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstKeyID, err := e.store.CreateServiceAccountKey(context.Background(), serviceAccount.ID, "default", firstKeyHash)
+	if err != nil {
+		t.Fatalf("seed service-account key: %v", err)
+	}
+	serviceAccountID := serviceAccount.ID
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "list_service_accounts", map[string]any{}), serviceAccountID)
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "update_service_account", map[string]any{
 		"service_account_id": serviceAccountID, "name": "renamed-parity-bot@example.bot", "disabled": false,
@@ -441,12 +446,8 @@ func TestMCPServiceAccountToolParity(t *testing.T) {
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "list_service_account_keys", map[string]any{
 		"service_account_id": serviceAccountID,
 	}), firstKeyID)
-	secondKey := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "create_service_account_key", map[string]any{
-		"service_account_id": serviceAccountID, "name": "secondary",
-	}), "aidocs_sa_"))
-	secondKeyID := requiredMCPString(t, secondKey, "id")
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "revoke_service_account_key", map[string]any{
-		"service_account_id": serviceAccountID, "key_id": secondKeyID,
+		"service_account_id": serviceAccountID, "key_id": firstKeyID,
 	}), "ok")
 
 	transfer := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "create_service_account_transfer", map[string]any{
@@ -458,12 +459,12 @@ func TestMCPServiceAccountToolParity(t *testing.T) {
 		"transfer_id": transferID,
 	}), "accepted")
 
-	declinedAccount := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "create_service_account", map[string]any{
-		"label": "mcp-decline-bot",
-	}), "aidocs_sa_"))
-	declinedAccountID := requiredMCPString(t, declinedAccount, "id")
+	declinedAccount, err := e.store.CreateServiceAccount(context.Background(), fixtureUser, "mcp-decline-bot@example.bot")
+	if err != nil {
+		t.Fatalf("seed service account for declined transfer: %v", err)
+	}
 	declinedTransfer := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, ownerToken, "create_service_account_transfer", map[string]any{
-		"service_account_id": declinedAccountID, "to_user_email": fixtureOwner.Email,
+		"service_account_id": declinedAccount.ID, "to_user_email": fixtureOwner.Email,
 	}), fixtureOwner.ID))
 	declinedTransferID := requiredMCPString(t, declinedTransfer, "id")
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, recipientToken, "decline_service_account_transfer", map[string]any{

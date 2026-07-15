@@ -26,22 +26,6 @@ func registerMCPServiceAccountCRUDTools(server *mcpserver.MCPServer, api mcpAPIA
 		return api.get(ctx, "/v1/service-accounts", nil, api.handlers.listServiceAccounts)
 	})
 
-	server.AddTool(mcp.NewTool("create_service_account", mutationOptions(false, false,
-		mcp.WithDescription("Create a service account and its first bearer key. The returned token is shown only once."),
-		mcp.WithString("label", mcp.Required(), mcp.Description("Bot label: letters, numbers, and hyphens.")),
-		mcp.WithString("domain", mcp.Description("Optional address domain ending in .bot; the server generates one when omitted.")),
-	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		label, invalid := mcpRequired(request, "label")
-		if invalid != nil {
-			return invalid, nil
-		}
-		payload := map[string]any{"label": label}
-		if domain := request.GetString("domain", ""); domain != "" {
-			payload["domain"] = domain
-		}
-		return api.json(ctx, http.MethodPost, "/v1/service-accounts", payload, nil, api.handlers.createServiceAccount)
-	})
-
 	server.AddTool(mcp.NewTool("update_service_account", mutationOptions(true, true,
 		mcp.WithDescription("Rename, enable, or disable a service account."),
 		mcpServiceAccountID(),
@@ -76,18 +60,6 @@ func registerMCPServiceAccountKeyTools(server *mcpserver.MCPServer, api mcpAPIAd
 			return invalid, nil
 		}
 		return api.get(ctx, "/v1/service-accounts/"+id+"/keys", mcpParams("id", id), api.handlers.listServiceAccountKeys)
-	})
-
-	server.AddTool(mcp.NewTool("create_service_account_key", mutationOptions(false, false,
-		mcp.WithDescription("Create a bearer key for a service account. The returned token is shown only once."),
-		mcpServiceAccountID(),
-		mcp.WithString("name", mcp.Description("Key label."), mcp.DefaultString("default")),
-	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		id, invalid := mcpRequired(request, "service_account_id")
-		if invalid != nil {
-			return invalid, nil
-		}
-		return api.json(ctx, http.MethodPost, "/v1/service-accounts/"+id+"/keys", map[string]any{"name": request.GetString("name", "default")}, mcpParams("id", id), api.handlers.createServiceAccountKey)
 	})
 
 	server.AddTool(mcp.NewTool("revoke_service_account_key", mutationOptions(true, true,

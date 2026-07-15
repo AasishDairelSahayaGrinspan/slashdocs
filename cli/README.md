@@ -70,8 +70,10 @@ flow. Headless clients can send a service-account key as an `Authorization:
 Bearer …` header; create one in the aidocs web application's service-account
 settings.
 
-The remote server exposes the same document, version, comment, sharing, folder,
-and service-account operations as the CLI.
+The remote server exposes document, version, comment, sharing, and folder
+operations, plus management of existing service accounts. It intentionally
+does not expose service-account or bearer-key creation; use the web application
+or CLI to mint credentials.
 
 ## Skills
 

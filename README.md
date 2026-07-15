@@ -120,10 +120,12 @@ receive a short-lived, audience-bound token using authorization code + PKCE.
 No aidocs CLI or local MCP bridge is involved. Unattended agents can instead
 send an aidocs service-account key as a bearer token.
 
-The MCP surface covers the same server-side document, version, comment,
-sharing, folder, and service-account workflows as the CLI. Client-local
-operations such as installing or updating the CLI, switching local contexts,
-or opening a browser are intentionally not MCP tools.
+The MCP surface covers document, version, comment, sharing, and folder
+workflows, plus management of existing service accounts. Creating service
+accounts or bearer keys is intentionally not exposed over MCP; mint those
+credentials in the web application or CLI. Client-local operations such as
+installing or updating the CLI, switching local contexts, or opening a browser
+are also not MCP tools.
 
 ## CLI quickstart
 
