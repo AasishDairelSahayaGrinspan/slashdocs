@@ -23,8 +23,8 @@ func TestCreateServiceAccountStartsWithoutDocumentGrants(t *testing.T) {
 		t.Fatalf("bad json: %v", err)
 	}
 	key, _ := got["key"].(map[string]any)
-	if tok, _ := key["token"].(string); !strings.HasPrefix(tok, "aidocs_sa_") {
-		t.Fatalf("expected aidocs_sa_ token, got %v", key)
+	if tok, _ := key["token"].(string); !strings.HasPrefix(tok, auth.ServiceAccountPrefix) {
+		t.Fatalf("expected %s token, got %v", auth.ServiceAccountPrefix, key)
 	}
 	saID, _ := got["id"].(string)
 	if !strings.HasPrefix(saID, "sa_") {

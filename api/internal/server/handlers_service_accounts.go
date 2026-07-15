@@ -112,7 +112,7 @@ func (h handlers) createServiceAccount(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	token, hash, err := auth.NewBearerToken("aidocs_sa_")
+	token, hash, err := auth.NewBearerToken(auth.ServiceAccountPrefix)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -302,7 +302,7 @@ func (h handlers) createServiceAccountKey(c *gin.Context) {
 	if in.Name == "" {
 		in.Name = "default"
 	}
-	token, hash, err := auth.NewBearerToken("aidocs_sa_")
+	token, hash, err := auth.NewBearerToken(auth.ServiceAccountPrefix)
 	if err != nil {
 		internalErr(c, err)
 		return

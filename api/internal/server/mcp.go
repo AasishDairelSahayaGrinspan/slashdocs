@@ -31,47 +31,26 @@ const maxMCPRequestBytes int64 = 64 << 20
 
 type mcpPrincipalContextKey struct{}
 
-// mcpHTTPOptions contains the deliberately small integration surface around
-// the transport. The challenge function keeps OAuth protected-resource
-// metadata discovery configurable without coupling transport code to routing.
-type mcpHTTPOptions struct {
-	unauthorizedChallenge func(*http.Request) string
-}
-
-type mcpHTTPOption func(*mcpHTTPOptions)
-
-func withMCPUnauthorizedChallenge(fn func(*http.Request) string) mcpHTTPOption {
-	return func(options *mcpHTTPOptions) {
-		if fn != nil {
-			options.unauthorizedChallenge = fn
-		}
-	}
-}
-
 // registerMCPRoutes mounts the remote, bearer-authenticated MCP endpoint. It is
 // kept separate from routes so transport construction and its security policy
 // can be tested independently.
-func registerMCPRoutes(engine *gin.Engine, deps dependencies, options ...mcpHTTPOption) {
-	engine.Any("/mcp", gin.WrapH(newMCPHTTPHandler(deps, options...)))
+func registerMCPRoutes(engine *gin.Engine, deps dependencies) {
+	engine.Any("/mcp", gin.WrapH(newMCPHTTPHandler(deps)))
 }
 
-func newMCPHTTPHandler(deps dependencies, options ...mcpHTTPOption) http.Handler {
-	config := mcpHTTPOptions{
-		unauthorizedChallenge: func(*http.Request) string { return mcpWWWAuthenticate(deps.appOrigin) },
-	}
-	for _, option := range options {
-		option(&config)
-	}
-
+func newMCPHTTPHandler(deps dependencies) http.Handler {
+	metrics := newMCPMetricRecorder()
 	protocol := mcpserver.NewMCPServer(
 		"aidocs",
 		BuildVersion,
 		mcpserver.WithToolCapabilities(false),
+		mcpserver.WithToolHandlerMiddleware(metrics.toolMiddleware),
 		mcpserver.WithRecovery(),
+		mcpserver.WithHooks(metrics.hooks()),
 	)
 	api := mcpAPIAdapter{handlers: handlers{deps: deps}}
 	registerMCPTools(protocol, api)
-	knownTools := protocol.ListTools()
+	metrics.setKnownTools(protocol.ListTools())
 	transport := mcpserver.NewStreamableHTTPServer(
 		protocol,
 		mcpserver.WithStateLess(true),
@@ -81,8 +60,9 @@ func newMCPHTTPHandler(deps dependencies, options ...mcpHTTPOption) http.Handler
 		Users:         deps.repository,
 		ServiceTokens: deps.authenticator,
 		SessionSecret: deps.sessionSecret,
-		Resource:      strings.TrimRight(deps.appOrigin, "/") + "/mcp",
+		Resource:      api.handlers.mcpResource(),
 	}
+	unauthorizedChallenge := func(*http.Request) string { return mcpWWWAuthenticate(deps.appOrigin) }
 
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		started := time.Now()
@@ -94,7 +74,7 @@ func newMCPHTTPHandler(deps dependencies, options ...mcpHTTPOption) http.Handler
 		}
 		if auth.BearerFromHeader(r.Header.Get("Authorization")) == "" {
 			observeMCPRequest("transport", "auth_error", time.Since(started))
-			mcpUnauthorized(w, r, config.unauthorizedChallenge)
+			mcpUnauthorized(w, r, unauthorizedChallenge)
 			return
 		}
 		principal, err := authenticator.Authenticate(r)
@@ -108,39 +88,45 @@ func newMCPHTTPHandler(deps dependencies, options ...mcpHTTPOption) http.Handler
 		}
 		if err != nil || principal == nil {
 			observeMCPRequest("transport", "auth_error", time.Since(started))
-			mcpUnauthorized(w, r, config.unauthorizedChallenge)
+			mcpUnauthorized(w, r, unauthorizedChallenge)
 			return
 		}
-		method, tool := "transport", ""
+		var requestBody *mcpRequestBody
 		if r.Method == http.MethodPost {
 			if message := mcpTransportHeaderError(r); message != "" {
 				observeMCPRequest("transport", "bad_request", time.Since(started))
 				http.Error(w, message, http.StatusBadRequest)
 				return
 			}
-			body, err := readMCPBody(r.Body, r.ContentLength)
-			if err != nil {
-				if _, tooLarge := err.(*http.MaxBytesError); tooLarge {
-					observeMCPRequest("transport", "payload_too_large", time.Since(started))
-					http.Error(w, "MCP request body is too large", http.StatusRequestEntityTooLarge)
-					return
-				}
-				observeMCPRequest("transport", "bad_request", time.Since(started))
-				http.Error(w, "could not read MCP request body", http.StatusBadRequest)
+			if r.ContentLength > maxMCPRequestBytes {
+				observeMCPRequest("transport", "payload_too_large", time.Since(started))
+				http.Error(w, "MCP request body is too large", http.StatusRequestEntityTooLarge)
 				return
 			}
-			method, tool = mcpRequestMetricLabels(body, knownTools)
-			r.Body = io.NopCloser(bytes.NewReader(body))
-			r.ContentLength = int64(len(body))
+			if r.Body != nil {
+				requestBody = newMCPRequestBody(r.Body, maxMCPRequestBytes)
+				r.Body = requestBody
+			}
 		}
+
+		observation := newMCPMetricObservation(started, string(principal.Type))
 		ctx := context.WithValue(r.Context(), mcpPrincipalContextKey{}, *principal)
-		capture := newMCPResponseCapture(w)
-		transport.ServeHTTP(capture, r.WithContext(ctx))
-		requestOutcome, toolOutcome := mcpResponseMetricOutcomes(capture.Status(), capture.Body())
-		duration := time.Since(started)
-		observeMCPRequest(method, requestOutcome, duration)
-		if tool != "" {
-			observeMCPToolCall(tool, toolOutcome, string(principal.Type), duration)
+		ctx = context.WithValue(ctx, mcpMetricContextKey{}, observation)
+		response := newMCPResponseWriter(w, requestBody)
+		transport.ServeHTTP(response, r.WithContext(ctx))
+		if requestBody != nil && requestBody.tooLarge {
+			response.rejectTooLarge()
+			observation.observeRequest("transport", "payload_too_large")
+			return
+		}
+		if requestBody != nil && requestBody.readErr != nil {
+			response.rejectReadError()
+			observation.observeRequest("transport", "bad_request")
+			return
+		}
+		if !observation.hasObservedRequest() {
+			method, outcome := mcpFallbackRequestLabels(r.Method, requestBody, response.Status())
+			observation.observeRequest(method, outcome)
 		}
 	})
 }
@@ -164,24 +150,6 @@ func mcpTransportHeaderError(r *http.Request) string {
 	return ""
 }
 
-func readMCPBody(body io.ReadCloser, contentLength int64) ([]byte, error) {
-	if body == nil {
-		return nil, nil
-	}
-	defer func() { _ = body.Close() }()
-	if contentLength > maxMCPRequestBytes {
-		return nil, &http.MaxBytesError{Limit: maxMCPRequestBytes}
-	}
-	b, err := io.ReadAll(io.LimitReader(body, maxMCPRequestBytes+1))
-	if err != nil {
-		return nil, err
-	}
-	if int64(len(b)) > maxMCPRequestBytes {
-		return nil, &http.MaxBytesError{Limit: maxMCPRequestBytes}
-	}
-	return b, nil
-}
-
 func mcpUnauthorized(w http.ResponseWriter, r *http.Request, challenge func(*http.Request) string) {
 	value := "Bearer"
 	if challenge != nil {
@@ -203,6 +171,9 @@ func mcpPrincipal(ctx context.Context) (auth.Principal, error) {
 	return principal, nil
 }
 
+// mcpAPIAdapter invokes the REST handlers in an isolated Gin context so both
+// transports share validation, authorization, and response semantics. MCP
+// transport metrics and recovery are handled by the outer MCP server.
 type mcpAPIAdapter struct{ handlers handlers }
 
 type mcpAPIResponse struct {
@@ -233,7 +204,7 @@ func (a mcpAPIAdapter) call(
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = req
 	c.Params = params
-	c.Set("principal", &principal)
+	c.Set(principalContextKey, &principal)
 	handler(c)
 	return mcpAPIResponse{
 		status:      recorder.Code,

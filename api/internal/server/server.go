@@ -109,18 +109,12 @@ func New(cfg Config, opts ...Option) *Server {
 	for _, opt := range opts {
 		opt(&deps)
 	}
-	// A repository is mandatory: there is no in-memory fallback that could
-	// silently discard data (or mask bugs) behind the same interface. This is
-	// a wiring bug caught once at startup, never a runtime condition, so a
-	// panic is the right failure mode.
+	// Missing storage is a startup wiring bug, not a recoverable request error.
 	if deps.repository == nil {
 		panic("server.New: repository is required (use server.WithRepository)")
 	}
 	if deps.documentKVEvents == nil {
-		// Background event workers need an explicit owner and shutdown path. The
-		// production binary and SSE tests inject a Broker with lifecycle cleanup;
-		// other programmatic callers receive a clear stream error instead of a
-		// hidden goroutine that can outlive the Server.
+		// Do not create an unowned background broker for programmatic callers.
 		deps.documentKVEvents = unavailableDocumentKVEvents{}
 	}
 	r := gin.New()
@@ -155,9 +149,7 @@ func (s *Server) routes(deps dependencies) {
 	mcpOAuth := s.engine.Group("/oauth", requireAuth(deps.authenticator, deps.appOrigin))
 	mcpOAuth.GET("/authorize", h.mcpAuthorize)
 	mcpOAuth.POST("/authorize", h.mcpAuthorize)
-	registerMCPRoutes(s.engine, deps, withMCPUnauthorizedChallenge(func(*http.Request) string {
-		return mcpWWWAuthenticate(deps.appOrigin)
-	}))
+	registerMCPRoutes(s.engine, deps)
 	s.engine.GET("/commit.txt", h.commitTXT)
 	s.engine.GET("/version.json", h.versionJSON)
 	s.engine.GET("/install.sh", h.installScript)
@@ -238,6 +230,8 @@ func (s *Server) routes(deps dependencies) {
 
 type handlers struct{ deps dependencies }
 
+const principalContextKey = "principal"
+
 func (h handlers) needDocRole(c *gin.Context, docID string, need repo.Role) bool {
 	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
 	if err != nil {
@@ -276,7 +270,7 @@ func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
 			return
 		}
 		incAuth("request", "success")
-		c.Set("principal", p)
+		c.Set(principalContextKey, p)
 		c.Next()
 	}
 }
@@ -314,7 +308,7 @@ func wantsBrowserLogin(c *gin.Context) bool {
 }
 
 func current(c *gin.Context) *auth.Principal {
-	p, ok := c.Get("principal")
+	p, ok := c.Get(principalContextKey)
 	if !ok {
 		return nil
 	}
