@@ -112,8 +112,8 @@ func TestRenderRouteRequiresRenderHostWhenConfigured(t *testing.T) {
 	assertStatus(t, rr, http.StatusNotFound)
 }
 
-func TestRenderRouteAcceptsEquivalentDefaultPortHost(t *testing.T) {
-	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://app.example", RenderOrigin: "https://render.example:443", SessionSecret: "test-secret"})
+func TestRenderRouteAcceptsEquivalentCanonicalHost(t *testing.T) {
+	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://app.example", RenderOrigin: "https://render.example.:443", SessionSecret: "test-secret"})
 	token := (auth.SessionCodec{Secret: []byte("test-secret")}).SignForAudience("render:"+e.doc.ID+"/"+e.ver.ID, "render", 5*time.Minute)
 	req := httptest.NewRequest(http.MethodGet, "/v/"+e.doc.ID+"/"+e.ver.ID+"?token="+token, nil)
 	req.Host = "RENDER.EXAMPLE"

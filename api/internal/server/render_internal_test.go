@@ -322,6 +322,8 @@ func TestValidateRenderOrigin(t *testing.T) {
 		{"same origin non-transitional IDNA hostname", "https://faß.de", "https://xn--fa-hia.de", true},
 		{"same origin equivalent IPv6", "https://[0:0:0:0:0:0:0:1]", "https://[::1]", true},
 		{"same host terminal root dot", "https://app.example.com", "https://app.example.com.", true},
+		{"distinct underscore hostnames", "https://app_docs.corp.internal", "https://render_docs.corp.internal", false},
+		{"same underscore hostname", "https://docs_internal.corp", "https://DOCS_INTERNAL.CORP", true},
 		{"ambiguous WHATWG IPv4 hostname", "http://127.1:8080", "http://127.0.0.1:8080", true},
 		{"same host different scheme", "http://app.example.com", "https://app.example.com", true},
 		{"same host different port", "http://app.example.com:8080", "http://app.example.com:9090", true},

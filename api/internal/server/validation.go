@@ -17,6 +17,8 @@ import (
 
 var roleRank = map[repo.Role]int{repo.RoleViewer: 1, repo.RoleCommenter: 2, repo.RoleEditor: 3, repo.RoleOwner: 4}
 
+var httpHostnameIDNA = idna.New(idna.MapForLookup(), idna.StrictDomainName(false))
+
 func atLeast(have repo.Role, need repo.Role) bool {
 	return roleRank[have] >= roleRank[need]
 }
@@ -113,7 +115,8 @@ func canonicalHTTPHostname(hostname string) (string, bool) {
 	if address, err := netip.ParseAddr(hostname); err == nil {
 		return address.String(), true
 	}
-	ascii, err := idna.Lookup.ToASCII(hostname)
+	ascii, err := httpHostnameIDNA.ToASCII(hostname)
+	ascii = strings.TrimSuffix(ascii, ".")
 	if err != nil || ascii == "" {
 		return "", false
 	}
