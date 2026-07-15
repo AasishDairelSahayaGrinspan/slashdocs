@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
@@ -20,12 +22,21 @@ const (
 )
 
 type documentKVStream struct {
-	ctx        context.Context
-	writer     http.ResponseWriter
-	flusher    http.Flusher
-	repository repo.Repository
-	documentID string
-	lastSent   int64
+	ctx          context.Context
+	writer       http.ResponseWriter
+	flusher      http.Flusher
+	repository   documentKVStreamRepository
+	authenticate func(context.Context) (*auth.Principal, error)
+	principal    auth.Principal
+	documentID   string
+	lastSent     int64
+	keepAlive    <-chan time.Time
+	started      bool
+}
+
+type documentKVStreamRepository interface {
+	ListDocumentKVEvents(context.Context, string, int64, int32) ([]repo.DocumentKVEvent, error)
+	RoleForDocument(context.Context, auth.Principal, string) (repo.Role, error)
 }
 
 func (s *documentKVStream) sendBacklog() error {
@@ -38,6 +49,7 @@ func (s *documentKVStream) sendBacklog() error {
 			if event.Revision <= s.lastSent {
 				continue
 			}
+			s.started = true
 			if err := writeDocumentKVSSE(s.writer, event); err != nil {
 				return err
 			}
@@ -62,6 +74,7 @@ func (s *documentKVStream) sendLive(event repo.DocumentKVEvent) error {
 			return nil
 		}
 	}
+	s.started = true
 	if err := writeDocumentKVSSE(s.writer, event); err != nil {
 		return err
 	}
@@ -70,9 +83,42 @@ func (s *documentKVStream) sendLive(event repo.DocumentKVEvent) error {
 	return nil
 }
 
+func (s *documentKVStream) reauthorize() bool {
+	if s.authenticate == nil {
+		return false
+	}
+	principal, err := s.authenticate(s.ctx)
+	if err != nil {
+		if s.ctx.Err() == nil && !errors.Is(err, auth.ErrUnauthorized) {
+			slog.ErrorContext(s.ctx, "document KV stream credential check failed",
+				slog.String("document_id", s.documentID),
+				slog.Any("error", err))
+		}
+		return false
+	}
+	if principal == nil || principal.Type != s.principal.Type || principal.ID != s.principal.ID {
+		return false
+	}
+	role, err := s.repository.RoleForDocument(s.ctx, s.principal, s.documentID)
+	if err != nil {
+		if s.ctx.Err() == nil {
+			slog.ErrorContext(s.ctx, "document KV stream authorization check failed",
+				slog.String("document_id", s.documentID),
+				slog.Any("error", err))
+		}
+		return false
+	}
+	return atLeast(role, repo.RoleViewer)
+}
+
 func (s *documentKVStream) run(liveEvents <-chan repo.DocumentKVEvent) {
-	keepAlive := time.NewTicker(documentKVKeepAlive)
-	defer keepAlive.Stop()
+	keepAlive := s.keepAlive
+	var ticker *time.Ticker
+	if keepAlive == nil {
+		ticker = time.NewTicker(documentKVKeepAlive)
+		defer ticker.Stop()
+		keepAlive = ticker.C
+	}
 
 	for {
 		select {
@@ -85,7 +131,10 @@ func (s *documentKVStream) run(liveEvents <-chan repo.DocumentKVEvent) {
 			if err := s.sendLive(event); err != nil {
 				return
 			}
-		case <-keepAlive.C:
+		case <-keepAlive:
+			if !s.reauthorize() {
+				return
+			}
 			if _, err := fmt.Fprint(s.writer, ": keepalive\n\n"); err != nil {
 				return
 			}
@@ -101,9 +150,15 @@ func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 	}
 	afterRevision, err := parseKVEventRevision(c.Query("after_revision"))
 	if err != nil {
-		badRequest(c, "invalid after_revision")
+		badRequest(c, "invalid event revision")
 		return
 	}
+	lastEventRevision, err := parseKVEventRevision(c.GetHeader("Last-Event-ID"))
+	if err != nil {
+		badRequest(c, "invalid event revision")
+		return
+	}
+	afterRevision = max(afterRevision, lastEventRevision)
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
 		internalErr(c, errors.New("streaming unsupported"))
@@ -133,15 +188,26 @@ func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 	c.Header("Connection", "keep-alive")
 	c.Header("X-Accel-Buffering", "no")
 
+	authRequest := c.Request.Clone(c.Request.Context())
 	stream := &documentKVStream{
 		ctx:        c.Request.Context(),
 		writer:     c.Writer,
 		flusher:    flusher,
 		repository: h.deps.repository,
+		authenticate: func(ctx context.Context) (*auth.Principal, error) {
+			return h.deps.authenticator.Authenticate(authRequest.Clone(ctx))
+		},
+		principal:  *current(c),
 		documentID: docID,
 		lastSent:   afterRevision,
 	}
 	if err := stream.sendBacklog(); err != nil {
+		if stream.started {
+			slog.ErrorContext(c.Request.Context(), "document KV stream backlog failed",
+				slog.String("document_id", docID),
+				slog.Any("error", err))
+			return
+		}
 		if errors.Is(err, repo.ErrNotFound) {
 			notFound(c)
 			return
@@ -149,6 +215,7 @@ func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	stream.started = true
 	if _, err := fmt.Fprint(c.Writer, ": connected\n\n"); err != nil {
 		return
 	}
@@ -172,6 +239,6 @@ func writeDocumentKVSSE(w http.ResponseWriter, event repo.DocumentKVEvent) error
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "data: %s\n\n", raw)
+	_, err = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", event.Revision, raw)
 	return err
 }

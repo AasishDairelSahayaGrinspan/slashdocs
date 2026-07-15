@@ -336,6 +336,12 @@ func readDocumentKVSSEEvent(t *testing.T, r *bufio.Reader) repo.DocumentKVEvent 
 	t.Helper()
 	for {
 		lines := readSSEBlock(t, r)
+		eventID := ""
+		for _, line := range lines {
+			if strings.HasPrefix(line, "id: ") {
+				eventID = strings.TrimPrefix(line, "id: ")
+			}
+		}
 		for _, line := range lines {
 			if !strings.HasPrefix(line, "data: ") {
 				continue
@@ -343,6 +349,9 @@ func readDocumentKVSSEEvent(t *testing.T, r *bufio.Reader) repo.DocumentKVEvent 
 			var event repo.DocumentKVEvent
 			if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event); err != nil {
 				t.Fatalf("bad SSE event JSON %q: %v", line, err)
+			}
+			if want := strconv.FormatInt(event.Revision, 10); eventID != want {
+				t.Fatalf("SSE event id = %q, want revision %q", eventID, want)
 			}
 			return event
 		}
