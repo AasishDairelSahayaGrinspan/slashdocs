@@ -66,7 +66,7 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		}
 		confirm(out, g, fmt.Sprintf("Created document %q (%s). Review it at %s", title, id, docURL))
 		if sharedByDefault {
-			confirm(out, g, "Gave org-wide read-only access because "+orgWideViewerEnv+" is set.")
+			confirm(out, g, "Gave org-wide commenter access because "+orgWideViewerEnv+" is set.")
 		} else {
 			printOrgWideViewerNudge(out, g, id)
 		}

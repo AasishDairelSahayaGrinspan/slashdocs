@@ -62,7 +62,7 @@ func maybeGrantOrgWideViewer(c *Client, docID string) (bool, error) {
 	}
 	_, err := c.doJSON("POST", apiPath("/v1/documents/%s/grants", docID), map[string]any{
 		"principal": map[string]any{"type": "anyone"},
-		"role":      "viewer",
+		"role":      "commenter",
 	})
 	return true, err
 }
@@ -75,7 +75,7 @@ func orgWideViewerNudge(g *globals, docID string) string {
 	if org == "" {
 		org = "your org"
 	}
-	return fmt.Sprintf("Give org-wide read-only access? We are transparent here at %s. You can do it with: aidocs docs grants add %s --everyone --role viewer", org, docID)
+	return fmt.Sprintf("Give org-wide commenter access? We are transparent here at %s. You can do it with: aidocs docs grants add %s --everyone --role commenter", org, docID)
 }
 
 func printOrgWideViewerNudge(out io.Writer, g *globals, docID string) {

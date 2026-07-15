@@ -296,8 +296,8 @@ func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
 			granted = true
 			var in map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&in)
-			if in["role"] != "viewer" {
-				t.Fatalf("grant role = %v, want viewer", in["role"])
+			if in["role"] != "commenter" {
+				t.Fatalf("grant role = %v, want commenter", in["role"])
 			}
 			p, _ := in["principal"].(map[string]any)
 			if p["type"] != "anyone" {
@@ -322,9 +322,9 @@ func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
 		t.Fatalf("%v", err)
 	}
 	if !granted {
-		t.Fatal("create did not grant org-wide viewer access")
+		t.Fatal("create did not grant org-wide commenter access")
 	}
-	if !strings.Contains(got, "Gave org-wide read-only access") || strings.Contains(got, "Give org-wide read-only access?") {
+	if !strings.Contains(got, "Gave org-wide commenter access") || strings.Contains(got, "Give org-wide commenter access?") {
 		t.Fatalf("unexpected output %q", got)
 	}
 }
