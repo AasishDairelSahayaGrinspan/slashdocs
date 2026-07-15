@@ -59,6 +59,54 @@ jobs:
         env:
           AIDOCS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
+  e2e:
+    name: E2E compose and browser
+    # The compose stack needs a Docker daemon, which the internal k8s runners
+    # do not provide; GitHub-hosted runners ship docker and compose.
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout Codebase
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Run compose smoke suite
+        run: scripts/e2e.sh
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+
+      - name: Run browser E2E against the running stack
+        run: npm run e2e --prefix frontend
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: frontend/playwright-report/
+          retention-days: 7
+
+      - name: Tear down stack
+        if: always()
+        run: scripts/e2e.sh down
+
   docker:
     name: Build Docker image
     runs-on: [k8s-runner, linux-amd64]
