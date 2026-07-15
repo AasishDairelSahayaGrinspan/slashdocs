@@ -105,14 +105,34 @@ type LoginStateStore interface {
 	TakeCode(ctx context.Context, code string) (LoginState, bool, error)
 }
 
+// ConnectionState binds a one-time OAuth callback to the signed-in aidocs
+// user who initiated it. CodeVerifier is used by providers that support PKCE.
+type ConnectionState struct {
+	UserID       string
+	Provider     string
+	Redirect     string
+	CodeVerifier string
+	ExpiresAt    time.Time
+}
+
+type ConnectionStateStore interface {
+	PutConnectionState(ctx context.Context, id string, st ConnectionState) error
+	TakeConnectionState(ctx context.Context, id string) (ConnectionState, bool, error)
+}
+
 type StateStore struct {
-	mu       sync.Mutex
-	states   map[string]LoginState
-	cliCodes map[string]LoginState
+	mu               sync.Mutex
+	states           map[string]LoginState
+	cliCodes         map[string]LoginState
+	connectionStates map[string]ConnectionState
 }
 
 func NewStateStore() *StateStore {
-	return &StateStore{states: map[string]LoginState{}, cliCodes: map[string]LoginState{}}
+	return &StateStore{
+		states:           map[string]LoginState{},
+		cliCodes:         map[string]LoginState{},
+		connectionStates: map[string]ConnectionState{},
+	}
 }
 func (s *StateStore) PutState(ctx context.Context, id string, st LoginState) error {
 	s.mu.Lock()
@@ -150,6 +170,25 @@ func (s *StateStore) TakeCode(ctx context.Context, code string) (LoginState, boo
 	}
 	return st, true, nil
 }
+func (s *StateStore) PutConnectionState(_ context.Context, id string, st ConnectionState) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st.ExpiresAt.IsZero() {
+		st.ExpiresAt = time.Now().Add(defaultStateTTL)
+	}
+	s.connectionStates[id] = st
+	return nil
+}
+func (s *StateStore) TakeConnectionState(_ context.Context, id string) (ConnectionState, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st, ok := s.connectionStates[id]
+	delete(s.connectionStates, id)
+	if !ok || time.Now().After(st.ExpiresAt) {
+		return ConnectionState{}, false, nil
+	}
+	return st, true, nil
+}
 func RandomURLToken() (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -157,3 +196,6 @@ func RandomURLToken() (string, error) {
 	}
 	return base64.RawURLEncoding.EncodeToString(b), nil
 }
+
+var _ LoginStateStore = (*StateStore)(nil)
+var _ ConnectionStateStore = (*StateStore)(nil)

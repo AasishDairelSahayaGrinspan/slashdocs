@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/connections"
 	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/repo"
 	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
@@ -115,9 +116,33 @@ func TestPostgresConnectedKnowledgePersistence(t *testing.T) {
 		t.Fatalf("FindPortal repository=%q err=%v", got.RepositoryID, err)
 	}
 	now := knowledge.Now()
-	source := knowledge.Source{ID: "src_knowledge_pg_" + suffix, RepositoryID: repository.ID, Provider: knowledge.ProviderGitHub, ExternalRepository: "acme/payments", Branch: "main", IncludePaths: []string{}, ExcludePaths: []string{}, TriggerMode: "default_branch", Direction: "into_aidocs", Status: "active", CreatedBy: owner, CreatedAt: now, UpdatedAt: now}
+	connection := connections.Account{ID: "conn_knowledge_pg_" + suffix, UserID: owner.ID, Provider: connections.ProviderGitHub, ExternalAccountID: "acme", DisplayName: "Acme GitHub", Status: connections.StatusActive, CredentialCiphertext: []byte("encrypted-token")}
+	if _, err := connections.NewPostgres(base.Pool()).Put(ctx, connection); err != nil {
+		t.Fatal(err)
+	}
+	source := knowledge.Source{ID: "src_knowledge_pg_" + suffix, RepositoryID: repository.ID, ConnectionID: connection.ID, Provider: knowledge.ProviderGitHub, ExternalRepository: "acme/payments", Branch: "main", IncludePaths: []string{}, ExcludePaths: []string{}, TriggerMode: "default_branch", Direction: "into_aidocs", Status: "active", CreatedBy: owner, CreatedAt: now, UpdatedAt: now}
 	if _, err := store.PutSource(ctx, source); err != nil {
 		t.Fatal(err)
+	}
+	// Simulate an older application instance replacing the JSON payload. The
+	// real connection_id column must remain authoritative during rolling deploys.
+	if _, err := base.Pool().Exec(ctx, `UPDATE connected_knowledge_records SET payload=payload - 'connection_id' WHERE kind='source' AND id=$1`, source.ID); err != nil {
+		t.Fatal(err)
+	}
+	gotSource, err := store.GetSource(ctx, repository.ID, source.ID)
+	if err != nil || gotSource.ConnectionID != connection.ID {
+		t.Fatalf("GetSource connection=%q err=%v", gotSource.ConnectionID, err)
+	}
+	listedSources, err := store.ListSources(ctx, repository.ID)
+	if err != nil || len(listedSources) != 1 || listedSources[0].ConnectionID != connection.ID {
+		t.Fatalf("ListSources=%+v err=%v", listedSources, err)
+	}
+	if _, err := store.PutSource(ctx, gotSource); err != nil {
+		t.Fatalf("rewrite source: %v", err)
+	}
+	var storedConnectionID string
+	if err := base.Pool().QueryRow(ctx, `SELECT connection_id FROM connected_knowledge_records WHERE kind='source' AND id=$1`, source.ID).Scan(&storedConnectionID); err != nil || storedConnectionID != connection.ID {
+		t.Fatalf("stored connection=%q err=%v", storedConnectionID, err)
 	}
 	deliveryID := "delivery-pg-" + suffix
 	if accepted, err := store.AcceptDelivery(ctx, "github", deliveryID); err != nil || !accepted {

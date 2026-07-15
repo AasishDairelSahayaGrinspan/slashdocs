@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from "react-router-dom";
-import { Bot, Code2, Palette, UserRound } from "lucide-react";
+import { Bot, Code2, Link2, Palette, UserRound } from "lucide-react";
 import { cn } from "@/lib/cn";
 
 const sections = [
@@ -7,6 +7,7 @@ const sections = [
     label: "Personal",
     items: [
       { to: "/app/settings/account", label: "Account", icon: UserRound },
+      { to: "/app/settings/connections", label: "Connections", icon: Link2 },
       { to: "/app/settings/appearance", label: "Appearance", icon: Palette },
     ],
   },

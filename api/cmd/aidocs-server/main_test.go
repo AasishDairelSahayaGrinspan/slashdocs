@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"net"
 	"net/http"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
@@ -136,6 +138,90 @@ func TestWebhookSettingsValidateDevRevSecretLength(t *testing.T) {
 			}
 			if !tc.wantErr && (settings.githubSecret != "github-secret" || settings.slackSecret != "slack-secret" || settings.devRevSecret != tc.secret) {
 				t.Fatalf("settings = %#v", settings)
+			}
+		})
+	}
+}
+
+func TestPersonalConnectionSettingsRequireCompleteOAuthAndStableKey(t *testing.T) {
+	clear := func(t *testing.T) {
+		t.Helper()
+		for _, name := range []string{
+			"AIDOCS_CONNECTION_ENCRYPTION_KEY",
+			"AIDOCS_GITHUB_OAUTH_CLIENT_ID", "AIDOCS_GITHUB_OAUTH_CLIENT_SECRET",
+			"AIDOCS_SLACK_OAUTH_CLIENT_ID", "AIDOCS_SLACK_OAUTH_CLIENT_SECRET",
+			"AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID", "AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET",
+			"AIDOCS_GOOGLE_PICKER_API_KEY", "AIDOCS_GOOGLE_PICKER_APP_ID",
+			"AIDOCS_DEVREV_API_BASE_URL",
+		} {
+			t.Setenv(name, "")
+		}
+	}
+
+	t.Run("disabled stays backwards compatible", func(t *testing.T) {
+		clear(t)
+		settings, err := loadPersonalConnectionSettings()
+		if err != nil || settings.cipher != nil {
+			t.Fatalf("settings=%#v err=%v", settings, err)
+		}
+	})
+
+	t.Run("client pair is atomic", func(t *testing.T) {
+		clear(t)
+		t.Setenv("AIDOCS_SLACK_OAUTH_CLIENT_ID", "client")
+		if _, err := loadPersonalConnectionSettings(); err == nil {
+			t.Fatal("accepted OAuth client ID without secret")
+		}
+	})
+
+	t.Run("configured provider requires encryption key", func(t *testing.T) {
+		clear(t)
+		t.Setenv("AIDOCS_GITHUB_OAUTH_CLIENT_ID", "client")
+		t.Setenv("AIDOCS_GITHUB_OAUTH_CLIENT_SECRET", "secret")
+		if _, err := loadPersonalConnectionSettings(); err == nil {
+			t.Fatal("accepted provider credentials without encryption key")
+		}
+	})
+
+	t.Run("valid base64 key enables connections", func(t *testing.T) {
+		clear(t)
+		t.Setenv("AIDOCS_GITHUB_OAUTH_CLIENT_ID", "client")
+		t.Setenv("AIDOCS_GITHUB_OAUTH_CLIENT_SECRET", "secret")
+		t.Setenv("AIDOCS_CONNECTION_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("0123456789abcdef0123456789abcdef")))
+		settings, err := loadPersonalConnectionSettings()
+		if err != nil || settings.cipher == nil || settings.providers.GitHub.ClientID != "client" {
+			t.Fatalf("settings=%#v err=%v", settings, err)
+		}
+	})
+
+	t.Run("wrong key size is rejected", func(t *testing.T) {
+		clear(t)
+		t.Setenv("AIDOCS_CONNECTION_ENCRYPTION_KEY", base64.StdEncoding.EncodeToString([]byte("too-short")))
+		if _, err := loadPersonalConnectionSettings(); err == nil {
+			t.Fatal("accepted invalid connection encryption key")
+		}
+	})
+}
+
+func TestSourcePollIntervalConfiguration(t *testing.T) {
+	for _, test := range []struct {
+		value   string
+		want    time.Duration
+		wantErr bool
+	}{
+		{want: 15 * time.Minute},
+		{value: "0", want: 0},
+		{value: "1m", want: time.Minute},
+		{value: "30m", want: 30 * time.Minute},
+		{value: "10s", wantErr: true},
+		{value: "not-a-duration", wantErr: true},
+		{value: "-1m", wantErr: true},
+	} {
+		t.Run(test.value, func(t *testing.T) {
+			t.Setenv("AIDOCS_SOURCE_POLL_INTERVAL", test.value)
+			got, err := loadSourcePollInterval()
+			if (err != nil) != test.wantErr || (!test.wantErr && got != test.want) {
+				t.Fatalf("loadSourcePollInterval()=%s err=%v, want=%s wantErr=%v", got, err, test.want, test.wantErr)
 			}
 		})
 	}

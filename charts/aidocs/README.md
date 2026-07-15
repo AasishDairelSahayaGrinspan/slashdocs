@@ -46,6 +46,7 @@ session:
   secret: "replace-with-at-least-32-random-bytes"
 
 connectedKnowledge:
+  pollInterval: 15m # 0 disables linked-source polling; minimum nonzero value 1m
   githubToken: "..." # optional, read-only Contents access
   githubWebhookSecret: "..." # optional; POST /v1/webhooks/github
   slackSigningSecret: "..." # optional; POST /v1/webhooks/slack
@@ -109,6 +110,82 @@ deployment:
 
 In public mode you can still apply a lighter email-domain allowlist with
 `allowedOAuthDomains: "acme.com"` (empty by default, meaning no gate).
+
+## Personal connected accounts
+
+Personal provider connections are optional and separate from the OAuth/OIDC
+provider used to sign in to aidocs. Each user connects their own account from
+**Settings > Connections**; aidocs encrypts the resulting access and refresh
+tokens before storing them in Postgres.
+
+```yaml
+personalConnections:
+  encryption:
+    # Base64 for exactly 32 random bytes: openssl rand -base64 32
+    key: "..."
+  github:
+    clientID: "..."
+    clientSecret: "..."
+  slack:
+    clientID: "..."
+    clientSecret: "..."
+  googleDrive:
+    clientID: "..."
+    clientSecret: "..."
+  googlePicker:
+    apiKey: "..."
+    appID: "123456789012" # numeric Google Cloud project number
+  devRev:
+    # Optional trusted-provider-proxy/testing override; empty uses api.devrev.ai.
+    apiBaseURL: ""
+```
+
+Keep the encryption key stable across all pods and restarts. Changing it makes
+existing connected-account credentials unreadable until every user reconnects.
+Setting only the encryption key is enough to enable per-user DevRev PATs;
+DevRev does not use a deployment-wide OAuth client. Leave
+`personalConnections.devRev.apiBaseURL` empty for the official DevRev API; the
+override exists for a trusted provider proxy or contract testing.
+
+Register these exact callbacks under the public `origins.app` host:
+
+```text
+https://aidocs.example.com/v1/connections/github/callback
+https://aidocs.example.com/v1/connections/slack/callback
+https://aidocs.example.com/v1/connections/google_drive/callback
+```
+
+The GitHub OAuth App flow currently requests only `repo`.
+GitHub documents that `repo` grants broad read/write access to every public and
+private repository available to that user; OAuth Apps cannot make private code
+access read-only. aidocs uses the token only for reads, but do not enable this
+flow if the token's broad capability is unacceptable. See
+[GitHub's OAuth scope reference](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).
+
+For Slack, create an OAuth v2 app with the user token scopes
+`channels:history` and `groups:history`. Each aidocs user authorizes their own
+Slack identity. See [Slack OAuth v2](https://api.slack.com/authentication/oauth-v2).
+
+For Google Drive, enable both the Google Drive API and Google Picker API, add
+`origins.app` as an authorized JavaScript origin, restrict the browser API key
+to that origin and Picker API, and use the Cloud project number as `appID`.
+aidocs requests the narrow `drive.file` scope, so users explicitly select the
+files the app may read. See Google's
+[Picker setup](https://developers.google.com/workspace/drive/picker/guides/web-picker)
+and [`drive.file` guidance](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
+
+Connected accounts enable the repository's **Sync now** action and background
+reconciliation. `connectedKnowledge.pollInterval` defaults to `15m`; set it to
+`0` to disable polling or another Go duration of at least `1m`. Polling covers
+active linked sources whose trigger is not `manual`. A persisted per-window
+delivery key deduplicates discovery across replicas, so each source queues at
+most once per interval. Provider limits still apply—especially when many Slack
+threads share one user token—so increase the interval or use manual triggers as
+needed.
+
+Signed GitHub, Slack, and DevRev webhooks under `connectedKnowledge` remain
+available independently for event-driven updates, and `AIDOCS_GITHUB_TOKEN`
+remains a legacy fallback only for unlinked GitHub sources.
 
 ## One-time structured-mentions upgrade
 
@@ -178,6 +255,27 @@ session:
   existingSecret: aidocs-session
   secretKey: SESSION_SECRET
 
+personalConnections:
+  encryption:
+    existingSecret: aidocs-connection-encryption
+    secretKey: AIDOCS_CONNECTION_ENCRYPTION_KEY
+  github:
+    existingSecret: aidocs-github-oauth
+    clientIDKey: AIDOCS_GITHUB_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_GITHUB_OAUTH_CLIENT_SECRET
+  slack:
+    existingSecret: aidocs-slack-oauth
+    clientIDKey: AIDOCS_SLACK_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_SLACK_OAUTH_CLIENT_SECRET
+  googleDrive:
+    existingSecret: aidocs-google-drive-oauth
+    clientIDKey: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET
+  googlePicker:
+    existingSecret: aidocs-google-picker
+    apiKeyKey: AIDOCS_GOOGLE_PICKER_API_KEY
+    appIDKey: AIDOCS_GOOGLE_PICKER_APP_ID
+
 database:
   existingSecret: aidocs-database
   hostKey: DATABASE_HOST
@@ -212,4 +310,13 @@ or, for a generic OIDC provider:
 
 ```text
 https://aidocs.example.com/v1/auth/oidc/callback
+```
+
+These sign-in callbacks are separate from the personal connected-account
+callbacks. Register whichever provider connections you enable:
+
+```text
+https://aidocs.example.com/v1/connections/github/callback
+https://aidocs.example.com/v1/connections/slack/callback
+https://aidocs.example.com/v1/connections/google_drive/callback
 ```

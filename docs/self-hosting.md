@@ -19,8 +19,9 @@ see [Connected sources](connected-sources.md).
 Before deploying a release, run the repeatable
 [production verification gate](production-verification.md). It builds the real
 server and embedded frontend and verifies migrations, PostgreSQL/S3
-persistence, protected reviews, signed source webhooks, restart recovery,
-readiness failure, and rendered Helm configuration.
+persistence, protected reviews, signed source webhooks, encrypted personal
+DevRev credentials and provider sync across a restart, readiness failure, and
+rendered Helm configuration.
 
 ## Requirements
 
@@ -202,6 +203,97 @@ AIDOCS_ORG_DOMAINS=acme.com,acme-labs.io
 AIDOCS_ORG_NAME=Acme
 ```
 
+### Personal connected accounts
+
+Personal connections are independent from the provider used to sign in to
+aidocs. The deployment supplies one OAuth application for each enabled
+provider, then every signed-in person authorizes their own GitHub, Slack, or
+Google Drive account from **Settings > Connections**. DevRev uses a PAT entered
+by that person instead of a deployment-wide OAuth client. Connected-account
+tokens are private to their owner and are never copied into repository source
+configuration or returned by connection/source listing APIs. The authenticated
+Google Drive owner can request their access token through a no-store endpoint
+because Google Picker must receive it in that user's browser; other providers
+stay server-side.
+
+First create a stable credential-encryption key:
+
+```bash
+openssl rand -base64 32
+```
+
+Set the result as `AIDOCS_CONNECTION_ENCRYPTION_KEY`. It must decode to exactly
+32 bytes and must be identical on every replica. Back it up with the rest of
+your application secrets: replacing or losing the key makes existing account
+credentials unreadable, so users must reconnect.
+
+For each OAuth provider you enable, register the exact callback under the
+public `AIDOCS_APP_ORIGIN` and set both client variables:
+
+| Provider     | Callback                                | Server variables                                                                 | Requested access                                                               |
+| ------------ | --------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| GitHub       | `/v1/connections/github/callback`       | `AIDOCS_GITHUB_OAUTH_CLIENT_ID`, `AIDOCS_GITHUB_OAUTH_CLIENT_SECRET`             | `repo`                                                                         |
+| Slack        | `/v1/connections/slack/callback`        | `AIDOCS_SLACK_OAUTH_CLIENT_ID`, `AIDOCS_SLACK_OAUTH_CLIENT_SECRET`               | User scopes `channels:history`, `groups:history`                               |
+| Google Drive | `/v1/connections/google_drive/callback` | `AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID`, `AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET` | `openid`, `email`, `profile`, and `https://www.googleapis.com/auth/drive.file` |
+
+For example, a production GitHub OAuth App callback is:
+
+```text
+https://aidocs.example.com/v1/connections/github/callback
+```
+
+GitHub OAuth Apps expose only the broad `repo` scope for private repository
+content. GitHub documents that it grants read and write access to public and
+private repositories available to the user. aidocs performs only read calls,
+but the token itself is not read-only and cannot be limited to repositories
+selected during installation. Do not enable GitHub personal connections if
+that capability is unacceptable. See
+[GitHub's OAuth scope reference](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).
+
+Create a Slack OAuth v2 app, add the two user token scopes above, and register
+the callback URL. Each user installs that app for their own Slack identity;
+aidocs uses the resulting user token to read only the thread configured on a
+source. See [Slack OAuth v2](https://api.slack.com/authentication/oauth-v2).
+
+#### Google Drive Picker
+
+Google Drive needs browser Picker configuration in addition to its OAuth web
+client:
+
+1. Enable the **Google Drive API** and **Google Picker API** in the same Google
+   Cloud project.
+2. Add `<AIDOCS_APP_ORIGIN>/v1/connections/google_drive/callback` as an
+   authorized redirect URI on the OAuth web client.
+3. Add the exact `AIDOCS_APP_ORIGIN` as an authorized JavaScript origin.
+4. Create a browser API key, restrict its website referrer to that origin, and
+   restrict its API access to Google Picker.
+5. Set `AIDOCS_GOOGLE_PICKER_API_KEY` to that key and
+   `AIDOCS_GOOGLE_PICKER_APP_ID` to the numeric Google Cloud project number.
+
+aidocs requests `drive.file`, which lets the user explicitly choose the files
+the app may read through Picker instead of exposing their whole Drive. See
+Google's [Picker setup](https://developers.google.com/workspace/drive/picker/guides/web-picker),
+[app ID reference](https://developers.google.com/workspace/drive/picker/reference/picker.pickerbuilder.setappid),
+and [`drive.file` guidance](https://developers.google.com/workspace/drive/api/guides/api-specific-auth).
+
+DevRev needs only the encryption key. Each user pastes a personal access token
+in **Settings > Connections**; aidocs validates it with DevRev, encrypts it in
+Postgres, and never returns it after creation.
+
+**Sync now** always runs an immediate provider check. Background reconciliation
+also checks active linked sources whose trigger is not `manual`.
+`AIDOCS_SOURCE_POLL_INTERVAL` defaults to `15m`; set it to `0` to disable
+polling or to another Go duration of at least `1m`. A persisted
+source-and-window delivery key deduplicates queueing across replicas. Provider
+limits still apply: Slack can be particularly restrictive when many thread
+sources share one user token, so prefer a longer interval or manual triggers in
+that case.
+
+The existing signed GitHub, Slack, and DevRev webhook endpoints continue to
+work independently for event-driven sources. `AIDOCS_GITHUB_TOKEN` remains a
+legacy read-token fallback only for GitHub sources without a personal
+connection; linked sources never fall back to it.
+
 ### Remote MCP clients
 
 Every deployment serves a remote Streamable HTTP MCP endpoint at
@@ -332,7 +424,26 @@ session:
   # At least 32 random bytes. Generate with: openssl rand -hex 32
   secret: "replace-with-at-least-32-random-bytes"
 
+personalConnections:
+  encryption:
+    # Base64 for exactly 32 bytes. Generate with: openssl rand -base64 32
+    key: "replace-with-a-stable-base64-key"
+  github:
+    clientID: "github-oauth-app-client-id"
+    clientSecret: "github-oauth-app-client-secret"
+  slack:
+    clientID: "slack-oauth-app-client-id"
+    clientSecret: "slack-oauth-app-client-secret"
+  googleDrive:
+    clientID: "google-drive-oauth-client-id"
+    clientSecret: "google-drive-oauth-client-secret"
+  googlePicker:
+    apiKey: "restricted-browser-api-key"
+    appID: "123456789012" # numeric Google Cloud project number
+
 connectedKnowledge:
+  pollInterval: 15m # 0 disables polling; minimum nonzero value 1m
+  # Legacy/global-token and signed-webhook settings remain optional.
   githubToken: "github-read-only-token"
   githubWebhookSecret: "replace-with-a-random-shared-secret"
   slackSigningSecret: "replace-with-your-slack-app-signing-secret"
@@ -417,6 +528,27 @@ blob:
   accessKeyIDKey: access-key-id
   secretAccessKeyKey: secret-access-key
 
+personalConnections:
+  encryption:
+    existingSecret: aidocs-connection-encryption
+    secretKey: AIDOCS_CONNECTION_ENCRYPTION_KEY
+  github:
+    existingSecret: aidocs-github-oauth
+    clientIDKey: AIDOCS_GITHUB_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_GITHUB_OAUTH_CLIENT_SECRET
+  slack:
+    existingSecret: aidocs-slack-oauth
+    clientIDKey: AIDOCS_SLACK_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_SLACK_OAUTH_CLIENT_SECRET
+  googleDrive:
+    existingSecret: aidocs-google-drive-oauth
+    clientIDKey: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET
+  googlePicker:
+    existingSecret: aidocs-google-picker
+    apiKeyKey: AIDOCS_GOOGLE_PICKER_API_KEY
+    appIDKey: AIDOCS_GOOGLE_PICKER_APP_ID
+
 connectedKnowledge:
   existingSecret: aidocs-connected-knowledge
   githubTokenKey: AIDOCS_GITHUB_TOKEN
@@ -443,10 +575,15 @@ Sealed Secrets, etc.).
 | `googleOAuth.{clientID,clientSecret}`                                      | Google OAuth credentials.                                                                                                    |
 | `oidc.{issuerURL,providerName,internalIssuerURL,clientID,clientSecret}`    | Generic OIDC provider; used instead of `googleOAuth` when `issuerURL` is set.                                                |
 | `session.secret`                                                           | At least 32 random bytes.                                                                                                    |
-| `connectedKnowledge.{githubToken,githubWebhookSecret}`                     | Optional GitHub revision comparison and signed webhook credentials.                                                         |
-| `connectedKnowledge.{slackSigningSecret,slackExistingSecret}`              | Optional signed Slack Events API ingestion.                                                                                 |
-| `connectedKnowledge.{devRevWebhookSecret,devRevExistingSecret}`            | Optional signed DevRev ticket webhook ingestion.                                                                            |
-| `temporaryStorage.sizeLimit`                                               | Bounded writable `/tmp` volume used when multipart imports exceed the in-memory buffer.                                     |
+| `personalConnections.encryption`                                           | Stable base64 key for exactly 32 decoded bytes; required for every personal connection.                                      |
+| `personalConnections.{github,slack,googleDrive}`                           | Deployment OAuth clients used when individual users connect their own provider accounts.                                     |
+| `personalConnections.googlePicker`                                         | Browser API key and numeric Google Cloud project number used by the Drive file picker.                                       |
+| `personalConnections.devRev.apiBaseURL`                                    | Advanced trusted-proxy/testing override; empty uses the official DevRev API.                                                 |
+| `connectedKnowledge.pollInterval`                                          | Personal linked-source reconciliation interval; `15m` by default, `0` disables, minimum nonzero value `1m`.                  |
+| `connectedKnowledge.{githubToken,githubWebhookSecret}`                     | Optional GitHub revision comparison and signed webhook credentials.                                                          |
+| `connectedKnowledge.{slackSigningSecret,slackExistingSecret}`              | Optional signed Slack Events API ingestion.                                                                                  |
+| `connectedKnowledge.{devRevWebhookSecret,devRevExistingSecret}`            | Optional signed DevRev ticket webhook ingestion.                                                                             |
+| `temporaryStorage.sizeLimit`                                               | Bounded writable `/tmp` volume used when multipart imports exceed the in-memory buffer.                                      |
 | `deployment.{mode,orgDomains,orgName}`                                     | `public` (default) or `org`; org mode gates login to `orgDomains`.                                                           |
 | `allowedOAuthDomains`                                                      | Comma-separated email domain allowlist (public mode); empty = no gate.                                                       |
 | `kvEvents.{mode,listenerDatabaseURL,existingSecret}`                       | Realtime KV events: `AIDOCS_KV_EVENTS_MODE` and the dedicated LISTEN connection URL (secret-backed). Rendered only when set. |
@@ -481,6 +618,16 @@ AIDOCS_RENDER_ORIGIN=https://render.aidocs.example.com
 GOOGLE_OAUTH_CLIENT_ID=...
 GOOGLE_OAUTH_CLIENT_SECRET=...
 SESSION_SECRET=...
+AIDOCS_CONNECTION_ENCRYPTION_KEY=...
+AIDOCS_GITHUB_OAUTH_CLIENT_ID=...
+AIDOCS_GITHUB_OAUTH_CLIENT_SECRET=...
+AIDOCS_SLACK_OAUTH_CLIENT_ID=...
+AIDOCS_SLACK_OAUTH_CLIENT_SECRET=...
+AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID=...
+AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET=...
+AIDOCS_GOOGLE_PICKER_API_KEY=...
+AIDOCS_GOOGLE_PICKER_APP_ID=...
+AIDOCS_SOURCE_POLL_INTERVAL=15m
 EOF
 
 sudo tee /etc/systemd/system/aidocs.service > /dev/null <<'EOF'
@@ -533,30 +680,55 @@ both. The redirect URI to register is
 `<AIDOCS_APP_ORIGIN>/v1/auth/google/callback` for Google and
 `<AIDOCS_APP_ORIGIN>/v1/auth/oidc/callback` for everything else.
 
+### Personal connection variables
+
+These are optional as a group. `AIDOCS_CONNECTION_ENCRYPTION_KEY` is required
+whenever any personal provider is enabled and is sufficient by itself to enable
+per-user DevRev PAT connections.
+
+| Variable                                  | Purpose                                                                                                       |
+| ----------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `AIDOCS_CONNECTION_ENCRYPTION_KEY`        | Base64 for exactly 32 random bytes. Keep identical across replicas and restarts.                              |
+| `AIDOCS_GITHUB_OAUTH_CLIENT_ID`           | GitHub OAuth App client ID for per-user GitHub connections.                                                   |
+| `AIDOCS_GITHUB_OAUTH_CLIENT_SECRET`       | Matching GitHub OAuth App client secret.                                                                      |
+| `AIDOCS_SLACK_OAUTH_CLIENT_ID`            | Slack OAuth v2 app client ID for per-user Slack connections.                                                  |
+| `AIDOCS_SLACK_OAUTH_CLIENT_SECRET`        | Matching Slack OAuth v2 app client secret.                                                                    |
+| `AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID`     | Google OAuth web client ID for per-user Drive connections.                                                    |
+| `AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET` | Matching Google Drive OAuth client secret.                                                                    |
+| `AIDOCS_GOOGLE_PICKER_API_KEY`            | Browser API key restricted to the app origin and Google Picker API.                                           |
+| `AIDOCS_GOOGLE_PICKER_APP_ID`             | Numeric Google Cloud project number passed to Google Picker.                                                  |
+| `AIDOCS_SOURCE_POLL_INTERVAL`             | Linked-source reconciliation interval. Defaults to `15m`; `0` disables; nonzero values must be at least `1m`. |
+
+OAuth client ID/secret variables must be set as complete pairs. Callback URLs,
+provider permissions, Picker setup, encryption-key handling, polling behavior,
+and legacy compatibility are described in
+[Personal connected accounts](#personal-connected-accounts).
+
 ### Optional
 
-| Variable                                 | Default     | Purpose                                                                                                                               |
-| ---------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `AIDOCS_PORT`                            | `8080`      | Public app/API listen port.                                                                                                           |
-| `AIDOCS_METRICS_PORT`                    | `9090`      | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain. |
-| `AIDOCS_MIGRATE`                         | `true`      | Run database migrations on boot. Set `false` to skip.                                                                                 |
-| `AIDOCS_KV_EVENTS_MODE`                  | `auto`      | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                              |
-| `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset       | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.      |
-| `AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`     | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.         |
-| `AIDOCS_COMMIT_SHA` / `COMMIT_SHA`       | unset       | Build revision exposed at `/commit.txt`.                                                                                              |
-| `ALLOWED_OAUTH_DOMAINS`                  | unset       | Comma-separated email-domain allowlist for OAuth logins (public deployments).                                                         |
-| `AIDOCS_DEPLOYMENT`                      | `public`    | `public` or `org`. An org deployment gates login to `AIDOCS_ORG_DOMAINS`.                                                             |
-| `AIDOCS_ORG_DOMAINS`                     | unset       | Comma-separated org domains. Required when `AIDOCS_DEPLOYMENT=org`; also the login gate.                                              |
-| `AIDOCS_ORG_NAME`                        | unset       | Org display name used in share UI copy (e.g. "Anyone in Acme").                                                                       |
-| `BLOB_REGION`                            | `us-east-1` | AWS region for the S3 client.                                                                                                         |
-| `BLOB_ENDPOINT`                          | unset       | Custom S3 endpoint (MinIO, R2, etc.).                                                                                                 |
-| `BLOB_ACCESS_KEY_ID`                     | unset       | Override AWS-SDK default credential chain.                                                                                            |
-| `BLOB_SECRET_ACCESS_KEY`                 | unset       | Override AWS-SDK default credential chain.                                                                                            |
-| `BLOB_FORCE_PATH_STYLE`                  | `false`     | Set to `true` for MinIO and most non-AWS S3 implementations.                                                                          |
-| `AIDOCS_GITHUB_TOKEN`                    | unset       | Read-only GitHub token used to compare connected-source revisions. Explicit changed-file checks do not need it.                       |
-| `AIDOCS_GITHUB_WEBHOOK_SECRET`           | unset       | Shared secret for signed GitHub deliveries to `/v1/webhooks/github`; the endpoint is disabled when unset.                             |
-| `AIDOCS_SLACK_SIGNING_SECRET`            | unset       | Slack app signing secret for `/v1/webhooks/slack`; the endpoint is disabled when unset.                                                |
-| `AIDOCS_DEVREV_WEBHOOK_SECRET`           | unset       | DevRev webhook signing secret for `/v1/webhooks/devrev`; the endpoint is disabled when unset.                                          |
+| Variable                                 | Default                 | Purpose                                                                                                                               |
+| ---------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| `AIDOCS_PORT`                            | `8080`                  | Public app/API listen port.                                                                                                           |
+| `AIDOCS_METRICS_PORT`                    | `9090`                  | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain. |
+| `AIDOCS_MIGRATE`                         | `true`                  | Run database migrations on boot. Set `false` to skip.                                                                                 |
+| `AIDOCS_KV_EVENTS_MODE`                  | `auto`                  | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                              |
+| `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset                   | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.      |
+| `AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`                 | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.         |
+| `AIDOCS_COMMIT_SHA` / `COMMIT_SHA`       | unset                   | Build revision exposed at `/commit.txt`.                                                                                              |
+| `ALLOWED_OAUTH_DOMAINS`                  | unset                   | Comma-separated email-domain allowlist for OAuth logins (public deployments).                                                         |
+| `AIDOCS_DEPLOYMENT`                      | `public`                | `public` or `org`. An org deployment gates login to `AIDOCS_ORG_DOMAINS`.                                                             |
+| `AIDOCS_ORG_DOMAINS`                     | unset                   | Comma-separated org domains. Required when `AIDOCS_DEPLOYMENT=org`; also the login gate.                                              |
+| `AIDOCS_ORG_NAME`                        | unset                   | Org display name used in share UI copy (e.g. "Anyone in Acme").                                                                       |
+| `BLOB_REGION`                            | `us-east-1`             | AWS region for the S3 client.                                                                                                         |
+| `BLOB_ENDPOINT`                          | unset                   | Custom S3 endpoint (MinIO, R2, etc.).                                                                                                 |
+| `BLOB_ACCESS_KEY_ID`                     | unset                   | Override AWS-SDK default credential chain.                                                                                            |
+| `BLOB_SECRET_ACCESS_KEY`                 | unset                   | Override AWS-SDK default credential chain.                                                                                            |
+| `BLOB_FORCE_PATH_STYLE`                  | `false`                 | Set to `true` for MinIO and most non-AWS S3 implementations.                                                                          |
+| `AIDOCS_GITHUB_TOKEN`                    | unset                   | Read-only GitHub token used to compare connected-source revisions. Explicit changed-file checks do not need it.                       |
+| `AIDOCS_GITHUB_WEBHOOK_SECRET`           | unset                   | Shared secret for signed GitHub deliveries to `/v1/webhooks/github`; the endpoint is disabled when unset.                             |
+| `AIDOCS_SLACK_SIGNING_SECRET`            | unset                   | Slack app signing secret for `/v1/webhooks/slack`; the endpoint is disabled when unset.                                               |
+| `AIDOCS_DEVREV_WEBHOOK_SECRET`           | unset                   | DevRev webhook signing secret for `/v1/webhooks/devrev`; the endpoint is disabled when unset.                                         |
+| `AIDOCS_DEVREV_API_BASE_URL`             | `https://api.devrev.ai` | Advanced override for the DevRev API base URL (for a trusted proxy or provider-contract verification).                                |
 
 `AIDOCS_KV_EVENTS_MODE=auto` attempts `LISTEN/NOTIFY` only when
 `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` is explicitly set. Without that URL it
@@ -679,13 +851,21 @@ mention highlighting remains unrecoverable after rollback.
 - [ ] `SESSION_SECRET` rotated to a fresh 32+ byte value, stored in a
       secret manager.
 - [ ] OAuth/OIDC redirect URIs registered at the IdP match `AIDOCS_APP_ORIGIN`.
+- [ ] Personal connection callbacks registered exactly; GitHub's broad `repo`
+      scope and Slack user scopes accepted by your security owner.
+- [ ] `AIDOCS_CONNECTION_ENCRYPTION_KEY` is a backed-up base64 32-byte key,
+      identical across all replicas; it is not reused as `SESSION_SECRET`.
+- [ ] Google Drive API and Picker API enabled; Picker API key restricted to the
+      app origin and Picker API; numeric Cloud project number configured.
+- [ ] `AIDOCS_SOURCE_POLL_INTERVAL` chosen for provider quotas (or `0` with
+      manual **Sync now** and/or signed webhooks).
 - [ ] `ALLOWED_OAUTH_DOMAINS` set if you don't want public sign-ups.
 - [ ] Postgres backups configured.
 - [ ] Blob storage versioning / lifecycle rules configured.
 - [ ] `AIDOCS_COMMIT_SHA` baked into your image so `/commit.txt`
       reports the running build.
-- [ ] Connected-source token is read-only and scoped to only approved GitHub
-      repositories; webhook secret is stored in a secret manager.
+- [ ] Any legacy `AIDOCS_GITHUB_TOKEN` is read-only and scoped to only approved
+      repositories; all webhook secrets are stored in a secret manager.
 - [ ] Monitoring scraping `/metrics` on the metrics port (`AIDOCS_METRICS_PORT`,
       default `9090`). Keep this port private — do not expose it publicly.
 - [ ] PodDisruptionBudget enabled (`podDisruptionBudget.enabled: true`)

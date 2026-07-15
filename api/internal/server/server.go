@@ -8,14 +8,39 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/connections"
 	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
+
+// ConnectionOAuthProvider configures one personal-account OAuth provider.
+// Endpoint fields are exported so tests and self-hosted installations can use
+// compatible provider gateways without changing the aidocs binary.
+type ConnectionOAuthProvider struct {
+	ClientID     string
+	ClientSecret string
+	AuthURL      string
+	TokenURL     string
+	APIBaseURL   string
+}
+
+// ConnectionProviders holds the optional external-account integrations. An
+// omitted provider is shown as unavailable rather than falling back to a
+// deployment-wide credential.
+type ConnectionProviders struct {
+	GitHub             ConnectionOAuthProvider
+	Slack              ConnectionOAuthProvider
+	GoogleDrive        ConnectionOAuthProvider
+	DevRevAPIBaseURL   string
+	GooglePickerAPIKey string
+	GooglePickerAppID  string
+}
 
 // Config holds static configuration for the server.
 type Config struct {
@@ -32,6 +57,8 @@ type Config struct {
 	GitHubWebhookSecret string
 	SlackSigningSecret  string
 	DevRevWebhookSecret string
+	ConnectionProviders ConnectionProviders
+	SourcePollInterval  time.Duration
 }
 
 // Server wraps the gin engine and owns its background workers.
@@ -48,27 +75,33 @@ type readinessCheck struct {
 }
 
 type dependencies struct {
-	environment         string
-	authenticator       auth.Authenticator
-	repository          repo.Repository
-	knowledge           knowledge.Store
-	knowledgeProcessor  bool
-	providerClient      knowledge.ProviderClient
-	githubWebhookSecret string
-	slackSigningSecret  string
-	devRevWebhookSecret string
-	stateStore          auth.LoginStateStore
-	oidc                auth.OIDC
-	oidcProviderName    string
-	sessionSecret       string
-	appOrigin           string
-	renderOrigin        string
-	allowedOAuthDomains []string
-	deployment          string
-	orgName             string
-	readinessChecks     []readinessCheck
-	documentKVEvents    kvevents.Subscriber
-	lifecycleContext    context.Context
+	environment          string
+	authenticator        auth.Authenticator
+	repository           repo.Repository
+	knowledge            knowledge.Store
+	knowledgeProcessor   bool
+	providerClient       knowledge.ProviderClient
+	connections          connections.Store
+	connectionCipher     *connections.Cipher
+	connectionStates     auth.ConnectionStateStore
+	connectionProviders  ConnectionProviders
+	connectionHTTPClient *http.Client
+	sourcePollInterval   time.Duration
+	githubWebhookSecret  string
+	slackSigningSecret   string
+	devRevWebhookSecret  string
+	stateStore           auth.LoginStateStore
+	oidc                 auth.OIDC
+	oidcProviderName     string
+	sessionSecret        string
+	appOrigin            string
+	renderOrigin         string
+	allowedOAuthDomains  []string
+	deployment           string
+	orgName              string
+	readinessChecks      []readinessCheck
+	documentKVEvents     kvevents.Subscriber
+	lifecycleContext     context.Context
 }
 
 // Option configures the Server.
@@ -94,6 +127,25 @@ func WithKnowledgeStore(store knowledge.Store) Option {
 
 func WithKnowledgeProviderClient(client knowledge.ProviderClient) Option {
 	return func(d *dependencies) { d.providerClient = client }
+}
+
+// WithConnectionStore supplies personal provider accounts. The store contains
+// encrypted credentials; callers must also provide a Cipher before new real
+// accounts can be connected.
+func WithConnectionStore(store connections.Store) Option {
+	return func(d *dependencies) { d.connections = store }
+}
+
+func WithConnectionCipher(cipher *connections.Cipher) Option {
+	return func(d *dependencies) { d.connectionCipher = cipher }
+}
+
+func WithConnectionStateStore(store auth.ConnectionStateStore) Option {
+	return func(d *dependencies) { d.connectionStates = store }
+}
+
+func WithConnectionHTTPClient(client *http.Client) Option {
+	return func(d *dependencies) { d.connectionHTTPClient = client }
 }
 
 func WithStateStore(st auth.LoginStateStore) Option {
@@ -148,6 +200,8 @@ func New(cfg Config, opts ...Option) *Server {
 		githubWebhookSecret: cfg.GitHubWebhookSecret,
 		slackSigningSecret:  cfg.SlackSigningSecret,
 		devRevWebhookSecret: cfg.DevRevWebhookSecret,
+		connectionProviders: cfg.ConnectionProviders,
+		sourcePollInterval:  cfg.SourcePollInterval,
 		lifecycleContext:    context.Background(),
 	}
 	for _, opt := range opts {
@@ -163,6 +217,14 @@ func New(cfg Config, opts ...Option) *Server {
 	}
 	if deps.knowledge == nil {
 		deps.knowledge = knowledge.NewMemory()
+	}
+	if deps.connections == nil {
+		deps.connections = connections.NewMemory()
+	}
+	if deps.connectionStates == nil {
+		if states, ok := deps.stateStore.(auth.ConnectionStateStore); ok {
+			deps.connectionStates = states
+		}
 	}
 	if deps.providerClient == nil {
 		deps.providerClient = knowledge.HTTPProviderClient{}
@@ -243,11 +305,17 @@ func (s *Server) routes(deps dependencies) {
 	v1.POST("/webhooks/github", h.githubWebhook)
 	v1.POST("/webhooks/slack", h.slackWebhook)
 	v1.POST("/webhooks/devrev", h.devRevWebhook)
+	v1.GET("/connections/:provider/callback", h.connectionCallback)
 	v1.GET("/public/portals/:slug", h.publicPortal)
 
 	// Every route below requires authentication.
 	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin))
 	authed.GET("/me", h.me)
+	authed.GET("/connections", h.listConnections)
+	authed.GET("/connections/:provider/start", h.startConnection)
+	authed.POST("/connections/devrev", h.connectDevRev)
+	authed.POST("/connections/:id/google-picker-token", h.googlePickerToken)
+	authed.DELETE("/connections/:id", h.disconnectConnection)
 	authed.GET("/users", h.searchUsers)
 	authed.GET("/users/:id/profile", h.getUserProfile)
 	authed.GET("/auth/cli/credentials", h.listCLICredentials)

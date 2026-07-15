@@ -160,6 +160,67 @@ spec:
                 secretKeyRef:
                   name: {{ default (include "aidocs.secretName" .) .Values.session.existingSecret }}
                   key: {{ .Values.session.secretKey }}
+            - name: AIDOCS_SOURCE_POLL_INTERVAL
+              value: {{ .Values.connectedKnowledge.pollInterval | quote }}
+            {{- if .Values.personalConnections.devRev.apiBaseURL }}
+            - name: AIDOCS_DEVREV_API_BASE_URL
+              value: {{ .Values.personalConnections.devRev.apiBaseURL | quote }}
+            {{- end }}
+            {{- if or .Values.personalConnections.encryption.existingSecret .Values.personalConnections.encryption.key }}
+            - name: AIDOCS_CONNECTION_ENCRYPTION_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.encryption.existingSecret }}
+                  key: {{ .Values.personalConnections.encryption.secretKey }}
+            {{- end }}
+            {{- if or .Values.personalConnections.github.existingSecret .Values.personalConnections.github.clientID .Values.personalConnections.github.clientSecret }}
+            - name: AIDOCS_GITHUB_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.github.existingSecret }}
+                  key: {{ .Values.personalConnections.github.clientIDKey }}
+            - name: AIDOCS_GITHUB_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.github.existingSecret }}
+                  key: {{ .Values.personalConnections.github.clientSecretKey }}
+            {{- end }}
+            {{- if or .Values.personalConnections.slack.existingSecret .Values.personalConnections.slack.clientID .Values.personalConnections.slack.clientSecret }}
+            - name: AIDOCS_SLACK_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.slack.existingSecret }}
+                  key: {{ .Values.personalConnections.slack.clientIDKey }}
+            - name: AIDOCS_SLACK_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.slack.existingSecret }}
+                  key: {{ .Values.personalConnections.slack.clientSecretKey }}
+            {{- end }}
+            {{- if or .Values.personalConnections.googleDrive.existingSecret .Values.personalConnections.googleDrive.clientID .Values.personalConnections.googleDrive.clientSecret }}
+            - name: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.googleDrive.existingSecret }}
+                  key: {{ .Values.personalConnections.googleDrive.clientIDKey }}
+            - name: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.googleDrive.existingSecret }}
+                  key: {{ .Values.personalConnections.googleDrive.clientSecretKey }}
+            {{- end }}
+            {{- if or .Values.personalConnections.googlePicker.existingSecret .Values.personalConnections.googlePicker.apiKey .Values.personalConnections.googlePicker.appID }}
+            - name: AIDOCS_GOOGLE_PICKER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.googlePicker.existingSecret }}
+                  key: {{ .Values.personalConnections.googlePicker.apiKeyKey }}
+            - name: AIDOCS_GOOGLE_PICKER_APP_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.personalConnections.googlePicker.existingSecret }}
+                  key: {{ .Values.personalConnections.googlePicker.appIDKey }}
+            {{- end }}
             {{- if or .Values.connectedKnowledge.existingSecret .Values.connectedKnowledge.githubToken }}
             - name: AIDOCS_GITHUB_TOKEN
               valueFrom:

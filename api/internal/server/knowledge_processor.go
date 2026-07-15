@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/connections"
 	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -72,6 +73,7 @@ func startKnowledgeProcessor(ctx context.Context, deps dependencies) <-chan stru
 			if ctx.Err() != nil {
 				return
 			}
+			queueSourcePolls(ctx, deps, time.Now())
 			processKnowledgeQueue(ctx, deps)
 			select {
 			case <-ctx.Done():
@@ -81,6 +83,37 @@ func startKnowledgeProcessor(ctx context.Context, deps dependencies) <-chan stru
 		}
 	}()
 	return done
+}
+
+func queueSourcePolls(ctx context.Context, deps dependencies, now time.Time) {
+	interval := deps.sourcePollInterval
+	if interval <= 0 {
+		return
+	}
+	sources, err := deps.knowledge.ListAllSources(ctx)
+	if err != nil {
+		if ctx.Err() == nil {
+			slog.ErrorContext(ctx, "connected source poll discovery failed", slog.Any("error", err))
+		}
+		return
+	}
+	window := now.UnixNano() / interval.Nanoseconds()
+	for _, source := range sources {
+		if source.Status != "active" || source.ConnectionID == "" || source.TriggerMode == "manual" || source.Direction == "export_only" {
+			continue
+		}
+		if settings, settingsErr := deps.knowledge.GetSettings(ctx, source.RepositoryID); settingsErr == nil && settings.Archived {
+			continue
+		}
+		deliveryID := fmt.Sprintf("%s:%d", source.ID, window)
+		run := knowledge.SyncRun{
+			ID: knowledgeID("sync"), RepositoryID: source.RepositoryID, SourceID: source.ID,
+			DeliveryID: "poll:" + deliveryID, ChangedFiles: []string{}, Status: "queued", StartedAt: knowledge.Now(),
+		}
+		if _, queueErr := deps.knowledge.QueueDelivery(ctx, "poll:"+source.Provider, deliveryID, []knowledge.SyncRun{run}); queueErr != nil && ctx.Err() == nil {
+			slog.ErrorContext(ctx, "connected source poll queue failed", slog.String("source_id", source.ID), slog.Any("error", queueErr))
+		}
+	}
 }
 
 func processKnowledgeQueue(ctx context.Context, deps dependencies) {
@@ -149,10 +182,34 @@ func processKnowledgeRun(ctx context.Context, deps dependencies, run knowledge.S
 		finishKnowledgeRun(ctx, deps, run, "completed", "no_op", "Repository is archived; restore it to resume connected-source updates.", nil, 0)
 		return
 	}
-	source, err := deps.knowledge.GetSource(ctx, run.RepositoryID, run.SourceID)
-	if err != nil {
-		finishKnowledgeRun(ctx, deps, run, "failed", "failure", "source no longer exists", nil, 0)
+	var source knowledge.Source
+	if !ensureQueuedImportSource(ctx, deps, run, &source) {
 		return
+	}
+	if len(run.ChangedFiles) == 0 && run.BeforeSHA == "" && run.AfterSHA == "" && source.ConnectionID != "" {
+		inspector, ok := deps.providerClient.(knowledge.ProviderInspector)
+		if !ok {
+			finishKnowledgeRun(ctx, deps, run, "failed", "failure", "Provider inspection is not configured.", nil, 0)
+			return
+		}
+		previousRevision := latestCompletedSourceRevision(ctx, deps, run.RepositoryID, run.SourceID, run.ID)
+		if !ensureQueuedImportSource(ctx, deps, run, &source) {
+			return
+		}
+		inspection, inspectErr := inspector.Inspect(ctx, source, previousRevision)
+		if inspectErr != nil {
+			(handlers{deps: deps}).markConnectionFailure(ctx, source, inspectErr)
+			finishKnowledgeRun(ctx, deps, run, "failed", "failure", "Provider inspection failed.", nil, 0)
+			return
+		}
+		run.BeforeSHA = previousRevision
+		run.AfterSHA = inspection.Revision
+		run.ChangedFiles = inspection.ChangedFiles
+		run.ContextItems = inspection.ContextItems
+		if inspection.Unchanged {
+			finishKnowledgeRun(ctx, deps, run, "completed", "no_op", "The connected source has not changed.", nil, 0)
+			return
+		}
 	}
 	if run.AfterSHA != "" {
 		if prior, err := deps.knowledge.ListSyncRuns(ctx, run.RepositoryID); err == nil {
@@ -166,12 +223,22 @@ func processKnowledgeRun(ctx context.Context, deps dependencies, run knowledge.S
 	}
 	files := run.ChangedFiles
 	if len(files) == 0 && run.BeforeSHA != "" && run.AfterSHA != "" {
+		if !ensureQueuedImportSource(ctx, deps, run, &source) {
+			return
+		}
 		comparison, compareErr := deps.providerClient.Compare(ctx, source, run.BeforeSHA, run.AfterSHA)
 		if compareErr != nil {
 			finishKnowledgeRun(ctx, deps, run, "failed", "failure", compareErr.Error(), nil, 0)
 			return
 		}
 		files = comparison.ChangedFiles
+	}
+	// Provider calls may take long enough for an owner to pause the source,
+	// disconnect its personal account, or change it to export-only. Re-read both
+	// records immediately before any documentation pull-request work so a run
+	// claimed under the old configuration cannot publish a stale proposal.
+	if !ensureQueuedImportSource(ctx, deps, run, &source) {
+		return
 	}
 	files = filterSourceFiles(source, files)
 	if len(files) == 0 {
@@ -197,13 +264,20 @@ func processKnowledgeRun(ctx context.Context, deps dependencies, run knowledge.S
 		finishKnowledgeRun(ctx, deps, run, "failed", "failure", "could not read target document", files, 0)
 		return
 	}
+	if !ensureQueuedImportSource(ctx, deps, run, &source) {
+		return
+	}
+	if source.TargetDocumentID != document.ID {
+		finishKnowledgeRunWithoutSourceUpdate(ctx, deps, run, "completed", "no_op", "The source target changed; queued work was cancelled.", files, 0)
+		return
+	}
 	summary := fmt.Sprintf("Sync %s/%s through %s", source.Provider, source.ExternalRepository, run.AfterSHA)
 	pullRequest, updated, err := upsertConnectedKnowledgePullRequest(ctx, deps, source, document, base, summary, appendSourceSummary(body, source, run.AfterSHA, files, run.ContextItems...))
 	if err != nil {
 		finishKnowledgeRun(ctx, deps, run, "failed", "failure", err.Error(), files, 0)
 		return
 	}
-	run.Provenance = []knowledge.Citation{{DocumentID: document.ID, Title: document.Title, VersionID: pullRequest.HeadVersionID, SourceID: source.ID, Provider: source.Provider, URL: providerRevisionURL(source, run.AfterSHA)}}
+	run.Provenance = []knowledge.Citation{{DocumentID: document.ID, Title: document.Title, VersionID: pullRequest.HeadVersionID, SourceID: source.ID, Provider: source.Provider, URL: syncRunProvenanceURL(source, run)}}
 	outcome, message := "pull_request_opened", "Documentation changes are ready for review."
 	if updated {
 		outcome, message = "pull_request_updated", "The open documentation pull request has a new patchset ready for review."
@@ -238,7 +312,81 @@ func processKnowledgeRun(ctx context.Context, deps dependencies, run knowledge.S
 	}
 }
 
+// ensureQueuedImportSource reloads every revocable decision used by an
+// asynchronous run. Queue claims are not authorization snapshots: source
+// status, direction, and personal-account health may all change while work is
+// waiting or while a provider request is in flight.
+func ensureQueuedImportSource(ctx context.Context, deps dependencies, run knowledge.SyncRun, source *knowledge.Source) bool {
+	current, err := deps.knowledge.GetSource(ctx, run.RepositoryID, run.SourceID)
+	if err != nil {
+		finishKnowledgeRun(ctx, deps, run, "failed", "failure", "source no longer exists", nil, 0)
+		return false
+	}
+	if current.Status != "active" {
+		finishKnowledgeRunWithoutSourceUpdate(ctx, deps, run, "completed", "no_op", "The source is no longer active; queued work was cancelled.", nil, 0)
+		return false
+	}
+	if current.Direction == "export_only" {
+		finishKnowledgeRunWithoutSourceUpdate(ctx, deps, run, "completed", "no_op", "The source is export-only; queued import work was cancelled.", nil, 0)
+		return false
+	}
+	if current.ConnectionID != "" {
+		if deps.connections == nil {
+			finishKnowledgeRunWithoutSourceUpdate(ctx, deps, run, "failed", "failure", "The connected account could not be verified.", nil, 0)
+			return false
+		}
+		account, accountErr := deps.connections.Get(ctx, current.ConnectionID)
+		if accountErr != nil {
+			finishKnowledgeRunWithoutSourceUpdate(ctx, deps, run, "failed", "failure", "The connected account could not be verified.", nil, 0)
+			return false
+		}
+		if account.Status != connections.StatusActive && account.Status != connections.StatusDemo {
+			finishKnowledgeRunWithoutSourceUpdate(ctx, deps, run, "completed", "no_op", "The connected account is no longer active; queued work was cancelled.", nil, 0)
+			return false
+		}
+	}
+	*source = current
+	return true
+}
+
+func latestCompletedSourceRevision(ctx context.Context, deps dependencies, repositoryID, sourceID, excludeRunID string) string {
+	runs, err := deps.knowledge.ListSyncRuns(ctx, repositoryID)
+	if err != nil {
+		return ""
+	}
+	var revision, finishedAt string
+	for _, candidate := range runs {
+		if candidate.ID == excludeRunID || candidate.SourceID != sourceID || candidate.Status != "completed" || candidate.AfterSHA == "" {
+			continue
+		}
+		if revision == "" || candidate.FinishedAt > finishedAt {
+			revision, finishedAt = candidate.AfterSHA, candidate.FinishedAt
+		}
+	}
+	return revision
+}
+
+func syncRunProvenanceURL(source knowledge.Source, run knowledge.SyncRun) string {
+	for _, item := range run.ContextItems {
+		if strings.TrimSpace(item.URL) != "" {
+			return item.URL
+		}
+	}
+	return providerRevisionURL(source, run.AfterSHA)
+}
+
 func finishKnowledgeRun(ctx context.Context, deps dependencies, run knowledge.SyncRun, status, outcome, message string, files []string, pullRequestNumber int64) {
+	finishKnowledgeRunRecord(ctx, deps, run, status, outcome, message, files, pullRequestNumber, true)
+}
+
+// finishKnowledgeRunWithoutSourceUpdate records a terminal run without
+// writing the source back. Revocation paths use it to avoid racing a newer
+// paused/needs_reconnect status with stale source data from the worker.
+func finishKnowledgeRunWithoutSourceUpdate(ctx context.Context, deps dependencies, run knowledge.SyncRun, status, outcome, message string, files []string, pullRequestNumber int64) {
+	finishKnowledgeRunRecord(ctx, deps, run, status, outcome, message, files, pullRequestNumber, false)
+}
+
+func finishKnowledgeRunRecord(ctx context.Context, deps dependencies, run knowledge.SyncRun, status, outcome, message string, files []string, pullRequestNumber int64, updateSource bool) {
 	run.Status = status
 	run.Outcome = outcome
 	run.Message = message
@@ -246,7 +394,7 @@ func finishKnowledgeRun(ctx context.Context, deps dependencies, run knowledge.Sy
 	run.PullRequestNumber = pullRequestNumber
 	run.FinishedAt = knowledge.Now()
 	_, _ = deps.knowledge.AddSyncRun(ctx, run)
-	if source, err := deps.knowledge.GetSource(ctx, run.RepositoryID, run.SourceID); err == nil {
+	if source, err := deps.knowledge.GetSource(ctx, run.RepositoryID, run.SourceID); updateSource && err == nil {
 		state := "fresh"
 		if status == "failed" {
 			state = "error"

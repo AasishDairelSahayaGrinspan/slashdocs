@@ -24,6 +24,7 @@ import { PullRequestPage } from "@/pages/pull-request";
 import { SettingsLayout } from "@/pages/settings-layout";
 import { AccountSettingsPage } from "@/pages/settings-account";
 import { AppearanceSettingsPage } from "@/pages/settings-appearance";
+import { ConnectedAccountsSettingsPage } from "@/pages/settings-connections";
 import { PublicPortalPage } from "@/pages/public-portal";
 import { ReviewInboxPage } from "@/pages/review-inbox";
 import { TemplatesPage } from "@/pages/templates";
@@ -75,6 +76,10 @@ function App() {
                 <Route path="settings" element={<SettingsLayout />}>
                   <Route index element={<Navigate to="appearance" replace />} />
                   <Route path="account" element={<AccountSettingsPage />} />
+                  <Route
+                    path="connections"
+                    element={<ConnectedAccountsSettingsPage />}
+                  />
                   <Route path="appearance" element={<AppearanceSettingsPage />} />
                   <Route path="service-accounts" element={<ServiceAccountsPage />} />
                   <Route path="developer" element={<DevelopersPage />} />

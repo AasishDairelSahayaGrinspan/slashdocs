@@ -86,6 +86,66 @@ func TestDevelopmentApplicationSwitchesIdentityWithoutOAuth(t *testing.T) {
 	}
 }
 
+func TestDevelopmentApplicationSeedsIsolatedPersonalConnections(t *testing.T) {
+	handler, err := newDevelopmentApplication("http://127.0.0.1:8080")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(handler.Close)
+	ownerCookie := switchDevelopmentIdentity(t, handler, "owner")
+	type connection struct {
+		ID       string `json:"id"`
+		Provider string `json:"provider"`
+		Status   string `json:"status"`
+	}
+	readConnections := func(cookie *http.Cookie) []connection {
+		t.Helper()
+		response := requestDevelopmentApp(t, handler, "/v1/connections", cookie)
+		var payload struct {
+			Connections []connection `json:"connections"`
+		}
+		decodeDevelopmentJSON(t, response, &payload)
+		return payload.Connections
+	}
+	ownerConnections := readConnections(ownerCookie)
+	if len(ownerConnections) != 4 {
+		t.Fatalf("owner connections=%#v", ownerConnections)
+	}
+	ownerIDs := map[string]bool{}
+	ownerGitHubID := ""
+	for _, connection := range ownerConnections {
+		if connection.Status != "demo" {
+			t.Fatalf("owner connection=%#v", connection)
+		}
+		ownerIDs[connection.ID] = true
+		if connection.Provider == "github" {
+			ownerGitHubID = connection.ID
+		}
+	}
+	reviewerCookie := switchDevelopmentIdentity(t, handler, "reviewer")
+	reviewerConnections := readConnections(reviewerCookie)
+	if len(reviewerConnections) != 4 {
+		t.Fatalf("reviewer connections=%#v", reviewerConnections)
+	}
+	for _, connection := range reviewerConnections {
+		if ownerIDs[connection.ID] {
+			t.Fatalf("connection leaked across users: %s", connection.ID)
+		}
+	}
+
+	repositories := requestDevelopmentApp(t, handler, "/v1/repositories", ownerCookie)
+	var repositoryList struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	decodeDevelopmentJSON(t, repositories, &repositoryList)
+	sources := requestDevelopmentApp(t, handler, "/v1/repositories/"+repositoryList.Items[0].ID+"/sources", ownerCookie)
+	if !strings.Contains(sources.Body.String(), `"connection_id":"`+ownerGitHubID+`"`) || !strings.Contains(sources.Body.String(), `"status":"demo"`) {
+		t.Fatalf("seeded connected source=%s", sources.Body.String())
+	}
+}
+
 func TestDevelopmentApplicationCompletesReviewLifecycle(t *testing.T) {
 	handler, err := newDevelopmentApplication("http://127.0.0.1:8080")
 	if err != nil {

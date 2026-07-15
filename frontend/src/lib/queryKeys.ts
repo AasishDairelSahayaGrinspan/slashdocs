@@ -3,6 +3,7 @@
 export const queryKeys = {
   me: () => ["me"] as const,
   userProfile: (id: string) => ["user-profile", id] as const,
+  connectedAccounts: () => ["connected-accounts"] as const,
   config: () => ["config"] as const,
   documents: () => ["documents"] as const,
   document: (id: string) => ["document", id] as const,
@@ -26,6 +27,7 @@ export const queryKeys = {
   repository: (id: string) => ["repository", id] as const,
   repositoryDocuments: (id: string) => ["repository-documents", id] as const,
   repositorySettings: (id: string) => ["repository-settings", id] as const,
+  repositorySourcesAll: () => ["repository-sources"] as const,
   repositorySources: (id: string) => ["repository-sources", id] as const,
   repositorySyncRuns: (id: string) => ["repository-sync-runs", id] as const,
   repositoryActivity: (id: string) => ["repository-activity", id] as const,

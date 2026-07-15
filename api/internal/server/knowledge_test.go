@@ -38,6 +38,10 @@ type knowledgeFixture struct {
 }
 
 func newKnowledgeFixture(t *testing.T) knowledgeFixture {
+	return newKnowledgeFixtureWithOptions(t)
+}
+
+func newKnowledgeFixtureWithOptions(t *testing.T, extraOptions ...Option) knowledgeFixture {
 	t.Helper()
 	ctx := context.Background()
 	storage := repo.NewMemory()
@@ -62,7 +66,9 @@ func newKnowledgeFixture(t *testing.T) knowledgeFixture {
 	}
 	knowledgeStore := knowledge.NewMemory()
 	//nolint:gosec // Test-only webhook signing material is intentionally non-secret.
-	app := New(Config{Environment: envTest, Deployment: DeploymentOrg, OrgName: "Acme", GitHubWebhookSecret: "test-github-secret", SlackSigningSecret: "test-slack-signing-secret", DevRevWebhookSecret: "test-devrev-secret"}, WithRepository(storage), WithKnowledgeStore(knowledgeStore), WithAuthenticator(knowledgeTestAuth{principals: map[string]auth.Principal{"owner": owner, "editor": editor, "viewer": viewer}}))
+	options := []Option{WithRepository(storage), WithKnowledgeStore(knowledgeStore), WithAuthenticator(knowledgeTestAuth{principals: map[string]auth.Principal{"owner": owner, "editor": editor, "viewer": viewer}})}
+	options = append(options, extraOptions...)
+	app := New(Config{Environment: envTest, Deployment: DeploymentOrg, OrgName: "Acme", GitHubWebhookSecret: "test-github-secret", SlackSigningSecret: "test-slack-signing-secret", DevRevWebhookSecret: "test-devrev-secret"}, options...)
 	t.Cleanup(app.Close)
 	return knowledgeFixture{handler: app.Handler(), repository: storage, knowledge: knowledgeStore, repositoryID: record.ID, documentID: document.ID, owner: owner, editor: editor, viewer: viewer}
 }
@@ -188,8 +194,11 @@ func TestKnowledgeSourceProvidersAndEventIdentityValidation(t *testing.T) {
 	if devrev.Code != http.StatusCreated || !strings.Contains(devrev.Body.String(), `"trigger_mode":"event"`) {
 		t.Fatalf("DevRev source status=%d body=%s", devrev.Code, devrev.Body.String())
 	}
-	if rr := knowledgeRequest(t, fixture, http.MethodPost, path, "owner", map[string]any{"provider": "devrev", "external_repository": "TKT-1", "trigger_mode": "scheduled"}); rr.Code != http.StatusBadRequest {
-		t.Fatalf("non-event DevRev trigger status=%d body=%s", rr.Code, rr.Body.String())
+	if rr := knowledgeRequest(t, fixture, http.MethodPost, path, "owner", map[string]any{"provider": "devrev", "external_repository": "TKT-1", "trigger_mode": "scheduled"}); rr.Code != http.StatusCreated {
+		t.Fatalf("scheduled DevRev trigger status=%d body=%s", rr.Code, rr.Body.String())
+	}
+	if rr := knowledgeRequest(t, fixture, http.MethodPost, path, "owner", map[string]any{"provider": "devrev", "external_repository": "TKT-1", "trigger_mode": "default_branch"}); rr.Code != http.StatusBadRequest {
+		t.Fatalf("invalid DevRev trigger status=%d body=%s", rr.Code, rr.Body.String())
 	}
 }
 

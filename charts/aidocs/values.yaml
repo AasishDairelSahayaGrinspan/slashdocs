@@ -122,10 +122,58 @@ session:
   existingSecret: ""
   secretKey: SESSION_SECRET
 
+# Optional per-user connected accounts. This OAuth configuration is separate
+# from sign-in above: each aidocs user authorizes their own GitHub, Slack, or
+# Google Drive account from Settings > Connections. DevRev uses a per-user PAT
+# and therefore needs only the encryption key.
+#
+# The encryption key must be base64 for exactly 32 decoded bytes. Keep it
+# stable across every replica and restart; changing it makes stored connected-
+# account credentials unreadable until users reconnect.
+personalConnections:
+  encryption:
+    key: ""
+    existingSecret: ""
+    secretKey: AIDOCS_CONNECTION_ENCRYPTION_KEY
+  # GitHub OAuth currently requests the broad `repo` scope because GitHub
+  # OAuth Apps do not offer read-only private-repository source access.
+  github:
+    clientID: ""
+    clientSecret: ""
+    existingSecret: ""
+    clientIDKey: AIDOCS_GITHUB_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_GITHUB_OAUTH_CLIENT_SECRET
+  slack:
+    clientID: ""
+    clientSecret: ""
+    existingSecret: ""
+    clientIDKey: AIDOCS_SLACK_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_SLACK_OAUTH_CLIENT_SECRET
+  googleDrive:
+    clientID: ""
+    clientSecret: ""
+    existingSecret: ""
+    clientIDKey: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID
+    clientSecretKey: AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET
+  # Google Picker needs a browser API key and the numeric Google Cloud project
+  # number (app ID) in addition to the Google Drive OAuth client above.
+  googlePicker:
+    apiKey: ""
+    appID: ""
+    existingSecret: ""
+    apiKeyKey: AIDOCS_GOOGLE_PICKER_API_KEY
+    appIDKey: AIDOCS_GOOGLE_PICKER_APP_ID
+  devRev:
+    # Advanced trusted-proxy/testing override. Empty uses https://api.devrev.ai.
+    apiBaseURL: ""
+
 # Optional GitHub connected-source credentials. The token only needs read-only
 # Contents access to repositories that aidocs is allowed to index. Configure
 # GitHub webhooks to POST to /v1/webhooks/github.
 connectedKnowledge:
+  # Background reconciliation for active linked sources whose trigger is not
+  # `manual`. Go duration; `0` disables polling, otherwise minimum `1m`.
+  pollInterval: 15m
   githubToken: ""
   githubWebhookSecret: ""
   existingSecret: ""

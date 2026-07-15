@@ -14,10 +14,12 @@ aidocs-dev
 ```
 
 The local app includes a `Docs playground` repository, a seeded GitHub source,
-an owner, a reviewer team, review rules, and a public portal. Open the
-repository's **Sources** tab and use **Simulate** to preview a path change. Use
-**Run check** to record it and create a pull request. Switch identities at
-<http://127.0.0.1:8080/__dev> to approve and merge it as the reviewer.
+demo personal accounts for all four supported connected providers, an owner, a
+reviewer team, review rules, and a public portal. Demo accounts do not call the
+real provider APIs. Open the repository's **Sources** tab and use **Simulate**
+to preview a path change. Use **Run check** to record it and create a pull
+request. Switch identities at <http://127.0.0.1:8080/__dev> to approve and merge
+it as the reviewer.
 
 The same flow is available through the normal `aidocs` CLI when it is logged in
 to the local server:
@@ -44,7 +46,26 @@ aidocs inbox
 Passing `--changed-file` keeps the local workflow fully offline. Without it,
 aidocs calls the configured provider to compare `--before` and `--after`.
 
-## Connect a repository
+## Connect an account and source
+
+On a configured production deployment, each person connects their own account
+under **Settings > Connections**:
+
+- GitHub, Slack, and Google Drive use OAuth. Tokens belong to the signed-in
+  aidocs user and are never shared as organization-wide credentials.
+- DevRev uses a personal access token (PAT) pasted by that user.
+- Provider credentials are encrypted at rest. Disconnecting the account stops
+  future checks but does not remove prior sync history or reviewed documents.
+
+An aidocs repository owner can then open **Sources**, choose a provider and one
+of their usable accounts, identify the repository/thread/file/ticket, select a
+target document, and save the source. A source stores only the connected-account
+ID; it never copies a token into repository configuration or source responses.
+
+The CLI example below describes the legacy/manual source-definition path. The
+current CLI does not bind a personal `connection_id`, so use the web UI for real
+per-user provider connections. Explicit changed-file simulation remains useful
+offline.
 
 Each aidocs repository may have several independently configured sources:
 
@@ -76,10 +97,60 @@ Important source fields:
   proposals. Exports are proposals; aidocs never pushes directly to a provider's
   default branch.
 
-GitHub has a live compare client. Slack and DevRev have signed, replay-protected
-webhook ingestion. The remaining knowledge providers share the source,
-path-filter, sync-run, provenance, and proposal model and can be tested with
-explicit changed paths.
+GitHub, a specific Slack thread, a selected Google Drive file, and a DevRev work
+item can be inspected on demand through their linked personal accounts. GitHub,
+Slack, and DevRev also retain signed, replay-protected webhook ingestion. The
+remaining knowledge providers share the source, path-filter, sync-run,
+provenance, and proposal model and can be tested with explicit changed paths.
+
+## Personal Sync now and polling
+
+**Sync now** starts an immediate provider read. The same inspection path also
+runs automatically for active linked sources whose trigger is not `manual`.
+The production interval defaults to 15 minutes and is configured with
+`AIDOCS_SOURCE_POLL_INTERVAL`; set it to `0` to disable background polling or a
+Go duration of at least `1m` to change it.
+
+- **GitHub** reads the configured branch head. The first check records the
+  repository tree as context; later checks compare the prior and current commit
+  and propose the changed paths.
+- **Slack** reads one `TEAM_ID/CHANNEL_ID/THREAD_TS` with
+  `conversations.replies`, following cursor pages. Slack currently limits
+  non-Marketplace apps to one request per minute and 15 messages per page. If
+  Slack returns `429 Retry-After`, aidocs does not sleep inside the web request;
+  wait for that interval and run the check again. See Slack's
+  [`conversations.replies` reference](https://docs.slack.dev/reference/methods/conversations.replies/).
+- **Google Drive** reads metadata and exports or downloads the one file chosen
+  with Google Picker. The revision is a deterministic content hash.
+- **DevRev** calls `works.get` for the configured ticket/work item and hashes
+  the returned work state.
+
+Every replica may discover a polling window, but `QueueDelivery` persists a
+provider/source/window key in PostgreSQL. That key deduplicates the queue across
+replicas, so each eligible source is enqueued at most once per interval. The
+provider still sees one request per source. If many Slack thread sources share
+one user token, use a longer interval or set those sources to a `manual` trigger
+to stay within Slack's limits.
+
+An unchanged revision records a visible no-op. A changed source with a target
+document opens or updates a protected aidocs pull request; without a target it
+remains a preview. Provider text is untrusted, escaped content. The check never
+publishes directly and never approves its own pull request.
+
+Provider OAuth clients, callbacks, credential encryption, and Google Picker are
+configured by the deployment operator; see
+[Self-hosting: personal connected accounts](self-hosting.md#personal-connected-accounts).
+Picker is the one browser-token exception: a no-store endpoint returns a Drive
+access token only to the owning signed-in user so Google's browser Picker can
+open. Connection lists, repository sources, and other users never receive it.
+
+The GitHub OAuth App flow requests only `repo`. GitHub's `repo`
+scope is broad: the resulting token can read and write every public and private
+repository available to that user even though aidocs only performs read calls.
+GitHub OAuth Apps cannot make private source-code access read-only or let the
+user select individual repositories. Do not enable GitHub personal connections
+if this permission is unacceptable. See
+[GitHub's OAuth scope reference](https://docs.github.com/en/apps/oauth-apps/building-oauth-apps/scopes-for-oauth-apps).
 
 ## Configure GitHub webhooks
 
@@ -90,8 +161,10 @@ AIDOCS_GITHUB_TOKEN=<fine-grained token or installation token>
 AIDOCS_GITHUB_WEBHOOK_SECRET=<random shared secret>
 ```
 
-Use a token with read-only Contents access, scoped only to repositories aidocs
-may index. Configure the GitHub webhook URL as:
+`AIDOCS_GITHUB_TOKEN` is retained for legacy GitHub sources without a personal
+connection. Use a fine-grained token with read-only Contents access, scoped
+only to repositories aidocs may index. A source linked to a personal connection
+never falls back to this global token. Configure the GitHub webhook URL as:
 
 ```text
 https://aidocs.example.com/v1/webhooks/github
@@ -110,8 +183,15 @@ the same completed revision is a visible no-op.
 
 ## Connect Slack threads
 
-Create a Slack source with `provider=slack`, `trigger_mode=event`, and an
-`external_repository` in one of these forms:
+For manual **Sync now**, connect your Slack user under **Settings > Connections**
+and create a Slack source whose `external_repository` is
+`TEAM_ID/CHANNEL_ID/THREAD_TS`. The OAuth flow requests the user scopes
+`channels:history` and `groups:history`; the thread must be visible to that
+Slack user.
+
+Event-driven webhooks remain available independently. Create a Slack source
+with `provider=slack`, `trigger_mode=event`, and an `external_repository` in one
+of these forms:
 
 - `TEAM_ID/CHANNEL_ID` tracks message and thread events in that channel.
 - `TEAM_ID/CHANNEL_ID/THREAD_TS` tracks one thread.
@@ -129,12 +209,32 @@ timestamps outside Slack's five-minute replay window, completes the signed URL
 verification challenge, and deduplicates `event_id`. Message text is treated as
 untrusted input and escaped into the generated pull-request document.
 
+## Connect a Google Drive file
+
+Connect Google Drive under **Settings > Connections**, then use **Choose from
+Drive** while creating a source. Picker grants aidocs access to the selected
+file under Google's narrow `drive.file` scope; pasting an arbitrary Drive URL
+works only if that personal connection already has access to the file.
+
+Checks read metadata, export Google Docs/Sheets/Slides to text where supported,
+or download normal text files. There is no Drive webhook; use **Sync now** for
+an immediate check or leave the source on a non-manual trigger for interval
+polling. Deployment setup requires the Drive API, Picker API, OAuth web client,
+browser API key, and numeric Google Cloud project number; see
+[self-hosting](self-hosting.md#google-drive-picker).
+
 ## Connect DevRev tickets
 
-Create a DevRev source with `provider=devrev`, `trigger_mode=event`, and set
-`external_repository` to the DevRev webhook ID. This tracks every ticket event
-delivered by that webhook. Set it to one ticket's DON or display ID instead to
-track only that ticket.
+Each user connects DevRev by pasting their PAT under **Settings > Connections**.
+aidocs validates it, encrypts it with the deployment's connection-encryption
+key, and never returns it through the API. Set a source's
+`external_repository` to a work DON or display ID such as `TKT-42`; **Sync now**
+reads that item with `works.get`.
+
+For event-driven updates, create a DevRev source with `provider=devrev`,
+`trigger_mode=event`, and set `external_repository` to the DevRev webhook ID.
+This tracks every ticket event delivered by that webhook. Set it to one ticket's
+DON or display ID instead to track only that ticket.
 
 When creating the DevRev webhook, subscribe to `work_created`, `work_updated`,
 and `work_deleted`, configure this URL, and explicitly supply the same 8-32 byte
@@ -165,6 +265,8 @@ explicitly enabled and only return the selected repository's published content.
 
 ## Operational behavior
 
+- Active linked sources whose trigger is not `manual` are polled on the
+  configured interval; each source/window is deduplicated across replicas.
 - Queued work is persisted in PostgreSQL and stale `processing` runs are
   recovered after restart.
 - Duplicate webhook deliveries and completed source revisions are idempotent.

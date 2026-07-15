@@ -244,10 +244,30 @@ export type RepositorySourceProvider =
   | "confluence"
   | "notion"
   | "manual";
+export type ConnectedAccountProvider = Extract<
+  RepositorySourceProvider,
+  "github" | "slack" | "devrev" | "google_drive"
+>;
+export type ConnectedAccount = {
+  id: string;
+  provider: ConnectedAccountProvider;
+  external_account_id?: string;
+  display_name: string;
+  email?: string;
+  workspace_id?: string;
+  workspace_name?: string;
+  scopes?: string[];
+  status: "active" | "demo" | "needs_reconnect" | string;
+  expires_at?: string;
+  created_at?: string;
+  updated_at?: string;
+};
 export type RepositorySource = {
   id: string;
   repository_id: string;
   provider: RepositorySourceProvider;
+  connection_id?: string;
+  connection?: ConnectedAccount;
   external_repository?: string;
   branch?: string;
   include_paths?: string[];
@@ -275,6 +295,7 @@ export type RepositorySource = {
 };
 export type RepositorySourceInput = {
   provider: RepositorySourceProvider;
+  connection_id?: string;
   external_repository?: string;
   branch?: string;
   include_paths?: string[];
@@ -581,6 +602,28 @@ export const api = {
     request<{ items: UserPrincipal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
   getUserProfile: (id: string) =>
     request<UserProfile>(`/v1/users/${encodeURIComponent(id)}/profile`),
+  listConnections: () =>
+    request<{ connections: ConnectedAccount[] }>("/v1/connections"),
+  connectionStartURL: (
+    provider: Exclude<ConnectedAccountProvider, "devrev">,
+    redirect = "/app/settings/connections",
+  ) => `/v1/connections/${provider}/start?redirect=${encodeURIComponent(redirect)}`,
+  connectDevRev: (personalAccessToken: string) =>
+    request<ConnectedAccount>("/v1/connections/devrev", {
+      method: "POST",
+      body: JSON.stringify({ personal_access_token: personalAccessToken }),
+    }),
+  getGooglePickerToken: (connectionId: string) =>
+    request<{
+      access_token: string;
+      expires_at?: string | null;
+      api_key: string;
+      app_id: string;
+    }>(`/v1/connections/${encodeURIComponent(connectionId)}/google-picker-token`, {
+      method: "POST",
+    }),
+  deleteConnection: (id: string) =>
+    request<void>(`/v1/connections/${encodeURIComponent(id)}`, { method: "DELETE" }),
   createDocument: (title: string, file: File) => {
     const fd = new FormData();
     fd.set("title", title);

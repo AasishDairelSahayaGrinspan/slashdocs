@@ -113,6 +113,7 @@ type Freshness struct {
 type Source struct {
 	ID                 string         `json:"id"`
 	RepositoryID       string         `json:"repository_id"`
+	ConnectionID       string         `json:"connection_id,omitempty"`
 	Provider           string         `json:"provider"`
 	ExternalRepository string         `json:"external_repository,omitempty"`
 	Branch             string         `json:"branch"`

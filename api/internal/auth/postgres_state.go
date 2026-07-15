@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	oauthStateKind = "state"
-	oauthCodeKind  = "cli_code"
+	oauthStateKind           = "state"
+	oauthCodeKind            = "cli_code"
+	oauthConnectionStateKind = "connection_state"
 )
 
 type PostgresStateStore struct{ db *pgxpool.Pool }
@@ -41,8 +42,25 @@ func (s *PostgresStateStore) TakeCode(ctx context.Context, code string) (LoginSt
 	return s.take(ctx, oauthCodeKind, code)
 }
 
+func (s *PostgresStateStore) PutConnectionState(ctx context.Context, id string, st ConnectionState) error {
+	if st.ExpiresAt.IsZero() {
+		st.ExpiresAt = time.Now().Add(defaultStateTTL)
+	}
+	return s.putJSON(ctx, oauthConnectionStateKind, id, st.ExpiresAt, st)
+}
+
+func (s *PostgresStateStore) TakeConnectionState(ctx context.Context, id string) (ConnectionState, bool, error) {
+	var st ConnectionState
+	ok, err := s.takeJSON(ctx, oauthConnectionStateKind, id, &st)
+	return st, ok, err
+}
+
 func (s *PostgresStateStore) put(ctx context.Context, kind, id string, st LoginState) error {
-	b, err := json.Marshal(st)
+	return s.putJSON(ctx, kind, id, st.ExpiresAt, st)
+}
+
+func (s *PostgresStateStore) putJSON(ctx context.Context, kind, id string, expiresAt time.Time, value any) error {
+	b, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
@@ -53,14 +71,20 @@ func (s *PostgresStateStore) put(ctx context.Context, kind, id string, st LoginS
 		  state_json=EXCLUDED.state_json,
 		  expires_at=EXCLUDED.expires_at,
 		  created_at=now()
-	`, id, kind, b, st.ExpiresAt)
+	`, id, kind, b, expiresAt)
 	return err
 }
 
 func (s *PostgresStateStore) take(ctx context.Context, kind, id string) (LoginState, bool, error) {
+	var st LoginState
+	ok, err := s.takeJSON(ctx, kind, id, &st)
+	return st, ok, err
+}
+
+func (s *PostgresStateStore) takeJSON(ctx context.Context, kind, id string, out any) (bool, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return LoginState{}, false, err
+		return false, err
 	}
 	defer func() {
 		// Rollback returns pgx.ErrTxClosed after the successful commit below.
@@ -76,26 +100,25 @@ func (s *PostgresStateStore) take(ctx context.Context, kind, id string) (LoginSt
 	`, kind, id).Scan(&raw, &expiresAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		// Genuinely not found (or already consumed): not an error.
-		return LoginState{}, false, nil
+		return false, nil
 	}
 	if err != nil {
 		// A real DB error must be distinguishable from "not found" so callers
 		// can alert on OAuth/CLI exchange failures.
-		return LoginState{}, false, err
+		return false, err
 	}
 	// Commit the delete regardless of expiry so a consumed/expired row is not
 	// left behind for CleanupExpired to reap later.
 	if err := tx.Commit(ctx); err != nil {
-		return LoginState{}, false, err
+		return false, err
 	}
 	if time.Now().After(expiresAt) {
-		return LoginState{}, false, nil
+		return false, nil
 	}
-	var st LoginState
-	if err := json.Unmarshal(raw, &st); err != nil {
-		return LoginState{}, false, err
+	if err := json.Unmarshal(raw, out); err != nil {
+		return false, err
 	}
-	return st, true, nil
+	return true, nil
 }
 
 func (s *PostgresStateStore) CleanupExpired(ctx context.Context) error {
@@ -104,3 +127,4 @@ func (s *PostgresStateStore) CleanupExpired(ctx context.Context) error {
 }
 
 var _ LoginStateStore = (*PostgresStateStore)(nil)
+var _ ConnectionStateStore = (*PostgresStateStore)(nil)

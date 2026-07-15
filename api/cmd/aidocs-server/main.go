@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
+	"github.com/razorpay/aidocs/api/internal/connections"
 	"github.com/razorpay/aidocs/api/internal/db"
 	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
@@ -185,6 +187,73 @@ type webhookSettings struct {
 	devRevSecret string
 }
 
+type personalConnectionSettings struct {
+	providers server.ConnectionProviders
+	cipher    *connections.Cipher
+}
+
+func loadPersonalConnectionSettings() (personalConnectionSettings, error) {
+	settings := personalConnectionSettings{providers: server.ConnectionProviders{
+		GitHub: server.ConnectionOAuthProvider{
+			ClientID: os.Getenv("AIDOCS_GITHUB_OAUTH_CLIENT_ID"), ClientSecret: os.Getenv("AIDOCS_GITHUB_OAUTH_CLIENT_SECRET"),
+		},
+		Slack: server.ConnectionOAuthProvider{
+			ClientID: os.Getenv("AIDOCS_SLACK_OAUTH_CLIENT_ID"), ClientSecret: os.Getenv("AIDOCS_SLACK_OAUTH_CLIENT_SECRET"),
+		},
+		GoogleDrive: server.ConnectionOAuthProvider{
+			ClientID: os.Getenv("AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID"), ClientSecret: os.Getenv("AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET"),
+		},
+		GooglePickerAPIKey: os.Getenv("AIDOCS_GOOGLE_PICKER_API_KEY"),
+		GooglePickerAppID:  os.Getenv("AIDOCS_GOOGLE_PICKER_APP_ID"),
+		DevRevAPIBaseURL:   os.Getenv("AIDOCS_DEVREV_API_BASE_URL"),
+	}}
+	for name, provider := range map[string]server.ConnectionOAuthProvider{
+		"GitHub": settings.providers.GitHub, "Slack": settings.providers.Slack, "Google Drive": settings.providers.GoogleDrive,
+	} {
+		if (provider.ClientID == "") != (provider.ClientSecret == "") {
+			return personalConnectionSettings{}, fmt.Errorf("%s connection OAuth requires both client ID and client secret", name)
+		}
+	}
+	encodedKey := strings.TrimSpace(os.Getenv("AIDOCS_CONNECTION_ENCRYPTION_KEY"))
+	if encodedKey == "" {
+		if settings.providers.GitHub.ClientID != "" || settings.providers.Slack.ClientID != "" || settings.providers.GoogleDrive.ClientID != "" || settings.providers.GooglePickerAPIKey != "" || settings.providers.GooglePickerAppID != "" {
+			return personalConnectionSettings{}, errors.New("AIDOCS_CONNECTION_ENCRYPTION_KEY is required when personal connections are configured")
+		}
+		return settings, nil
+	}
+	key, err := decodeConnectionEncryptionKey(encodedKey)
+	if err != nil {
+		return personalConnectionSettings{}, err
+	}
+	settings.cipher, err = connections.NewCipher(key)
+	if err != nil {
+		return personalConnectionSettings{}, fmt.Errorf("configure personal connection encryption: %w", err)
+	}
+	return settings, nil
+}
+
+func loadSourcePollInterval() (time.Duration, error) {
+	value := strings.TrimSpace(os.Getenv("AIDOCS_SOURCE_POLL_INTERVAL"))
+	if value == "" {
+		return 15 * time.Minute, nil
+	}
+	interval, err := time.ParseDuration(value)
+	if err != nil || interval < 0 || (interval > 0 && interval < time.Minute) {
+		return 0, errors.New("AIDOCS_SOURCE_POLL_INTERVAL must be 0 or a duration of at least 1m")
+	}
+	return interval, nil
+}
+
+func decodeConnectionEncryptionKey(value string) ([]byte, error) {
+	encodings := []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding}
+	for _, encoding := range encodings {
+		if decoded, err := encoding.DecodeString(value); err == nil && len(decoded) == 32 {
+			return decoded, nil
+		}
+	}
+	return nil, errors.New("AIDOCS_CONNECTION_ENCRYPTION_KEY must be base64 for exactly 32 bytes")
+}
+
 func loadWebhookSettings() (webhookSettings, error) {
 	settings := webhookSettings{
 		githubSecret: os.Getenv("AIDOCS_GITHUB_WEBHOOK_SECRET"),
@@ -251,22 +320,44 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
+	personalConnections, err := loadPersonalConnectionSettings()
+	if err != nil {
+		return nil, err
+	}
+	sourcePollInterval, err := loadSourcePollInterval()
+	if err != nil {
+		return nil, err
+	}
 	oidcProvider, providerName, err := loadOIDC(ctx, origins.appOrigin)
 	if err != nil {
 		return nil, err
+	}
+	connectionStore := connections.NewPostgres(store.Pool())
+	connectionStateStore := auth.NewPostgresStateStore(store.Pool())
+	providerHTTPClient := &http.Client{Timeout: 15 * time.Second}
+	providerClient := knowledge.HTTPProviderClient{
+		Client:           providerHTTPClient,
+		GitHubToken:      os.Getenv("AIDOCS_GITHUB_TOKEN"),
+		DevRevAPIBaseURL: personalConnections.providers.DevRevAPIBaseURL,
+		AccessTokenResolver: server.NewConnectionAccessTokenResolver(
+			connectionStore, personalConnections.cipher, personalConnections.providers, providerHTTPClient,
+		),
 	}
 	options := []server.Option{
 		server.WithLifecycleContext(ctx),
 		server.WithRepository(store),
 		server.WithDocumentKVEvents(kvEvents),
 		server.WithKnowledgeStore(knowledge.NewPostgres(store.Pool())),
-		server.WithKnowledgeProviderClient(knowledge.HTTPProviderClient{
-			Client:      &http.Client{Timeout: 15 * time.Second},
-			GitHubToken: os.Getenv("AIDOCS_GITHUB_TOKEN"),
-		}),
+		server.WithKnowledgeProviderClient(providerClient),
+		server.WithConnectionStore(connectionStore),
+		server.WithConnectionStateStore(connectionStateStore),
+		server.WithConnectionHTTPClient(providerHTTPClient),
 		server.WithAuthenticator(auth.DBAuthenticator{Resolver: store, SessionSecret: origins.sessionSecret}),
-		server.WithStateStore(auth.NewPostgresStateStore(store.Pool())),
+		server.WithStateStore(connectionStateStore),
 		server.WithReadinessCheck("postgres", store.Ping),
+	}
+	if personalConnections.cipher != nil {
+		options = append(options, server.WithConnectionCipher(personalConnections.cipher))
 	}
 	if pinger, ok := blobs.(blob.Pinger); ok {
 		options = append(options, server.WithReadinessCheck("blob", pinger.Ping))
@@ -284,6 +375,8 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		GitHubWebhookSecret: webhooks.githubSecret,
 		SlackSigningSecret:  webhooks.slackSecret,
 		DevRevWebhookSecret: webhooks.devRevSecret,
+		ConnectionProviders: personalConnections.providers,
+		SourcePollInterval:  sourcePollInterval,
 	}, options...), nil
 }
 

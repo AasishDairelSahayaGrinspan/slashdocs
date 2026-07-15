@@ -7,6 +7,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"html"
@@ -20,6 +21,7 @@ import (
 	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/connections"
 	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/repo"
 	"github.com/razorpay/aidocs/api/internal/server"
@@ -99,11 +101,21 @@ func newDevelopmentApplication(origin string) (*developmentApplication, error) {
 	}
 	store := repo.NewMemory()
 	knowledgeStore := knowledge.NewMemory()
+	connectionStore := connections.NewMemory()
+	connectionKey := sha256.Sum256([]byte("aidocs-dev-personal-connections-v1"))
+	connectionCipher, err := connections.NewCipher(connectionKey[:])
+	if err != nil {
+		return nil, fmt.Errorf("create development connection cipher: %w", err)
+	}
 	ctx := context.Background()
 	if err := seedDevelopmentRepository(ctx, store, identities); err != nil {
 		return nil, err
 	}
-	if err := seedDevelopmentKnowledge(ctx, store, knowledgeStore, identities); err != nil {
+	developmentConnections, err := seedDevelopmentConnections(ctx, connectionStore, identities)
+	if err != nil {
+		return nil, err
+	}
+	if err := seedDevelopmentKnowledge(ctx, store, knowledgeStore, identities, developmentConnections[identities["owner"].ID+"/"+connections.ProviderGitHub]); err != nil {
 		return nil, err
 	}
 	originURL, err := url.Parse(origin)
@@ -121,11 +133,39 @@ func newDevelopmentApplication(origin string) (*developmentApplication, error) {
 		GitHubWebhookSecret: "aidocs-dev-github-secret",
 		SlackSigningSecret:  "aidocs-dev-slack-signing-secret",
 		DevRevWebhookSecret: "aidocs-dev-devrev-secret",
-	}, server.WithRepository(store), server.WithKnowledgeStore(knowledgeStore), server.WithAuthenticator(authenticator))
+	}, server.WithRepository(store), server.WithKnowledgeStore(knowledgeStore), server.WithConnectionStore(connectionStore), server.WithConnectionCipher(connectionCipher), server.WithAuthenticator(authenticator))
 	return &developmentApplication{
 		Handler: &developmentHandler{app: app.Handler(), authenticator: authenticator, origin: originURL},
 		server:  app,
 	}, nil
+}
+
+func seedDevelopmentConnections(ctx context.Context, store connections.Store, identities map[string]auth.Principal) (map[string]string, error) {
+	ids := map[string]string{}
+	for _, principal := range identities {
+		for _, provider := range []string{connections.ProviderGitHub, connections.ProviderSlack, connections.ProviderGoogleDrive, connections.ProviderDevRev} {
+			id := "conn_" + strings.TrimPrefix(principal.ID, "dev_") + "_" + provider
+			account := connections.Account{
+				ID: id, UserID: principal.ID, Provider: provider,
+				ExternalAccountID: principal.ID + "_" + provider,
+				DisplayName:       principal.Name,
+				Scopes:            []string{"local:demo"}, Status: connections.StatusDemo,
+			}
+			switch provider {
+			case connections.ProviderSlack:
+				account.WorkspaceID, account.WorkspaceName = "T_AIDOCS_DEV", "Local Development"
+			case connections.ProviderGoogleDrive:
+				account.WorkspaceName = principal.Email
+			case connections.ProviderDevRev:
+				account.WorkspaceID, account.WorkspaceName = "dev-org", "Local Development"
+			}
+			if _, err := store.Put(ctx, account); err != nil {
+				return nil, fmt.Errorf("seed %s connection for %s: %w", provider, principal.ID, err)
+			}
+			ids[principal.ID+"/"+provider] = id
+		}
+	}
+	return ids, nil
 }
 
 func seedDevelopmentRepository(ctx context.Context, store *repo.Memory, identities map[string]auth.Principal) error {
@@ -168,7 +208,7 @@ func seedDevelopmentRepository(ctx context.Context, store *repo.Memory, identiti
 	return nil
 }
 
-func seedDevelopmentKnowledge(ctx context.Context, store *repo.Memory, knowledgeStore *knowledge.Memory, identities map[string]auth.Principal) error {
+func seedDevelopmentKnowledge(ctx context.Context, store *repo.Memory, knowledgeStore *knowledge.Memory, identities map[string]auth.Principal, githubConnectionID string) error {
 	owner := identities["owner"]
 	reviewer := identities["reviewer"]
 	repositories, err := store.ListRepositories(ctx, owner)
@@ -218,6 +258,7 @@ func seedDevelopmentKnowledge(ctx context.Context, store *repo.Memory, knowledge
 	if _, err := knowledgeStore.PutSource(ctx, knowledge.Source{
 		ID:                 "source_dev_github",
 		RepositoryID:       repository.ID,
+		ConnectionID:       githubConnectionID,
 		Provider:           knowledge.ProviderGitHub,
 		ExternalRepository: "razorpay/aidocs-example",
 		Branch:             "main",

@@ -123,20 +123,87 @@ func (s *Postgres) FindPortal(ctx context.Context, slug string) (Settings, error
 	return out, nil
 }
 func (s *Postgres) ListSources(ctx context.Context, repositoryID string) ([]Source, error) {
-	return listRecords[Source](ctx, s.db, recordSource, repositoryID, "")
+	return listSourceRecords(ctx, s.db, repositoryID)
 }
 func (s *Postgres) ListAllSources(ctx context.Context) ([]Source, error) {
-	return listRecords[Source](ctx, s.db, recordSource, "", "")
+	return listSourceRecords(ctx, s.db, "")
 }
 func (s *Postgres) GetSource(ctx context.Context, repositoryID, id string) (Source, error) {
-	v, err := getRecord[Source](ctx, s.db, recordSource, id)
+	v, err := getSourceRecord(ctx, s.db, id)
 	if err == nil && v.RepositoryID != repositoryID {
 		return Source{}, ErrNotFound
 	}
 	return v, err
 }
 func (s *Postgres) PutSource(ctx context.Context, v Source) (Source, error) {
-	return v, s.put(ctx, recordSource, v.ID, v.RepositoryID, "", v)
+	raw, err := marshal(v)
+	if err != nil {
+		return Source{}, err
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO connected_knowledge_records(kind,id,repository_id,user_id,connection_id,payload)
+		VALUES($1,$2,NULLIF($3,''),NULL,NULLIF($4,''),$5::jsonb)
+		ON CONFLICT(kind,id) DO UPDATE SET
+		  repository_id=EXCLUDED.repository_id,
+		  user_id=EXCLUDED.user_id,
+		  connection_id=EXCLUDED.connection_id,
+		  payload=EXCLUDED.payload,
+		  updated_at=now()
+	`, recordSource, v.ID, v.RepositoryID, v.ConnectionID, raw)
+	return v, err
+}
+
+// Source connection ownership is stored in a real foreign-key column as well
+// as the JSON payload. Reading the column as authoritative preserves the link
+// when an older binary rewrites payload without knowing about connection_id.
+func getSourceRecord(ctx context.Context, db *pgxpool.Pool, id string) (Source, error) {
+	var raw []byte
+	var connectionID string
+	err := db.QueryRow(ctx, `
+		SELECT payload, COALESCE(connection_id, '')
+		FROM connected_knowledge_records
+		WHERE kind=$1 AND id=$2
+	`, recordSource, id).Scan(&raw, &connectionID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Source{}, ErrNotFound
+	}
+	if err != nil {
+		return Source{}, err
+	}
+	var source Source
+	if err := json.Unmarshal(raw, &source); err != nil {
+		return Source{}, fmt.Errorf("decode knowledge record: %w", err)
+	}
+	source.ConnectionID = connectionID
+	return source, nil
+}
+
+func listSourceRecords(ctx context.Context, db *pgxpool.Pool, repositoryID string) ([]Source, error) {
+	rows, err := db.Query(ctx, `
+		SELECT payload, COALESCE(connection_id, '')
+		FROM connected_knowledge_records
+		WHERE kind=$1 AND ($2='' OR repository_id=$2)
+		ORDER BY created_at DESC
+	`, recordSource, repositoryID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := make([]Source, 0)
+	for rows.Next() {
+		var source Source
+		var raw []byte
+		var connectionID string
+		if err := rows.Scan(&raw, &connectionID); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(raw, &source); err != nil {
+			return nil, fmt.Errorf("decode knowledge record: %w", err)
+		}
+		source.ConnectionID = connectionID
+		out = append(out, source)
+	}
+	return out, rows.Err()
 }
 func (s *Postgres) DeleteSource(ctx context.Context, repositoryID, id string) error {
 	tag, err := s.db.Exec(ctx, `DELETE FROM connected_knowledge_records WHERE kind=$1 AND id=$2 AND repository_id=$3`, recordSource, id, repositoryID)

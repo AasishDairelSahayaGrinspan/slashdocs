@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha256"
@@ -10,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"path"
 	"sort"
 	"strings"
@@ -19,6 +21,7 @@ import (
 	"golang.org/x/net/html"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/connections"
 	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -450,6 +453,13 @@ func (h handlers) acceptRepositoryTransfer(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	// Personal provider credentials belong to the previous owner, not to the
+	// repository. Pause every linked source before changing tree ownership so
+	// queued work cannot continue under credentials the new owner does not own.
+	if err := h.markTransferredSourcesNeedsReconnect(c.Request.Context(), id); err != nil {
+		internalErr(c, err)
+		return
+	}
 	updatedRepository, err := h.deps.repository.TransferRepositoryOwnership(c.Request.Context(), id, repository.CreatedBy, *current(c))
 	if err != nil {
 		switch {
@@ -477,6 +487,24 @@ func (h handlers) acceptRepositoryTransfer(c *gin.Context) {
 	}
 	h.addKnowledgeAudit(c, id, "repository.transfer_accepted", "repository", id, map[string]any{"new_owner_id": current(c).ID})
 	c.JSON(http.StatusOK, repositoryTransferResponse{RepositoryID: id, Repository: &updatedRepository, Transfer: settings.Transfer})
+}
+
+func (h handlers) markTransferredSourcesNeedsReconnect(ctx context.Context, repositoryID string) error {
+	sources, err := h.deps.knowledge.ListSources(ctx, repositoryID)
+	if err != nil {
+		return err
+	}
+	for _, source := range sources {
+		if source.ConnectionID == "" || !sourceRequiresPersonalConnection(source.Provider) || source.Status == "needs_reconnect" {
+			continue
+		}
+		source.Status = "needs_reconnect"
+		source.UpdatedAt = knowledge.Now()
+		if _, err := h.deps.knowledge.PutSource(ctx, source); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // cancelRepositoryTransfer godoc
@@ -516,6 +544,7 @@ func (h handlers) cancelRepositoryTransfer(c *gin.Context) {
 
 type sourceInput struct {
 	Provider           string   `json:"provider"`
+	ConnectionID       string   `json:"connection_id"`
 	ExternalRepository string   `json:"external_repository"`
 	Branch             string   `json:"branch"`
 	IncludePaths       []string `json:"include_paths"`
@@ -526,8 +555,81 @@ type sourceInput struct {
 	Direction          string   `json:"direction"`
 }
 
+type sourceResponse struct {
+	knowledge.Source
+	Connection *connectionResponse `json:"connection,omitempty"`
+}
+
+func sourceRequiresPersonalConnection(provider string) bool {
+	switch provider {
+	case knowledge.ProviderGitHub, knowledge.ProviderSlack, knowledge.ProviderDevRev, knowledge.ProviderGoogleDrive:
+		return true
+	default:
+		return false
+	}
+}
+
+func (h handlers) validateSourceConnection(c *gin.Context, provider, connectionID string) bool {
+	connectionID = strings.TrimSpace(connectionID)
+	if connectionID == "" {
+		// Servers upgraded without a connection-encryption key retain their
+		// existing deployment-wide/legacy source behavior. Once personal
+		// connections are enabled, all newly linked personal providers require
+		// an explicit user-owned account.
+		if h.deps.connectionCipher != nil && sourceRequiresPersonalConnection(provider) {
+			badRequest(c, "connection_id is required for this provider")
+			return false
+		}
+		return true
+	}
+	account, err := h.deps.connections.Get(c.Request.Context(), connectionID)
+	if errors.Is(err, connections.ErrNotFound) {
+		badRequest(c, "connection_id is invalid")
+		return false
+	}
+	if err != nil {
+		internalErr(c, err)
+		return false
+	}
+	p := current(c)
+	if p == nil || p.Type != auth.PrincipalUser || account.UserID != p.ID {
+		forbidden(c, "the connection must belong to your user account")
+		return false
+	}
+	if account.Provider != provider {
+		badRequest(c, "connection provider does not match source provider")
+		return false
+	}
+	if account.Status != connections.StatusActive && account.Status != connections.StatusDemo {
+		c.JSON(http.StatusConflict, errorResponse("connection_unavailable", "reconnect the account before using it", nil))
+		return false
+	}
+	return true
+}
+
+func (h handlers) sourceResponse(ctx context.Context, source knowledge.Source) sourceResponse {
+	response := sourceResponse{Source: source}
+	if source.ConnectionID == "" {
+		return response
+	}
+	if account, err := h.deps.connections.Get(ctx, source.ConnectionID); err == nil {
+		safe := safeConnection(account)
+		// Repository viewers need a label and health state, not the owner's
+		// provider account/workspace identifiers, granted scopes, or token
+		// expiry. WorkspaceName can be an email for Google Drive.
+		safe.ExternalAccountID = ""
+		safe.WorkspaceID = ""
+		safe.WorkspaceName = ""
+		safe.Scopes = nil
+		safe.ExpiresAt = nil
+		response.Connection = &safe
+	}
+	return response
+}
+
 func normalizeSourceInput(in sourceInput) (sourceInput, error) {
 	in.Provider = strings.ToLower(strings.TrimSpace(in.Provider))
+	in.ConnectionID = strings.TrimSpace(in.ConnectionID)
 	if !knowledge.Providers[in.Provider] {
 		return in, errors.New("unsupported provider")
 	}
@@ -546,8 +648,8 @@ func normalizeSourceInput(in sourceInput) (sourceInput, error) {
 	if !validSourceTriggerMode(in.TriggerMode) {
 		return in, errors.New("invalid trigger mode")
 	}
-	if eventProvider && in.TriggerMode != "event" {
-		return in, fmt.Errorf("%s sources require event trigger mode", in.Provider)
+	if eventProvider && in.TriggerMode != "event" && in.TriggerMode != "scheduled" && in.TriggerMode != "manual" {
+		return in, fmt.Errorf("%s sources require event, scheduled, or manual trigger mode", in.Provider)
 	}
 	if in.Direction == "" {
 		in.Direction = "into_aidocs"
@@ -598,6 +700,13 @@ func sourceProviderRequiresExternalRepository(provider string) bool {
 }
 
 func validateSlackSourceIdentity(identity string) error {
+	if parsed, err := url.Parse(identity); err == nil && parsed.Scheme != "" {
+		host := strings.ToLower(parsed.Hostname())
+		if (host == "slack.com" || strings.HasSuffix(host, ".slack.com")) && strings.Contains(parsed.Path, "/archives/") {
+			return nil
+		}
+		return errors.New("slack source must be a Slack thread URL")
+	}
 	parts := strings.Split(identity, "/")
 	if (len(parts) != 2 && len(parts) != 3) || parts[0] == "" || parts[1] == "" || (len(parts) == 3 && parts[2] == "") {
 		return errors.New("slack external_repository must be TEAM_ID/CHANNEL_ID or TEAM_ID/CHANNEL_ID/THREAD_TS")
@@ -608,6 +717,46 @@ func validateSlackSourceIdentity(identity string) error {
 		}
 	}
 	return nil
+}
+
+func canonicalSlackSourceIdentity(identity, workspaceID string) (string, error) {
+	identity = strings.TrimSpace(identity)
+	if parsed, err := url.Parse(identity); err == nil && parsed.Scheme != "" {
+		host := strings.ToLower(parsed.Hostname())
+		if host != "slack.com" && !strings.HasSuffix(host, ".slack.com") {
+			return "", errors.New("slack source must be a Slack thread URL")
+		}
+		parts := strings.Split(strings.Trim(parsed.Path, "/"), "/")
+		if len(parts) < 3 || parts[0] != "archives" || parts[1] == "" || !strings.HasPrefix(parts[2], "p") {
+			return "", errors.New("slack thread URL is invalid")
+		}
+		threadTS := strings.TrimSpace(parsed.Query().Get("thread_ts"))
+		if threadTS == "" {
+			digits := strings.TrimPrefix(parts[2], "p")
+			if len(digits) <= 6 || strings.Trim(digits, "0123456789") != "" {
+				return "", errors.New("slack thread URL is invalid")
+			}
+			threadTS = digits[:len(digits)-6] + "." + digits[len(digits)-6:]
+		}
+		if strings.Count(threadTS, ".") != 1 || strings.Trim(threadTS, "0123456789.") != "" {
+			return "", errors.New("slack thread URL is invalid")
+		}
+		if workspaceID == "" {
+			return "", errors.New("Slack connection is missing its workspace")
+		}
+		return workspaceID + "/" + parts[1] + "/" + threadTS, nil
+	}
+	if err := validateSlackSourceIdentity(identity); err != nil {
+		return "", err
+	}
+	parts := strings.Split(identity, "/")
+	if len(parts) != 3 {
+		return "", errors.New("a connected Slack source must identify one thread")
+	}
+	if workspaceID != "" && parts[0] != workspaceID {
+		return "", errors.New("Slack thread belongs to a different workspace")
+	}
+	return identity, nil
 }
 
 // listSources godoc
@@ -630,7 +779,11 @@ func (h handlers) listSources(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, listResponse[knowledge.Source]{Items: items})
+	responses := make([]sourceResponse, 0, len(items))
+	for _, source := range items {
+		responses = append(responses, h.sourceResponse(c.Request.Context(), source))
+	}
+	c.JSON(http.StatusOK, listResponse[sourceResponse]{Items: responses})
 }
 
 // createSource godoc
@@ -671,15 +824,26 @@ func (h handlers) createSource(c *gin.Context) {
 		badRequest(c, err.Error())
 		return
 	}
+	if !h.validateSourceConnection(c, in.Provider, in.ConnectionID) {
+		return
+	}
+	if in.Provider == knowledge.ProviderSlack && in.ConnectionID != "" {
+		account, _ := h.deps.connections.Get(c.Request.Context(), in.ConnectionID)
+		in.ExternalRepository, err = canonicalSlackSourceIdentity(in.ExternalRepository, account.WorkspaceID)
+		if err != nil {
+			badRequest(c, err.Error())
+			return
+		}
+	}
 	now := knowledge.Now()
-	source := knowledge.Source{ID: knowledgeID("src"), RepositoryID: id, Provider: in.Provider, ExternalRepository: in.ExternalRepository, Branch: in.Branch, IncludePaths: in.IncludePaths, ExcludePaths: in.ExcludePaths, TargetFolderID: in.TargetFolderID, TargetDocumentID: in.TargetDocumentID, TriggerMode: in.TriggerMode, Direction: in.Direction, Status: "active", Freshness: knowledge.Freshness{State: "never_synced", StaleAfterHours: settings.FreshnessPolicy.StaleAfterHours}, CreatedBy: *current(c), CreatedAt: now, UpdatedAt: now}
+	source := knowledge.Source{ID: knowledgeID("src"), RepositoryID: id, Provider: in.Provider, ConnectionID: strings.TrimSpace(in.ConnectionID), ExternalRepository: in.ExternalRepository, Branch: in.Branch, IncludePaths: in.IncludePaths, ExcludePaths: in.ExcludePaths, TargetFolderID: in.TargetFolderID, TargetDocumentID: in.TargetDocumentID, TriggerMode: in.TriggerMode, Direction: in.Direction, Status: "active", Freshness: knowledge.Freshness{State: "never_synced", StaleAfterHours: settings.FreshnessPolicy.StaleAfterHours}, CreatedBy: *current(c), CreatedAt: now, UpdatedAt: now}
 	source, err = h.deps.knowledge.PutSource(c.Request.Context(), source)
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
 	h.addKnowledgeAudit(c, id, "source.created", "source", source.ID, map[string]any{"provider": source.Provider})
-	c.JSON(http.StatusCreated, source)
+	c.JSON(http.StatusCreated, h.sourceResponse(c.Request.Context(), source))
 }
 
 // patchSource godoc
@@ -715,6 +879,7 @@ func (h handlers) patchSource(c *gin.Context) {
 		return
 	}
 	var in struct {
+		ConnectionID       *string   `json:"connection_id"`
 		ExternalRepository *string   `json:"external_repository"`
 		Branch             *string   `json:"branch"`
 		IncludePaths       *[]string `json:"include_paths"`
@@ -731,6 +896,27 @@ func (h handlers) patchSource(c *gin.Context) {
 	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid source")
 		return
+	}
+	targetConnectionID := existing.ConnectionID
+	if in.ConnectionID != nil {
+		targetConnectionID = strings.TrimSpace(*in.ConnectionID)
+	}
+	if in.ConnectionID != nil || in.ExternalRepository != nil || (in.Status != nil && *in.Status == "active") {
+		if !h.validateSourceConnection(c, existing.Provider, targetConnectionID) {
+			return
+		}
+	}
+	if existing.Provider == knowledge.ProviderSlack && targetConnectionID != "" && in.ExternalRepository != nil {
+		account, _ := h.deps.connections.Get(c.Request.Context(), targetConnectionID)
+		canonical, canonicalErr := canonicalSlackSourceIdentity(*in.ExternalRepository, account.WorkspaceID)
+		if canonicalErr != nil {
+			badRequest(c, canonicalErr.Error())
+			return
+		}
+		*in.ExternalRepository = canonical
+	}
+	if in.ConnectionID != nil {
+		existing.ConnectionID = targetConnectionID
 	}
 	if in.ExternalRepository != nil {
 		existing.ExternalRepository = strings.Trim(*in.ExternalRepository, " /")
@@ -763,7 +949,7 @@ func (h handlers) patchSource(c *gin.Context) {
 		}
 		existing.Status = *in.Status
 	}
-	_, err = normalizeSourceInput(sourceInput{Provider: existing.Provider, ExternalRepository: existing.ExternalRepository, Branch: existing.Branch, IncludePaths: existing.IncludePaths, ExcludePaths: existing.ExcludePaths, TargetFolderID: existing.TargetFolderID, TargetDocumentID: existing.TargetDocumentID, TriggerMode: existing.TriggerMode, Direction: existing.Direction})
+	_, err = normalizeSourceInput(sourceInput{Provider: existing.Provider, ConnectionID: existing.ConnectionID, ExternalRepository: existing.ExternalRepository, Branch: existing.Branch, IncludePaths: existing.IncludePaths, ExcludePaths: existing.ExcludePaths, TargetFolderID: existing.TargetFolderID, TargetDocumentID: existing.TargetDocumentID, TriggerMode: existing.TriggerMode, Direction: existing.Direction})
 	if err != nil {
 		badRequest(c, err.Error())
 		return
@@ -775,7 +961,7 @@ func (h handlers) patchSource(c *gin.Context) {
 		return
 	}
 	h.addKnowledgeAudit(c, id, "source.updated", "source", existing.ID, nil)
-	c.JSON(http.StatusOK, existing)
+	c.JSON(http.StatusOK, h.sourceResponse(c.Request.Context(), existing))
 }
 
 // deleteSource godoc
@@ -869,6 +1055,10 @@ func (h handlers) sourcePreview(c *gin.Context, persist bool) {
 		c.JSON(http.StatusConflict, errorResponse("source_paused", "activate the source before checking it", nil))
 		return
 	}
+	if source.Direction == "export_only" {
+		c.JSON(http.StatusConflict, errorResponse("source_export_only", "export-only sources cannot be checked or simulated for imports", nil))
+		return
+	}
 	var in sourceCheckInput
 	if c.Request.ContentLength != 0 {
 		if !requireJSON(c) {
@@ -879,7 +1069,34 @@ func (h handlers) sourcePreview(c *gin.Context, persist bool) {
 			return
 		}
 	}
-	if len(in.ChangedFiles) == 0 && in.BeforeSHA != "" && in.AfterSHA != "" {
+	var contextItems []knowledge.ContextItem
+	provenanceURL := ""
+	inspected := false
+	if len(in.ChangedFiles) == 0 && in.BeforeSHA == "" && in.AfterSHA == "" && source.ConnectionID != "" {
+		inspector, supported := h.deps.providerClient.(knowledge.ProviderInspector)
+		if !supported {
+			c.JSON(http.StatusServiceUnavailable, errorResponse("provider_unavailable", "this provider cannot be inspected by the configured server", nil))
+			return
+		}
+		previousRevision := h.latestSourceRevision(c.Request.Context(), id, source.ID)
+		inspection, inspectErr := inspector.Inspect(c.Request.Context(), source, previousRevision)
+		if inspectErr != nil {
+			h.markConnectionFailure(c.Request.Context(), source, inspectErr)
+			if persist {
+				run := knowledge.SyncRun{ID: knowledgeID("sync"), RepositoryID: id, SourceID: source.ID, BeforeSHA: previousRevision, Status: "failed", Outcome: "failure", Message: "Provider inspection failed.", ChangedFiles: []string{}, StartedAt: knowledge.Now(), FinishedAt: knowledge.Now()}
+				_, _ = h.deps.knowledge.AddSyncRun(c.Request.Context(), run)
+			}
+			c.JSON(http.StatusBadGateway, errorResponse("provider_failed", "could not inspect the connected source", nil))
+			return
+		}
+		in.BeforeSHA = previousRevision
+		in.AfterSHA = inspection.Revision
+		in.ChangedFiles = inspection.ChangedFiles
+		contextItems = inspection.ContextItems
+		provenanceURL = inspection.ProvenanceURL
+		inspected = true
+	}
+	if !inspected && len(in.ChangedFiles) == 0 && in.BeforeSHA != "" && in.AfterSHA != "" {
 		comparison, compareErr := h.deps.providerClient.Compare(c.Request.Context(), source, in.BeforeSHA, in.AfterSHA)
 		if compareErr != nil {
 			if persist {
@@ -892,7 +1109,7 @@ func (h handlers) sourcePreview(c *gin.Context, persist bool) {
 		in.ChangedFiles = comparison.ChangedFiles
 	}
 	files := filterSourceFiles(source, in.ChangedFiles)
-	run := knowledge.SyncRun{ID: knowledgeID("sync"), RepositoryID: id, SourceID: source.ID, DeliveryID: in.DeliveryID, BeforeSHA: in.BeforeSHA, AfterSHA: in.AfterSHA, ChangedFiles: files, Status: "completed", StartedAt: knowledge.Now(), FinishedAt: knowledge.Now(), Provenance: []knowledge.Citation{}}
+	run := knowledge.SyncRun{ID: knowledgeID("sync"), RepositoryID: id, SourceID: source.ID, DeliveryID: in.DeliveryID, BeforeSHA: in.BeforeSHA, AfterSHA: in.AfterSHA, ChangedFiles: files, ContextItems: contextItems, Status: "completed", StartedAt: knowledge.Now(), FinishedAt: knowledge.Now(), Provenance: []knowledge.Citation{}}
 	if persist && in.AfterSHA != "" {
 		if prior, listErr := h.deps.knowledge.ListSyncRuns(c.Request.Context(), id); listErr == nil {
 			for _, item := range prior {
@@ -930,10 +1147,10 @@ func (h handlers) sourcePreview(c *gin.Context, persist bool) {
 				case !persist:
 					run.Outcome = "preview"
 					run.Message = "Documentation changes are available to preview; no pull request was created."
-					run.Provenance = []knowledge.Citation{{DocumentID: document.ID, Title: document.Title, VersionID: base.ID, SourceID: source.ID, Provider: source.Provider, URL: providerRevisionURL(source, in.AfterSHA)}}
+					run.Provenance = []knowledge.Citation{{DocumentID: document.ID, Title: document.Title, VersionID: base.ID, SourceID: source.ID, Provider: source.Provider, URL: sourceInspectionURL(source, in.AfterSHA, provenanceURL)}}
 				default:
 					summary := fmt.Sprintf("Sync %s/%s through %s", source.Provider, source.ExternalRepository, in.AfterSHA)
-					generated := appendSourceSummary(body, source, in.AfterSHA, files)
+					generated := appendSourceSummary(body, source, in.AfterSHA, files, contextItems...)
 					pr, updated, prErr := upsertConnectedKnowledgePullRequest(c.Request.Context(), h.deps, source, document, base, summary, generated)
 					if prErr != nil {
 						run.Status = "failed"
@@ -947,7 +1164,7 @@ func (h handlers) sourcePreview(c *gin.Context, persist bool) {
 							run.Outcome = "pull_request_updated"
 							run.Message = "The open documentation pull request has a new patchset ready for review."
 						}
-						run.Provenance = []knowledge.Citation{{DocumentID: document.ID, Title: document.Title, VersionID: pr.HeadVersionID, SourceID: source.ID, Provider: source.Provider, URL: providerRevisionURL(source, in.AfterSHA)}}
+						run.Provenance = []knowledge.Citation{{DocumentID: document.ID, Title: document.Title, VersionID: pr.HeadVersionID, SourceID: source.ID, Provider: source.Provider, URL: sourceInspectionURL(source, in.AfterSHA, provenanceURL)}}
 					}
 				}
 			}
@@ -962,6 +1179,52 @@ func (h handlers) sourcePreview(c *gin.Context, persist bool) {
 		h.addKnowledgeAudit(c, id, "source.checked", "source", source.ID, map[string]any{"outcome": run.Outcome})
 	}
 	c.JSON(http.StatusOK, run)
+}
+
+func (h handlers) latestSourceRevision(ctx context.Context, repositoryID, sourceID string) string {
+	runs, err := h.deps.knowledge.ListSyncRuns(ctx, repositoryID)
+	if err != nil {
+		return ""
+	}
+	var revision string
+	var finishedAt string
+	for _, run := range runs {
+		if run.SourceID != sourceID || run.Status != "completed" || run.AfterSHA == "" {
+			continue
+		}
+		if revision == "" || run.FinishedAt > finishedAt {
+			revision, finishedAt = run.AfterSHA, run.FinishedAt
+		}
+	}
+	return revision
+}
+
+func (h handlers) markConnectionFailure(ctx context.Context, source knowledge.Source, providerErr error) {
+	if source.ConnectionID == "" {
+		return
+	}
+	needsReconnect := errors.Is(providerErr, knowledge.ErrProviderCredentialUnavailable)
+	var httpErr *knowledge.ProviderHTTPError
+	if errors.As(providerErr, &httpErr) && (httpErr.StatusCode == http.StatusUnauthorized || httpErr.StatusCode == http.StatusForbidden) {
+		needsReconnect = true
+	}
+	if !needsReconnect {
+		return
+	}
+	if account, err := h.deps.connections.Get(ctx, source.ConnectionID); err == nil {
+		account.Status = connections.StatusNeedsReconnect
+		_, _ = h.deps.connections.Put(ctx, account)
+	}
+	source.Status = "needs_reconnect"
+	source.UpdatedAt = knowledge.Now()
+	_, _ = h.deps.knowledge.PutSource(ctx, source)
+}
+
+func sourceInspectionURL(source knowledge.Source, revision, inspectedURL string) string {
+	if strings.TrimSpace(inspectedURL) != "" {
+		return inspectedURL
+	}
+	return providerRevisionURL(source, revision)
 }
 
 func appendSourceSummary(existing []byte, source knowledge.Source, sha string, files []string, contextItems ...knowledge.ContextItem) []byte {

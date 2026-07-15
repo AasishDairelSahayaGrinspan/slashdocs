@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
@@ -20,6 +21,7 @@ import {
 import { toast } from "sonner";
 import {
   api,
+  type ConnectedAccount,
   type RepositorySource,
   type RepositorySourceCheckInput,
   type RepositorySourceInput,
@@ -45,6 +47,14 @@ import {
 } from "@/components/ui/dropdown";
 import { Input, Label, Textarea } from "@/components/ui/input";
 import { CodeBlock, EmptyState, Skeleton } from "@/components/ui/misc";
+import { GoogleDrivePickerButton } from "@/components/google-drive-picker-button";
+import {
+  connectedAccountContext,
+  connectedAccountLabel,
+  connectedAccountsForProvider,
+  isConnectedAccountProvider,
+  isUsableConnectedAccount,
+} from "@/lib/connected-accounts";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/queryKeys";
 
@@ -75,7 +85,7 @@ const providers: Array<{
   {
     id: "google_drive",
     label: "Google Drive",
-    description: "Import selected Docs or Drive folders.",
+    description: "Import selected Docs or text files.",
     icon: <Cloud className="h-5 w-5" />,
   },
   {
@@ -115,6 +125,12 @@ export function RepositorySources({
   const sources = useQuery({
     queryKey: queryKeys.repositorySources(repositoryId),
     queryFn: () => api.listRepositorySources(repositoryId),
+  });
+  const connections = useQuery({
+    queryKey: queryKeys.connectedAccounts(),
+    queryFn: api.listConnections,
+    enabled: canManage || canSync,
+    meta: { suppressGlobalError: true },
   });
   const syncRuns = useQuery({
     queryKey: queryKeys.repositorySyncRuns(repositoryId),
@@ -176,6 +192,10 @@ export function RepositorySources({
   });
 
   const sourceItems = sources.data?.items || [];
+  const connectionItems = connections.data?.connections || [];
+  const connectionForSource = (source: RepositorySource) =>
+    source.connection ||
+    connectionItems.find((connection) => connection.id === source.connection_id);
   const runItems = useMemo(
     () =>
       [...(syncRuns.data?.items || [])].sort((a, b) =>
@@ -239,6 +259,7 @@ export function RepositorySources({
               <SourceCard
                 key={source.id}
                 source={source}
+                connection={connectionForSource(source)}
                 canManage={canManage}
                 canSync={canSync}
                 checking={check.isPending && check.variables?.sourceId === source.id}
@@ -247,7 +268,16 @@ export function RepositorySources({
                 }
                 onCheck={() => {
                   setCheckResult(undefined);
-                  setCheckSource(source);
+                  const connection = connectionForSource(source);
+                  if (
+                    source.connection_id &&
+                    source.provider !== "manual" &&
+                    connection?.status !== "demo"
+                  ) {
+                    check.mutate({ sourceId: source.id, input: {}, simulate: false });
+                  } else {
+                    setCheckSource(source);
+                  }
                 }}
                 onExport={() => exportSource.mutate(source.id)}
                 onToggle={() => toggle.mutate(source)}
@@ -284,7 +314,7 @@ export function RepositorySources({
           <EmptyState
             icon={<Clock3 className="h-5 w-5" />}
             title="No sync runs yet"
-            description="Use Check for updates on a source to create the first run."
+            description="Use Sync now or Check for updates on a source to create the first run."
           />
         ) : (
           <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -342,6 +372,9 @@ export function RepositorySources({
         open={connectOpen}
         onOpenChange={setConnectOpen}
         repositoryId={repositoryId}
+        connections={connectionItems}
+        connectionsLoading={connections.isLoading}
+        connectionsError={!!connections.error}
         onCreated={refresh}
       />
       <SourceCheckDialog
@@ -552,6 +585,7 @@ function splitLines(value: string) {
 
 function SourceCard({
   source,
+  connection,
   canManage,
   canSync,
   checking,
@@ -562,6 +596,7 @@ function SourceCard({
   onDelete,
 }: {
   source: RepositorySource;
+  connection?: ConnectedAccount;
   canManage: boolean;
   canSync: boolean;
   checking: boolean;
@@ -572,6 +607,10 @@ function SourceCard({
   onDelete: () => void;
 }) {
   const provider = providers.find((item) => item.id === source.provider);
+  const connected = !!source.connection_id;
+  const connectionUnavailable =
+    connected && !!connection && !isUsableConnectedAccount(connection);
+  const syncDisabled = source.status === "paused" || connectionUnavailable;
   return (
     <Card className={source.status === "paused" ? "opacity-70" : undefined}>
       <CardHeader className="flex-row items-start justify-between gap-3">
@@ -590,6 +629,7 @@ function SourceCard({
               <StatusBadge
                 status={source.freshness?.state || source.status || "ready"}
               />
+              {connection ? <StatusBadge status={connection.status} /> : null}
             </div>
           </div>
         </div>
@@ -637,7 +677,28 @@ function SourceCard({
           />
           <SourceFact label="Direction" value={source.direction || "import"} />
           <SourceFact label="Trigger" value={source.trigger_mode || "manual"} />
+          <SourceFact
+            label="Account"
+            value={
+              connection
+                ? connectedAccountLabel(connection)
+                : connected
+                  ? "Connected account"
+                  : "Legacy / manual"
+            }
+          />
         </dl>
+        {connection &&
+        connectedAccountContext(connection) !== connectedAccountLabel(connection) ? (
+          <div className="rounded-lg bg-[var(--color-surface-muted)]/60 px-3 py-2 text-xs text-[var(--color-fg-muted)]">
+            Connected through {connectedAccountContext(connection)}.
+          </div>
+        ) : null}
+        {connectionUnavailable ? (
+          <div className="rounded-lg border border-[var(--color-warning)]/40 bg-amber-100/60 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/35 dark:text-amber-300">
+            This account needs to be reconnected before the source can sync.
+          </div>
+        ) : null}
         {source.include_paths?.length || source.exclude_paths?.length ? (
           <div className="rounded-lg bg-[var(--color-surface-muted)]/60 px-3 py-2 text-xs text-[var(--color-fg-muted)]">
             {source.include_paths?.length ? (
@@ -659,18 +720,20 @@ function SourceCard({
               <Button
                 size="sm"
                 variant="outline"
-                disabled={exporting || source.status === "paused"}
+                disabled={exporting || syncDisabled}
                 onClick={onExport}
               >
                 <Download className="h-4 w-4" /> {exporting ? "Exporting…" : "Export"}
               </Button>
-              <Button
-                size="sm"
-                disabled={checking || source.status === "paused"}
-                onClick={onCheck}
-              >
+              <Button size="sm" disabled={checking || syncDisabled} onClick={onCheck}>
                 <RefreshCw className={`h-4 w-4 ${checking ? "animate-spin" : ""}`} />
-                {checking ? "Checking…" : "Check for updates"}
+                {checking
+                  ? connected
+                    ? "Syncing…"
+                    : "Checking…"
+                  : connected
+                    ? "Sync now"
+                    : "Check for updates"}
               </Button>
             </div>
           ) : null}
@@ -684,14 +747,22 @@ function ConnectSourceDialog({
   open,
   onOpenChange,
   repositoryId,
+  connections,
+  connectionsLoading,
+  connectionsError,
   onCreated,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   repositoryId: string;
+  connections: ConnectedAccount[];
+  connectionsLoading: boolean;
+  connectionsError: boolean;
   onCreated: () => void;
 }) {
   const [provider, setProvider] = useState<RepositorySourceProvider>("github");
+  const [connectionID, setConnectionID] = useState("");
+  const [selectedDriveFile, setSelectedDriveFile] = useState("");
   const [externalRepository, setExternalRepository] = useState("");
   const [branch, setBranch] = useState("main");
   const [includes, setIncludes] = useState("docs/**\nREADME.md");
@@ -702,6 +773,14 @@ function ConnectSourceDialog({
   const [triggerMode, setTriggerMode] = useState("default_branch");
   const [formError, setFormError] = useState<string>();
   const selected = providers.find((item) => item.id === provider)!;
+  const connectedProvider = isConnectedAccountProvider(provider);
+  const providerConnections = connectedProvider
+    ? connectedAccountsForProvider(connections, provider)
+    : [];
+  const usableConnections = providerConnections.filter(isUsableConnectedAccount);
+  const selectedConnection = providerConnections.find(
+    (connection) => connection.id === connectionID,
+  );
   const eventProvider = isEventProvider(provider);
   const locationCopy = sourceLocationCopy(provider);
   const documents = useQuery({
@@ -713,6 +792,7 @@ function ConnectSourceDialog({
     mutationFn: () => {
       const input: RepositorySourceInput = {
         provider,
+        connection_id: connectedProvider ? connectionID : undefined,
         external_repository: externalRepository.trim() || undefined,
         branch: isGitProvider(provider) ? branch.trim() || "main" : undefined,
         include_paths: eventProvider ? undefined : splitPaths(includes),
@@ -726,7 +806,7 @@ function ConnectSourceDialog({
             : direction === "export"
               ? "export_only"
               : "bidirectional",
-        trigger_mode: eventProvider ? "event" : triggerMode,
+        trigger_mode: eventProvider ? triggerMode || "scheduled" : triggerMode,
         status: "active",
       };
       return api.createRepositorySource(repositoryId, input);
@@ -769,6 +849,8 @@ function ConnectSourceDialog({
                 aria-pressed={provider === item.id}
                 onClick={() => {
                   setProvider(item.id);
+                  setConnectionID("");
+                  setSelectedDriveFile("");
                   setExternalRepository("");
                   setFormError(undefined);
                   if (item.id === "slack" || item.id === "devrev") {
@@ -776,7 +858,7 @@ function ConnectSourceDialog({
                     setIncludes("");
                     setExcludes("");
                     setDirection("import");
-                    setTriggerMode("event");
+                    setTriggerMode("scheduled");
                   } else if (item.id === "github") {
                     setBranch("main");
                     setIncludes("docs/**\nREADME.md");
@@ -801,18 +883,109 @@ function ConnectSourceDialog({
             ))}
           </div>
 
+          {connectedProvider ? (
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/35 p-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="source-connection">Connected account</Label>
+                <select
+                  id="source-connection"
+                  value={connectionID}
+                  onChange={(event) => setConnectionID(event.target.value)}
+                  disabled={connectionsLoading || connectionsError}
+                  required
+                  className="h-9 w-full rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm disabled:opacity-50"
+                >
+                  <option value="">
+                    {connectionsLoading
+                      ? "Loading your accounts…"
+                      : usableConnections.length
+                        ? `Choose a ${selected.label} account`
+                        : `No usable ${selected.label} account connected`}
+                  </option>
+                  {providerConnections.map((connection) => (
+                    <option
+                      key={connection.id}
+                      value={connection.id}
+                      disabled={!isUsableConnectedAccount(connection)}
+                    >
+                      {connectedAccountLabel(connection)}
+                      {connectedAccountContext(connection) !==
+                      connectedAccountLabel(connection)
+                        ? ` · ${connectedAccountContext(connection)}`
+                        : ""}
+                      {!isUsableConnectedAccount(connection)
+                        ? ` · ${connection.status.replaceAll("_", " ")}`
+                        : connection.status === "demo"
+                          ? " · local demo"
+                          : ""}
+                    </option>
+                  ))}
+                </select>
+                {connectionsError ? (
+                  <p className="text-xs text-[var(--color-danger)]">
+                    Could not load your connected accounts. Refresh and try again.
+                  </p>
+                ) : (
+                  <p className="text-xs leading-5 text-[var(--color-fg-muted)]">
+                    {usableConnections.length ? (
+                      <>
+                        This source uses your access. You can manage accounts in{" "}
+                        <Link
+                          to="/app/settings/connections"
+                          className="font-medium text-[var(--color-fg)] underline-offset-2 hover:underline"
+                        >
+                          personal settings
+                        </Link>
+                        .
+                      </>
+                    ) : (
+                      <>
+                        <Link
+                          to="/app/settings/connections"
+                          className="font-medium text-[var(--color-accent)] underline-offset-2 hover:underline"
+                        >
+                          Connect {selected.label}
+                        </Link>{" "}
+                        first, then return here to choose the account.
+                      </>
+                    )}
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5 sm:col-span-2">
-              <Label htmlFor="source-location">{locationCopy.label}</Label>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label htmlFor="source-location">{locationCopy.label}</Label>
+                {provider === "google_drive" &&
+                selectedConnection &&
+                selectedConnection.status !== "demo" ? (
+                  <GoogleDrivePickerButton
+                    connectionId={selectedConnection.id}
+                    onPick={(location, name) => {
+                      setExternalRepository(location);
+                      setSelectedDriveFile(name || "Selected Drive file");
+                    }}
+                  />
+                ) : null}
+              </div>
               <Input
                 id="source-location"
                 value={externalRepository}
-                onChange={(event) => setExternalRepository(event.target.value)}
+                onChange={(event) => {
+                  setExternalRepository(event.target.value);
+                  setSelectedDriveFile("");
+                }}
                 placeholder={locationCopy.placeholder}
                 required={provider !== "manual"}
               />
               <p className="text-xs leading-5 text-[var(--color-fg-muted)]">
-                {locationCopy.hint}
+                {selectedDriveFile ? `Selected: ${selectedDriveFile}. ` : null}
+                {provider === "google_drive" && selectedConnection?.status === "demo"
+                  ? "Local demo: paste any Drive file URL to exercise the source review flow."
+                  : locationCopy.hint}
               </p>
             </div>
             {isGitProvider(provider) ? (
@@ -910,11 +1083,9 @@ function ConnectSourceDialog({
                   >
                     {isGitProvider(provider) ? (
                       <>
-                        <option value="default_branch">
-                          Default branch updates (webhook)
-                        </option>
+                        <option value="default_branch">Default branch updates</option>
                         <option value="merged_pull_requests">
-                          Merged pull requests (webhook)
+                          Merged pull requests
                         </option>
                       </>
                     ) : null}
@@ -925,11 +1096,11 @@ function ConnectSourceDialog({
               </>
             ) : (
               <div className="sm:col-span-2 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-muted)]/55 p-3">
-                <p className="text-sm font-medium">Event-driven import</p>
+                <p className="text-sm font-medium">Synced import</p>
                 <p className="mt-1 text-xs leading-5 text-[var(--color-fg-muted)]">
                   {provider === "slack"
-                    ? "New messages and replies in this thread scope are detected by the Slack webhook. A change is proposed in aidocs for review."
-                    : "Ticket changes received by the DevRev webhook are proposed in aidocs for review."}
+                    ? "Sync the selected Slack thread now or through scheduled checks. Changes are proposed in aidocs for review."
+                    : "Sync this DevRev ticket now or through scheduled checks. Changes are proposed in aidocs for review."}
                 </p>
               </div>
             )}
@@ -943,7 +1114,14 @@ function ConnectSourceDialog({
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
-            <Button type="submit" disabled={create.isPending}>
+            <Button
+              type="submit"
+              disabled={
+                create.isPending ||
+                (connectedProvider &&
+                  (!connectionID || connectionsLoading || connectionsError))
+              }
+            >
               {create.isPending ? "Connecting…" : `Connect ${selected.label}`}
             </Button>
           </DialogFooter>
@@ -964,9 +1142,15 @@ function SourceFact({ label, value }: { label: string; value: string }) {
 
 function StatusBadge({ status }: { status: string }) {
   const normalized = status.toLowerCase();
-  const positive = ["ready", "fresh", "success", "completed", "connected"].some(
-    (value) => normalized.includes(value),
-  );
+  const positive = [
+    "ready",
+    "fresh",
+    "success",
+    "completed",
+    "connected",
+    "active",
+    "demo",
+  ].some((value) => normalized.includes(value));
   const negative = ["failed", "error", "stale", "disconnected"].some((value) =>
     normalized.includes(value),
   );
@@ -1002,21 +1186,21 @@ function sourceLocationCopy(provider: RepositorySourceProvider) {
       };
     case "slack":
       return {
-        label: "Slack workspace, channel, and optional thread",
-        placeholder: "T0123/C0456 or T0123/C0456/1712345678.000100",
-        hint: "Use WORKSPACE_ID/CHANNEL_ID to follow every thread in a channel. Add /THREAD_TS to follow only one thread.",
+        label: "Slack thread URL",
+        placeholder: "Paste a Slack thread link",
+        hint: "Open the thread in Slack, copy its link, and paste it here. The selected account must be able to read it.",
       };
     case "devrev":
       return {
-        label: "DevRev webhook or ticket",
-        placeholder: "Webhook ID or TKT-123",
-        hint: "Use a webhook ID to follow its ticket events, or a ticket ID/DON to keep one ticket connected.",
+        label: "DevRev ticket",
+        placeholder: "TKT-123 or a DevRev ticket URL",
+        hint: "Paste a ticket ID or link that the selected DevRev account can access.",
       };
     case "google_drive":
       return {
-        label: "Google Drive folder or document URL",
-        placeholder: "Paste a Drive folder or Google Doc URL",
-        hint: "Choose the Drive location whose approved content should stay connected.",
+        label: "Google Drive file",
+        placeholder: "Choose a Drive file or paste an already granted file URL",
+        hint: "Choose from Drive to grant access. A pasted URL works only when this aidocs connection already has access to that file.",
       };
     case "confluence":
       return {

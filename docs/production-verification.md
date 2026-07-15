@@ -32,9 +32,9 @@ an inaccessible base image, failed build, or failed restricted-container
 assertion fails the run.
 
 Required local tools are Docker, Go, Node/npm, Helm, `curl`, `jq`, `psql`,
-OpenSSL, `shasum`, and Python 3. The script fails before changing anything if a
-dependency is missing or Docker is unavailable. Temporary containers, network,
-database, objects, binary, and logs are removed on exit.
+OpenSSL, `shasum`, `od`, and Python 3. The script fails before changing anything
+if a dependency is missing or Docker is unavailable. Temporary containers,
+network, database, objects, binary, and logs are removed on exit.
 
 The PostgreSQL, MinIO, MinIO client, and local Dex identity-provider images are
 pinned by digest so a passing run is reproducible. The verifier uses Dex to
@@ -56,9 +56,10 @@ after a failure for inspection. The script prints their names and temp path.
 ## What a passing run proves
 
 - The production React build is embedded in the production Go server binary.
-- The Helm chart lints, renders, and wires OIDC, database, blob, GitHub, Slack,
-  and DevRev configuration into the Deployment.
-- A fresh database reaches migration version 24 or newer.
+- The Helm chart lints, renders, and wires OIDC, database, blob, personal
+  connection OAuth/encryption/Picker, source polling, and legacy webhook
+  configuration into the Deployment.
+- A fresh database reaches migration version 25 or newer.
 - Readiness verifies both PostgreSQL and blob storage; it fails closed when
   MinIO is paused and recovers when storage returns.
 - A local Dex provider completes OIDC discovery, browser authorization-code
@@ -76,8 +77,17 @@ after a failure for inspection. The script prints their names and temp path.
 - Correctly signed Slack and DevRev events are accepted, durably queued, and
   converted into reviewable aidocs pull requests containing the external text.
 - Duplicate deliveries are idempotent and stale signed deliveries are rejected.
-- Repositories, document heads, source connections, sync state, and S3 content
-  remain correct after a full server restart.
+- A current-shape fake DevRev API validates a per-user PAT with
+  `POST /auth-tokens.info` and supplies a ticket through `POST /works.get`.
+- The DevRev PAT is absent from API responses, generated documents, pull
+  requests, and logs. PostgreSQL stores ciphertext that does not contain the
+  plaintext token.
+- A linked personal DevRev source creates a text-only documentation pull
+  request through **Sync now**. After a full server restart, the account remains
+  connected, its ciphertext is unchanged, and the same encrypted PAT produces
+  a deterministic no-op sync.
+- Repositories, document heads, legacy and personal source connections, sync
+  state, and S3 content remain correct after that restart.
 - No source run remains stuck in `queued` or `processing` state.
 
 With `make verify-production-image`, a passing run additionally proves:
@@ -85,6 +95,11 @@ With `make verify-production-image`, a passing run additionally proves:
 - The exact Dockerfile artifact starts and serves its embedded frontend while
   running as UID/GID `65532`, with all Linux capabilities dropped, privilege
   escalation disabled, and the root filesystem read-only.
+- The image starts with the production connection-encryption and polling
+  settings and lists the same persisted personal DevRev account without
+  exposing its PAT. Provider validation and post-restart decryption/sync are
+  exercised by the host-built production command because the disposable fake
+  provider listens on the host loopback interface.
 - The container has only the bounded writable `/tmp` used by the Helm chart.
 - A two-file multipart import above Go's 8 MiB in-memory parsing threshold
   succeeds, proving production tempfile spill works under those restrictions;

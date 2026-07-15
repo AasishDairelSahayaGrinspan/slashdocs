@@ -37,9 +37,14 @@ OIDC_EMAIL="verification-user@example.com"
 OIDC_PASSWORD="password"
 OIDC_PASSWORD_HASH='$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W'
 SERVER_PID=""
+DEVREV_FIXTURE_PID=""
 SERVER_BIN="$TMP_ROOT/aidocs-server"
 SERVER_LOG="$TMP_ROOT/aidocs-server.log"
+DEVREV_FIXTURE_LOG="$TMP_ROOT/devrev-fixture.log"
 DEX_CONFIG="$TMP_ROOT/dex-config.yaml"
+DEVREV_PAT="devrev-pat-${RUN_ID}-plaintext-sentinel"
+CONNECTION_ENCRYPTION_KEY="MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+PERSONAL_CONNECTIONS_ENABLED=0
 
 say() {
 	printf '\n==> %s\n' "$*"
@@ -59,6 +64,10 @@ fail() {
 		printf '%s\n' '--- Dex log (last 120 lines) ---' >&2
 		docker logs --tail 120 "$DEX_NAME" >&2 || true
 	fi
+	if [[ -f "$DEVREV_FIXTURE_LOG" ]]; then
+		printf '%s\n' '--- fake DevRev log (last 120 lines) ---' >&2
+		tail -n 120 "$DEVREV_FIXTURE_LOG" >&2 || true
+	fi
 	exit 1
 }
 
@@ -74,12 +83,21 @@ stop_server() {
 	SERVER_PID=""
 }
 
+stop_devrev_fixture() {
+	if [[ -n "$DEVREV_FIXTURE_PID" ]] && kill -0 "$DEVREV_FIXTURE_PID" 2>/dev/null; then
+		kill "$DEVREV_FIXTURE_PID" 2>/dev/null || true
+		wait "$DEVREV_FIXTURE_PID" 2>/dev/null || true
+	fi
+	DEVREV_FIXTURE_PID=""
+}
+
 cleanup() {
 	local status=$?
 	stop_server
+	stop_devrev_fixture
 	if [[ "$KEEP" == "1" ]]; then
 		printf 'production verification: keeping resources for inspection\n' >&2
-		printf '  temp: %s\n  postgres: %s\n  minio: %s\n  dex: %s\n  image container: %s\n  image: %s\n  network: %s\n' "$TMP_ROOT" "$POSTGRES_NAME" "$MINIO_NAME" "$DEX_NAME" "$IMAGE_NAME" "$IMAGE_TAG" "$NETWORK_NAME" >&2
+		printf '  temp: %s\n  postgres: %s\n  minio: %s\n  dex: %s\n  fake DevRev log: %s\n  image container: %s\n  image: %s\n  network: %s\n' "$TMP_ROOT" "$POSTGRES_NAME" "$MINIO_NAME" "$DEX_NAME" "$DEVREV_FIXTURE_LOG" "$IMAGE_NAME" "$IMAGE_TAG" "$NETWORK_NAME" >&2
 	else
 		docker unpause "$MINIO_NAME" >/dev/null 2>&1 || true
 		docker rm -f "$IMAGE_NAME" "$DEX_NAME" "$MINIO_NAME" "$POSTGRES_NAME" >/dev/null 2>&1 || true
@@ -125,9 +143,11 @@ expect_http() {
 
 assert_json() {
 	local file="$1"
-	local expression="$2"
-	jq -e "$expression" "$file" >/dev/null || {
-		printf '%s\n' "--- JSON assertion failed: $expression ---" >&2
+	shift
+	jq -e "$@" "$file" >/dev/null || {
+		printf '%s' '--- JSON assertion failed:' >&2
+		printf ' %q' "$@" >&2
+		printf '%s\n' ' ---' >&2
 		cat "$file" >&2
 		fail "JSON assertion failed"
 	}
@@ -224,9 +244,104 @@ staticPasswords:
 EOF
 }
 
+start_devrev_fixture() {
+	: >"$DEVREV_FIXTURE_LOG"
+	DEVREV_FIXTURE_PAT="$DEVREV_PAT" python3 -u - "$DEVREV_FIXTURE_PORT" >"$DEVREV_FIXTURE_LOG" 2>&1 <<'PY' &
+import json
+import os
+import sys
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
+port = int(sys.argv[1])
+expected_token = os.environ["DEVREV_FIXTURE_PAT"]
+
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, format, *args):
+        # Keep diagnostics useful without ever logging Authorization headers.
+        sys.stderr.write("fake DevRev: %s %s\n" % (self.command, self.path))
+
+    def send_json(self, status, payload):
+        raw = json.dumps(payload, separators=(",", ":")).encode()
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(raw)))
+        self.end_headers()
+        self.wfile.write(raw)
+
+    def read_json(self):
+        length = int(self.headers.get("Content-Length", "0"))
+        return json.loads(self.rfile.read(length) or b"{}")
+
+    def do_GET(self):
+        if self.path == "/readyz":
+            self.send_json(200, {"status": "ok"})
+            return
+        self.send_json(404, {"error": "not_found"})
+
+    def do_POST(self):
+        if self.headers.get("Authorization") != "Bearer " + expected_token:
+            self.send_json(401, {"error": "unauthorized"})
+            return
+        try:
+            payload = self.read_json()
+        except (ValueError, json.JSONDecodeError):
+            self.send_json(400, {"error": "invalid_json"})
+            return
+        if self.path == "/auth-tokens.info":
+            if payload != {}:
+                self.send_json(400, {"error": "unexpected_body"})
+                return
+            self.send_json(200, {
+                "organization": {
+                    "id": "don:identity:dvrv-us-1:devo/verify",
+                    "display_id": "DEV-VERIFY",
+                    "slug": "aidocs-production-verification",
+                },
+                "token": {"expiry": 4102444800},
+                "user": {
+                    "id": "don:identity:dvrv-us-1:devu/verify",
+                    "display_name": "DevRev Verification User",
+                    "full_name": "DevRev Verification User",
+                    "email": "verification-user@example.com",
+                },
+            })
+            return
+        if self.path == "/works.get":
+            if payload != {"id": "TKT-9001"}:
+                self.send_json(400, {"error": "unexpected_work"})
+                return
+            self.send_json(200, {"work": {
+                "id": "don:core:dvrv-us-1:devo/verify:ticket/9001",
+                "display_id": "TKT-9001",
+                "type": "ticket",
+                "title": "Personal DevRev knowledge is stale",
+                "body": "Refresh the settlement recovery steps from the linked ticket.",
+                "state": "open",
+                "modified_date": "2026-07-15T12:00:00Z",
+                "web_url": "https://app.devrev.example/tickets/TKT-9001",
+            }})
+            return
+        self.send_json(404, {"error": "not_found"})
+
+
+HTTPServer(("127.0.0.1", port), Handler).serve_forever()
+PY
+	DEVREV_FIXTURE_PID=$!
+	wait_for "fake DevRev provider" curl --fail --silent "$DEVREV_FIXTURE_URL/readyz"
+}
+
 start_server() {
+	local connection_encryption_key=""
+	local devrev_api_base_url=""
+	if [[ "$PERSONAL_CONNECTIONS_ENABLED" == "1" ]]; then
+		connection_encryption_key="$CONNECTION_ENCRYPTION_KEY"
+		devrev_api_base_url="$DEVREV_FIXTURE_URL"
+	fi
 	: >"$SERVER_LOG"
 	env \
+		AIDOCS_CONNECTION_ENCRYPTION_KEY="$connection_encryption_key" \
+		AIDOCS_DEVREV_API_BASE_URL="$devrev_api_base_url" \
 		DATABASE_URL="$DATABASE_URL" \
 		BLOB_BUCKET="$BLOB_BUCKET" \
 		BLOB_REGION="us-east-1" \
@@ -242,6 +357,7 @@ start_server() {
 		AIDOCS_ORG_DOMAINS="example.com" \
 		AIDOCS_ORG_NAME="Production Verification" \
 		AIDOCS_MIGRATE="true" \
+		AIDOCS_SOURCE_POLL_INTERVAL="0" \
 		AIDOCS_OIDC_ISSUER_URL="$OIDC_ISSUER" \
 		AIDOCS_OIDC_CLIENT_ID="aidocs-production-verification" \
 		AIDOCS_OIDC_CLIENT_SECRET="aidocs-production-verification-oidc-secret" \
@@ -255,7 +371,7 @@ start_server() {
 	wait_for "production server readiness" curl --fail --silent "$BASE_URL/readyz"
 }
 
-for command in docker curl jq psql openssl shasum go npm helm python3; do
+for command in docker curl jq psql openssl shasum go npm helm python3 od; do
 	require_command "$command"
 done
 docker info >/dev/null 2>&1 || fail "Docker is installed but its daemon is unavailable"
@@ -267,9 +383,12 @@ mkdir -p "$TMP_ROOT/import/handbook/runbooks"
 APP_PORT="$(free_port)"
 METRICS_PORT="$(free_port)"
 OIDC_PORT="$(free_port)"
+DEVREV_FIXTURE_PORT="$(free_port)"
 BASE_URL="http://127.0.0.1:$APP_PORT"
 OIDC_ISSUER="http://127.0.0.1:$OIDC_PORT/dex"
+DEVREV_FIXTURE_URL="http://127.0.0.1:$DEVREV_FIXTURE_PORT"
 write_dex_config
+start_devrev_fixture
 
 say "Build the exact production frontend and server command"
 (
@@ -302,13 +421,24 @@ HELM_ARGS=(
 	--set-string blob.bucket=aidocs-verification
 	--set-string blob.accessKeyID=verification-access-key
 	--set-string blob.secretAccessKey=verification-secret-key
+	--set-string personalConnections.encryption.key=MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=
+	--set-string personalConnections.github.clientID=github-oauth-verification-id
+	--set-string personalConnections.github.clientSecret=github-oauth-verification-secret
+	--set-string personalConnections.slack.clientID=slack-oauth-verification-id
+	--set-string personalConnections.slack.clientSecret=slack-oauth-verification-secret
+	--set-string personalConnections.googleDrive.clientID=google-drive-oauth-verification-id
+	--set-string personalConnections.googleDrive.clientSecret=google-drive-oauth-verification-secret
+	--set-string personalConnections.googlePicker.apiKey=google-picker-verification-key
+	--set-string personalConnections.googlePicker.appID=123456789012
+	--set-string personalConnections.devRev.apiBaseURL=https://api.devrev.example
+	--set-string connectedKnowledge.pollInterval=30m
 	--set-string connectedKnowledge.githubWebhookSecret=github-verification-secret
 	--set-string connectedKnowledge.slackSigningSecret=slack-verification-secret
 	--set-string connectedKnowledge.devRevWebhookSecret=devrev-verification-secret
 )
 helm lint "$ROOT_DIR/charts/aidocs" "${HELM_ARGS[@]}"
 helm template aidocs "$ROOT_DIR/charts/aidocs" "${HELM_ARGS[@]}" >"$TMP_ROOT/helm-rendered.yaml"
-for env_name in DATABASE_URL BLOB_BUCKET AIDOCS_OIDC_ISSUER_URL AIDOCS_OIDC_INTERNAL_ISSUER_URL AIDOCS_OIDC_PROVIDER_NAME AIDOCS_OIDC_CLIENT_ID AIDOCS_OIDC_CLIENT_SECRET AIDOCS_GITHUB_WEBHOOK_SECRET AIDOCS_SLACK_SIGNING_SECRET AIDOCS_DEVREV_WEBHOOK_SECRET; do
+for env_name in DATABASE_URL BLOB_BUCKET AIDOCS_OIDC_ISSUER_URL AIDOCS_OIDC_INTERNAL_ISSUER_URL AIDOCS_OIDC_PROVIDER_NAME AIDOCS_OIDC_CLIENT_ID AIDOCS_OIDC_CLIENT_SECRET AIDOCS_SOURCE_POLL_INTERVAL AIDOCS_CONNECTION_ENCRYPTION_KEY AIDOCS_GITHUB_OAUTH_CLIENT_ID AIDOCS_GITHUB_OAUTH_CLIENT_SECRET AIDOCS_SLACK_OAUTH_CLIENT_ID AIDOCS_SLACK_OAUTH_CLIENT_SECRET AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_ID AIDOCS_GOOGLE_DRIVE_OAUTH_CLIENT_SECRET AIDOCS_GOOGLE_PICKER_API_KEY AIDOCS_GOOGLE_PICKER_APP_ID AIDOCS_DEVREV_API_BASE_URL AIDOCS_GITHUB_WEBHOOK_SECRET AIDOCS_SLACK_SIGNING_SECRET AIDOCS_DEVREV_WEBHOOK_SECRET; do
 	grep -q "name: $env_name" "$TMP_ROOT/helm-rendered.yaml" || fail "Helm deployment does not wire $env_name"
 done
 
@@ -603,11 +733,89 @@ expect_http 200 "$TMP_ROOT/devrev-merged.json" \
 	-X POST "$BASE_URL/v1/repositories/$REPOSITORY_ID/pull-requests/$DEVREV_PR_NUMBER/merge" \
 	-H "Authorization: Bearer $OWNER_TOKEN"
 
+say "Connect a personal DevRev account, verify encrypted persistence, and Sync now to a text PR"
+# Keep the preceding unlinked webhook sources as a compatibility proof. Enable
+# personal credential storage only after those legacy paths have run.
+stop_server
+PERSONAL_CONNECTIONS_ENABLED=1
+start_server
+jq -n --arg token "$DEVREV_PAT" '{personal_access_token:$token}' >"$TMP_ROOT/connect-personal-devrev.json"
+expect_http 201 "$TMP_ROOT/personal-devrev-connection.json" \
+	-X POST "$BASE_URL/v1/connections/devrev" \
+	-H "Authorization: Bearer $OWNER_TOKEN" -H 'Content-Type: application/json' \
+	--data-binary "@$TMP_ROOT/connect-personal-devrev.json"
+assert_json "$TMP_ROOT/personal-devrev-connection.json" '.provider == "devrev" and .status == "active" and .display_name == "DevRev Verification User" and .workspace_name == "aidocs-production-verification" and .id != ""'
+if grep -Fq -- "$DEVREV_PAT" "$TMP_ROOT/personal-devrev-connection.json"; then
+	fail "DevRev connection API response exposed the personal access token"
+fi
+PERSONAL_DEVREV_CONNECTION_ID="$(jq -er '.id' "$TMP_ROOT/personal-devrev-connection.json")"
+owner_get "$TMP_ROOT/connections-before-restart.json" "/v1/connections"
+assert_json "$TMP_ROOT/connections-before-restart.json" --arg id "$PERSONAL_DEVREV_CONNECTION_ID" '([.connections[] | select(.id == $id and .provider == "devrev" and .status == "active")] | length) == 1'
+if grep -Fq -- "$DEVREV_PAT" "$TMP_ROOT/connections-before-restart.json"; then
+	fail "connected-account list exposed the DevRev personal access token"
+fi
+
+PERSONAL_DEVREV_CIPHERTEXT="$(psql "$DATABASE_URL" -Atqc "SELECT encode(credential_ciphertext,'hex') FROM connected_accounts WHERE id='$PERSONAL_DEVREV_CONNECTION_ID'")"
+[[ ${#PERSONAL_DEVREV_CIPHERTEXT} -gt 64 ]] || fail "DevRev credential ciphertext was not persisted"
+PERSONAL_DEVREV_PAT_HEX="$(printf '%s' "$DEVREV_PAT" | od -An -v -tx1 | tr -d ' \n')"
+PERSONAL_DEVREV_PLAINTEXT_POSITION="$(psql "$DATABASE_URL" -Atqc "SELECT position(decode('$PERSONAL_DEVREV_PAT_HEX','hex') in credential_ciphertext) FROM connected_accounts WHERE id='$PERSONAL_DEVREV_CONNECTION_ID'")"
+[[ "$PERSONAL_DEVREV_PLAINTEXT_POSITION" == "0" ]] || fail "DevRev credential ciphertext contains the plaintext PAT"
+PERSONAL_DEVREV_ACCOUNT_TEXT="$(psql "$DATABASE_URL" -Atqc "SELECT concat_ws('|',id,user_id,provider,external_account_id,display_name,workspace_id,workspace_name,scopes::text,status,coalesce(expires_at::text,'')) FROM connected_accounts WHERE id='$PERSONAL_DEVREV_CONNECTION_ID'")"
+if grep -Fq -- "$DEVREV_PAT" <<<"$PERSONAL_DEVREV_ACCOUNT_TEXT"; then
+	fail "DevRev PAT was persisted in a connected-account text column"
+fi
+
+jq -n \
+	--arg connection "$PERSONAL_DEVREV_CONNECTION_ID" \
+	--arg document "$DOCUMENT_ID" \
+	'{connection_id:$connection,provider:"devrev",external_repository:"TKT-9001",target_document_id:$document,trigger_mode:"manual",direction:"into_aidocs"}' \
+	>"$TMP_ROOT/create-personal-devrev-source.json"
+expect_http 201 "$TMP_ROOT/personal-devrev-source.json" \
+	-X POST "$BASE_URL/v1/repositories/$REPOSITORY_ID/sources" \
+	-H "Authorization: Bearer $OWNER_TOKEN" -H 'Content-Type: application/json' \
+	--data-binary "@$TMP_ROOT/create-personal-devrev-source.json"
+assert_json "$TMP_ROOT/personal-devrev-source.json" --arg connection "$PERSONAL_DEVREV_CONNECTION_ID" '.provider == "devrev" and .connection_id == $connection and .connection.status == "active"'
+PERSONAL_DEVREV_SOURCE_ID="$(jq -er '.id' "$TMP_ROOT/personal-devrev-source.json")"
+expect_http 200 "$TMP_ROOT/personal-devrev-sync.json" \
+	-X POST "$BASE_URL/v1/repositories/$REPOSITORY_ID/sources/$PERSONAL_DEVREV_SOURCE_ID/check" \
+	-H "Authorization: Bearer $OWNER_TOKEN" -H 'Content-Type: application/json' --data '{}'
+assert_json "$TMP_ROOT/personal-devrev-sync.json" '.outcome == "pull_request_opened" and (.after_sha | startswith("sha256:")) and .changed_files == ["devrev/works/TKT-9001.txt"]'
+PERSONAL_DEVREV_REVISION="$(jq -er '.after_sha' "$TMP_ROOT/personal-devrev-sync.json")"
+PERSONAL_DEVREV_PR_NUMBER="$(jq -er '.pull_request_number' "$TMP_ROOT/personal-devrev-sync.json")"
+owner_get "$TMP_ROOT/personal-devrev-pr.json" "/v1/repositories/$REPOSITORY_ID/pull-requests/$PERSONAL_DEVREV_PR_NUMBER"
+PERSONAL_DEVREV_HEAD_VERSION="$(jq -er '.changes[0].head_version_id' "$TMP_ROOT/personal-devrev-pr.json")"
+owner_get "$TMP_ROOT/personal-devrev-proposal.html" "/v1/documents/$DOCUMENT_ID/versions/$PERSONAL_DEVREV_HEAD_VERSION/html"
+grep -q 'Personal DevRev knowledge is stale' "$TMP_ROOT/personal-devrev-proposal.html" || fail "personal DevRev PR did not contain the ticket title"
+grep -q 'Refresh the settlement recovery steps' "$TMP_ROOT/personal-devrev-proposal.html" || fail "personal DevRev PR did not contain the ticket body"
+for output in "$TMP_ROOT/personal-devrev-source.json" "$TMP_ROOT/personal-devrev-sync.json" "$TMP_ROOT/personal-devrev-pr.json" "$TMP_ROOT/personal-devrev-proposal.html" "$SERVER_LOG" "$DEVREV_FIXTURE_LOG"; do
+	if grep -Fq -- "$DEVREV_PAT" "$output"; then
+		fail "personal DevRev PAT leaked into $(basename "$output")"
+	fi
+done
+grep -q 'POST /auth-tokens.info' "$DEVREV_FIXTURE_LOG" || fail "personal DevRev connection did not validate the PAT"
+grep -q 'POST /works.get' "$DEVREV_FIXTURE_LOG" || fail "personal DevRev Sync now did not inspect the work item"
+
 say "Restart the production server and prove PostgreSQL/S3 persistence"
 owner_get "$TMP_ROOT/document-before-restart.json" "/v1/documents/$DOCUMENT_ID"
 FINAL_VERSION_ID="$(jq -er '.current_version_id' "$TMP_ROOT/document-before-restart.json")"
 stop_server
 start_server
+owner_get "$TMP_ROOT/connections-after-restart.json" "/v1/connections"
+assert_json "$TMP_ROOT/connections-after-restart.json" --arg id "$PERSONAL_DEVREV_CONNECTION_ID" '([.connections[] | select(.id == $id and .provider == "devrev" and .status == "active")] | length) == 1'
+if grep -Fq -- "$DEVREV_PAT" "$TMP_ROOT/connections-after-restart.json"; then
+	fail "restarted connected-account list exposed the DevRev personal access token"
+fi
+PERSONAL_DEVREV_CIPHERTEXT_AFTER_RESTART="$(psql "$DATABASE_URL" -Atqc "SELECT encode(credential_ciphertext,'hex') FROM connected_accounts WHERE id='$PERSONAL_DEVREV_CONNECTION_ID'")"
+[[ "$PERSONAL_DEVREV_CIPHERTEXT_AFTER_RESTART" == "$PERSONAL_DEVREV_CIPHERTEXT" ]] || fail "DevRev credential ciphertext changed across restart"
+expect_http 200 "$TMP_ROOT/personal-devrev-sync-after-restart.json" \
+	-X POST "$BASE_URL/v1/repositories/$REPOSITORY_ID/sources/$PERSONAL_DEVREV_SOURCE_ID/check" \
+	-H "Authorization: Bearer $OWNER_TOKEN" -H 'Content-Type: application/json' --data '{}'
+assert_json "$TMP_ROOT/personal-devrev-sync-after-restart.json" --arg revision "$PERSONAL_DEVREV_REVISION" '.outcome == "no_op" and .after_sha == $revision'
+for output in "$TMP_ROOT/connections-after-restart.json" "$TMP_ROOT/personal-devrev-sync-after-restart.json" "$SERVER_LOG" "$DEVREV_FIXTURE_LOG"; do
+	if grep -Fq -- "$DEVREV_PAT" "$output"; then
+		fail "post-restart DevRev flow exposed the personal access token in $(basename "$output")"
+	fi
+done
 owner_get "$TMP_ROOT/repository-after-restart.json" "/v1/repositories/$REPOSITORY_ID"
 assert_json "$TMP_ROOT/repository-after-restart.json" '.slug == "production-handbook" and .scope == "organization"'
 owner_get "$TMP_ROOT/document-after-restart.json" "/v1/documents/$DOCUMENT_ID"
@@ -616,14 +824,14 @@ owner_get "$TMP_ROOT/final-html.html" "/v1/documents/$DOCUMENT_ID/versions/$FINA
 grep -q 'Settlement reconciliation changed' "$TMP_ROOT/final-html.html" || fail "Slack context did not persist across restart"
 grep -q 'Settlement runbook is stale' "$TMP_ROOT/final-html.html" || fail "DevRev context did not persist across restart"
 owner_get "$TMP_ROOT/sources-after-restart.json" "/v1/repositories/$REPOSITORY_ID/sources"
-assert_json "$TMP_ROOT/sources-after-restart.json" '([.items[] | select(.provider == "slack")] | length) == 1 and ([.items[] | select(.provider == "devrev")] | length) == 1 and ([.items[] | select(.provider == "gitlab" or .provider == "bitbucket")] | length) == 0'
+assert_json "$TMP_ROOT/sources-after-restart.json" --arg connection "$PERSONAL_DEVREV_CONNECTION_ID" '([.items[] | select(.provider == "slack")] | length) == 1 and ([.items[] | select(.provider == "devrev")] | length) == 2 and ([.items[] | select(.connection_id == $connection)] | length) == 1 and ([.items[] | select(.provider == "gitlab" or .provider == "bitbucket")] | length) == 0'
 
 MIGRATION_VERSION="$(psql "$DATABASE_URL" -Atqc 'SELECT max(version_id) FROM goose_db_version WHERE is_applied')"
-[[ "$MIGRATION_VERSION" -ge 24 ]] || fail "expected repository and integrity migrations, got $MIGRATION_VERSION"
+[[ "$MIGRATION_VERSION" -ge 25 ]] || fail "expected repository, integrity, and connected-account migrations, got $MIGRATION_VERSION"
 STUCK_RUNS="$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM connected_knowledge_records WHERE kind='sync_run' AND payload->>'status' IN ('queued','processing')")"
 [[ "$STUCK_RUNS" == "0" ]] || fail "$STUCK_RUNS durable sync runs remained stuck"
 SOURCE_COUNT="$(psql "$DATABASE_URL" -Atqc "SELECT count(*) FROM connected_knowledge_records WHERE kind='source' AND repository_id='$REPOSITORY_ID'")"
-[[ "$SOURCE_COUNT" == "2" ]] || fail "expected 2 persisted connected sources, got $SOURCE_COUNT"
+[[ "$SOURCE_COUNT" == "3" ]] || fail "expected 3 persisted connected sources, got $SOURCE_COUNT"
 OBJECT_COUNT="$(minio_object_count)"
 [[ "$OBJECT_COUNT" -ge 6 ]] || fail "expected immutable version objects in S3, got $OBJECT_COUNT"
 
@@ -667,6 +875,8 @@ if [[ "$VERIFY_IMAGE" == "1" ]]; then
 		--env AIDOCS_ORG_DOMAINS=example.com \
 		--env 'AIDOCS_ORG_NAME=Production Verification' \
 		--env AIDOCS_MIGRATE=true \
+		--env AIDOCS_SOURCE_POLL_INTERVAL=0 \
+		--env "AIDOCS_CONNECTION_ENCRYPTION_KEY=$CONNECTION_ENCRYPTION_KEY" \
 		--env "AIDOCS_OIDC_ISSUER_URL=$OIDC_ISSUER" \
 		--env "AIDOCS_OIDC_INTERNAL_ISSUER_URL=http://$DEX_NAME:5556/dex" \
 		--env AIDOCS_OIDC_CLIENT_ID=aidocs-production-verification \
@@ -688,6 +898,16 @@ if [[ "$VERIFY_IMAGE" == "1" ]]; then
 	expect_http 200 "$TMP_ROOT/image-repository.json" \
 		-H "Authorization: Bearer $OWNER_TOKEN" "$IMAGE_BASE_URL/v1/repositories/$REPOSITORY_ID"
 	assert_json "$TMP_ROOT/image-repository.json" '.slug == "production-handbook"'
+	expect_http 200 "$TMP_ROOT/image-connections.json" \
+		-H "Authorization: Bearer $OWNER_TOKEN" "$IMAGE_BASE_URL/v1/connections"
+	assert_json "$TMP_ROOT/image-connections.json" --arg id "$PERSONAL_DEVREV_CONNECTION_ID" '([.connections[] | select(.id == $id and .provider == "devrev" and .status == "active")] | length) == 1'
+	if grep -Fq -- "$DEVREV_PAT" "$TMP_ROOT/image-connections.json"; then
+		fail "actual image exposed the persisted DevRev personal access token"
+	fi
+	docker logs "$IMAGE_NAME" >"$TMP_ROOT/image-server.log" 2>&1
+	if grep -Fq -- "$DEVREV_PAT" "$TMP_ROOT/image-server.log"; then
+		fail "actual image logged the persisted DevRev personal access token"
+	fi
 
 	# ParseMultipartForm keeps only 8 MiB of file content in memory. These two
 	# files deliberately cross that aggregate threshold, proving the restricted
@@ -730,6 +950,7 @@ printf '\nproduction verification: PASS\n'
 printf '  repository: %s\n' "$REPOSITORY_ID"
 printf '  imported documents: 3\n'
 printf '  governed pull requests merged: 3\n'
+printf '  personal connected-account PR opened: 1\n'
 printf '  connected sources: %s\n' "$SOURCE_COUNT"
 printf '  immutable S3 objects: %s\n' "$OBJECT_COUNT"
 printf '  migration version: %s\n' "$MIGRATION_VERSION"
