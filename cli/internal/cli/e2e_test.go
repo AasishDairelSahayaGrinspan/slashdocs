@@ -3,7 +3,6 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
-	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -491,9 +490,6 @@ func jsonH(t *testing.T, v any) http.HandlerFunc {
 }
 func requireMultipart(t *testing.T, r *http.Request) {
 	t.Helper()
-	if _, ok := r.Body.(*multipart.Part); ok {
-		fmt.Println()
-	}
 	if err := r.ParseMultipartForm(32 << 20); err != nil { //nolint:gosec // The in-process fixture body is fixed and bounded by the test.
 		t.Fatalf("multipart: %v", err)
 	}

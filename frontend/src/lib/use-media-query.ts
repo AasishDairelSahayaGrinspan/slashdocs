@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
  * Subscribes to a CSS media query and returns whether it currently matches.
  * SSR-safe: defaults to `false` until mounted.
  */
-export function useMediaQuery(query: string): boolean {
+function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => {
     if (typeof window === "undefined") return false;
     return window.matchMedia(query).matches;
