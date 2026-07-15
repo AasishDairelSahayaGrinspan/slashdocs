@@ -117,7 +117,7 @@ func printPushedVersion(out io.Writer, g *globals, docID, server string, b []byt
 	url := browserURL(server, "/app/d/%s", docID)
 	if g.json {
 		m["url"] = url
-		m["message"] = orgWideViewerNudge(g, docID)
+		m["message"] = orgWideCommenterNudge(g, docID)
 		if value(m, "document_id") == nil {
 			m["document_id"] = docID
 		}
@@ -130,7 +130,7 @@ func printPushedVersion(out io.Writer, g *globals, docID, server string, b []byt
 	num := fmt.Sprint(value(m, "number"))
 	id := fmt.Sprint(value(m, "id"))
 	confirm(out, g, fmt.Sprintf("Pushed version %s (%s) to %s. Review it at %s", num, id, docID, url))
-	printOrgWideViewerNudge(out, g, docID)
+	printOrgWideCommenterNudge(out, g, docID)
 	return nil
 }
 

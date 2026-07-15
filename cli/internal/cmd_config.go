@@ -56,8 +56,8 @@ func serverConfigFor(g *globals) serverConfig {
 	return cfg
 }
 
-func maybeGrantOrgWideViewer(c *Client, docID string) (bool, error) {
-	if os.Getenv(orgWideViewerEnv) == "" {
+func maybeGrantOrgWideCommenter(c *Client, docID string) (bool, error) {
+	if os.Getenv(orgWideCommenterEnv) == "" {
 		return false, nil
 	}
 	_, err := c.doJSON("POST", apiPath("/v1/documents/%s/grants", docID), map[string]any{
@@ -67,7 +67,7 @@ func maybeGrantOrgWideViewer(c *Client, docID string) (bool, error) {
 	return true, err
 }
 
-func orgWideViewerNudge(g *globals, docID string) string {
+func orgWideCommenterNudge(g *globals, docID string) string {
 	if documentHasGrants(g, docID) {
 		return ""
 	}
@@ -78,11 +78,11 @@ func orgWideViewerNudge(g *globals, docID string) string {
 	return fmt.Sprintf("Give org-wide commenter access? We are transparent here at %s. You can do it with: aidocs docs grants add %s --everyone --role commenter", org, docID)
 }
 
-func printOrgWideViewerNudge(out io.Writer, g *globals, docID string) {
+func printOrgWideCommenterNudge(out io.Writer, g *globals, docID string) {
 	if g.quiet || g.json {
 		return
 	}
-	if nudge := orgWideViewerNudge(g, docID); nudge != "" {
+	if nudge := orgWideCommenterNudge(g, docID); nudge != "" {
 		fmt.Fprintln(out, nudge)
 	}
 }

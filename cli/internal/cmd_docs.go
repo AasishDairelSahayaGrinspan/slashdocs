@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const orgWideViewerEnv = "AIDOCS_ORG_WIDE_VIEWER_BY_DEFAULT"
+const orgWideCommenterEnv = "AIDOCS_ORG_WIDE_COMMENTER_BY_DEFAULT"
 
 func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
@@ -48,15 +48,15 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 			return nil
 		}
 		docURL := browserURL(cl.Base, "/app/d/%s", id)
-		sharedByDefault, err := maybeGrantOrgWideViewer(cl, id)
+		sharedByDefault, err := maybeGrantOrgWideCommenter(cl, id)
 		if err != nil {
 			return err
 		}
 		if g.json {
 			m["url"] = docURL
-			m["org_wide_viewer_granted"] = sharedByDefault
+			m["org_wide_commenter_granted"] = sharedByDefault
 			if !sharedByDefault {
-				m["message"] = orgWideViewerNudge(g, id)
+				m["message"] = orgWideCommenterNudge(g, id)
 			}
 			nb, err := json.Marshal(m)
 			if err != nil {
@@ -66,9 +66,9 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		}
 		confirm(out, g, fmt.Sprintf("Created document %q (%s). Review it at %s", title, id, docURL))
 		if sharedByDefault {
-			confirm(out, g, "Gave org-wide commenter access because "+orgWideViewerEnv+" is set.")
+			confirm(out, g, "Gave org-wide commenter access because "+orgWideCommenterEnv+" is set.")
 		} else {
-			printOrgWideViewerNudge(out, g, id)
+			printOrgWideCommenterNudge(out, g, id)
 		}
 		return nil
 	}}
@@ -81,9 +81,9 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		return action(g, out, func(c *Client) ([]byte, error) {
 			return c.doJSON("PATCH", apiPath("/v1/documents/%s", args[0]), map[string]any{"title": ut})
 		}, func(map[string]any) string { return "Renamed document " + args[0] + "." }, actionOptions{
-			after: func() { printOrgWideViewerNudge(out, g, args[0]) },
+			after: func() { printOrgWideCommenterNudge(out, g, args[0]) },
 			jsonFields: func() map[string]any {
-				return map[string]any{"message": orgWideViewerNudge(g, args[0])}
+				return map[string]any{"message": orgWideCommenterNudge(g, args[0])}
 			},
 		})
 	}}

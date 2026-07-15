@@ -285,7 +285,7 @@ func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 	}
 }
 
-func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
+func TestCreateCanGrantOrgWideCommenterByDefault(t *testing.T) {
 	granted := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
@@ -313,7 +313,7 @@ func TestCreateCanGrantOrgWideViewerByDefault(t *testing.T) {
 	t.Setenv("AIDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
-	t.Setenv(orgWideViewerEnv, "1")
+	t.Setenv(orgWideCommenterEnv, "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	os.WriteFile(html, []byte("<h1>x</h1>"), 0644)
 
