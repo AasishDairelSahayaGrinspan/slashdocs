@@ -180,6 +180,7 @@ func newBroker(ctx context.Context, cfg Config, source Source, listenerFactory L
 	if clock == nil {
 		clock = realEventClock{}
 	}
+	listenerFactory = normalizeListenerFactory(listenerFactory)
 
 	brokerCtx, cancel := context.WithCancel(ctx)
 	b := &Broker{
@@ -210,6 +211,16 @@ func newBroker(ctx context.Context, cfg Config, source Source, listenerFactory L
 		}()
 	}
 	return b, nil
+}
+
+// normalizeListenerFactory strips a nil *PostgresListenerFactory that was
+// boxed into a non-nil interface value. Without this, the nil-factory
+// fallback in startDelivery is defeated and Open dereferences a nil pointer.
+func normalizeListenerFactory(factory ListenerFactory) ListenerFactory {
+	if concrete, ok := factory.(*PostgresListenerFactory); ok && concrete == nil {
+		return nil
+	}
+	return factory
 }
 
 func (b *Broker) startDelivery(ctx context.Context) error {

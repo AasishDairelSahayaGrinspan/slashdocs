@@ -289,6 +289,32 @@ func TestBrokerForcedNotifyFailureAndAutoFallback(t *testing.T) {
 	}
 }
 
+// Regression test: the default configuration (auto mode, no dedicated
+// listener URL) used to hand New a nil *PostgresListenerFactory boxed into a
+// non-nil ListenerFactory interface, defeating the nil guard and panicking on
+// Open instead of falling back to polling.
+func TestBrokerTreatsTypedNilListenerFactoryAsPolling(t *testing.T) {
+	source := newTestSource()
+	var factory *PostgresListenerFactory
+	broker, err := New(context.Background(), Config{Mode: ModeAuto, PollInterval: 10 * time.Millisecond, Logger: testLogger()}, source, factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(broker.Close)
+	if broker.ActiveMode() != ModePoll {
+		t.Fatalf("active mode = %q, want %q", broker.ActiveMode(), ModePoll)
+	}
+	events, unsubscribe, err := broker.Subscribe(context.Background(), "doc_typed_nil")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(unsubscribe)
+	source.setEvents("doc_typed_nil", testEvent("doc_typed_nil", 1))
+	if event := receiveEvent(t, events); event.Revision != 1 {
+		t.Fatalf("poll fallback delivered revision %d, want 1", event.Revision)
+	}
+}
+
 func TestPollBrokerCoalescesFiveHundredSubscribers(t *testing.T) {
 	source := newTestSource()
 	clock := newManualClock()

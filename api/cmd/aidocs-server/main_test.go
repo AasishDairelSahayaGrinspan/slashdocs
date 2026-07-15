@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/razorpay/aidocs/api/internal/kvevents"
+	"github.com/razorpay/aidocs/api/internal/repo"
 	"github.com/razorpay/aidocs/api/internal/server"
 )
 
@@ -130,9 +131,50 @@ func TestKVEventListenerFactorySelection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			factory := newKVEventListenerFactory(tc.mode, "postgres://application", tc.listenerURL, nil)
+			// factory is the kvevents.ListenerFactory interface, so this nil
+			// comparison asserts interface nilness: a nil concrete pointer boxed
+			// into the interface would compare non-nil, defeat the broker's
+			// nil-factory guard, and panic on Open at boot.
 			if got := factory != nil; got != tc.wantFactory {
-				t.Fatalf("factory present = %v, want %v", got, tc.wantFactory)
+				t.Fatalf("factory present = %v (%T), want %v", got, factory, tc.wantFactory)
 			}
 		})
 	}
+}
+
+type stubKVEventSource struct{}
+
+func (stubKVEventSource) CurrentDocumentKVRevision(context.Context, string) (int64, error) {
+	return 0, nil
+}
+
+func (stubKVEventSource) ListDocumentKVEvents(context.Context, string, int64, int32) ([]repo.DocumentKVEvent, error) {
+	return nil, nil
+}
+
+// Regression test for the default configuration (auto mode, no dedicated
+// listener database URL): the constructed factory must wire through
+// kvevents.New as a true nil interface so the broker falls back to polling
+// instead of panicking on a typed-nil listener factory.
+func TestAutoModeWithoutListenerURLFallsBackToPolling(t *testing.T) {
+	t.Parallel()
+
+	factory := newKVEventListenerFactory(kvevents.ModeAuto, "postgres://application", "", nil)
+	if factory != nil {
+		t.Fatalf("factory = %T, want nil interface in auto mode without a listener URL", factory)
+	}
+
+	broker, err := kvevents.New(context.Background(), kvevents.Config{Mode: kvevents.ModeAuto}, stubKVEventSource{}, factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(broker.Close)
+	if broker.ActiveMode() != kvevents.ModePoll {
+		t.Fatalf("active mode = %q, want %q", broker.ActiveMode(), kvevents.ModePoll)
+	}
+	_, unsubscribe, err := broker.Subscribe(context.Background(), "doc_boot")
+	if err != nil {
+		t.Fatal(err)
+	}
+	unsubscribe()
 }

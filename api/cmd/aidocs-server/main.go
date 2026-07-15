@@ -110,7 +110,11 @@ func run() error {
 	return serve(ctx, srv.Handler(), ":"+envOrDefault("AIDOCS_PORT", "8080"), ":"+envOrDefault("AIDOCS_METRICS_PORT", "9090"))
 }
 
-func newKVEventListenerFactory(mode kvevents.Mode, databaseURL, configuredListenerURL string, sender kvevents.NotificationSender) *kvevents.PostgresListenerFactory {
+// newKVEventListenerFactory returns the interface type, not the concrete
+// *kvevents.PostgresListenerFactory: returning a nil concrete pointer here
+// would box into a non-nil interface, defeat the broker's nil-factory
+// fallback, and panic on Open in the default auto-mode configuration.
+func newKVEventListenerFactory(mode kvevents.Mode, databaseURL, configuredListenerURL string, sender kvevents.NotificationSender) kvevents.ListenerFactory {
 	listenerURL := strings.TrimSpace(configuredListenerURL)
 	switch mode {
 	case kvevents.ModeAuto:
