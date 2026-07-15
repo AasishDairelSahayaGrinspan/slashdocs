@@ -27,12 +27,11 @@ RUN mkdir -p api/internal/server/download_dist && \
       os="${target%/*}"; arch="${target#*/}"; \
       CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/cli/internal/cli.Version=$AIDOCS_VERSION -X github.com/razorpay/aidocs/cli/internal/cli.Commit=$AIDOCS_COMMIT_SHA" -o "api/internal/server/download_dist/aidocs-$os-$arch" ./cli; \
     done
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/api/internal/server.BuildVersion=$AIDOCS_VERSION -X github.com/razorpay/aidocs/api/internal/server.BuildCommit=$AIDOCS_COMMIT_SHA" -o /out/aidocs-server ./api/cmd/aidocs-server
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/cli/internal/cli.Version=$AIDOCS_VERSION -X github.com/razorpay/aidocs/cli/internal/cli.Commit=$AIDOCS_COMMIT_SHA" -o /out/aidocs ./cli
+RUN BRIDGE_SOURCE_HASH="$(sha256sum frontend/bridge/bridge.ts | cut -d ' ' -f1)" && test "${#BRIDGE_SOURCE_HASH}" -eq 64 && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/api/internal/server.BuildVersion=$AIDOCS_VERSION -X github.com/razorpay/aidocs/api/internal/server.BuildCommit=$AIDOCS_COMMIT_SHA -X github.com/razorpay/aidocs/api/internal/server.BuildBridgeSourceHash=$BRIDGE_SOURCE_HASH" -o /out/aidocs-server ./api/cmd/aidocs-server
+RUN env CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/cli/internal/cli.Version=$AIDOCS_VERSION -X github.com/razorpay/aidocs/cli/internal/cli.Commit=$AIDOCS_COMMIT_SHA" -o /out/aidocs ./cli
 
 FROM alpine:3.23
 ARG AIDOCS_COMMIT_SHA=""
-ARG AIDOCS_VERSION="dev"
 # CA certs are arch-independent data files; copy them from the builder rather
 # than running apk under emulation in the target-arch final stage.
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
@@ -42,5 +41,4 @@ COPY --from=builder /out/aidocs /usr/local/bin/aidocs
 EXPOSE 8080
 ENV AIDOCS_PORT=8080
 ENV AIDOCS_COMMIT_SHA=$AIDOCS_COMMIT_SHA
-ENV AIDOCS_VERSION=$AIDOCS_VERSION
 CMD ["aidocs-server"]

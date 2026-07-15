@@ -24,7 +24,9 @@ frontend:
 	cd frontend && npm ci && npm run build
 
 backend: swagger frontend cli-assets
-	go build -ldflags "$(SERVER_LDFLAGS)" -o bin/aidocs-server ./api/cmd/aidocs-server
+	@bridge_source_hash="$$(node frontend/scripts/bridge-source-hash.mjs)" && \
+		if [ "$${#bridge_source_hash}" -ne 64 ]; then echo "invalid bridge source hash" >&2; exit 1; fi && \
+		go build -ldflags "$(SERVER_LDFLAGS) -X github.com/razorpay/aidocs/api/internal/server.BuildBridgeSourceHash=$$bridge_source_hash" -o bin/aidocs-server ./api/cmd/aidocs-server
 
 cli:
 	go build -ldflags "$(CLI_LDFLAGS)" -o bin/aidocs ./cli

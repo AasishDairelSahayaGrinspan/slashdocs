@@ -169,6 +169,10 @@ make e2e            run the API and CLI compose smoke test
 make e2e-browser    run the advisory Chromium browser suite
 ```
 
+Build the server through `make build-backend` rather than a bare `go build`.
+The target regenerates the iframe bridge and links its source fingerprint so
+startup can reject missing, stale, or corrupt embedded assets.
+
 ## Architecture
 
 Everything ships as one Go binary, `aidocs-server`. It serves the REST API, the embedded React frontend, and the embedded per-platform CLI binaries (`/install.sh` and downloads). You bring Postgres and an S3-compatible bucket. The same binary answers on two hostnames: the app hostname for the authenticated UI and API, and a separate render hostname where document HTML is served inside a sandboxed frame — the browser's same-origin policy keeps untrusted documents away from your session.

@@ -62,6 +62,10 @@ func newLogHandler(f *os.File) slog.Handler {
 }
 
 func run() error {
+	if err := server.ValidateEmbeddedBridge(); err != nil {
+		return err
+	}
+
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 

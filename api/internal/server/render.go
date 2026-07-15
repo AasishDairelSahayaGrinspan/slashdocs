@@ -1,7 +1,9 @@
 package server
 
 import (
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,13 +48,60 @@ func ValidateRenderOrigin(appOrigin, renderOrigin string) error {
 //go:embed all:bridge_dist
 var bridgeFS embed.FS
 
-var bridgeJSSource = func() string {
-	source, err := bridgeFS.ReadFile("bridge_dist/bridge.js")
+func readEmbeddedBridgeAsset(name string) string {
+	source, err := bridgeFS.ReadFile("bridge_dist/" + name)
 	if err != nil {
 		return ""
 	}
 	return string(source)
-}()
+}
+
+var (
+	bridgeJSSource         = readEmbeddedBridgeAsset("bridge.js")
+	bridgeSourceHash       = strings.TrimSpace(readEmbeddedBridgeAsset("bridge.source.sha256"))
+	bridgeBundleHash       = strings.TrimSpace(readEmbeddedBridgeAsset("bridge.sha256"))
+	BuildBridgeSourceHash  string
+	errMissingBridgeBundle = errors.New("sandbox bridge bundle is missing; run `make frontend` before building the server")
+	errMissingBridgeHash   = errors.New("sandbox bridge integrity metadata is missing or invalid; run `make frontend` before building the server")
+	errUnlinkedBridgeBuild = errors.New("sandbox bridge source fingerprint is missing from the binary; build the server with `make backend`")
+	errStaleBridgeBundle   = errors.New("sandbox bridge bundle is stale; run `make frontend` and rebuild the server")
+	errCorruptBridgeBundle = errors.New("sandbox bridge bundle failed its integrity check; run `make frontend` and rebuild the server")
+)
+
+// ValidateEmbeddedBridge rejects production startup when the generated iframe
+// bridge is absent, stale relative to bridge.ts, or corrupt. Supported server
+// builds link BuildBridgeSourceHash from the canonical TypeScript source.
+func ValidateEmbeddedBridge() error {
+	return validateEmbeddedBridgeSource(bridgeJSSource, bridgeSourceHash, bridgeBundleHash, BuildBridgeSourceHash)
+}
+
+func validateEmbeddedBridgeSource(source, generatedSourceHash, generatedBundleHash, expectedSourceHash string) error {
+	if strings.TrimSpace(source) == "" {
+		return errMissingBridgeBundle
+	}
+	if !validSHA256(generatedSourceHash) || !validSHA256(generatedBundleHash) {
+		return errMissingBridgeHash
+	}
+	if !validSHA256(expectedSourceHash) {
+		return errUnlinkedBridgeBuild
+	}
+	if !strings.EqualFold(generatedSourceHash, expectedSourceHash) {
+		return fmt.Errorf("%w: generated from %s, building from %s", errStaleBridgeBundle, generatedSourceHash, expectedSourceHash)
+	}
+	sum := sha256.Sum256([]byte(source))
+	if !strings.EqualFold(generatedBundleHash, hex.EncodeToString(sum[:])) {
+		return errCorruptBridgeBundle
+	}
+	return nil
+}
+
+func validSHA256(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
 
 // wrapperTmpl renders the sandboxed iframe that hosts untrusted user HTML.
 // Using html/template ensures the srcdoc attribute value is correctly escaped

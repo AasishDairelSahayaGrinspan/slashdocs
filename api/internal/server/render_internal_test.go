@@ -1,18 +1,40 @@
 package server
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
+	"os"
+	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
 
 func requireEmbeddedBridge(t *testing.T) string {
 	t.Helper()
-	if bridgeJSSource == "" {
-		t.Skip("bridge bundle is absent; make test builds it before running canonical checks")
+	if err := validateEmbeddedBridgeSource(bridgeJSSource, bridgeSourceHash, bridgeBundleHash, currentBridgeSourceHash(t)); err != nil {
+		if os.Getenv("CI") != "" {
+			t.Fatalf("%v (CI must run the frontend build before Go tests)", err)
+		}
+		t.Skipf("%v; make test builds it before running canonical checks", err)
 	}
 	return bridgeJSSource
+}
+
+func currentBridgeSourceHash(t *testing.T) string {
+	t.Helper()
+	_, filename, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("resolve bridge test source path")
+	}
+	source, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "..", "frontend", "bridge", "bridge.ts"))
+	if err != nil {
+		t.Fatalf("read bridge.ts: %v", err)
+	}
+	sum := sha256.Sum256(source)
+	return hex.EncodeToString(sum[:])
 }
 
 func requireBridgePattern(t *testing.T, pattern string) {
@@ -168,23 +190,65 @@ func TestBridgeImplementsDocumentKVUndoRedoContract(t *testing.T) {
 	requireBridgePattern(t, `kvApplyPatch\(entry\.forward,\s*["']redo["']\)`)
 }
 
-func TestRenderWrapperToleratesAbsentBridgeBundle(t *testing.T) {
-	builtBridge := bridgeJSSource
-	bridgeJSSource = ""
-	t.Cleanup(func() { bridgeJSSource = builtBridge })
-
-	out := string(renderWrapperHTML([]byte(`<html><body>hello</body></html>`), "https://app.example"))
-	for _, needle := range []string{
-		`<iframe id="aidocs-doc"`,
-		`window.__AIDOCS_APP_ORIGIN__="https://app.example";`,
-		`aidocs-bootstrap`,
-	} {
-		if !strings.Contains(out, needle) {
-			t.Fatalf("render wrapper without bridge bundle is missing %q: %s", needle, out)
+func TestValidateEmbeddedBridgeSource(t *testing.T) {
+	for _, source := range []string{"", " \n\t"} {
+		if err := validateEmbeddedBridgeSource(source, "", "", ""); !errors.Is(err, errMissingBridgeBundle) {
+			t.Fatalf("validateEmbeddedBridgeSource(%q) error = %v, want errMissingBridgeBundle", source, err)
 		}
 	}
-	if strings.Contains(out, "<no value>") || strings.Contains(out, "%!") {
-		t.Fatalf("render wrapper exposed a missing-bundle template artifact: %s", out)
+
+	source := "(()=>{})()"
+	bundleSum := sha256.Sum256([]byte(source))
+	bundleHash := hex.EncodeToString(bundleSum[:])
+	sourceHash := strings.Repeat("a", sha256.Size*2)
+	otherSourceHash := strings.Repeat("b", sha256.Size*2)
+	for _, tc := range []struct {
+		name, source, generatedSourceHash, generatedBundleHash, expectedSourceHash string
+		wantErr                                                                    error
+	}{
+		{
+			name:               "missing integrity metadata",
+			source:             source,
+			expectedSourceHash: sourceHash,
+			wantErr:            errMissingBridgeHash,
+		},
+		{
+			name:                "binary lacks source fingerprint",
+			source:              source,
+			generatedSourceHash: sourceHash,
+			generatedBundleHash: bundleHash,
+			wantErr:             errUnlinkedBridgeBuild,
+		},
+		{
+			name:                "stale bundle",
+			source:              source,
+			generatedSourceHash: sourceHash,
+			generatedBundleHash: bundleHash,
+			expectedSourceHash:  otherSourceHash,
+			wantErr:             errStaleBridgeBundle,
+		},
+		{
+			name:                "corrupt bundle",
+			source:              source + "corrupt",
+			generatedSourceHash: sourceHash,
+			generatedBundleHash: bundleHash,
+			expectedSourceHash:  sourceHash,
+			wantErr:             errCorruptBridgeBundle,
+		},
+		{
+			name:                "valid bundle",
+			source:              source,
+			generatedSourceHash: sourceHash,
+			generatedBundleHash: bundleHash,
+			expectedSourceHash:  sourceHash,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := validateEmbeddedBridgeSource(tc.source, tc.generatedSourceHash, tc.generatedBundleHash, tc.expectedSourceHash)
+			if !errors.Is(err, tc.wantErr) {
+				t.Fatalf("validateEmbeddedBridgeSource() error = %v, want %v", err, tc.wantErr)
+			}
+		})
 	}
 }
 
