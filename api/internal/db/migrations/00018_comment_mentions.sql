@@ -23,18 +23,27 @@ COMMENT ON COLUMN comment_mentions.label_text IS
 CREATE INDEX idx_comment_mentions_principal
   ON comment_mentions(principal_type, principal_id, comment_id, offset_utf16);
 
--- Keep mixed-version rolling deployments safe. Older servers may still write
--- U+2063 markers, and body-only updates do not know how to maintain structured
--- ranges. Normalize every writer and clear stale ranges before the row changes;
--- the new server replaces them later in the same transaction when supplied.
+-- Establish the database invariant before migration 00019 scans existing rows:
+-- no write may persist a legacy U+2063 marker, including writes from an old
+-- application pod during a rolling deployment or from a direct SQL writer.
+-- Body updates also clear stale structured ranges; the new server replaces
+-- them later in the same transaction when supplied.
 -- +goose StatementBegin
 CREATE FUNCTION normalize_comment_body_mentions() RETURNS trigger AS $$
+DECLARE
+  body_changed BOOLEAN := FALSE;
 BEGIN
+  IF TG_OP = 'UPDATE' THEN
+    -- Capture this before normalization: an old writer can change only marker
+    -- placement while leaving the visible text unchanged.
+    body_changed := NEW.body IS DISTINCT FROM OLD.body;
+  END IF;
+
   IF strpos(NEW.body, chr(8291)) > 0 THEN
     NEW.body := regexp_replace(NEW.body, chr(8291), '', 'g');
   END IF;
 
-  IF TG_OP = 'UPDATE' AND NEW.body IS DISTINCT FROM OLD.body THEN
+  IF TG_OP = 'UPDATE' AND body_changed THEN
     DELETE FROM comment_mentions WHERE comment_id = OLD.id;
   END IF;
 

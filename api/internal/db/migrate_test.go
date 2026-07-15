@@ -45,33 +45,43 @@ func TestCommentMentionMigrationsSplitTriggerFromLegacyCleanup(t *testing.T) {
 	if got := migrationCommentBody(t, database, "cmt_legacy_marker"); !strings.Contains(got, marker) {
 		t.Fatalf("migration 18 unexpectedly scanned legacy body %q", got)
 	}
-	insertMigrationComment(t, database, "cmt_after_trigger", "New "+marker+"@admin"+marker)
-	if got := migrationCommentBody(t, database, "cmt_after_trigger"); got != "New @admin" {
-		t.Fatalf("post-18 trigger body = %q, want marker-free body", got)
+	insertMigrationComment(t, database, "cmt_after_trigger_legacy", "Legacy "+marker+"@admin"+marker)
+	if got := migrationCommentBody(t, database, "cmt_after_trigger_legacy"); got != "Legacy @admin" {
+		t.Fatalf("post-18 legacy body = %q, want database invariant to remove markers", got)
 	}
+	insertMigrationComment(t, database, "cmt_structured", "New @admin")
 
-	// Status updates and marker-only normalized no-ops preserve associations;
-	// a real body change from an old writer clears now-stale offsets.
+	// Status updates preserve associations. Any body write from an old writer,
+	// including a marker-only change with the same visible text, clears offsets
+	// whose identity and placement can no longer be trusted.
 	if _, err := database.Exec(`
 		INSERT INTO comment_mentions(comment_id, principal_type, principal_id, offset_utf16, length_utf16, label_text)
-		VALUES ('cmt_after_trigger', 'user', 'usr_migration', 4, 6, '@admin')`); err != nil {
+		VALUES ('cmt_structured', 'user', 'usr_migration', 4, 6, '@admin')`); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := database.Exec(`UPDATE comments SET status = 'resolved' WHERE id = 'cmt_after_trigger'`); err != nil {
+	if _, err := database.Exec(`UPDATE comments SET status = 'resolved' WHERE id = 'cmt_structured'`); err != nil {
 		t.Fatal(err)
 	}
-	assertMigrationMentionCount(t, database, "cmt_after_trigger", 1)
-	if _, err := database.Exec(`UPDATE comments SET body = body || chr(8291) WHERE id = 'cmt_after_trigger'`); err != nil {
+	assertMigrationMentionCount(t, database, "cmt_structured", 1)
+	if _, err := database.Exec(`UPDATE comments SET body = body || chr(8291) WHERE id = 'cmt_structured'`); err != nil {
 		t.Fatal(err)
 	}
-	assertMigrationMentionCount(t, database, "cmt_after_trigger", 1)
-	if _, err := database.Exec(`UPDATE comments SET body = 'Changed ' || chr(8291) || '@admin' WHERE id = 'cmt_after_trigger'`); err != nil {
+	if got := migrationCommentBody(t, database, "cmt_structured"); got != "New @admin" {
+		t.Fatalf("marker-only old-writer body update = %q", got)
+	}
+	assertMigrationMentionCount(t, database, "cmt_structured", 0)
+	if _, err := database.Exec(`
+		INSERT INTO comment_mentions(comment_id, principal_type, principal_id, offset_utf16, length_utf16, label_text)
+		VALUES ('cmt_structured', 'user', 'usr_migration', 4, 6, '@admin')`); err != nil {
 		t.Fatal(err)
 	}
-	if got := migrationCommentBody(t, database, "cmt_after_trigger"); got != "Changed @admin" {
+	if _, err := database.Exec(`UPDATE comments SET body = 'Changed ' || chr(8291) || '@admin' WHERE id = 'cmt_structured'`); err != nil {
+		t.Fatal(err)
+	}
+	if got := migrationCommentBody(t, database, "cmt_structured"); got != "Changed @admin" {
 		t.Fatalf("old-writer body update = %q", got)
 	}
-	assertMigrationMentionCount(t, database, "cmt_after_trigger", 0)
+	assertMigrationMentionCount(t, database, "cmt_structured", 0)
 
 	// Exercise the production migrator for the separate migration-19 cleanup.
 	if err := aidb.Migrate(databaseURL); err != nil {
@@ -79,6 +89,9 @@ func TestCommentMentionMigrationsSplitTriggerFromLegacyCleanup(t *testing.T) {
 	}
 	if got := migrationCommentBody(t, database, "cmt_legacy_marker"); got != "Hello @admin" {
 		t.Fatalf("migration 19 cleanup body = %q", got)
+	}
+	if got := migrationCommentBody(t, database, "cmt_after_trigger_legacy"); got != "Legacy @admin" {
+		t.Fatalf("migration 18 invariant body changed after cleanup: %q", got)
 	}
 	assertMentionMigrationObjects(t, database)
 	version, err := goose.GetDBVersion(database)
@@ -96,8 +109,23 @@ func TestCommentMentionMigrationsSplitTriggerFromLegacyCleanup(t *testing.T) {
 		t.Fatalf("migration 19 Down reconstructed body %q", got)
 	}
 	assertMentionMigrationObjects(t, database)
+
+	// A full rollback removes the invariant and all structured metadata. Legacy
+	// servers can write their marker format again, but migration 19's historical
+	// cleanup remains irreversible.
+	if err := goose.DownTo(database, "migrations", 17); err != nil {
+		t.Fatalf("down migration 18: %v", err)
+	}
+	assertMentionMigrationObjectsAbsent(t, database)
+	insertMigrationComment(t, database, "cmt_after_rollback", "Rollback "+marker+"@admin"+marker)
+	if got := migrationCommentBody(t, database, "cmt_after_rollback"); got != "Rollback "+marker+"@admin"+marker {
+		t.Fatalf("legacy write after rollback = %q, want markers preserved", got)
+	}
 	if err := aidb.Migrate(databaseURL); err != nil {
 		t.Fatalf("restore migration 19: %v", err)
+	}
+	if got := migrationCommentBody(t, database, "cmt_after_rollback"); got != "Rollback @admin" {
+		t.Fatalf("cleanup after re-upgrade body = %q", got)
 	}
 }
 
@@ -177,5 +205,23 @@ func assertMentionMigrationObjects(t *testing.T, database *sql.DB) {
 	}
 	if !trigger {
 		t.Fatal("normalization trigger is missing")
+	}
+}
+
+func assertMentionMigrationObjectsAbsent(t *testing.T, database *sql.DB) {
+	t.Helper()
+	var table, index sql.NullString
+	if err := database.QueryRow(`SELECT to_regclass('public.comment_mentions')::text, to_regclass('public.idx_comment_mentions_principal')::text`).Scan(&table, &index); err != nil {
+		t.Fatal(err)
+	}
+	if table.Valid || index.Valid {
+		t.Fatalf("mention migration objects remain after rollback: table %v index %v", table, index)
+	}
+	var trigger bool
+	if err := database.QueryRow(`SELECT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'normalize_comment_body_mentions_trigger' AND NOT tgisinternal)`).Scan(&trigger); err != nil {
+		t.Fatal(err)
+	}
+	if trigger {
+		t.Fatal("normalization trigger remains after rollback")
 	}
 }

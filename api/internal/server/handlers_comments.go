@@ -87,7 +87,12 @@ func (h handlers) createComment(c *gin.Context) {
 	if len(in.Mentions) > 0 && !requireStructuredCommentMediaType(c) {
 		return
 	}
-	in.Body = repo.NormalizeCommentBody(in.Body)
+	normalized, message := normalizeCommentBodyInput(in.Body)
+	if message != "" {
+		badRequest(c, message)
+		return
+	}
+	in.Body = normalized
 	if in.VersionID == "" || in.Body == "" || in.Anchor.Quote == "" {
 		badRequest(c, "invalid comment")
 		return
@@ -162,7 +167,12 @@ func (h handlers) createCommentReply(c *gin.Context) {
 	if len(in.Mentions) > 0 && !requireStructuredCommentMediaType(c) {
 		return
 	}
-	in.Body = repo.NormalizeCommentBody(in.Body)
+	normalized, message := normalizeCommentBodyInput(in.Body)
+	if message != "" {
+		badRequest(c, message)
+		return
+	}
+	in.Body = normalized
 	if in.Body == "" {
 		badRequest(c, "invalid reply")
 		return
@@ -230,7 +240,10 @@ func (h handlers) patchComment(c *gin.Context) {
 
 func normalizePatchCommentRequest(in *patchCommentRequest) string {
 	if in.Body != nil {
-		normalized := repo.NormalizeCommentBody(*in.Body)
+		normalized, message := normalizeCommentBodyInput(*in.Body)
+		if message != "" {
+			return message
+		}
 		in.Body = &normalized
 	}
 	// Older CLI versions sent body:"" alongside a status change. The previous
@@ -248,6 +261,14 @@ func normalizePatchCommentRequest(in *patchCommentRequest) string {
 	default:
 		return ""
 	}
+}
+
+func normalizeCommentBodyInput(body string) (string, string) {
+	normalized := repo.NormalizeCommentBody(body)
+	if normalized != body {
+		return "", "legacy mention markers are not supported; reload the client and try again"
+	}
+	return normalized, ""
 }
 
 func commentMentions(items []commentMentionRequest) []repo.CommentMention {

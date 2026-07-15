@@ -144,23 +144,6 @@ func snapshotMentionLabel(body string, startByte, endByte int) (string, error) {
 	return label, nil
 }
 
-// ValidateCommentMentions additionally requires every visible label to match
-// the principal's current canonical name, email, or ID. Repository writes use
-// the range-only phase first, then resolve principals transactionally; updates
-// may grandfather a persisted same-principal LabelText across renames.
-func ValidateCommentMentions(body string, mentions []CommentMention) ([]CommentMention, error) {
-	ordered, err := ValidateCommentMentionRanges(body, mentions)
-	if err != nil {
-		return nil, err
-	}
-	for _, mention := range ordered {
-		if !CommentMentionMatchesCanonicalLabel(mention) {
-			return nil, invalidMention("range does not exactly match the principal label")
-		}
-	}
-	return ordered, nil
-}
-
 func utf16ByteOffsets(body string, requested map[int64]struct{}) (map[int64]int, int64, error) {
 	boundaries := make(map[int64]int, len(requested))
 	if _, ok := requested[0]; ok {

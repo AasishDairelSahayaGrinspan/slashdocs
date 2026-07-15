@@ -10,6 +10,19 @@ import (
 	"github.com/razorpay/aidocs/api/internal/auth"
 )
 
+func validateCommentMentions(body string, mentions []CommentMention) ([]CommentMention, error) {
+	ordered, err := ValidateCommentMentionRanges(body, mentions)
+	if err != nil {
+		return nil, err
+	}
+	for _, mention := range ordered {
+		if !CommentMentionMatchesCanonicalLabel(mention) {
+			return nil, invalidMention("range does not exactly match the principal label")
+		}
+	}
+	return ordered, nil
+}
+
 func TestNormalizeCommentBody(t *testing.T) {
 	t.Parallel()
 	const marker = "\u2063"
@@ -32,7 +45,7 @@ func TestValidateCommentMentionsUsesUTF16AndSortsWithoutMutating(t *testing.T) {
 	}
 	original := append([]CommentMention(nil), input...)
 
-	got, err := ValidateCommentMentions(body, input)
+	got, err := validateCommentMentions(body, input)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -68,7 +81,7 @@ func TestValidateCommentMentionsAcceptsCanonicalAliasesAndMultipleRanges(t *test
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			if _, err := ValidateCommentMentions(tc.body, []CommentMention{{Principal: user, LengthUTF16: int64(len(tc.body))}}); err != nil {
+			if _, err := validateCommentMentions(tc.body, []CommentMention{{Principal: user, LengthUTF16: int64(len(tc.body))}}); err != nil {
 				t.Fatal(err)
 			}
 		})
@@ -79,7 +92,7 @@ func TestValidateCommentMentionsAcceptsCanonicalAliasesAndMultipleRanges(t *test
 		{Principal: user, OffsetUTF16: 0, LengthUTF16: 6},
 		{Principal: auth.Principal{Type: auth.PrincipalUser, ID: "usr_bob", Name: "Bob"}, OffsetUTF16: 7, LengthUTF16: 4},
 	}
-	if _, err := ValidateCommentMentions(body, mentions); err != nil {
+	if _, err := validateCommentMentions(body, mentions); err != nil {
 		t.Fatalf("multiple ranges rejected: %v", err)
 	}
 }
@@ -126,7 +139,7 @@ func TestValidateCommentMentionsRejectsMalformedRanges(t *testing.T) {
 			if tc.ranges {
 				_, err = ValidateCommentMentionRanges(tc.body, tc.mentions)
 			} else {
-				_, err = ValidateCommentMentions(tc.body, tc.mentions)
+				_, err = validateCommentMentions(tc.body, tc.mentions)
 			}
 			if !errors.Is(err, ErrInvalidCommentMention) {
 				t.Fatalf("error = %v, want ErrInvalidCommentMention", err)
@@ -140,7 +153,7 @@ func TestValidateCommentMentionsRejectsMalformedRanges(t *testing.T) {
 	}
 
 	for _, body := range []string{"@Alice.", "@Alice, next", "@Alice…” next"} {
-		if _, err := ValidateCommentMentions(body, []CommentMention{valid}); err != nil {
+		if _, err := validateCommentMentions(body, []CommentMention{valid}); err != nil {
 			t.Fatalf("terminal punctuation in %q rejected: %v", body, err)
 		}
 	}
@@ -150,7 +163,7 @@ func TestValidateCommentMentionsCapsWorkBeforeOtherValidation(t *testing.T) {
 	t.Parallel()
 	principal := auth.Principal{Type: auth.PrincipalUser, ID: "usr_cap"}
 	body, fifty := repeatedMentions(principal, MaxCommentMentions)
-	if got, err := ValidateCommentMentions(body, fifty); err != nil || len(got) != MaxCommentMentions {
+	if got, err := validateCommentMentions(body, fifty); err != nil || len(got) != MaxCommentMentions {
 		t.Fatalf("50 mentions = %d, %v", len(got), err)
 	}
 

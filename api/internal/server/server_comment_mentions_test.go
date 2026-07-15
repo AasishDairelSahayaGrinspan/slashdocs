@@ -422,30 +422,49 @@ func TestStructuredCommentMentionLimit(t *testing.T) {
 	assertStatus(t, rr, http.StatusBadRequest)
 }
 
-func TestLegacyCommentMarkersAreNormalizedInResponsesAndStorage(t *testing.T) {
+func TestLegacyCommentMarkersAreRejected(t *testing.T) {
 	e := newTestEnv(t)
 	const marker = "\u2063"
 	body := "Hello " + marker + "@owner@example.com" + marker
-	payload := map[string]any{
-		"version_id": e.ver.ID,
-		"body":       body,
-		"anchor":     map[string]any{"quote": "fixture"},
-	}
-	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/comments", jsonString(t, payload), map[string]string{
-		"Content-Type":     "application/json",
-		"X-Test-Principal": principalHeader(fixtureCommenter),
-	})
-	assertStatus(t, rr, http.StatusCreated)
-	created := decodeCommentWire(t, rr.Body.Bytes())
-	if strings.Contains(created.Body, marker) || created.Body != "Hello @owner@example.com" || created.Mentions == nil {
-		t.Fatalf("normalized response = %#v", created)
-	}
-	persisted, err := e.store.GetComment(context.Background(), created.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if persisted.Body != created.Body || strings.Contains(persisted.Body, marker) {
-		t.Fatalf("normalized persisted body = %q", persisted.Body)
+	root := createMentionComment(t, e, "Root comment", nil)
+
+	for _, tc := range []struct {
+		name, method, path string
+		payload            map[string]any
+	}{
+		{
+			name:   "create",
+			method: http.MethodPost,
+			path:   "/v1/documents/" + e.doc.ID + "/comments",
+			payload: map[string]any{
+				"version_id": e.ver.ID,
+				"body":       body,
+				"anchor":     map[string]any{"quote": "fixture"},
+			},
+		},
+		{
+			name:    "reply",
+			method:  http.MethodPost,
+			path:    "/v1/documents/" + e.doc.ID + "/comments/" + root.ID + "/replies",
+			payload: map[string]any{"body": body},
+		},
+		{
+			name:    "patch",
+			method:  http.MethodPatch,
+			path:    "/v1/documents/" + e.doc.ID + "/comments/" + root.ID,
+			payload: map[string]any{"body": body},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := do(t, e.h, tc.method, tc.path, jsonString(t, tc.payload), map[string]string{
+				"Content-Type":     "application/json",
+				"X-Test-Principal": principalHeader(fixtureCommenter),
+			})
+			assertStatus(t, rr, http.StatusBadRequest)
+			if !strings.Contains(rr.Body.String(), "reload the client") {
+				t.Fatalf("legacy marker error = %s", rr.Body.String())
+			}
+		})
 	}
 }
 
