@@ -294,6 +294,16 @@ image:
   repository: razorpay/aidocs
   tag: "0.1.0"
 
+# `public` (the chart default, stated here explicitly) accepts any account
+# your OIDC provider allows. To gate login to a company domain instead:
+#
+#   deployment:
+#     mode: org
+#     orgDomains: "acme.com"   # comma-separated; required when mode=org
+#     orgName: "Acme"          # share UI copy, e.g. "Anyone in Acme"
+deployment:
+  mode: public
+
 origins:
   app: https://aidocs.example.com
   render: https://render.aidocs.example.com
@@ -345,8 +355,24 @@ ingress:
         - aidocs.example.com
         - render.aidocs.example.com
 
-allowedOAuthDomains: "example.com"
+# Optional in public mode: restrict logins to specific email domains.
+# Empty (the default) accepts any account the provider allows.
+# allowedOAuthDomains: "acme.com"
 ```
+
+### Upgrading from pre-OSS internal deployments
+
+Two chart defaults changed when the chart was prepared for open sourcing;
+existing internal deployments must pin them in their values instead of
+relying on defaults:
+
+- `image.repository` now defaults to `razorpay/aidocs` (Docker Hub) rather
+  than an internal Harbor registry path. Set it explicitly to your registry.
+- `deployment.mode` now defaults to `public` with empty `orgDomains` /
+  `orgName`, and `allowedOAuthDomains` defaults to empty. Deployments that
+  depended on the old org-gated defaults must set
+  `deployment.mode: org` and their own `orgDomains` (and `orgName`)
+  explicitly, or every login will be accepted per the provider's rules.
 
 ### Using existing Secrets
 
@@ -384,23 +410,25 @@ Sealed Secrets, etc.).
 
 ### Useful chart values
 
-| Path                                                                       | Purpose                                                                                                 |
-| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| `replicaCount`                                                             | Number of pod replicas.                                                                                 |
-| `image.{repository,tag,pullPolicy}`                                        | Container image.                                                                                        |
-| `origins.{app,render}`                                                     | Public URLs. `app` is injected into the served frontend.                                                |
-| `database.{host,user,password,name,port,sslMode,migrate}`                  | Postgres connection pieces (composed into a DSN at runtime); `migrate: false` skips startup migrations. |
-| `blob.{bucket,region,endpoint,forcePathStyle,accessKeyID,secretAccessKey}` | S3 settings.                                                                                            |
-| `googleOAuth.{clientID,clientSecret}`                                      | Google OAuth credentials.                                                                               |
-| `oidc.{issuerURL,providerName,internalIssuerURL,clientID,clientSecret}`    | Generic OIDC provider; used instead of `googleOAuth` when `issuerURL` is set.                           |
-| `session.secret`                                                           | At least 32 random bytes.                                                                               |
-| `allowedOAuthDomains`                                                      | Comma-separated email domain allowlist.                                                                 |
-| `commitSha`                                                                | Optional revision surfaced at `/commit.txt`.                                                            |
-| `ingress`                                                                  | Standard ingress block; supports multiple hosts.                                                        |
-| `extraEnv` / `extraEnvFrom`                                                | Append arbitrary env vars / envFrom sources.                                                            |
-| `resources`                                                                | CPU/memory requests and limits.                                                                         |
-| `livenessProbe` / `readinessProbe`                                         | HTTP probes against `/commit.txt` and `/openapi.json`.                                                  |
-| `podDisruptionBudget`                                                      | Optional PDB for safer upgrades.                                                                        |
+| Path                                                                       | Purpose                                                                                                                      |
+| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `replicaCount`                                                             | Number of pod replicas.                                                                                                      |
+| `image.{repository,tag,pullPolicy}`                                        | Container image.                                                                                                             |
+| `origins.{app,render}`                                                     | Public URLs. `app` is injected into the served frontend.                                                                     |
+| `database.{host,user,password,name,port,sslMode,migrate}`                  | Postgres connection pieces (composed into a DSN at runtime); `migrate: false` skips startup migrations.                      |
+| `blob.{bucket,region,endpoint,forcePathStyle,accessKeyID,secretAccessKey}` | S3 settings.                                                                                                                 |
+| `googleOAuth.{clientID,clientSecret}`                                      | Google OAuth credentials.                                                                                                    |
+| `oidc.{issuerURL,providerName,internalIssuerURL,clientID,clientSecret}`    | Generic OIDC provider; used instead of `googleOAuth` when `issuerURL` is set.                                                |
+| `session.secret`                                                           | At least 32 random bytes.                                                                                                    |
+| `deployment.{mode,orgDomains,orgName}`                                     | `public` (default) or `org`; org mode gates login to `orgDomains`.                                                           |
+| `allowedOAuthDomains`                                                      | Comma-separated email domain allowlist (public mode); empty = no gate.                                                       |
+| `kvEvents.{mode,listenerDatabaseURL,existingSecret}`                       | Realtime KV events: `AIDOCS_KV_EVENTS_MODE` and the dedicated LISTEN connection URL (secret-backed). Rendered only when set. |
+| `commitSha`                                                                | Optional revision surfaced at `/commit.txt`.                                                                                 |
+| `ingress`                                                                  | Standard ingress block; supports multiple hosts.                                                                             |
+| `extraEnv` / `extraEnvFrom`                                                | Append arbitrary env vars / envFrom sources.                                                                                 |
+| `resources`                                                                | CPU/memory requests and limits.                                                                                              |
+| `livenessProbe` / `readinessProbe`                                         | HTTP probes against `/livez` and `/readyz`.                                                                                  |
+| `podDisruptionBudget`                                                      | Optional PDB for safer upgrades.                                                                                             |
 
 See [`charts/aidocs/values.yaml`](../charts/aidocs/values.yaml) for the
 full schema with defaults.
@@ -512,6 +540,11 @@ operator that the connection preserves session state. `poll` never opens a
 listener. If PgBouncer transaction pooling is the only available database
 route, use `poll`.
 
+On Kubernetes, set these through the chart's `kvEvents` block
+(`kvEvents.mode` and `kvEvents.listenerDatabaseURL`, or
+`kvEvents.existingSecret` + `kvEvents.listenerDatabaseURLKey` to keep the
+URL in a pre-created Secret) instead of `extraEnv`.
+
 If `BLOB_ACCESS_KEY_ID` and `BLOB_SECRET_ACCESS_KEY` are omitted, the
 AWS SDK default credential chain is used (IRSA, instance profile,
 shared config, etc.).
@@ -563,20 +596,49 @@ Postgres migrations are applied automatically at startup unless
 roll back, deploy the previous image tag and pre-apply any matching
 down-migration manually if needed; the binary does not auto-rollback.
 
-The structured comment-mentions upgrade (`00018` and `00019`) is rolling-safe:
-the first migration installs a database normalization trigger before the next
-migration cleans legacy U+2063 markers, so writes from older instances are
-normalized throughout the rollout. During a mixed-version deployment, comment
-create/reply requests with non-empty `mentions`, and any comment `PATCH` that
-includes the `mentions` key (including `[]`), must use
-`Content-Type: application/vnd.aidocs.comment-mentions+json`. Older servers
-reject that media type instead of silently discarding mention metadata. The
-legacy-marker cleanup in `00019` is irreversible. If you roll the application
-back across this release, leave migrations `00018` and `00019` applied: older
-servers tolerate the extra table and normalization trigger. Reversing `00018`
-drops all structured mention metadata and the trigger, while reversing `00019`
-cannot restore the removed markers. Only down-migrate them if you explicitly
-accept that data loss and the risk of old instances reintroducing markers.
+The structured comment-mentions upgrade (`00018` and `00019`) cannot use a
+normal rolling deployment. Old servers and browser bundles write identity as
+in-band U+2063 markers; new versions store explicit principal IDs. Use this
+coordinated cutover:
+
+1. Pause comment writes.
+2. Stop every old application replica before a new replica starts and applies
+   migrations. With the bundled chart, perform this release with
+   `--set updateStrategy.type=Recreate`; non-Helm deployments must provide the
+   same no-overlap guarantee.
+3. Migration `00018` installs the structured table and a database invariant
+   that strips U+2063 from every insert or body update, including old-server and
+   direct-SQL writes. It also clears structured ranges on body changes.
+   Migration `00019` then removes historical markers and is irreversible.
+4. Purge any cached `index.html` and force open browser sessions to reload the
+   new frontend. The new API rejects marker-bearing requests from stale clients
+   instead of silently losing mention identity.
+5. Resume comment writes only after every pod and browser client is on the new
+   version. Helm users can then restore
+   `--set updateStrategy.type=RollingUpdate`.
+
+New comment create/reply requests with non-empty `mentions`, and any comment
+`PATCH` that includes the `mentions` key (including `[]`), use
+`Content-Type: application/vnd.aidocs.comment-mentions+json`. This makes the
+other mixed-version direction fail closed: older servers reject the media type
+instead of silently discarding structured metadata.
+
+If you roll back to an image from before structured mentions, stop comment
+writes and use Goose to migrate down to version 17 before allowing the old
+application to serve writes:
+
+```bash
+export GOOSE_DRIVER=postgres
+export GOOSE_DBSTRING="$DATABASE_URL"
+export GOOSE_MIGRATION_DIR=api/internal/db/migrations
+goose down-to 17
+```
+
+Run that command from a checkout containing these migrations, using Goose
+v3.24.1 (the version pinned in `go.mod`). Migration `00019` has a no-op Down;
+reversing `00018` then drops the trigger, table, and all structured mention
+metadata. It cannot restore markers already removed by `00019`, so historical
+mention highlighting remains unrecoverable after rollback.
 
 ## Production checklist
 

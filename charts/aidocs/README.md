@@ -22,6 +22,10 @@ image:
   repository: razorpay/aidocs
   tag: "0.1.0"
 
+# `public` (the chart default) accepts any account your OIDC provider allows.
+deployment:
+  mode: public
+
 origins:
   app: https://aidocs.example.com
   render: https://render.aidocs.example.com
@@ -79,6 +83,76 @@ ingress:
         - aidocs.example.com
         - render.aidocs.example.com
 ```
+
+## Restricting sign-in to your organization
+
+The chart defaults to `deployment.mode: public`, which accepts any account
+the configured OIDC provider allows. To gate login to a company domain,
+switch to org mode and set the domains explicitly:
+
+```yaml
+deployment:
+  mode: org
+  orgDomains: "acme.com" # comma-separated; required when mode=org
+  orgName: "Acme" # share UI copy, e.g. "Anyone in Acme"
+```
+
+In public mode you can still apply a lighter email-domain allowlist with
+`allowedOAuthDomains: "acme.com"` (empty by default, meaning no gate).
+
+## One-time structured-mentions upgrade
+
+When upgrading an installation from an image that stored comment mentions as
+U+2063 markers, do not use the normal rolling strategy. Pause comment writes
+and perform this release with no old/new pod overlap:
+
+```bash
+helm upgrade aidocs ./charts/aidocs \
+  --namespace aidocs \
+  -f values.yaml \
+  --set updateStrategy.type=Recreate
+```
+
+After every pod runs the new image and browser caches/tabs have been refreshed,
+restore normal rolling updates (this changes only the Deployment strategy):
+
+```bash
+helm upgrade aidocs ./charts/aidocs \
+  --namespace aidocs \
+  --reuse-values \
+  --set updateStrategy.type=RollingUpdate
+```
+
+See the coordinated cutover and irreversible rollback details in
+[`docs/self-hosting.md`](../../docs/self-hosting.md#upgrading).
+
+## Realtime KV events
+
+Document KV streams default to `AIDOCS_KV_EVENTS_MODE=auto`, which uses
+coalesced polling unless a dedicated LISTEN connection URL is provided.
+The `kvEvents` block wires the two server env vars; both are rendered only
+when set:
+
+```yaml
+kvEvents:
+  mode: notify # auto | notify | poll (empty = server default, auto)
+  # Direct or session-pooled URL to the same database for the dedicated
+  # LISTEN connection. Never a transaction-pooling endpoint. Stored in the
+  # chart-managed Secret.
+  listenerDatabaseURL: "postgres://aidocs:pass@postgres:5432/aidocs?sslmode=require"
+```
+
+Or keep the URL out of Helm values with a pre-created Secret:
+
+```yaml
+kvEvents:
+  mode: notify
+  existingSecret: aidocs-kv-events
+  listenerDatabaseURLKey: AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL
+```
+
+If your only database route is PgBouncer in transaction-pooling mode, set
+`kvEvents.mode: poll` and leave the listener URL unset.
 
 ## Existing secrets
 
