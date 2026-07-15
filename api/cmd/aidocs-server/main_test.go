@@ -113,6 +113,34 @@ func TestOriginSettingsRejectSameHostnameAcrossSchemeAndPort(t *testing.T) {
 	}
 }
 
+func TestWebhookSettingsValidateDevRevSecretLength(t *testing.T) {
+	t.Setenv("AIDOCS_GITHUB_WEBHOOK_SECRET", "github-secret")
+	t.Setenv("AIDOCS_SLACK_SIGNING_SECRET", "slack-secret")
+
+	for _, tc := range []struct {
+		name    string
+		secret  string
+		wantErr bool
+	}{
+		{name: "unset"},
+		{name: "minimum", secret: "12345678"},
+		{name: "maximum", secret: "12345678901234567890123456789012"},
+		{name: "too short", secret: "1234567", wantErr: true},
+		{name: "too long", secret: "123456789012345678901234567890123", wantErr: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AIDOCS_DEVREV_WEBHOOK_SECRET", tc.secret)
+			settings, err := loadWebhookSettings()
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("loadWebhookSettings() error = %v, wantErr %v", err, tc.wantErr)
+			}
+			if !tc.wantErr && (settings.githubSecret != "github-secret" || settings.slackSecret != "slack-secret" || settings.devRevSecret != tc.secret) {
+				t.Fatalf("settings = %#v", settings)
+			}
+		})
+	}
+}
+
 func TestKVEventListenerFactorySelection(t *testing.T) {
 	t.Parallel()
 

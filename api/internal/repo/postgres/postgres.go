@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -29,6 +30,8 @@ type Store struct {
 	q     *dbsqlc.Queries
 	blobs blob.Store
 }
+
+var _ repo.Repository = (*Store)(nil)
 
 // rollback closes a transaction on every early-return path. pgx returns
 // ErrTxClosed after a successful commit, which is expected and needs no action.
@@ -95,6 +98,7 @@ func (s *Store) ResolveUser(ctx context.Context, id string) (auth.Principal, err
 	return auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl}, nil
 }
 func (s *Store) UpsertGoogleUser(ctx context.Context, id, email, name, googleSub, pictureURL string) (auth.Principal, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	err := s.q.UpsertGoogleUser(ctx, dbsqlc.UpsertGoogleUserParams{ID: id, Email: email, Name: name, GoogleSub: pgtype.Text{String: googleSub, Valid: true}, PictureUrl: pictureURL})
 	if err != nil {
 		return auth.Principal{}, err
@@ -106,6 +110,7 @@ func (s *Store) UpsertGoogleUser(ctx context.Context, id, email, name, googleSub
 	return auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl}, nil
 }
 func (s *Store) UserByEmail(ctx context.Context, email string) (auth.Principal, error) {
+	email = strings.ToLower(strings.TrimSpace(email))
 	u, err := s.q.GetSignedInUserByEmail(ctx, email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return auth.Principal{}, repo.ErrNotFound
@@ -129,18 +134,20 @@ func (s *Store) SearchUsersByEmail(ctx context.Context, query string) ([]auth.Pr
 }
 
 func (s *Store) EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error) {
-	u, err := s.UserByEmail(ctx, email)
-	if err == nil {
-		return u, nil
-	}
-	if !errors.Is(err, repo.ErrNotFound) {
-		return auth.Principal{}, err
+	email = strings.ToLower(strings.TrimSpace(email))
+	if email == "" {
+		return auth.Principal{}, repo.ErrNotFound
 	}
 	id := newID("usr")
-	if err := s.q.InsertPlaceholderUser(ctx, dbsqlc.InsertPlaceholderUserParams{ID: id, Email: email}); err != nil {
+	_, err := s.db.Exec(ctx, `INSERT INTO users(id,email,name) VALUES($1,$2,'') ON CONFLICT(email) DO NOTHING`, id, email)
+	if err != nil {
 		return auth.Principal{}, err
 	}
-	return auth.Principal{Type: auth.PrincipalUser, ID: id, Email: email}, nil
+	u, err := s.q.GetUserByEmail(ctx, email)
+	if err != nil {
+		return auth.Principal{}, err
+	}
+	return auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl}, nil
 }
 func (s *Store) CreateCLICredential(ctx context.Context, userID, name, tokenHash string) (string, error) {
 	id := newID("cred")
@@ -186,7 +193,28 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 			best = repo.MaxRole(best, repo.Role(g.Role))
 		}
 	}
+	organizationViewer, err := s.isOrganizationDocumentViewer(ctx, p, documentID)
+	if err != nil {
+		return repo.RoleNone, err
+	}
+	if organizationViewer {
+		best = repo.MaxRole(best, repo.RoleViewer)
+	}
 	return best, nil
+}
+
+func (s *Store) isOrganizationDocumentViewer(ctx context.Context, p auth.Principal, documentID string) (bool, error) {
+	if p.Type == auth.PrincipalAnonymous || p.ID == "" {
+		return false, nil
+	}
+	repository, err := s.RepositoryForDocument(ctx, documentID)
+	if errors.Is(err, repo.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return repository.Scope == repo.RepositoryScopeOrganization, nil
 }
 
 func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (repo.Document, repo.Version, error) {
@@ -307,10 +335,38 @@ func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string
 			return repo.Grant{}, err
 		}
 	}
-	if principal.Type == auth.PrincipalUser {
-		if err := upsertUser(ctx, q, principal); err != nil {
+	switch principal.Type {
+	case auth.PrincipalUser:
+		user, err := q.GetUserByID(ctx, principal.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			// Keep direct repository callers backwards compatible, but only insert
+			// unknown users. Existing identities are always read back canonically
+			// and are never overwritten with grant-request metadata.
+			if _, err := tx.Exec(ctx, `INSERT INTO users(id,email,name) VALUES($1,$2,$3) ON CONFLICT DO NOTHING`, principal.ID, principal.Email, principal.Name); err != nil {
+				return repo.Grant{}, err
+			}
+			user, err = q.GetUserByID(ctx, principal.ID)
+		}
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repo.Grant{}, repo.ErrNotFound
+		}
+		if err != nil {
 			return repo.Grant{}, err
 		}
+		principal = auth.Principal{Type: auth.PrincipalUser, ID: user.ID, Email: user.Email, Name: user.Name, PictureURL: user.PictureUrl}
+	case auth.PrincipalServiceAccount:
+		serviceAccount, err := q.GetServiceAccount(ctx, principal.ID)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repo.Grant{}, repo.ErrNotFound
+		}
+		if err != nil {
+			return repo.Grant{}, err
+		}
+		principal = auth.Principal{Type: auth.PrincipalServiceAccount, ID: serviceAccount.ID, Name: serviceAccount.Name}
+	case auth.PrincipalAnyone:
+		principal = auth.Principal{Type: auth.PrincipalAnyone}
+	default:
+		return repo.Grant{}, repo.ErrNotFound
 	}
 	id := newID("gr")
 	err = q.UpsertResourceGrant(ctx, dbsqlc.UpsertResourceGrantParams{
@@ -332,6 +388,7 @@ func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string
 	return repo.Grant{ID: id, DocumentID: resourceID, ResourceType: resourceType, ResourceID: resourceID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
 }
 
+//nolint:gocyclo // Blob compensation, optimistic locking, and repository protection form one atomic write path.
 func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal) (repo.Version, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -339,12 +396,34 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 	}
 	defer rollback(ctx, tx)
 	q := s.q.WithTx(tx)
+	treeKey, err := treeKeyForDocumentWith(ctx, tx, documentID)
+	if err != nil {
+		return repo.Version{}, err
+	}
+	if err := lockTreeKeys(ctx, tx, treeKey); err != nil {
+		return repo.Version{}, err
+	}
+	if err := verifyDocumentTreeKey(ctx, tx, documentID, treeKey); err != nil {
+		return repo.Version{}, err
+	}
 	cur, err := q.GetDocumentVersionForUpdate(ctx, documentID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repo.Version{}, repo.ErrNotFound
 	}
 	if err != nil {
 		return repo.Version{}, err
+	}
+	repository, repositoryErr := repositoryForDocumentWith(ctx, tx, documentID)
+	if repositoryErr == nil {
+		protected, err := lockRepositoryProtection(ctx, tx, repository.ID)
+		if err != nil {
+			return repo.Version{}, err
+		}
+		if protected[repository.ID] {
+			return repo.Version{}, &repo.PullRequestRequiredError{RepositoryID: repository.ID}
+		}
+	} else if !errors.Is(repositoryErr, repo.ErrNotFound) {
+		return repo.Version{}, repositoryErr
 	}
 	if cur.CurrentVersionID.String != baseVersionID {
 		return repo.Version{ID: cur.CurrentVersionID.String}, &repo.VersionConflictError{LatestVersionID: cur.CurrentVersionID.String}
@@ -361,7 +440,7 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 			_ = s.blobs.Delete(context.WithoutCancel(ctx), blobKey)
 		}
 	}()
-	if err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: cur.NextNumber, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary}); err != nil {
+	if err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: pgtype.Int4{Int32: cur.NextNumber, Valid: true}, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary}); err != nil {
 		return repo.Version{}, err
 	}
 	if err := q.UpdateDocumentCurrentVersion(ctx, dbsqlc.UpdateDocumentCurrentVersionParams{CurrentVersionID: pgtype.Text{String: id, Valid: true}, ID: documentID}); err != nil {
@@ -577,6 +656,7 @@ func commentMentionsByID(ctx context.Context, q *dbsqlc.Queries, commentIDs []st
 }
 
 func upsertUser(ctx context.Context, q *dbsqlc.Queries, p auth.Principal) error {
+	p.Email = strings.ToLower(strings.TrimSpace(p.Email))
 	return q.UpsertUser(ctx, dbsqlc.UpsertUserParams{ID: p.ID, Email: p.Email, Name: p.Name})
 }
 func sha(b []byte) string { s := sha256.Sum256(b); return hex.EncodeToString(s[:]) }
@@ -633,10 +713,47 @@ func (s *Store) RecordDocumentOpened(ctx context.Context, documentID string, p a
 	})
 }
 func (s *Store) UpdateDocument(ctx context.Context, id, title string) (repo.Document, error) {
-	if title != "" {
-		if err := s.q.UpdateDocumentTitle(ctx, dbsqlc.UpdateDocumentTitleParams{Title: title, ID: id}); err != nil {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return repo.Document{}, err
+	}
+	defer rollback(ctx, tx)
+	treeKey, err := treeKeyForDocumentWith(ctx, tx, id)
+	if err != nil {
+		return repo.Document{}, err
+	}
+	if err := lockTreeKeys(ctx, tx, treeKey); err != nil {
+		return repo.Document{}, err
+	}
+	if err := verifyDocumentTreeKey(ctx, tx, id, treeKey); err != nil {
+		return repo.Document{}, err
+	}
+	var lockedID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&lockedID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repo.Document{}, repo.ErrNotFound
+		}
+		return repo.Document{}, err
+	}
+	repository, repositoryErr := repositoryForDocumentWith(ctx, tx, id)
+	if repositoryErr == nil {
+		protected, err := lockRepositoryProtection(ctx, tx, repository.ID)
+		if err != nil {
 			return repo.Document{}, err
 		}
+		if protected[repository.ID] {
+			return repo.Document{}, &repo.PullRequestRequiredError{RepositoryID: repository.ID}
+		}
+	} else if !errors.Is(repositoryErr, repo.ErrNotFound) {
+		return repo.Document{}, repositoryErr
+	}
+	if title != "" {
+		if err := s.q.WithTx(tx).UpdateDocumentTitle(ctx, dbsqlc.UpdateDocumentTitleParams{Title: title, ID: id}); err != nil {
+			return repo.Document{}, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return repo.Document{}, err
 	}
 	return s.GetDocument(ctx, id)
 }
@@ -646,6 +763,32 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 		return err
 	}
 	defer rollback(ctx, tx)
+	treeKey, err := treeKeyForDocumentWith(ctx, tx, id)
+	if err != nil {
+		return ignoreMissingDocumentOnDelete(err)
+	}
+	if err := lockTreeKeys(ctx, tx, treeKey); err != nil {
+		return err
+	}
+	if err := verifyDocumentTreeKey(ctx, tx, id, treeKey); err != nil {
+		return ignoreMissingDocumentOnDelete(err)
+	}
+	var lockedID string
+	if err := tx.QueryRow(ctx, `SELECT id FROM documents WHERE id=$1 FOR UPDATE`, id).Scan(&lockedID); err != nil {
+		return ignoreMissingDocumentOnDelete(err)
+	}
+	repository, repositoryErr := repositoryForDocumentWith(ctx, tx, id)
+	if repositoryErr == nil {
+		protected, err := lockRepositoryProtection(ctx, tx, repository.ID)
+		if err != nil {
+			return err
+		}
+		if protected[repository.ID] {
+			return &repo.PullRequestRequiredError{RepositoryID: repository.ID}
+		}
+	} else if !errors.Is(repositoryErr, repo.ErrNotFound) {
+		return repositoryErr
+	}
 	q := s.q.WithTx(tx)
 	deleted, err := q.DeleteDocument(ctx, id)
 	if err != nil {
@@ -660,6 +803,14 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 	}
 	return tx.Commit(ctx)
 }
+
+func ignoreMissingDocumentOnDelete(err error) error {
+	if errors.Is(err, repo.ErrNotFound) || errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	return err
+}
+
 func (s *Store) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]repo.ServiceAccount, error) {
 	rows, err := s.q.ListServiceAccounts(ctx, owner.ID)
 	if err != nil {
@@ -1093,17 +1244,13 @@ func insertAndNotifyDocumentKVEvent(ctx context.Context, q *dbsqlc.Queries, even
 }
 
 func (s *Store) CreateOwnershipTransfer(ctx context.Context, saID string, from auth.Principal, toEmail string) (repo.OwnershipTransfer, error) {
-	toID, err := s.q.GetUserIDByEmail(ctx, toEmail)
-	if errors.Is(err, pgx.ErrNoRows) {
-		toID = newID("usr")
-		err = s.q.InsertPlaceholderUser(ctx, dbsqlc.InsertPlaceholderUserParams{ID: toID, Email: toEmail})
-	}
+	to, err := s.EnsureUserByEmail(ctx, toEmail)
 	if err != nil {
 		return repo.OwnershipTransfer{}, err
 	}
 	id := newID("xfer")
-	err = s.q.InsertOwnershipTransfer(ctx, dbsqlc.InsertOwnershipTransferParams{ID: id, ServiceAccountID: saID, FromUserID: from.ID, ToUserID: toID})
-	return repo.OwnershipTransfer{ID: id, ServiceAccountID: saID, FromUserID: from.ID, ToUserID: toID, Status: repo.StatusPending}, err
+	err = s.q.InsertOwnershipTransfer(ctx, dbsqlc.InsertOwnershipTransferParams{ID: id, ServiceAccountID: saID, FromUserID: from.ID, ToUserID: to.ID})
+	return repo.OwnershipTransfer{ID: id, ServiceAccountID: saID, FromUserID: from.ID, ToUserID: to.ID, Status: repo.StatusPending}, err
 }
 func (s *Store) ListOwnershipTransfers(ctx context.Context, user auth.Principal) ([]repo.OwnershipTransfer, error) {
 	rows, err := s.q.ListOwnershipTransfers(ctx, user.ID)

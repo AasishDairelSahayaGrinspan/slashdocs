@@ -11,7 +11,25 @@ import { useDoc } from "./doc-context";
 // Renders the sandboxed document iframe and exchanges selection and paint
 // messages with the in-iframe bridge. Message origins are validated on both
 // ends, and painting is driven by the bridge's ready signal.
-export function RenderFrame() {
+export type RenderFrameProps = {
+  editing?: boolean;
+  editRequest?: number;
+  onEditReadyChange?: (ready: boolean) => void;
+  onEditDirtyChange?: (dirty: boolean) => void;
+  onEditedHTML?: (html: string, requestId: number) => void;
+  onEditError?: (message: string) => void;
+  onEditSaveShortcut?: () => void;
+};
+
+export function RenderFrame({
+  editing = false,
+  editRequest = 0,
+  onEditReadyChange,
+  onEditDirtyChange,
+  onEditedHTML,
+  onEditError,
+  onEditSaveShortcut,
+}: RenderFrameProps = {}) {
   const {
     docId,
     version,
@@ -29,10 +47,26 @@ export function RenderFrame() {
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const kvRevisionRef = useRef(0);
+  const lastEditRequestRef = useRef(0);
+  const editCallbacksRef = useRef({
+    onEditReadyChange,
+    onEditDirtyChange,
+    onEditedHTML,
+    onEditError,
+    onEditSaveShortcut,
+  });
+  editCallbacksRef.current = {
+    onEditReadyChange,
+    onEditDirtyChange,
+    onEditedHTML,
+    onEditError,
+    onEditSaveShortcut,
+  };
 
   useEffect(() => {
     kvRevisionRef.current = 0;
-  }, [docId]);
+    lastEditRequestRef.current = 0;
+  }, [docId, version]);
 
   const token = useQuery({
     queryKey: queryKeys.render(version),
@@ -54,6 +88,8 @@ export function RenderFrame() {
         })),
     [comments],
   );
+  const paintStateRef = useRef({ comments: paintPayload, active: activeComment });
+  paintStateRef.current = { comments: paintPayload, active: activeComment };
 
   const frameOrigin = useMemo(() => {
     if (!token.data?.url) return null;
@@ -80,6 +116,7 @@ export function RenderFrame() {
   // Reset readiness whenever we load a different frame.
   useEffect(() => {
     setReady(false);
+    editCallbacksRef.current.onEditReadyChange?.(false);
   }, [frameOrigin, token.data?.url]);
 
   // The resolved theme is baked into the iframe URL so the bridge can apply
@@ -114,6 +151,27 @@ export function RenderFrame() {
       frameOrigin,
     );
   }, [theme, ready, frameOrigin]);
+
+  // Editing stays inside the render bridge. The app only receives a clean
+  // serialized document after an explicit save request.
+  useEffect(() => {
+    if (!ready) return;
+    postToCurrentFrame({ type: "aidocs:edit-mode", enabled: editing });
+    if (!editing) {
+      editCallbacksRef.current.onEditReadyChange?.(false);
+      editCallbacksRef.current.onEditDirtyChange?.(false);
+    }
+  }, [editing, ready, postToCurrentFrame]);
+
+  useEffect(() => {
+    if (!ready || !editing || !editRequest) return;
+    if (lastEditRequestRef.current === editRequest) return;
+    lastEditRequestRef.current = editRequest;
+    postToCurrentFrame({
+      type: "aidocs:edit-request-html",
+      requestId: editRequest,
+    });
+  }, [editRequest, editing, ready, postToCurrentFrame]);
 
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
@@ -276,6 +334,29 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       }
+      if (e.data?.type === "aidocs:edit-ready") {
+        editCallbacksRef.current.onEditReadyChange?.(true);
+      }
+      if (e.data?.type === "aidocs:edit-dirty") {
+        editCallbacksRef.current.onEditDirtyChange?.(!!e.data.dirty);
+      }
+      if (
+        e.data?.type === "aidocs:edit-html" &&
+        typeof e.data.html === "string" &&
+        typeof e.data.requestId === "number"
+      ) {
+        editCallbacksRef.current.onEditedHTML?.(e.data.html, e.data.requestId);
+      }
+      if (e.data?.type === "aidocs:edit-error") {
+        editCallbacksRef.current.onEditError?.(
+          typeof e.data.message === "string"
+            ? e.data.message
+            : "Could not prepare document changes",
+        );
+      }
+      if (e.data?.type === "aidocs:edit-save-shortcut") {
+        editCallbacksRef.current.onEditSaveShortcut?.();
+      }
       if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
         const frameRect = ref.current?.getBoundingClientRect();
         const cursor =
@@ -293,6 +374,17 @@ export function RenderFrame() {
         setReady(true);
         ref.current?.contentWindow?.postMessage(
           { type: "aidocs:theme", theme: themeRef.current },
+          frameOrigin,
+        );
+        // The bridge can reload its nested document to discard a text edit
+        // without changing the outer render URL. Repaint directly on every
+        // ready signal so comment highlights return after that reset.
+        ref.current?.contentWindow?.postMessage(
+          {
+            type: "aidocs:paint",
+            comments: paintStateRef.current.comments,
+            active: paintStateRef.current.active,
+          },
           frameOrigin,
         );
       }

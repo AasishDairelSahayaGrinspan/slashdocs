@@ -173,6 +173,17 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "everyone_label": "Anyone in Acme",
 	  "provider_name": "Google"
 	}`)
+
+	development := newConfiguredTestEnv(t, server.Config{Environment: server.EnvDevelopment, Deployment: "org", OrgName: "Local Development"})
+	rr = do(t, development.h, http.MethodGet, "/v1/config", "", nil)
+	assertStatus(t, rr, http.StatusOK)
+	assertJSON(t, rr.Body.Bytes(), `{
+	  "deployment": "org",
+	  "org_name": "Local Development",
+	  "everyone_label": "Anyone in Local Development",
+	  "provider_name": "SSO",
+	  "development": true
+	}`)
 }
 
 func TestFrontendFallbackServesEmbeddedIndex(t *testing.T) {

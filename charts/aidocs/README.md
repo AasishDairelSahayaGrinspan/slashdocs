@@ -45,6 +45,12 @@ googleOAuth:
 session:
   secret: "replace-with-at-least-32-random-bytes"
 
+connectedKnowledge:
+  githubToken: "..." # optional, read-only Contents access
+  githubWebhookSecret: "..." # optional; POST /v1/webhooks/github
+  slackSigningSecret: "..." # optional; POST /v1/webhooks/slack
+  devRevWebhookSecret: "..." # optional, 8-32 bytes; POST /v1/webhooks/devrev
+
 database:
   host: postgres
   user: aidocs
@@ -57,6 +63,10 @@ blob:
   region: us-east-1
   accessKeyID: "..."
   secretAccessKey: "..."
+
+# Bounded writable /tmp for multipart imports while the image stays read-only.
+temporaryStorage:
+  sizeLimit: 128Mi
 
 autoscaling:
   enabled: true
@@ -179,6 +189,15 @@ blob:
   existingSecret: aidocs-blob
   accessKeyIDKey: access-key-id
   secretAccessKeyKey: secret-access-key
+
+connectedKnowledge:
+  existingSecret: aidocs-connected-knowledge
+  githubTokenKey: AIDOCS_GITHUB_TOKEN
+  githubWebhookSecretKey: AIDOCS_GITHUB_WEBHOOK_SECRET
+  slackExistingSecret: aidocs-slack
+  slackSigningSecretKey: AIDOCS_SLACK_SIGNING_SECRET
+  devRevExistingSecret: aidocs-devrev
+  devRevWebhookSecretKey: AIDOCS_DEVREV_WEBHOOK_SECRET
 ```
 
 ## Redirect URIs

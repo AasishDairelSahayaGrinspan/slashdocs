@@ -55,8 +55,9 @@ const (
 
 // Environment values for Config.Environment.
 const (
-	EnvProduction = "production"
-	envTest       = "test"
+	EnvProduction  = "production"
+	EnvDevelopment = "development"
+	envTest        = "test"
 )
 
 // Retry bounds for allocating a unique service-account name.

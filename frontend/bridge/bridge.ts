@@ -63,9 +63,15 @@ interface PaintItem {
 
 type Theme = "dark" | "light";
 
+interface EditorBodyAttributes {
+  contenteditable: string | null;
+  spellcheck: string | null;
+}
+
 (function bridge(): void {
   const appOrigin = window.__AIDOCS_APP_ORIGIN__ || "*";
   const frame = document.getElementById("aidocs-doc") as HTMLIFrameElement;
+  const originalSrcdoc = frame ? frame.getAttribute("srcdoc") || "" : "";
   const svgNS = "http://www.w3.org/2000/svg";
   let kvRequestID = 0;
   const kvPending: Record<string, KVPendingRequest> = {};
@@ -75,6 +81,12 @@ type Theme = "dark" | "light";
   let kvRedoStack: KVHistoryEntry[] = [];
   let kvMutationQueue: Promise<unknown> = Promise.resolve();
   let kvHistoryGeneration = 0;
+  let editMode = false;
+  let editDirty = false;
+  let editInputHandler: EventListener | null = null;
+  let originalThemeAttribute: string | null = null;
+  let originalBodyAttributes: EditorBodyAttributes | null = null;
+  let editReload = 0;
 
   function doc(): Document | null {
     try {
@@ -478,6 +490,7 @@ type Theme = "dark" | "light";
     if (!d || d.getElementById("aidocs-highlight-style")) return;
     const s = d.createElement("style");
     s.id = "aidocs-highlight-style";
+    s.setAttribute("data-aidocs-injected", "highlight");
     s.textContent =
       ".aidocs-mark{background:#fef08a!important;color:#111827!important;-webkit-text-fill-color:#111827!important;box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:2px;box-shadow:0 0 0 1px rgba(202,138,4,.55);cursor:pointer;transition:background-color .15s,box-shadow .15s}.aidocs-mark-active{background:#fde047!important;box-shadow:0 0 0 2px rgba(202,138,4,.95)}.aidocs-svg-mark-text{fill:#111827!important;-webkit-text-fill-color:#111827!important;cursor:pointer}.aidocs-svg-mark-rect{fill:#fef08a;stroke:#ca8a04;stroke-width:1;rx:3;ry:3;pointer-events:auto;opacity:.72}.aidocs-svg-mark-rect.aidocs-mark-active{fill:#fde047;stroke-width:2;opacity:.84}";
     (d.head || d.documentElement).appendChild(s);
@@ -647,6 +660,7 @@ type Theme = "dark" | "light";
     active: string | null | undefined,
   ): void {
     clear();
+    if (editMode) return;
     injectStyles();
     (items || []).forEach((x) => {
       const a = x.anchor || {};
@@ -704,6 +718,12 @@ type Theme = "dark" | "light";
     if (!d || !e.target || !(e.target as Element).closest) return;
     const a = (e.target as Element).closest("a[href]") as HTMLAnchorElement | null;
     if (!a) return;
+    // Links remain visible while editing, but following one would throw away
+    // an in-progress text change and make inline editing feel unpredictable.
+    if (editMode) {
+      e.preventDefault();
+      return;
+    }
     const href = a.getAttribute("href") || "";
     if (!href || /^javascript:/i.test(href)) {
       e.preventDefault();
@@ -781,7 +801,7 @@ type Theme = "dark" | "light";
 
   function selection(): void {
     const d = doc();
-    if (!d) return;
+    if (!d || editMode) return;
     const s = d.getSelection();
     if (!s || s.isCollapsed || s.rangeCount < 1) return;
     const q = s.toString().trim();
@@ -868,12 +888,170 @@ type Theme = "dark" | "light";
     kvUndo().catch(() => {});
   }
 
+  function rememberOriginalEditorAttributes(d: Document): void {
+    originalThemeAttribute = d.documentElement.hasAttribute("data-aidocs-theme")
+      ? d.documentElement.getAttribute("data-aidocs-theme")
+      : null;
+    originalBodyAttributes = {
+      contenteditable: d.body.hasAttribute("contenteditable")
+        ? d.body.getAttribute("contenteditable")
+        : null,
+      spellcheck: d.body.hasAttribute("spellcheck")
+        ? d.body.getAttribute("spellcheck")
+        : null,
+    };
+  }
+
+  function emitEditDirty(dirty: boolean): void {
+    editDirty = !!dirty;
+    parent.postMessage({ type: "aidocs:edit-dirty", dirty: editDirty }, targetOrigin());
+  }
+
+  function injectEditStyles(d: Document): void {
+    if (d.getElementById("aidocs-edit-style")) return;
+    const s = d.createElement("style");
+    s.id = "aidocs-edit-style";
+    s.setAttribute("data-aidocs-injected", "editor");
+    s.textContent =
+      "html[data-aidocs-edit-mode='true'] body{cursor:text!important;outline:none!important}" +
+      "html[data-aidocs-edit-mode='true'] body *{caret-color:#6366f1}" +
+      "html[data-aidocs-edit-mode='true'] body:focus{outline:3px solid rgba(99,102,241,.28)!important;outline-offset:-3px!important}" +
+      "html[data-aidocs-edit-mode='true'] a{cursor:text!important}";
+    (d.head || d.documentElement).appendChild(s);
+  }
+
+  function beginTextEditing(): void {
+    const d = doc();
+    if (!d || !d.documentElement || !d.body) return;
+    if (
+      editMode &&
+      d.documentElement.getAttribute("data-aidocs-edit-mode") === "true"
+    ) {
+      parent.postMessage({ type: "aidocs:edit-ready" }, targetOrigin());
+      return;
+    }
+    clear();
+    editMode = true;
+    emitEditDirty(false);
+    injectEditStyles(d);
+    d.documentElement.setAttribute("data-aidocs-edit-mode", "true");
+    d.body.setAttribute("contenteditable", "true");
+    d.body.setAttribute("spellcheck", "true");
+    if (editInputHandler) d.body.removeEventListener("input", editInputHandler);
+    editInputHandler = function () {
+      if (!editDirty) emitEditDirty(true);
+    };
+    d.body.addEventListener("input", editInputHandler);
+    try {
+      d.body.focus({ preventScroll: true });
+    } catch (e) {
+      try {
+        d.body.focus();
+      } catch (err) {}
+    }
+    parent.postMessage({ type: "aidocs:edit-ready" }, targetOrigin());
+  }
+
+  function reloadOriginalDocument(): void {
+    editMode = false;
+    emitEditDirty(false);
+    editInputHandler = null;
+    // The captured srcdoc is the immutable source HTML. Reloading it restores
+    // the exact pre-edit document without trying to reverse browser
+    // contenteditable mutations one by one. A unique inert comment guarantees
+    // a navigation even when the browser optimizes identical attribute writes.
+    editReload++;
+    frame.setAttribute(
+      "srcdoc",
+      originalSrcdoc + "\n<!--aidocs-edit-reset-" + editReload + "-->",
+    );
+  }
+
+  function restoreOptionalAttribute(
+    element: Element,
+    name: string,
+    value: string | null | undefined,
+  ): void {
+    if (value === null || value === undefined) element.removeAttribute(name);
+    else element.setAttribute(name, value);
+  }
+
+  function cleanEditedHTML(): string {
+    const d = doc();
+    if (!d || !d.documentElement || !d.body) {
+      throw new Error("document is not ready for editing");
+    }
+
+    // Paint wraps user text in <mark> elements. Clear it in the live DOM
+    // before cloning so review annotations can never become document content.
+    clear();
+    const root = d.documentElement.cloneNode(true) as HTMLHtmlElement;
+    root.removeAttribute("data-aidocs-edit-mode");
+    restoreOptionalAttribute(root, "data-aidocs-theme", originalThemeAttribute);
+
+    const body = root.querySelector("body");
+    if (body) {
+      restoreOptionalAttribute(
+        body,
+        "contenteditable",
+        originalBodyAttributes && originalBodyAttributes.contenteditable,
+      );
+      restoreOptionalAttribute(
+        body,
+        "spellcheck",
+        originalBodyAttributes && originalBodyAttributes.spellcheck,
+      );
+    }
+    root.querySelectorAll("[data-aidocs-injected]").forEach((node) => node.remove());
+    // The bootstrap is inserted server-side into the first position in the
+    // document head. Only remove that first injected copy; a user element
+    // that happens to reuse the id later remains untouched.
+    const bootstrap = root.querySelector("script#aidocs-bootstrap");
+    if (bootstrap) bootstrap.remove();
+    root
+      .querySelectorAll("mark.aidocs-mark")
+      .forEach((mark) => mark.replaceWith(...mark.childNodes));
+    root.querySelectorAll(".aidocs-svg-mark-rect").forEach((node) => node.remove());
+    root.querySelectorAll<SVGElement>(".aidocs-svg-mark-text").forEach((node) => {
+      node.classList.remove("aidocs-svg-mark-text", "aidocs-mark-active");
+      delete node.dataset.cid;
+    });
+
+    const doctype = d.doctype ? "<!DOCTYPE " + d.doctype.name + ">" : "<!doctype html>";
+    return doctype + "\n" + root.outerHTML;
+  }
+
+  function sendEditedHTML(requestId: string): void {
+    try {
+      parent.postMessage(
+        {
+          type: "aidocs:edit-html",
+          requestId: requestId,
+          html: cleanEditedHTML(),
+        },
+        targetOrigin(),
+      );
+    } catch (error: unknown) {
+      parent.postMessage(
+        {
+          type: "aidocs:edit-error",
+          requestId: requestId,
+          message:
+            (error instanceof Error && error.message) ||
+            "Could not prepare document changes",
+        },
+        targetOrigin(),
+      );
+    }
+  }
+
   curTheme = initialTheme();
   let setupDoc: Document | null = null;
   function setupFrame(): void {
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
     setupDoc = d;
+    rememberOriginalEditorAttributes(d);
     resetKVHistory();
     injectStyles();
     installAidocsAPI();
@@ -923,6 +1101,16 @@ type Theme = "dark" | "light";
       selTimer = setTimeout(selection, 350);
     });
     d.addEventListener("keydown", (ev) => {
+      if (
+        editMode &&
+        (ev.ctrlKey || ev.metaKey) &&
+        !ev.altKey &&
+        String(ev.key || "").toLowerCase() === "s"
+      ) {
+        ev.preventDefault();
+        parent.postMessage({ type: "aidocs:edit-save-shortcut" }, targetOrigin());
+        return;
+      }
       if (ev.key === "Escape") {
         parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
       }
@@ -950,6 +1138,7 @@ type Theme = "dark" | "light";
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
+    if (editMode) beginTextEditing();
     hydrateKV();
   }
 
@@ -964,7 +1153,12 @@ type Theme = "dark" | "light";
     if (!isParentMessage(e)) return;
     if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
     else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
-    else if (e.data.type === "aidocs:kv-response") {
+    else if (e.data.type === "aidocs:edit-mode") {
+      if (e.data.enabled) beginTextEditing();
+      else if (editMode) reloadOriginalDocument();
+    } else if (e.data.type === "aidocs:edit-request-html") {
+      if (editMode) sendEditedHTML(e.data.requestId);
+    } else if (e.data.type === "aidocs:kv-response") {
       const requestId = String(e.data.requestId || "");
       const pending = kvPending[requestId];
       if (!pending) return;

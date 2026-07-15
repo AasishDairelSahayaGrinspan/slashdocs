@@ -128,17 +128,23 @@ func TestBridgeHandlesDocumentLinks(t *testing.T) {
 	}
 }
 
-func TestBridgeDoesNotExposeManualEditContract(t *testing.T) {
+func TestBridgeImplementsSanitizedTextEditContract(t *testing.T) {
 	bridge := requireEmbeddedBridge(t)
 	for _, needle := range []string{
 		"aidocs:edit-mode",
 		"aidocs:edit-dirty",
 		"aidocs:edit-request-html",
 		"aidocs:edit-html",
-		"aidocs-edit-mode",
+		"aidocs:edit-ready",
+		"cleanEditedHTML",
+		`root.querySelectorAll("[data-aidocs-injected]")`,
+		`root.querySelector("script#aidocs-bootstrap")`,
+		`.querySelectorAll("mark.aidocs-mark")`,
+		"originalSrcdoc",
+		"aidocs-edit-reset-",
 	} {
-		if strings.Contains(bridge, needle) {
-			t.Fatalf("bridge.js still exposes manual edit hook %q", needle)
+		if !strings.Contains(bridge, needle) {
+			t.Fatalf("bridge.js missing sanitized text-edit hook %q", needle)
 		}
 	}
 }

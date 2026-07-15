@@ -13,8 +13,12 @@ import (
 // fields not listed here are omitted from the compact view (use --json for the
 // full payload).
 var displayFields = []string{
-	"id", "document_id", "title", "name", "email", "type", "role", "status",
+	"id", "repository_id", "document_id", "title", "name", "slug", "scope",
+	"email", "type", "role", "status", "state", "mergeable",
 	"disabled", "current_version_id", "number", "sha256", "token",
+	"base_version_id", "head_version_id", "merge_blocked_reason",
+	"patchset", "provider", "external_repository", "branch", "direction",
+	"outcome", "pull_request_number", "action", "answer", "excerpt",
 	"selected_text", "body", "url",
 }
 
@@ -178,6 +182,16 @@ func humanize(hint string, x any) string {
 		for _, it := range items {
 			row, _ := it.(map[string]any)
 			lines = append(lines, compactRow(row))
+		}
+		return strings.Join(lines, "\n")
+	}
+	if citations, ok := value(m, "citations").([]any); ok {
+		lines := []string{compactRow(m)}
+		for _, raw := range citations {
+			citation, _ := raw.(map[string]any)
+			if citation != nil {
+				lines = append(lines, "citation  "+compactRow(citation))
+			}
 		}
 		return strings.Join(lines, "\n")
 	}

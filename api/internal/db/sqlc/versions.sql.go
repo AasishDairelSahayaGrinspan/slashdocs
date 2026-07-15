@@ -14,7 +14,7 @@ import (
 const getVersion = `-- name: GetVersion :one
 SELECT
   v.id,
-  v.number,
+  COALESCE(v.number, 0)::int AS number,
   v.document_id,
   v.created_by_type,
   v.created_by_id,
@@ -109,7 +109,7 @@ VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 type InsertVersionParams struct {
 	ID              string
 	DocumentID      string
-	Number          int32
+	Number          pgtype.Int4
 	HtmlBlobKey     string
 	Sha256          string
 	ParentVersionID pgtype.Text
@@ -136,7 +136,7 @@ func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) er
 const listVersions = `-- name: ListVersions :many
 SELECT
   v.id,
-  v.number,
+  COALESCE(v.number, 0)::int AS number,
   v.document_id,
   v.created_by_type,
   v.created_by_id,
@@ -151,7 +151,7 @@ LEFT JOIN users u
 LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON v.created_by_type = 'service_account' AND v.created_by_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-WHERE v.document_id=$1
+WHERE v.document_id=$1 AND v.number IS NOT NULL
 ORDER BY v.number
 `
 

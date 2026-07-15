@@ -18,6 +18,7 @@ import (
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/db"
+	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
 	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
 	"github.com/razorpay/aidocs/api/internal/server"
@@ -111,6 +112,9 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Registered after the KV broker and repository defers so background
+	// processing is cancelled and joined before either dependency is closed.
+	defer srv.Close()
 	return serve(ctx, srv.Handler(), ":"+envOrDefault("AIDOCS_PORT", "8080"), ":"+envOrDefault("AIDOCS_METRICS_PORT", "9090"))
 }
 
@@ -175,6 +179,24 @@ func loadOriginSettings() (originSettings, error) {
 	return originSettings{appOrigin: appOrigin, renderOrigin: renderOrigin, sessionSecret: sessionSecret}, nil
 }
 
+type webhookSettings struct {
+	githubSecret string
+	slackSecret  string
+	devRevSecret string
+}
+
+func loadWebhookSettings() (webhookSettings, error) {
+	settings := webhookSettings{
+		githubSecret: os.Getenv("AIDOCS_GITHUB_WEBHOOK_SECRET"),
+		slackSecret:  os.Getenv("AIDOCS_SLACK_SIGNING_SECRET"),
+		devRevSecret: os.Getenv("AIDOCS_DEVREV_WEBHOOK_SECRET"),
+	}
+	if settings.devRevSecret != "" && (len(settings.devRevSecret) < 8 || len(settings.devRevSecret) > 32) {
+		return webhookSettings{}, errors.New("AIDOCS_DEVREV_WEBHOOK_SECRET must be 8-32 bytes, matching DevRev's webhook secret constraint")
+	}
+	return settings, nil
+}
+
 type deploymentSettings struct {
 	name                string
 	orgName             string
@@ -225,13 +247,23 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
+	webhooks, err := loadWebhookSettings()
+	if err != nil {
+		return nil, err
+	}
 	oidcProvider, providerName, err := loadOIDC(ctx, origins.appOrigin)
 	if err != nil {
 		return nil, err
 	}
 	options := []server.Option{
+		server.WithLifecycleContext(ctx),
 		server.WithRepository(store),
 		server.WithDocumentKVEvents(kvEvents),
+		server.WithKnowledgeStore(knowledge.NewPostgres(store.Pool())),
+		server.WithKnowledgeProviderClient(knowledge.HTTPProviderClient{
+			Client:      &http.Client{Timeout: 15 * time.Second},
+			GitHubToken: os.Getenv("AIDOCS_GITHUB_TOKEN"),
+		}),
 		server.WithAuthenticator(auth.DBAuthenticator{Resolver: store, SessionSecret: origins.sessionSecret}),
 		server.WithStateStore(auth.NewPostgresStateStore(store.Pool())),
 		server.WithReadinessCheck("postgres", store.Ping),
@@ -249,6 +281,9 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		AllowedOAuthDomains: deployment.allowedOAuthDomains,
 		Deployment:          deployment.name,
 		OrgName:             deployment.orgName,
+		GitHubWebhookSecret: webhooks.githubSecret,
+		SlackSigningSecret:  webhooks.slackSecret,
+		DevRevWebhookSecret: webhooks.devRevSecret,
 	}, options...), nil
 }
 

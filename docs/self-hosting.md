@@ -13,6 +13,15 @@ This guide covers three deployment paths:
 It also documents [every environment variable](#environment-variables)
 the binary understands.
 
+To connect code repositories and generate reviewable documentation proposals,
+see [Connected sources](connected-sources.md).
+
+Before deploying a release, run the repeatable
+[production verification gate](production-verification.md). It builds the real
+server and embedded frontend and verifies migrations, PostgreSQL/S3
+persistence, protected reviews, signed source webhooks, restart recovery,
+readiness failure, and rendered Helm configuration.
+
 ## Requirements
 
 - Postgres 14+
@@ -183,10 +192,9 @@ On an org deployment the org domains are the login gate, so you do not also
 need `ALLOWED_OAUTH_DOMAINS`. The document permission model is identical in both
 modes; only the login gate and the wording differ.
 
-> For an `org` deployment, set the OAuth consent screen to **Internal** so
-> Google itself restricts sign-in to your Workspace organization, and set
-> `AIDOCS_ORG_DOMAINS` to the same email domain(s). The two together ensure
-> only org members can authenticate.
+> For an `org` deployment, configure the identity provider to restrict sign-in
+> to your organization, and set `AIDOCS_ORG_DOMAINS` to the same email
+> domain(s). The two controls together ensure only org members can authenticate.
 
 ```text
 AIDOCS_DEPLOYMENT=org
@@ -324,6 +332,12 @@ session:
   # At least 32 random bytes. Generate with: openssl rand -hex 32
   secret: "replace-with-at-least-32-random-bytes"
 
+connectedKnowledge:
+  githubToken: "github-read-only-token"
+  githubWebhookSecret: "replace-with-a-random-shared-secret"
+  slackSigningSecret: "replace-with-your-slack-app-signing-secret"
+  devRevWebhookSecret: "" # optional; set directly or use devRevExistingSecret
+
 database:
   host: postgres.aidocs.svc
   user: aidocs
@@ -402,6 +416,15 @@ blob:
   existingSecret: aidocs-blob
   accessKeyIDKey: access-key-id
   secretAccessKeyKey: secret-access-key
+
+connectedKnowledge:
+  existingSecret: aidocs-connected-knowledge
+  githubTokenKey: AIDOCS_GITHUB_TOKEN
+  githubWebhookSecretKey: AIDOCS_GITHUB_WEBHOOK_SECRET
+  slackExistingSecret: aidocs-slack
+  slackSigningSecretKey: AIDOCS_SLACK_SIGNING_SECRET
+  devRevExistingSecret: aidocs-devrev
+  devRevWebhookSecretKey: AIDOCS_DEVREV_WEBHOOK_SECRET
 ```
 
 Then create those Secrets in your cluster with `kubectl create secret`
@@ -420,6 +443,10 @@ Sealed Secrets, etc.).
 | `googleOAuth.{clientID,clientSecret}`                                      | Google OAuth credentials.                                                                                                    |
 | `oidc.{issuerURL,providerName,internalIssuerURL,clientID,clientSecret}`    | Generic OIDC provider; used instead of `googleOAuth` when `issuerURL` is set.                                                |
 | `session.secret`                                                           | At least 32 random bytes.                                                                                                    |
+| `connectedKnowledge.{githubToken,githubWebhookSecret}`                     | Optional GitHub revision comparison and signed webhook credentials.                                                         |
+| `connectedKnowledge.{slackSigningSecret,slackExistingSecret}`              | Optional signed Slack Events API ingestion.                                                                                 |
+| `connectedKnowledge.{devRevWebhookSecret,devRevExistingSecret}`            | Optional signed DevRev ticket webhook ingestion.                                                                            |
+| `temporaryStorage.sizeLimit`                                               | Bounded writable `/tmp` volume used when multipart imports exceed the in-memory buffer.                                     |
 | `deployment.{mode,orgDomains,orgName}`                                     | `public` (default) or `org`; org mode gates login to `orgDomains`.                                                           |
 | `allowedOAuthDomains`                                                      | Comma-separated email domain allowlist (public mode); empty = no gate.                                                       |
 | `kvEvents.{mode,listenerDatabaseURL,existingSecret}`                       | Realtime KV events: `AIDOCS_KV_EVENTS_MODE` and the dedicated LISTEN connection URL (secret-backed). Rendered only when set. |
@@ -526,6 +553,10 @@ both. The redirect URI to register is
 | `BLOB_ACCESS_KEY_ID`                     | unset       | Override AWS-SDK default credential chain.                                                                                            |
 | `BLOB_SECRET_ACCESS_KEY`                 | unset       | Override AWS-SDK default credential chain.                                                                                            |
 | `BLOB_FORCE_PATH_STYLE`                  | `false`     | Set to `true` for MinIO and most non-AWS S3 implementations.                                                                          |
+| `AIDOCS_GITHUB_TOKEN`                    | unset       | Read-only GitHub token used to compare connected-source revisions. Explicit changed-file checks do not need it.                       |
+| `AIDOCS_GITHUB_WEBHOOK_SECRET`           | unset       | Shared secret for signed GitHub deliveries to `/v1/webhooks/github`; the endpoint is disabled when unset.                             |
+| `AIDOCS_SLACK_SIGNING_SECRET`            | unset       | Slack app signing secret for `/v1/webhooks/slack`; the endpoint is disabled when unset.                                                |
+| `AIDOCS_DEVREV_WEBHOOK_SECRET`           | unset       | DevRev webhook signing secret for `/v1/webhooks/devrev`; the endpoint is disabled when unset.                                          |
 
 `AIDOCS_KV_EVENTS_MODE=auto` attempts `LISTEN/NOTIFY` only when
 `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` is explicitly set. Without that URL it
@@ -653,6 +684,8 @@ mention highlighting remains unrecoverable after rollback.
 - [ ] Blob storage versioning / lifecycle rules configured.
 - [ ] `AIDOCS_COMMIT_SHA` baked into your image so `/commit.txt`
       reports the running build.
+- [ ] Connected-source token is read-only and scoped to only approved GitHub
+      repositories; webhook secret is stored in a secret manager.
 - [ ] Monitoring scraping `/metrics` on the metrics port (`AIDOCS_METRICS_PORT`,
       default `9090`). Keep this port private — do not expose it publicly.
 - [ ] PodDisruptionBudget enabled (`podDisruptionBudget.enabled: true`)

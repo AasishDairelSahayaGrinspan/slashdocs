@@ -2,7 +2,10 @@ package postgres_test
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
@@ -61,6 +64,354 @@ func TestPostgresRepositoryDocumentGrantVersionCommentFlow(t *testing.T) {
 	}
 	if cm.SelectedText != "v2" || cm.Status != "open" {
 		t.Fatalf("bad comment: %+v", cm)
+	}
+}
+
+func TestPostgresInviteThenMixedCaseLoginPreservesIdentityAndGrant(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	owner := auth.Principal{
+		Type: auth.PrincipalUser, ID: "usr_email_invite_owner_" + suffix,
+		Email: "email-invite-owner-" + suffix + "@example.com", Name: "Owner",
+	}
+	document, _, err := store.CreateDocument(ctx, owner, "Email invite "+suffix, []byte("<p>invite</p>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	address := "reviewer-" + suffix + "@example.com"
+	placeholder, err := store.EnsureUserByEmail(ctx, "  ReViEwEr-"+suffix+"@Example.COM  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if placeholder.ID == "" || placeholder.Email != address {
+		t.Fatalf("placeholder = %#v, want normalized address %q", placeholder, address)
+	}
+	if _, err := store.CreateGrant(ctx, "document", document.ID, placeholder, repo.RoleCommenter, owner); err != nil {
+		t.Fatal(err)
+	}
+
+	loggedIn, err := store.UpsertGoogleUser(
+		ctx,
+		"usr_email_login_candidate_"+suffix,
+		"REVIEWER-"+suffix+"@EXAMPLE.COM",
+		"Invited reviewer",
+		"oidc-email-invite-"+suffix,
+		"https://example.com/reviewer.png",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loggedIn.ID != placeholder.ID || loggedIn.Email != address {
+		t.Fatalf("logged-in identity = %#v, want placeholder id %q and email %q", loggedIn, placeholder.ID, address)
+	}
+
+	byEmail, err := store.UserByEmail(ctx, " Reviewer-"+suffix+"@Example.com ")
+	if err != nil || byEmail.ID != placeholder.ID {
+		t.Fatalf("case-insensitive signed-in lookup = %#v, err=%v", byEmail, err)
+	}
+	sharedAgain, err := store.EnsureUserByEmail(ctx, "REVIEWER-"+suffix+"@EXAMPLE.COM")
+	if err != nil || sharedAgain.ID != placeholder.ID {
+		t.Fatalf("case-insensitive share lookup = %#v, err=%v", sharedAgain, err)
+	}
+	role, err := store.RoleForDocument(ctx, loggedIn, document.ID)
+	if err != nil || role != repo.RoleCommenter {
+		t.Fatalf("grant after login = %q, err=%v", role, err)
+	}
+
+	serviceAccount, err := store.CreateServiceAccount(ctx, owner, "email-invite-bot-"+suffix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	transfer, err := store.CreateOwnershipTransfer(ctx, serviceAccount.ID, owner, " REVIEWER-"+suffix+"@Example.com ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transfer.ToUserID != placeholder.ID {
+		t.Fatalf("ownership transfer target = %q, want %q", transfer.ToUserID, placeholder.ID)
+	}
+}
+
+func TestPostgresProtectedRepositoryPullRequestFlow(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	owner := auth.Principal{
+		Type:  auth.PrincipalUser,
+		ID:    "usr_pg_pr_owner_" + suffix,
+		Email: "pg-pr-owner-" + suffix + "@example.com",
+		Name:  "Repository Owner " + suffix,
+	}
+	editor := auth.Principal{
+		Type:  auth.PrincipalUser,
+		ID:    "usr_pg_pr_editor_" + suffix,
+		Email: "pg-pr-editor-" + suffix + "@example.com",
+		Name:  "Repository Editor " + suffix,
+	}
+	baseHTML := []byte("<html><body>base " + suffix + "</body></html>")
+	document, base, err := store.CreateDocument(ctx, owner, "Governed document "+suffix, baseHTML)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	repository, err := store.CreateRepository(ctx, owner, repo.CreateRepositoryParams{
+		Name:              "Governed repository " + suffix,
+		Slug:              "governed-repository-" + suffix,
+		Scope:             repo.RepositoryScopePersonal,
+		NamespaceID:       owner.ID,
+		NamespaceName:     owner.Name,
+		DocumentID:        document.ID,
+		RequiredApprovals: 1,
+		Protected:         true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if repository.RootFolderID == "" || repository.RequiredApprovals != 1 || !repository.Protected {
+		t.Fatalf("repository = %+v, want protected root with one required approval", repository)
+	}
+	if _, err := store.CreateGrant(ctx, "folder", repository.RootFolderID, editor, repo.RoleEditor, owner); err != nil {
+		t.Fatal(err)
+	}
+	role, err := store.RoleForRepository(ctx, editor, repository.ID)
+	if err != nil || role != repo.RoleEditor {
+		t.Fatalf("editor role = %q, err = %v; want editor", role, err)
+	}
+
+	_, err = store.CreateVersion(ctx, document.ID, base.ID, "bypass governance", []byte("<html>direct</html>"), owner)
+	if !errors.Is(err, repo.ErrPullRequestRequired) {
+		t.Fatalf("direct CreateVersion error = %v, want %v", err, repo.ErrPullRequestRequired)
+	}
+	var pullRequestRequired *repo.PullRequestRequiredError
+	if !errors.As(err, &pullRequestRequired) || pullRequestRequired.RepositoryID != repository.ID {
+		t.Fatalf("direct CreateVersion error = %#v, want repository id %q", err, repository.ID)
+	}
+
+	proposedHTML := []byte("<html><body>proposal " + suffix + "</body></html>")
+	pullRequest, err := store.CreatePullRequest(
+		ctx,
+		repository.ID,
+		document.ID,
+		base.ID,
+		"Publish the governed update",
+		"Database-backed pull request",
+		"replace the body",
+		proposedHTML,
+		owner,
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pullRequest.HeadVersionID == "" || pullRequest.HeadVersionID == base.ID {
+		t.Fatalf("head version = %q, want a distinct proposed version", pullRequest.HeadVersionID)
+	}
+	if pullRequest.Status != repo.PullRequestStatusOpen || pullRequest.Mergeable || pullRequest.MergeBlockedReason != repo.ErrApprovalRequired.Error() {
+		t.Fatalf("new pull request = %+v, want open and blocked on approval", pullRequest)
+	}
+
+	afterOpen, err := store.GetDocument(ctx, document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterOpen.CurrentVersionID != base.ID {
+		t.Fatalf("current version after opening pull request = %q, want %q", afterOpen.CurrentVersionID, base.ID)
+	}
+	versions, err := store.ListVersions(ctx, document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 1 || versions[0].ID != base.ID {
+		t.Fatalf("published versions after opening pull request = %+v, want only base %q", versions, base.ID)
+	}
+	proposed, err := store.GetVersion(ctx, pullRequest.HeadVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if proposed.Number != 0 {
+		t.Fatalf("proposed version number = %d, want 0 until merge", proposed.Number)
+	}
+	gotHTML, err := store.GetVersionHTML(ctx, pullRequest.HeadVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(gotHTML) != string(proposedHTML) {
+		t.Fatalf("proposed html = %q, want %q", gotHTML, proposedHTML)
+	}
+
+	if _, err := store.ReviewPullRequest(ctx, repository.ID, pullRequest.Number, owner, repo.ReviewStateApproved, "self approve"); !errors.Is(err, repo.ErrSelfReview) {
+		t.Fatalf("self review error = %v, want %v", err, repo.ErrSelfReview)
+	}
+	if _, err := store.MergePullRequest(ctx, repository.ID, pullRequest.Number, owner); !errors.Is(err, repo.ErrApprovalRequired) {
+		t.Fatalf("merge before approval error = %v, want %v", err, repo.ErrApprovalRequired)
+	}
+	approved, err := store.ReviewPullRequest(ctx, repository.ID, pullRequest.Number, editor, repo.ReviewStateApproved, "ship it")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !approved.Mergeable || len(approved.Reviews) != 1 || approved.Reviews[0].Reviewer.ID != editor.ID {
+		t.Fatalf("approved pull request = %+v, want eligible editor approval", approved)
+	}
+
+	merged, err := store.MergePullRequest(ctx, repository.ID, pullRequest.Number, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.Status != repo.PullRequestStatusMerged || merged.MergedBy == nil || merged.MergedBy.ID != owner.ID {
+		t.Fatalf("merged pull request = %+v", merged)
+	}
+	afterMerge, err := store.GetDocument(ctx, document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if afterMerge.CurrentVersionID != pullRequest.HeadVersionID {
+		t.Fatalf("current version after merge = %q, want %q", afterMerge.CurrentVersionID, pullRequest.HeadVersionID)
+	}
+	published, err := store.GetVersion(ctx, pullRequest.HeadVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if published.Number != 2 {
+		t.Fatalf("merged version number = %d, want 2", published.Number)
+	}
+	versions, err = store.ListVersions(ctx, document.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("published versions after merge = %+v, want two", versions)
+	}
+}
+
+func TestPostgresEmptyAndImplicitOrganizationRepositoryAccess(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_org_owner_" + suffix, Email: "org-owner-" + suffix + "@example.com", Name: "Org Owner"}
+	viewer := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_org_viewer_" + suffix, Email: "org-viewer-" + suffix + "@example.com", Name: "Org Viewer"}
+
+	empty, err := store.CreateRepository(ctx, owner, repo.CreateRepositoryParams{
+		Name:              "Empty repository " + suffix,
+		Slug:              "empty-repository-" + suffix,
+		Scope:             repo.RepositoryScopePersonal,
+		NamespaceID:       owner.ID,
+		NamespaceName:     owner.Name,
+		RequiredApprovals: 1,
+		Protected:         true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if empty.RootFolderID == "" {
+		t.Fatalf("empty repository = %+v, want generated root folder", empty)
+	}
+	if documents, err := store.ListRepositoryDocuments(ctx, owner, empty.ID); err != nil || len(documents) != 0 {
+		t.Fatalf("empty repository documents = %+v, err = %v", documents, err)
+	}
+	bootstrapDocument, bootstrapVersion, err := store.CreateRepositoryDocument(ctx, empty.ID, owner, "Getting started "+suffix, []byte("<html><body>start</body></html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bootstrapDocument.ParentFolderID != empty.RootFolderID || bootstrapDocument.CurrentVersionID != bootstrapVersion.ID || bootstrapVersion.Number != 1 {
+		t.Fatalf("bootstrap document = %+v, version = %+v", bootstrapDocument, bootstrapVersion)
+	}
+	if _, _, err := store.CreateRepositoryDocument(ctx, empty.ID, owner, "Second", []byte("<html></html>")); !errors.Is(err, repo.ErrRepositoryNotEmpty) {
+		t.Fatalf("second bootstrap error = %v, want %v", err, repo.ErrRepositoryNotEmpty)
+	}
+	if _, err := store.CreateVersion(ctx, bootstrapDocument.ID, bootstrapVersion.ID, "direct", []byte("<html>changed</html>"), owner); !errors.Is(err, repo.ErrPullRequestRequired) {
+		t.Fatalf("post-bootstrap direct version error = %v, want %v", err, repo.ErrPullRequestRequired)
+	}
+
+	document, _, err := store.CreateDocument(ctx, owner, "Organization document "+suffix, []byte("<html><body>org</body></html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	organization, err := store.CreateRepository(ctx, owner, repo.CreateRepositoryParams{
+		Name:              "Organization repository " + suffix,
+		Slug:              "organization-repository-" + suffix,
+		Scope:             repo.RepositoryScopeOrganization,
+		NamespaceID:       "acme",
+		NamespaceName:     "Acme",
+		DocumentID:        document.ID,
+		RequiredApprovals: 1,
+		Protected:         true,
+		GrantOrgViewer:    false,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, roleCheck := range map[string]func() (repo.Role, error){
+		"repository": func() (repo.Role, error) { return store.RoleForRepository(ctx, viewer, organization.ID) },
+		"document":   func() (repo.Role, error) { return store.RoleForDocument(ctx, viewer, document.ID) },
+		"folder":     func() (repo.Role, error) { return store.RoleForFolder(ctx, viewer, organization.RootFolderID) },
+	} {
+		role, err := roleCheck()
+		if err != nil || role != repo.RoleViewer {
+			t.Fatalf("%s role = %q, err = %v; want viewer", name, role, err)
+		}
+	}
+	repositories, err := store.ListRepositories(ctx, viewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, item := range repositories {
+		found = found || item.ID == organization.ID
+	}
+	if !found {
+		t.Fatalf("organization repository %q missing from viewer list: %+v", organization.ID, repositories)
+	}
+	if documents, err := store.ListRepositoryDocuments(ctx, viewer, organization.ID); err != nil || len(documents) != 1 || documents[0].ID != document.ID {
+		t.Fatalf("organization documents = %+v, err = %v; want %q", documents, err, document.ID)
+	}
+}
+
+func TestPostgresGrantByCanonicalUserIDPreservesIdentity(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano())
+
+	owner := auth.Principal{
+		Type:  auth.PrincipalUser,
+		ID:    "usr_pg_grant_owner_" + suffix,
+		Email: "pg-grant-owner-" + suffix + "@example.com",
+		Name:  "Grant Owner " + suffix,
+	}
+	canonical := auth.Principal{
+		Type:  auth.PrincipalUser,
+		ID:    "usr_pg_grantee_" + suffix,
+		Email: "pg-canonical-" + suffix + "@example.com",
+		Name:  "Canonical Grantee " + suffix,
+	}
+	document, _, err := store.CreateDocument(ctx, owner, "Grant target "+suffix, []byte("<html>owner</html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := store.CreateDocument(ctx, canonical, "Canonical identity "+suffix, []byte("<html>canonical</html>")); err != nil {
+		t.Fatal(err)
+	}
+
+	forged := auth.Principal{
+		Type:  auth.PrincipalUser,
+		ID:    canonical.ID,
+		Email: "pg-forged-" + suffix + "@example.com",
+		Name:  "Forged Name",
+	}
+	grant, err := store.CreateGrant(ctx, "document", document.ID, forged, repo.RoleViewer, owner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if grant.Principal.Email != canonical.Email || grant.Principal.Name != canonical.Name {
+		t.Fatalf("granted principal = %+v, want canonical identity %+v", grant.Principal, canonical)
+	}
+	resolved, err := store.ResolveUser(ctx, canonical.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resolved.Email != canonical.Email || resolved.Name != canonical.Name {
+		t.Fatalf("canonical identity after grant = %+v, want email %q and name %q", resolved, canonical.Email, canonical.Name)
 	}
 }
 

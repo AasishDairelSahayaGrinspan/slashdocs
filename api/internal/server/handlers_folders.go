@@ -83,6 +83,10 @@ func (h handlers) createFolder(c *gin.Context) {
 	}
 	f, err := h.deps.repository.CreateFolder(c.Request.Context(), *current(c), in.Title, in.ParentFolderID)
 	if err != nil {
+		if errors.Is(err, repo.ErrRepositoryBoundary) {
+			repositoryBoundary(c)
+			return
+		}
 		if errors.Is(err, repo.ErrConflict) {
 			c.JSON(http.StatusConflict, errorResponse("conflict", "A folder named \""+in.Title+"\" already exists here.", nil))
 			return
@@ -241,6 +245,8 @@ func folderParentUpdate(raw json.RawMessage) (*string, error) {
 
 func respondFolderUpdateError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, repo.ErrRepositoryBoundary):
+		repositoryBoundary(c)
 	case errors.Is(err, repo.ErrConflict):
 		c.JSON(http.StatusConflict, errorResponse("conflict", "A folder with that name already exists in the destination.", nil))
 	case errors.Is(err, repo.ErrNotFound):
@@ -256,6 +262,8 @@ func (h handlers) deleteFolder(c *gin.Context) {
 	}
 	if err := h.deps.repository.DeleteFolder(c.Request.Context(), c.Param("id"), *current(c)); err != nil {
 		switch {
+		case errors.Is(err, repo.ErrRepositoryBoundary):
+			repositoryBoundary(c)
 		case errors.Is(err, repo.ErrForbidden):
 			forbidden(c, "owner role required")
 		case errors.Is(err, repo.ErrNotFound):
@@ -328,11 +336,14 @@ func (h handlers) moveDocToFolder(c *gin.Context) {
 	}
 	hasGrants, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *p, folderID, in.DocumentID)
 	if err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
+		switch {
+		case errors.Is(err, repo.ErrRepositoryBoundary):
+			repositoryBoundary(c)
+		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
-			return
+		default:
+			internalErr(c, err)
 		}
-		internalErr(c, err)
 		return
 	}
 	out := moveDocResponse{DocumentID: in.DocumentID, FolderID: folderID, Moved: true}
@@ -356,18 +367,21 @@ func (h handlers) moveDocToRoot(c *gin.Context) {
 		return
 	}
 	if err := h.deps.repository.MoveDocumentToRoot(c.Request.Context(), c.Param("id"), c.Param("doc_id")); err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
+		switch {
+		case errors.Is(err, repo.ErrRepositoryBoundary):
+			repositoryBoundary(c)
+		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
-			return
+		default:
+			internalErr(c, err)
 		}
-		internalErr(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
 }
 
 func (h handlers) createFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
+	if !h.needFolderGrantRole(c, c.Param("id")) {
 		return
 	}
 	var in struct {
@@ -395,8 +409,6 @@ func (h handlers) createFolderGrant(c *gin.Context) {
 			badRequest(c, "That doesn't look like an email or bot address.")
 		case errors.Is(err, errPrincipalIDRequired):
 			badRequest(c, "principal id, user email, or service account name is required")
-		case errors.Is(err, errUnknownUserEmail):
-			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
 		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
 		default:
@@ -413,7 +425,7 @@ func (h handlers) createFolderGrant(c *gin.Context) {
 	c.JSON(http.StatusCreated, g)
 }
 func (h handlers) patchFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
+	if !h.needFolderGrantRole(c, c.Param("id")) {
 		return
 	}
 	var in struct {
@@ -438,7 +450,7 @@ func (h handlers) patchFolderGrant(c *gin.Context) {
 	c.JSON(http.StatusOK, g)
 }
 func (h handlers) deleteFolderGrant(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleCommenter) {
+	if !h.needFolderGrantRole(c, c.Param("id")) {
 		return
 	}
 	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil {
@@ -450,4 +462,18 @@ func (h handlers) deleteFolderGrant(c *gin.Context) {
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func (h handlers) needFolderGrantRole(c *gin.Context, folderID string) bool {
+	need := repo.RoleCommenter
+	repository, err := h.deps.repository.RepositoryForFolder(c.Request.Context(), folderID)
+	if err == nil {
+		if repository.RootFolderID == folderID {
+			need = repo.RoleOwner
+		}
+	} else if !errors.Is(err, repo.ErrNotFound) {
+		internalErr(c, err)
+		return false
+	}
+	return h.needFolderRole(c, folderID, need)
 }

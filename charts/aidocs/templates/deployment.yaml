@@ -160,6 +160,34 @@ spec:
                 secretKeyRef:
                   name: {{ default (include "aidocs.secretName" .) .Values.session.existingSecret }}
                   key: {{ .Values.session.secretKey }}
+            {{- if or .Values.connectedKnowledge.existingSecret .Values.connectedKnowledge.githubToken }}
+            - name: AIDOCS_GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.connectedKnowledge.existingSecret }}
+                  key: {{ .Values.connectedKnowledge.githubTokenKey }}
+            {{- end }}
+            {{- if or .Values.connectedKnowledge.existingSecret .Values.connectedKnowledge.githubWebhookSecret }}
+            - name: AIDOCS_GITHUB_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.connectedKnowledge.existingSecret }}
+                  key: {{ .Values.connectedKnowledge.githubWebhookSecretKey }}
+            {{- end }}
+            {{- if or .Values.connectedKnowledge.slackExistingSecret .Values.connectedKnowledge.slackSigningSecret }}
+            - name: AIDOCS_SLACK_SIGNING_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.connectedKnowledge.slackExistingSecret }}
+                  key: {{ .Values.connectedKnowledge.slackSigningSecretKey }}
+            {{- end }}
+            {{- if or .Values.connectedKnowledge.devRevExistingSecret .Values.connectedKnowledge.devRevWebhookSecret }}
+            - name: AIDOCS_DEVREV_WEBHOOK_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.connectedKnowledge.devRevExistingSecret }}
+                  key: {{ .Values.connectedKnowledge.devRevWebhookSecretKey }}
+            {{- end }}
             {{- if or .Values.blob.existingSecret .Values.blob.accessKeyID }}
             - name: BLOB_ACCESS_KEY_ID
               valueFrom:
@@ -187,6 +215,13 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: temporary-storage
+              mountPath: /tmp
+      volumes:
+        - name: temporary-storage
+          emptyDir:
+            sizeLimit: {{ .Values.temporaryStorage.sizeLimit | quote }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

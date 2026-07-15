@@ -81,6 +81,7 @@ type APIError struct {
 	Code    string
 	Message string
 	Body    string
+	Details map[string]any
 }
 
 func (e *APIError) Error() string {
@@ -116,13 +117,15 @@ func (c *Client) do(method, path string, body io.Reader, ct string) ([]byte, err
 		ae := &APIError{Status: res.StatusCode, Message: strings.TrimSpace(string(b)), Body: string(b)}
 		var payload struct {
 			Error struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
+				Code    string         `json:"code"`
+				Message string         `json:"message"`
+				Details map[string]any `json:"details"`
 			} `json:"error"`
 		}
 		if json.Unmarshal(b, &payload) == nil && payload.Error.Message != "" {
 			ae.Code = payload.Error.Code
 			ae.Message = payload.Error.Message
+			ae.Details = payload.Error.Details
 		}
 		return nil, ae
 	}

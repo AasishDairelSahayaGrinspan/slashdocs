@@ -62,6 +62,13 @@ func (h handlers) createVersion(c *gin.Context) {
 	observeHTML("version_create", len(html))
 	v, err := h.deps.repository.CreateVersion(c.Request.Context(), c.Param("id"), c.PostForm("base_version_id"), c.PostForm("change_summary"), html, *p)
 	if err != nil {
+		if respondPullRequestRequired(c, err) {
+			return
+		}
+		if errors.Is(err, repo.ErrRepositoryBoundary) {
+			repositoryBoundary(c)
+			return
+		}
 		// A conflict means the base version was stale; report the current one.
 		if errors.Is(err, repo.ErrVersionConflict) {
 			var latestID string

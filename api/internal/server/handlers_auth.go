@@ -48,6 +48,7 @@ type configResponse struct {
 	OrgName       string `json:"org_name"`
 	EveryoneLabel string `json:"everyone_label"`
 	ProviderName  string `json:"provider_name"`
+	Development   bool   `json:"development,omitempty"`
 }
 
 // meResponse is the payload of GET /v1/me. Exactly one of User and
@@ -459,6 +460,7 @@ func (h handlers) config(c *gin.Context) {
 		OrgName:       h.deps.orgName,
 		EveryoneLabel: everyoneLabel(deployment, h.deps.orgName),
 		ProviderName:  defaultProviderName(h.deps.oidcProviderName),
+		Development:   h.deps.environment == EnvDevelopment,
 	})
 }
 

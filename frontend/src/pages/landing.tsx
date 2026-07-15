@@ -151,25 +151,25 @@ function Hero() {
             className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]"
           >
             <Sparkles className="h-3 w-3 text-[var(--color-accent)]" />
-            Review layer for AI-generated documents
+            GitHub-style collaboration for agent-authored documents
           </motion.div>
           <motion.h1
             variants={fadeUp}
             className="text-balance text-4xl font-semibold tracking-tight md:text-6xl"
           >
-            Give your agents the power to publish{" "}
+            Give every document a home, a history, and a{" "}
             <span className="bg-gradient-to-r from-[var(--color-accent)] to-[#818cff] bg-clip-text text-transparent">
-              reviewable
-            </span>{" "}
-            documents.
+              review
+            </span>
+            .
           </motion.h1>
           <motion.p
             variants={fadeUp}
             className="mx-auto mt-6 max-w-2xl text-pretty text-base text-[var(--color-fg-muted)] md:text-lg"
           >
-            aidocs is a Google-Docs-style review layer for self-contained HTML
-            artifacts. Agents push reports, specs, and RCAs through a CLI. Humans review
-            them in the browser with anchored comments and immutable versions.
+            Organize self-contained HTML artifacts into personal or organization
+            repositories. Agents propose protected changes through pull requests;
+            teammates compare versions, comment, approve, and merge in the browser.
           </motion.p>
           <motion.div
             variants={fadeUp}

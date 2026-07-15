@@ -1,6 +1,6 @@
 ---
 name: aidocs
-description: Use whenever the user mentions aidocs, an aidocs URL, an aidocs document/folder/comment/share/version, or asks to publish, review, open, or update a long-form artifact in aidocs.
+description: Use whenever the user mentions aidocs, an aidocs URL, an aidocs document/folder/repository/pull request/comment/share/version, or asks to publish, review, open, or update a long-form artifact in aidocs.
 ---
 
 # aidocs
@@ -24,12 +24,13 @@ output and follow it.
 
 ### Existing aidocs asset
 
-When the user asks about an existing aidocs document, folder, comment, share,
-version, or URL:
+When the user asks about an existing aidocs document, folder, repository, pull
+request, comment, share, version, or URL:
 
 1. Use `aidocs --help` and the relevant subcommand help to discover exact syntax.
 2. Use the CLI to inspect the asset (`docs show`, `docs versions`, `docs pull`,
-   `docs comments`, `folders`, `open`, etc. as appropriate).
+   `docs comments`, `folders`, `repos`, `repos prs`, `open`, etc. as
+   appropriate).
 3. Perform the requested action through the CLI.
 4. Return the important CLI result or URL to the user.
 
@@ -49,9 +50,35 @@ format:
 
 ### Updating an existing document
 
-If the user is iterating on an existing aidocs document, push a new version
-instead of creating a duplicate. Use the CLI help to find the current push/update
-syntax and include a short summary of what changed.
+If the user is iterating on an existing aidocs document, pull its current
+version first and then push a new version instead of creating a duplicate. Use
+the CLI help to find the current syntax and include a short summary of what
+changed.
+
+If `aidocs docs push` reports that a pull request is required, the document is
+inside a protected repository. Inspect `aidocs repos --help` and `aidocs repos
+prs --help`, identify the repository, and open a pull request with the edited
+HTML instead of trying to bypass protection. Return the pull-request URL so a
+different authorized reviewer can approve it. Never approve your own change.
+
+### Repositories, change sets, and connected sources
+
+Use `aidocs repos` for repository-scoped work. Protected changes may span
+several documents and tree operations; inspect `aidocs repos prs change-set
+--help`, prepare the requested JSON change set, and submit one atomic pull
+request. Use patchsets for revisions and rebase only when the CLI reports a
+stale base. A new patchset dismisses approvals from the previous one.
+
+When the task concerns keeping documentation aligned with code or another
+knowledge system, inspect `aidocs repos sources --help`. Prefer `simulate` for a
+read-only impact check. Use `check` only when the user wants a durable sync run
+and a reviewable documentation PR. Never push source-generated content directly
+to the published document or automatically approve the integration's PR.
+
+Repository search, cited questions, backlinks, the dependency graph, activity,
+review inbox, notifications, teams, templates, and lifecycle settings are
+available through their corresponding `aidocs repos` or top-level commands.
+Use the CLI help as the exact contract rather than guessing flags.
 
 ## MCP server (optional)
 

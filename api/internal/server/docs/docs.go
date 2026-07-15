@@ -1102,6 +1102,2449 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return review requests, repository transfers, and connected-source notifications for the authenticated user.",
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "List current-user notifications",
+                "parameters": [
+                    {
+                        "type": "boolean",
+                        "description": "Only return unread notifications",
+                        "name": "unread",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/notifications/{notification_id}": {
+            "patch": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Update the read state of a notification owned by the authenticated user.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Mark a notification read or unread",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Notification ID",
+                        "name": "notification_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "read boolean",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Notification"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/public/portals/{slug}": {
+            "get": {
+                "description": "Return public repository metadata and rendered document text for an enabled public portal. Authentication is not required.",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "public-portals"
+                ],
+                "summary": "Read a public documentation portal",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Portal slug",
+                        "name": "slug",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "repositories"
+                ],
+                "summary": "List accessible repositories",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.listResponse-repo_RepositoryRecord"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Create an empty repository or wrap one owned loose document or root folder in a personal or organization repository.",
+                "tags": [
+                    "repositories"
+                ],
+                "summary": "Create repository",
+                "parameters": [
+                    {
+                        "description": "Repository settings and seed",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/repo.RepositoryRecord"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/import": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Atomically creates a repository, its nested folders, documents, and initial versions from self-contained HTML files.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "tags": [
+                    "repositories"
+                ],
+                "summary": "Create repository from a local folder or document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository name",
+                        "name": "name",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository slug",
+                        "name": "slug",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository description",
+                        "name": "description",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "personal or organization",
+                        "name": "scope",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "folder or document",
+                        "name": "import_kind",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "collectionFormat": "csv",
+                        "description": "Normalized paths relative to the selected folder, paired with files",
+                        "name": "paths",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "One or more self-contained .html/.htm files",
+                        "name": "files",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/repo.RepositoryImportResult"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "repositories"
+                ],
+                "summary": "Get repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.RepositoryRecord"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Permanently delete a repository and every document, folder, version, comment, grant, pin, and pull request inside its root boundary. Only the repository creator may delete it.",
+                "tags": [
+                    "repositories"
+                ],
+                "summary": "Delete repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/activity": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return owner, source, sync, team, template, and export activity visible to repository viewers.",
+                "tags": [
+                    "knowledge-discovery"
+                ],
+                "summary": "List repository audit activity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/archive": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Pause connected-source updates and mark the repository archived. Owner access is required.",
+                "tags": [
+                    "connected-knowledge"
+                ],
+                "summary": "Archive a repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Settings"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/backlinks": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return repository documents whose rendered text references the requested document title.",
+                "tags": [
+                    "knowledge-discovery"
+                ],
+                "summary": "List document backlinks",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Target document ID",
+                        "name": "document_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/documents": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "repositories"
+                ],
+                "summary": "List repository documents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.listResponse-repo_Document"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Creates the only direct initial document allowed in a repository. Once any document exists, further content changes must use pull requests.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "tags": [
+                    "repositories"
+                ],
+                "summary": "Bootstrap an empty repository with its first document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Document title",
+                        "name": "title",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "file",
+                        "description": "Self-contained HTML file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/server.repositoryDocumentResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/graph": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return document nodes and title-reference edges inferred from rendered repository text.",
+                "tags": [
+                    "knowledge-discovery"
+                ],
+                "summary": "Get repository dependency graph",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/pull-requests": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "List pull requests",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Filter by open, merged, or closed",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.listResponse-repo_PullRequest"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Propose one immutable HTML version without advancing the published document head.",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Open pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "document_id",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Current base version ID",
+                        "name": "base_version_id",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Pull request title",
+                        "name": "title",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Pull request description",
+                        "name": "body",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Version history summary",
+                        "name": "change_summary",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "Self-contained HTML file",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/pull-requests/change-set": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Propose document content and tree changes as one atomic review unit.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Open a multi-document pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Pull request and changes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/pull-requests/{number}": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Get pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Close pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Status must be closed",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/pull-requests/{number}/merge": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Merge pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/pull-requests/{number}/patchsets": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Replace the proposed change set and dismiss approvals from the previous patchset.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Add a pull-request patchset",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Replacement changes",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/pull-requests/{number}/rebase": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Move every base to the current published document heads and create a new patchset.",
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Rebase a pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/pull-requests/{number}/reviews": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Approve the current proposed head or request changes. Authors cannot review their own pull requests.",
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "Review pull request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Pull request number",
+                        "name": "number",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Review state and note",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.PullRequest"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/questions": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return a deterministic extractive answer with document and version citations from accessible repository content.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "knowledge-discovery"
+                ],
+                "summary": "Ask a cited repository question",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Question payload with a question field",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/restore": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Resume connected-source updates for an archived repository. Owner access is required.",
+                "tags": [
+                    "connected-knowledge"
+                ],
+                "summary": "Restore an archived repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Settings"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/search": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Search document titles and rendered text within one accessible repository.",
+                "tags": [
+                    "knowledge-discovery"
+                ],
+                "summary": "Search repository documents",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Search query",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/settings": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return archive state, review rules, path rules, portal configuration, freshness policy, and transfer state.",
+                "tags": [
+                    "connected-knowledge"
+                ],
+                "summary": "Get connected-knowledge repository settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Settings"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Update reviewer requirements, CODEOWNERS-style path rules, public portal options, freshness policy, or archive state. Owner access is required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-knowledge"
+                ],
+                "summary": "Update connected-knowledge repository settings",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Settings fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.settingsPatch"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Settings"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/sources": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "List GitHub, Slack, DevRev, Drive, Confluence, Notion, and manual sources attached to a repository.",
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "List connected sources",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Connect a provider repository or knowledge source and configure branch, path filters, target, trigger mode, and synchronization direction.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "Connect a knowledge source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Source configuration",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.sourceInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Source"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/sources/{source_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Remove a connected source without deleting its historical sync runs or reviewed documentation.",
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "Disconnect a knowledge source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source ID",
+                        "name": "source_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Update provider location, branch, path filters, target, trigger, direction, or active status. Owner access is required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "Update a connected source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source ID",
+                        "name": "source_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Source fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Source"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/sources/{source_id}/check": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Compare revisions or supplied changed paths, apply filters, and create or update a reviewable aidocs pull request when documentation changes are meaningful.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "Check and synchronize a source",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source ID",
+                        "name": "source_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Revision comparison or changed paths",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/server.sourceCheckInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.SyncRun"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/sources/{source_id}/export": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Build a reviewable provider change proposal without publishing or mutating the connected provider.",
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "Propose an aidocs-to-provider export",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source ID",
+                        "name": "source_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/sources/{source_id}/simulate": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Preview filtered source changes and their target without persisting a run, version, pull request, source update, or audit event.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "Simulate a source synchronization",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Source ID",
+                        "name": "source_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Revision comparison or changed paths",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/server.sourceCheckInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.SyncRun"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "409": {
+                        "description": "Conflict",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "502": {
+                        "description": "Bad Gateway",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/sync-runs": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return queued, processing, completed, no-op, preview, and failed synchronization history for a repository.",
+                "tags": [
+                    "connected-sources"
+                ],
+                "summary": "List source synchronization runs",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/teams": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "List teams available to repository review rules and CODEOWNERS-style path rules.",
+                "tags": [
+                    "repository-teams"
+                ],
+                "summary": "List repository reviewer teams",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Create a named team and optional initial membership. Owner access is required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repository-teams"
+                ],
+                "summary": "Create a repository reviewer team",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "name, description, and member_ids",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Team"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/teams/{team_id}": {
+            "delete": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Delete a team used by repository review settings. Owner access is required.",
+                "tags": [
+                    "repository-teams"
+                ],
+                "summary": "Delete a repository reviewer team",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Team ID",
+                        "name": "team_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Update team name, description, or complete membership. Owner access is required.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "repository-teams"
+                ],
+                "summary": "Update a repository reviewer team",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Team ID",
+                        "name": "team_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Team fields to update",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Team"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/teams/{team_id}/members/{user_id}": {
+            "put": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Add an existing user to a reviewer team. Owner access is required.",
+                "tags": [
+                    "repository-teams"
+                ],
+                "summary": "Add a repository team member",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Team ID",
+                        "name": "team_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Team"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Remove a user from a reviewer team. Owner access is required.",
+                "tags": [
+                    "repository-teams"
+                ],
+                "summary": "Remove a repository team member",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Team ID",
+                        "name": "team_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "user_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/knowledge.Team"
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/templates/{template_id}/apply": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Preview a built-in template or open a reviewable pull request against an existing target document.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "templates"
+                ],
+                "summary": "Preview or apply a documentation template",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Template ID",
+                        "name": "template_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "target_document_id, optional title, and preview_only",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Template preview",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "201": {
+                        "description": "Template pull request opened",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/transfer": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Create a pending repository ownership transfer for a user ID or email. The target must explicitly accept.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-knowledge"
+                ],
+                "summary": "Request repository ownership transfer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "new_owner_id or new_owner_email",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "202": {
+                        "description": "Accepted",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "404": {
+                        "description": "Not Found",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/transfer/accept": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Accept a pending ownership transfer as its target user and atomically transfer the repository tree.",
+                "tags": [
+                    "connected-knowledge"
+                ],
+                "summary": "Accept repository ownership transfer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/repositories/{id}/transfer/cancel": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Cancel a pending connected-knowledge ownership transfer. Owner access is required.",
+                "tags": [
+                    "connected-knowledge"
+                ],
+                "summary": "Cancel repository ownership transfer",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Repository ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/review-inbox": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return open pull requests the authenticated editor can review, enriched with repository reviewer and team requirements.",
+                "tags": [
+                    "pull-requests"
+                ],
+                "summary": "List pull requests awaiting review",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/v1/service-accounts": {
             "get": {
                 "security": [
@@ -1407,6 +3850,293 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/templates": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Return built-in domain context, architecture, API, runbook, and onboarding templates.",
+                "tags": [
+                    "templates"
+                ],
+                "summary": "List documentation templates",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/users/{id}/profile": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Returns documents, pull requests, reviews, merges, and versions for the target user, filtered to resources the requester can read.",
+                "tags": [
+                    "users"
+                ],
+                "summary": "Get a user's visible profile activity",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "User ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.UserProfile"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/webhooks/devrev": {
+            "post": {
+                "description": "Verify DevRev's raw-body HMAC and event replay timestamp, answer endpoint verification, deduplicate event IDs, and queue matching ticket updates.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-source-webhooks"
+                ],
+                "summary": "Receive DevRev ticket events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Bare hex HMAC-SHA256 signature",
+                        "name": "X-DevRev-Signature",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "DevRev webhook envelope",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Verification challenge or duplicate delivery",
+                        "schema": {
+                            "$ref": "#/definitions/server.webhookChallengeResponse"
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted event",
+                        "schema": {
+                            "$ref": "#/definitions/server.sourceDeliveryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/webhooks/github": {
+            "post": {
+                "description": "Validate a GitHub HMAC signature, deduplicate the delivery, and durably queue default-branch pushes or merged pull requests for asynchronous documentation impact analysis.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-source-webhooks"
+                ],
+                "summary": "Receive GitHub source events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "sha256 HMAC signature",
+                        "name": "X-Hub-Signature-256",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Unique GitHub delivery ID",
+                        "name": "X-GitHub-Delivery",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "GitHub event name",
+                        "name": "X-GitHub-Event",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "GitHub webhook payload",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Duplicate delivery",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted, queued, or intentionally ignored delivery",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/webhooks/slack": {
+            "post": {
+                "description": "Verify Slack's v0 HMAC and replay timestamp, answer URL verification, deduplicate event IDs, and queue matching message or thread updates.",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "connected-source-webhooks"
+                ],
+                "summary": "Receive Slack thread events",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Slack v0 HMAC signature",
+                        "name": "X-Slack-Signature",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Unix request timestamp",
+                        "name": "X-Slack-Request-Timestamp",
+                        "in": "header",
+                        "required": true
+                    },
+                    {
+                        "description": "Slack Events API envelope",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "URL verification challenge or duplicate delivery",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "202": {
+                        "description": "Accepted event",
+                        "schema": {
+                            "$ref": "#/definitions/server.sourceDeliveryResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -1444,6 +4174,363 @@ const docTemplate = `{
                 "PrincipalAnyone",
                 "PrincipalAnonymous"
             ]
+        },
+        "knowledge.Citation": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "string"
+                },
+                "excerpt": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "version_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.ContextItem": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "external_id": {
+                    "type": "string"
+                },
+                "kind": {
+                    "type": "string"
+                },
+                "metadata": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "string"
+                    }
+                },
+                "title": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.Freshness": {
+            "type": "object",
+            "properties": {
+                "checked_at": {
+                    "type": "string"
+                },
+                "stale_after_hours": {
+                    "type": "integer"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.FreshnessPolicy": {
+            "type": "object",
+            "properties": {
+                "on_stale": {
+                    "type": "string"
+                },
+                "stale_after_hours": {
+                    "type": "integer"
+                }
+            }
+        },
+        "knowledge.Notification": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "read": {
+                    "type": "boolean"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.PathRule": {
+            "type": "object",
+            "properties": {
+                "pattern": {
+                    "type": "string"
+                },
+                "required_reviewers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "required_teams": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "knowledge.PortalSettings": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "visibility": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.Settings": {
+            "type": "object",
+            "properties": {
+                "archived": {
+                    "type": "boolean"
+                },
+                "freshness_policy": {
+                    "$ref": "#/definitions/knowledge.FreshnessPolicy"
+                },
+                "path_rules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledge.PathRule"
+                    }
+                },
+                "portal": {
+                    "$ref": "#/definitions/knowledge.PortalSettings"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "required_reviewers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "required_teams": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "transfer": {
+                    "$ref": "#/definitions/knowledge.TransferState"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.Source": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "$ref": "#/definitions/auth.Principal"
+                },
+                "direction": {
+                    "type": "string"
+                },
+                "exclude_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "external_repository": {
+                    "type": "string"
+                },
+                "freshness": {
+                    "$ref": "#/definitions/knowledge.Freshness"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "include_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "last_synced_at": {
+                    "type": "string"
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "target_document_id": {
+                    "type": "string"
+                },
+                "target_folder_id": {
+                    "type": "string"
+                },
+                "trigger_mode": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.SyncRun": {
+            "type": "object",
+            "properties": {
+                "after_sha": {
+                    "type": "string"
+                },
+                "before_sha": {
+                    "type": "string"
+                },
+                "changed_files": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "context_items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledge.ContextItem"
+                    }
+                },
+                "delivery_id": {
+                    "type": "string"
+                },
+                "finished_at": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "message": {
+                    "type": "string"
+                },
+                "outcome": {
+                    "type": "string"
+                },
+                "provenance": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledge.Citation"
+                    }
+                },
+                "pull_request_number": {
+                    "type": "integer"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "source_id": {
+                    "type": "string"
+                },
+                "started_at": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.Team": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "member_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "knowledge.TransferState": {
+            "type": "object",
+            "properties": {
+                "owner_email": {
+                    "type": "string"
+                },
+                "owner_id": {
+                    "type": "string"
+                },
+                "requested_by_id": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "temporary_grant_id": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
         },
         "repo.Anchor": {
             "type": "object",
@@ -1562,6 +4649,208 @@ const docTemplate = `{
                 }
             }
         },
+        "repo.PullRequest": {
+            "type": "object",
+            "properties": {
+                "author": {
+                    "$ref": "#/definitions/auth.Principal"
+                },
+                "base_version_id": {
+                    "type": "string"
+                },
+                "body": {
+                    "type": "string"
+                },
+                "change_summary": {
+                    "type": "string"
+                },
+                "changes": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.PullRequestChange"
+                    }
+                },
+                "created_at": {
+                    "type": "string"
+                },
+                "document_id": {
+                    "type": "string"
+                },
+                "head_version_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "merge_blocked_reason": {
+                    "type": "string"
+                },
+                "mergeable": {
+                    "type": "boolean"
+                },
+                "merged_at": {
+                    "type": "string"
+                },
+                "merged_by": {
+                    "$ref": "#/definitions/auth.Principal"
+                },
+                "number": {
+                    "type": "integer"
+                },
+                "patchset": {
+                    "type": "integer"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "required_approvals": {
+                    "type": "integer"
+                },
+                "reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.PullRequestReview"
+                    }
+                },
+                "status": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "repo.PullRequestChange": {
+            "type": "object",
+            "properties": {
+                "base_path": {
+                    "type": "string"
+                },
+                "base_title": {
+                    "type": "string"
+                },
+                "base_version_id": {
+                    "type": "string"
+                },
+                "document_id": {
+                    "type": "string"
+                },
+                "folder_id": {
+                    "type": "string"
+                },
+                "head_version_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "operation": {
+                    "type": "string"
+                },
+                "patchset": {
+                    "type": "integer"
+                },
+                "path": {
+                    "type": "string"
+                },
+                "pull_request_id": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                }
+            }
+        },
+        "repo.PullRequestReview": {
+            "type": "object",
+            "properties": {
+                "body": {
+                    "type": "string"
+                },
+                "head_version_id": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "patchset": {
+                    "type": "integer"
+                },
+                "pull_request_id": {
+                    "type": "string"
+                },
+                "reviewer": {
+                    "$ref": "#/definitions/auth.Principal"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "submitted_at": {
+                    "type": "string"
+                }
+            }
+        },
+        "repo.RepositoryImportResult": {
+            "type": "object",
+            "properties": {
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.Document"
+                    }
+                },
+                "repository": {
+                    "$ref": "#/definitions/repo.RepositoryRecord"
+                }
+            }
+        },
+        "repo.RepositoryRecord": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "created_by": {
+                    "$ref": "#/definitions/auth.Principal"
+                },
+                "description": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "namespace_id": {
+                    "type": "string"
+                },
+                "namespace_name": {
+                    "type": "string"
+                },
+                "protected": {
+                    "type": "boolean"
+                },
+                "required_approvals": {
+                    "type": "integer"
+                },
+                "root_folder_id": {
+                    "type": "string"
+                },
+                "scope": {
+                    "type": "string"
+                },
+                "slug": {
+                    "type": "string"
+                },
+                "updated_at": {
+                    "type": "string"
+                }
+            }
+        },
         "repo.Role": {
             "type": "string",
             "enum": [
@@ -1604,6 +4893,109 @@ const docTemplate = `{
                 },
                 "name": {
                     "type": "string"
+                }
+            }
+        },
+        "repo.UserContribution": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "string"
+                },
+                "document_title": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "occurred_at": {
+                    "type": "string"
+                },
+                "pull_request_number": {
+                    "type": "integer"
+                },
+                "repository_id": {
+                    "type": "string"
+                },
+                "repository_name": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                },
+                "title": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                }
+            }
+        },
+        "repo.UserProfile": {
+            "type": "object",
+            "properties": {
+                "contributions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.UserContribution"
+                    }
+                },
+                "documents": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.UserProfileDocument"
+                    }
+                },
+                "pull_requests": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.UserProfilePullRequest"
+                    }
+                },
+                "stats": {
+                    "$ref": "#/definitions/repo.UserProfileStats"
+                },
+                "user": {
+                    "$ref": "#/definitions/auth.Principal"
+                }
+            }
+        },
+        "repo.UserProfileDocument": {
+            "type": "object",
+            "properties": {
+                "document": {
+                    "$ref": "#/definitions/repo.Document"
+                },
+                "repository": {
+                    "$ref": "#/definitions/repo.RepositoryRecord"
+                }
+            }
+        },
+        "repo.UserProfilePullRequest": {
+            "type": "object",
+            "properties": {
+                "pull_request": {
+                    "$ref": "#/definitions/repo.PullRequest"
+                },
+                "repository": {
+                    "$ref": "#/definitions/repo.RepositoryRecord"
+                }
+            }
+        },
+        "repo.UserProfileStats": {
+            "type": "object",
+            "properties": {
+                "contributions": {
+                    "type": "integer"
+                },
+                "documents_created": {
+                    "type": "integer"
+                },
+                "pull_requests_authored": {
+                    "type": "integer"
+                },
+                "repositories_contributed_to": {
+                    "type": "integer"
                 }
             }
         },
@@ -1801,6 +5193,9 @@ const docTemplate = `{
             "properties": {
                 "deployment": {
                     "type": "string"
+                },
+                "development": {
+                    "type": "boolean"
                 },
                 "everyone_label": {
                     "type": "string"
@@ -2039,6 +5434,28 @@ const docTemplate = `{
                 }
             }
         },
+        "server.listResponse-repo_PullRequest": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.PullRequest"
+                    }
+                }
+            }
+        },
+        "server.listResponse-repo_RepositoryRecord": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.RepositoryRecord"
+                    }
+                }
+            }
+        },
         "server.listResponse-repo_ServiceAccount": {
             "type": "object",
             "properties": {
@@ -2187,6 +5604,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.repositoryDocumentResponse": {
+            "type": "object",
+            "properties": {
+                "document": {
+                    "$ref": "#/definitions/repo.Document"
+                },
+                "version": {
+                    "$ref": "#/definitions/repo.Version"
+                }
+            }
+        },
         "server.serviceAccountKey": {
             "type": "object",
             "properties": {
@@ -2209,6 +5637,113 @@ const docTemplate = `{
                 }
             }
         },
+        "server.settingsPatch": {
+            "type": "object",
+            "properties": {
+                "archived": {
+                    "type": "boolean"
+                },
+                "freshness_policy": {
+                    "$ref": "#/definitions/knowledge.FreshnessPolicy"
+                },
+                "path_rules": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/knowledge.PathRule"
+                    }
+                },
+                "portal": {
+                    "$ref": "#/definitions/knowledge.PortalSettings"
+                },
+                "required_reviewers": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "required_teams": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "server.sourceCheckInput": {
+            "type": "object",
+            "properties": {
+                "after_sha": {
+                    "type": "string"
+                },
+                "before_sha": {
+                    "type": "string"
+                },
+                "changed_files": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "delivery_id": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.sourceDeliveryResponse": {
+            "type": "object",
+            "properties": {
+                "accepted": {
+                    "type": "boolean"
+                },
+                "duplicate": {
+                    "type": "boolean"
+                },
+                "ignored": {
+                    "type": "boolean"
+                },
+                "queued": {
+                    "type": "integer"
+                }
+            }
+        },
+        "server.sourceInput": {
+            "type": "object",
+            "properties": {
+                "branch": {
+                    "type": "string"
+                },
+                "direction": {
+                    "type": "string"
+                },
+                "exclude_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "external_repository": {
+                    "type": "string"
+                },
+                "include_paths": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "provider": {
+                    "type": "string"
+                },
+                "target_document_id": {
+                    "type": "string"
+                },
+                "target_folder_id": {
+                    "type": "string"
+                },
+                "trigger_mode": {
+                    "type": "string"
+                }
+            }
+        },
         "server.userResponse": {
             "type": "object",
             "properties": {
@@ -2222,6 +5757,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "picture_url": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.webhookChallengeResponse": {
+            "type": "object",
+            "properties": {
+                "challenge": {
                     "type": "string"
                 }
             }

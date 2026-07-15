@@ -312,6 +312,14 @@ func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 		}
 		b, err := cl.multipart(apiPath("/v1/documents/%s/versions", doc), map[string]string{"base_version_id": base, "change_summary": summary}, "file", fn, data)
 		if err != nil {
+			var ae *APIError
+			if errors.As(err, &ae) && ae.Code == "pull_request_required" {
+				repoID := fmt.Sprint(ae.Details["repository_id"])
+				if repoID != "" && repoID != "<nil>" {
+					return fmt.Errorf("%s; open a pull request with `aidocs repos prs create %s %s %s --base-version %s --summary %q`", ae.Message, repoID, doc, file, base, summary)
+				}
+				return fmt.Errorf("%s; use `aidocs repos list` and `aidocs repos prs create --help` to open a pull request", ae.Message)
+			}
 			return err
 		}
 		return printPushedVersion(out, g, doc, cl.Base, b)

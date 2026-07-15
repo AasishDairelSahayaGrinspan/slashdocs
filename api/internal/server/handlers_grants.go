@@ -20,28 +20,38 @@ import (
 var (
 	errInvalidAddress      = errors.New("invalid grant address")
 	errPrincipalIDRequired = errors.New("principal id required")
-	errUnknownUserEmail    = errors.New("unknown user email")
 )
 
 func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, principal auth.Principal) (auth.Principal, error) {
+	normalized, err := normalizeGrantPrincipal(address, principal)
+	if err != nil {
+		return auth.Principal{}, err
+	}
+	return loadGrantPrincipal(c.Request.Context(), r, normalized)
+}
+
+func normalizeGrantPrincipal(address string, principal auth.Principal) (auth.Principal, error) {
 	// The "anyone" principal is the whole-server audience; it has no address and
 	// no backing record to resolve.
 	if principal.Type == auth.PrincipalAnyone {
 		return auth.Principal{Type: auth.PrincipalAnyone}, nil
 	}
 	if address != "" {
-		var err error
-		principal, err = grantPrincipalFromAddress(address)
-		if err != nil {
-			return auth.Principal{}, err
+		return grantPrincipalFromAddress(address)
+	}
+	if principal.Type == auth.PrincipalUser && principal.ID == "" && principal.Email != "" {
+		var domain string
+		principal.Email, domain = normalizeGrantAddress(principal.Email)
+		if principal.Email == "" || strings.HasSuffix(domain, ".bot") {
+			return auth.Principal{}, errInvalidAddress
 		}
 	}
-	return resolveStoredGrantPrincipal(c.Request.Context(), r, principal)
+	return principal, nil
 }
 
 func grantPrincipalFromAddress(address string) (auth.Principal, error) {
-	_, domain, ok := bots.Split(address)
-	if !ok {
+	address, domain := normalizeGrantAddress(address)
+	if address == "" {
 		return auth.Principal{}, errInvalidAddress
 	}
 	if strings.HasSuffix(domain, ".bot") {
@@ -50,36 +60,34 @@ func grantPrincipalFromAddress(address string) (auth.Principal, error) {
 	return auth.Principal{Type: auth.PrincipalUser, Email: address}, nil
 }
 
-func resolveStoredGrantPrincipal(ctx context.Context, r repo.Repository, principal auth.Principal) (auth.Principal, error) {
-	switch {
-	case principal.Type == auth.PrincipalUser && principal.ID == "" && principal.Email != "":
-		p, err := r.UserByEmail(ctx, principal.Email)
-		if errors.Is(err, repo.ErrNotFound) {
-			return auth.Principal{}, errUnknownUserEmail
+func loadGrantPrincipal(ctx context.Context, r repo.Repository, principal auth.Principal) (auth.Principal, error) {
+	switch principal.Type {
+	case auth.PrincipalAnyone:
+		return auth.Principal{Type: auth.PrincipalAnyone}, nil
+	case auth.PrincipalUser:
+		if principal.ID != "" {
+			return r.ResolveUser(ctx, principal.ID)
 		}
-		if err != nil {
-			return auth.Principal{}, err
+		if principal.Email != "" {
+			return r.EnsureUserByEmail(ctx, principal.Email)
 		}
-		return p, nil
-	case principal.Type == auth.PrincipalServiceAccount && principal.ID == "" && principal.Name != "":
-		sa, err := r.GetServiceAccountByName(ctx, principal.Name)
-		if err != nil {
-			return auth.Principal{}, err
+	case auth.PrincipalServiceAccount:
+		if principal.ID != "" {
+			sa, err := r.GetServiceAccount(ctx, principal.ID)
+			if err != nil {
+				return auth.Principal{}, err
+			}
+			return auth.Principal{Type: auth.PrincipalServiceAccount, ID: sa.ID, Name: sa.Name}, nil
 		}
-		return auth.Principal{Type: auth.PrincipalServiceAccount, ID: sa.ID, Name: sa.Name}, nil
-	default:
-		if principal.ID == "" {
-			return auth.Principal{}, errPrincipalIDRequired
+		if principal.Name != "" {
+			sa, err := r.GetServiceAccountByName(ctx, principal.Name)
+			if err != nil {
+				return auth.Principal{}, err
+			}
+			return auth.Principal{Type: auth.PrincipalServiceAccount, ID: sa.ID, Name: sa.Name}, nil
 		}
-		exists, err := r.PrincipalExists(ctx, principal)
-		if err != nil {
-			return auth.Principal{}, err
-		}
-		if !exists {
-			return auth.Principal{}, repo.ErrNotFound
-		}
-		return principal, nil
 	}
+	return auth.Principal{}, errPrincipalIDRequired
 }
 
 // createGrantResponse is the payload of POST /v1/documents/{id}/grants.
@@ -106,6 +114,15 @@ type grantPrincipal struct {
 type grantGrantedBy struct {
 	ID    string `json:"id"`
 	Email string `json:"email"`
+}
+
+func normalizeGrantAddress(address string) (string, string) {
+	address = strings.ToLower(strings.TrimSpace(address))
+	_, domain, ok := bots.Split(address)
+	if !ok {
+		return "", ""
+	}
+	return address, domain
 }
 
 // CreateGrant godoc
@@ -150,8 +167,6 @@ func (h handlers) createGrant(c *gin.Context) {
 			badRequest(c, "That doesn't look like an email or bot address.")
 		case errors.Is(err, errPrincipalIDRequired):
 			badRequest(c, "principal id, user email, or service account name is required")
-		case errors.Is(err, errUnknownUserEmail):
-			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
 		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
 		default:

@@ -5,15 +5,19 @@ import { errorMessage } from "@/lib/errors";
 import {
   ArrowLeft,
   Check,
-  ExternalLink,
+  Download,
   FolderIcon,
   Maximize2,
   GitBranch,
+  LoaderCircle,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
+  PencilLine,
+  Save,
   Share2,
   Trash2,
+  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -35,7 +39,7 @@ import {
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
-import { canManageSharing } from "@/lib/constants";
+import { canManageSharing, effectiveRoleForPrincipal } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
@@ -47,27 +51,46 @@ export function DocBar({
   owner,
   principal,
   parentFolder,
+  repositoryId,
   current,
   latest,
   versions,
   onSelectVersion,
   commentsOpen,
   onToggleComments,
+  editing,
+  editDirty,
+  editReady,
+  savingEdit,
+  onStartEditing,
+  onSaveEditing,
+  onCancelEditing,
 }: {
   title: string;
   docId: string;
   owner?: Principal;
   principal?: Principal;
   parentFolder?: { id: string; title: string };
+  repositoryId?: string;
   current: string;
   latest: string;
   versions: Version[];
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
+  editing: boolean;
+  editDirty: boolean;
+  editReady: boolean;
+  savingEdit: boolean;
+  onStartEditing: () => void;
+  onSaveEditing: () => void;
+  onCancelEditing: () => void;
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
+  const repositoryQuery = repositoryId
+    ? `&repo=${encodeURIComponent(repositoryId)}`
+    : "";
   const currentVersion = versions.find((v) => v.id === current);
   const isViewingOlder = !!current && !!latest && current !== latest;
   const canManage = samePrincipal(principal, owner);
@@ -77,23 +100,34 @@ export function DocBar({
     enabled: !!docId && !!principal && !canManage,
     staleTime: 30_000,
   });
-  const currentAccessRole = access.data?.items.find((item) =>
-    samePrincipal(item.principal, principal),
-  )?.effective_role;
+  const currentAccessRole = effectiveRoleForPrincipal(
+    access.data?.items || [],
+    principal,
+  );
   const canManageAccess = canManage || canManageSharing(currentAccessRole);
+  const canEditText =
+    canManage || currentAccessRole === "owner" || currentAccessRole === "editor";
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
       toast.success("Document deleted.");
       q.invalidateQueries({ queryKey: queryKeys.documents() });
-      nav("/app/documents");
+      nav(repositoryId ? `/app/repos/${repositoryId}` : "/app/documents");
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
   return (
     <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
       <Button asChild variant="ghost" size="icon" className="shrink-0">
-        <Link to="/app/documents" aria-label="Back to documents">
+        <Link
+          to={repositoryId ? `/app/repos/${repositoryId}` : "/app/documents"}
+          aria-label={repositoryId ? "Back to repository" : "Back to documents"}
+          onClick={(event) => {
+            if (!editing) return;
+            event.preventDefault();
+            onCancelEditing();
+          }}
+        >
           <ArrowLeft className="h-4 w-4" />
         </Link>
       </Button>
@@ -101,12 +135,20 @@ export function DocBar({
         {parentFolder ? (
           <div className="flex items-center gap-1 text-xs text-[var(--color-fg-muted)]">
             <FolderIcon className="h-3 w-3 shrink-0" />
-            <Link
-              to={`/app/folders/${parentFolder.id}`}
-              className="hover:text-[var(--color-fg)] hover:underline"
-            >
-              {parentFolder.title}
-            </Link>
+            {editing ? (
+              <span>{parentFolder.title}</span>
+            ) : (
+              <Link
+                to={
+                  repositoryId
+                    ? `/app/repos/${repositoryId}`
+                    : `/app/folders/${parentFolder.id}`
+                }
+                className="hover:text-[var(--color-fg)] hover:underline"
+              >
+                {parentFolder.title}
+              </Link>
+            )}
           </div>
         ) : null}
         <div className="truncate text-base font-semibold leading-tight">{title}</div>
@@ -116,99 +158,157 @@ export function DocBar({
           </div>
         ) : null}
       </div>
-      {isViewingOlder ? (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="shrink-0 px-2 sm:px-3"
-          onClick={() => onSelectVersion(latest)}
-        >
-          <span className="hidden sm:inline">Back to latest</span>
-          <span className="sm:hidden">Latest</span>
-        </Button>
-      ) : null}
-      <VersionHistoryDialog
-        current={current}
-        latest={latest}
-        versions={versions}
-        onSelectVersion={onSelectVersion}
-      />
-      <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
-        <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
-          <Maximize2 className="h-4 w-4" /> Full screen
-        </Link>
-      </Button>
-      <Sheet>
-        <SheetTrigger asChild>
+      {editing ? (
+        <>
+          <Badge variant="accent" className="hidden shrink-0 sm:inline-flex">
+            <PencilLine className="h-3 w-3" />
+            {editReady ? "Editing text" : "Preparing editor"}
+          </Badge>
           <Button
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="shrink-0 px-2.5 sm:px-3"
-            aria-label="Share"
+            className="shrink-0 px-2 sm:px-3"
+            disabled={savingEdit}
+            onClick={onCancelEditing}
           >
-            <Share2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Share</span>
+            <X className="h-4 w-4" />
+            <span className="hidden sm:inline">Cancel</span>
           </Button>
-        </SheetTrigger>
-        <ShareSheet docId={docId} canManageAccess={canManageAccess} />
-      </Sheet>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onToggleComments}
-        aria-label={commentsOpen ? "Hide comments" : "Show comments"}
-        className="shrink-0"
-      >
-        {commentsOpen ? (
-          <PanelRightClose className="h-4 w-4" />
-        ) : (
-          <PanelRightOpen className="h-4 w-4" />
-        )}
-      </Button>
-      <Dropdown>
-        <DropdownTrigger asChild>
-          <Button variant="ghost" size="icon" className="shrink-0" aria-label="More">
-            <MoreHorizontal className="h-4 w-4" />
+          <Button
+            size="sm"
+            className="shrink-0 px-2 sm:px-3"
+            disabled={!editReady || !editDirty || savingEdit}
+            onClick={onSaveEditing}
+          >
+            {savingEdit ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : (
+              <Save className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">
+              {savingEdit ? "Saving…" : "Save changes"}
+            </span>
           </Button>
-        </DropdownTrigger>
-        <DropdownContent>
-          <DropdownItem
-            className="sm:hidden"
-            onSelect={() => nav(`/app/d/${docId}?fullscreen=1&version=${current}`)}
-          >
-            <Maximize2 className="h-4 w-4" /> Full screen
-          </DropdownItem>
-          <DropdownItem
-            onSelect={() =>
-              window.open(
-                `/v1/documents/${docId}/versions/${current}/html`,
-                "_blank",
-                "noopener,noreferrer",
-              )
-            }
-          >
-            <ExternalLink className="h-4 w-4" /> Open raw HTML
-          </DropdownItem>
-          {canManage ? (
-            <>
-              <UploadVersionItem docId={docId} baseVersion={latest || current} />
-              <DropdownSeparator />
-              <DeleteDocumentDialog
-                title={title}
-                onConfirm={() => del.mutate()}
-                trigger={
-                  <DropdownItem
-                    onSelect={(e) => e.preventDefault()}
-                    className="text-[var(--color-danger)] data-[highlighted]:bg-red-50 dark:data-[highlighted]:bg-red-950/40"
-                  >
-                    <Trash2 className="h-4 w-4" /> Delete document
-                  </DropdownItem>
-                }
-              />
-            </>
+        </>
+      ) : (
+        <>
+          {canEditText && !isViewingOlder ? (
+            <Button
+              variant="outline"
+              size="sm"
+              className="shrink-0 px-2.5 sm:px-3"
+              onClick={onStartEditing}
+            >
+              <PencilLine className="h-4 w-4" />
+              <span className="hidden sm:inline">Edit text</span>
+            </Button>
           ) : null}
-        </DropdownContent>
-      </Dropdown>
+          {isViewingOlder ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              className="shrink-0 px-2 sm:px-3"
+              onClick={() => onSelectVersion(latest)}
+            >
+              <span className="hidden sm:inline">Back to latest</span>
+              <span className="sm:hidden">Latest</span>
+            </Button>
+          ) : null}
+          <VersionHistoryDialog
+            current={current}
+            latest={latest}
+            versions={versions}
+            onSelectVersion={onSelectVersion}
+          />
+          <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+            <Link
+              to={`/app/d/${docId}?fullscreen=1&version=${current}${repositoryQuery}`}
+            >
+              <Maximize2 className="h-4 w-4" /> Full screen
+            </Link>
+          </Button>
+          <Sheet>
+            <SheetTrigger asChild>
+              <Button
+                variant="outline"
+                size="sm"
+                className="shrink-0 px-2.5 sm:px-3"
+                aria-label="Share"
+              >
+                <Share2 className="h-4 w-4" />
+                <span className="hidden sm:inline">Share</span>
+              </Button>
+            </SheetTrigger>
+            <ShareSheet docId={docId} canManageAccess={canManageAccess} />
+          </Sheet>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={onToggleComments}
+            aria-label={commentsOpen ? "Hide comments" : "Show comments"}
+            className="shrink-0"
+          >
+            {commentsOpen ? (
+              <PanelRightClose className="h-4 w-4" />
+            ) : (
+              <PanelRightOpen className="h-4 w-4" />
+            )}
+          </Button>
+          <Dropdown>
+            <DropdownTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="shrink-0"
+                aria-label="More"
+              >
+                <MoreHorizontal className="h-4 w-4" />
+              </Button>
+            </DropdownTrigger>
+            <DropdownContent>
+              <DropdownItem
+                className="sm:hidden"
+                onSelect={() =>
+                  nav(
+                    `/app/d/${docId}?fullscreen=1&version=${current}${repositoryQuery}`,
+                  )
+                }
+              >
+                <Maximize2 className="h-4 w-4" /> Full screen
+              </DropdownItem>
+              <DropdownItem
+                onSelect={() =>
+                  window.open(
+                    `/v1/documents/${docId}/versions/${current}/html`,
+                    "_blank",
+                    "noopener,noreferrer",
+                  )
+                }
+              >
+                <Download className="h-4 w-4" /> Download version file
+              </DropdownItem>
+              {canManage ? (
+                <>
+                  <UploadVersionItem docId={docId} baseVersion={latest || current} />
+                  <DropdownSeparator />
+                  <DeleteDocumentDialog
+                    title={title}
+                    onConfirm={() => del.mutate()}
+                    trigger={
+                      <DropdownItem
+                        onSelect={(e) => e.preventDefault()}
+                        className="text-[var(--color-danger)] data-[highlighted]:bg-red-50 dark:data-[highlighted]:bg-red-950/40"
+                      >
+                        <Trash2 className="h-4 w-4" /> Delete document
+                      </DropdownItem>
+                    }
+                  />
+                </>
+              ) : null}
+            </DropdownContent>
+          </Dropdown>
+        </>
+      )}
     </div>
   );
 }
@@ -238,8 +338,8 @@ function VersionHistoryDialog({
         <DialogHeader>
           <DialogTitle>Version history</DialogTitle>
           <DialogDescription>
-            Immutable HTML revisions for this document. Open any version to inspect the
-            exact HTML your reviewers saw.
+            Saved revisions for this document. Open any version to inspect the exact
+            document your reviewers saw.
           </DialogDescription>
         </DialogHeader>
         {sorted.length === 0 ? (

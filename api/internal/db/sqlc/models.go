@@ -60,6 +60,35 @@ type CommentPlacement struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+type ConnectedKnowledgeProvenance struct {
+	ID           string
+	RepositoryID string
+	SourceID     string
+	SyncRunID    string
+	DocumentID   pgtype.Text
+	VersionID    pgtype.Text
+	ProviderUrl  string
+	CommitSha    string
+	Paths        []byte
+	CreatedAt    pgtype.Timestamptz
+}
+
+type ConnectedKnowledgeRecord struct {
+	Kind         string
+	ID           string
+	RepositoryID pgtype.Text
+	UserID       pgtype.Text
+	Payload      []byte
+	CreatedAt    pgtype.Timestamptz
+	UpdatedAt    pgtype.Timestamptz
+}
+
+type ConnectedKnowledgeWebhookDelivery struct {
+	Provider   string
+	DeliveryID string
+	ReceivedAt pgtype.Timestamptz
+}
+
 type Document struct {
 	ID               string
 	Title            string
@@ -146,6 +175,85 @@ type Pin struct {
 	PinnedAt      pgtype.Timestamptz
 }
 
+type PullRequest struct {
+	ID            string
+	RepositoryID  string
+	Number        int64
+	DocumentID    pgtype.Text
+	BaseVersionID pgtype.Text
+	HeadVersionID pgtype.Text
+	Title         string
+	Body          string
+	ChangeSummary string
+	Status        string
+	AuthorType    string
+	AuthorID      string
+	AuthorEmail   string
+	AuthorName    string
+	MergedByType  pgtype.Text
+	MergedByID    pgtype.Text
+	MergedByEmail pgtype.Text
+	MergedByName  pgtype.Text
+	CreatedAt     pgtype.Timestamptz
+	UpdatedAt     pgtype.Timestamptz
+	MergedAt      pgtype.Timestamptz
+	ClosedAt      pgtype.Timestamptz
+	Patchset      int32
+}
+
+type PullRequestChange struct {
+	ID              string
+	PullRequestID   string
+	Patchset        int32
+	Position        int32
+	Operation       string
+	DocumentID      pgtype.Text
+	FolderID        pgtype.Text
+	BaseVersionID   pgtype.Text
+	HeadVersionID   pgtype.Text
+	BaseTitle       string
+	Title           string
+	BasePath        string
+	Path            string
+	HeadHtmlBlobKey pgtype.Text
+	HeadSha256      pgtype.Text
+	CreatedAt       pgtype.Timestamptz
+}
+
+type PullRequestReview struct {
+	ID            string
+	PullRequestID string
+	HeadVersionID pgtype.Text
+	ReviewerType  string
+	ReviewerID    string
+	ReviewerEmail string
+	ReviewerName  string
+	State         string
+	Body          string
+	SubmittedAt   pgtype.Timestamptz
+	Patchset      int32
+}
+
+type Repository struct {
+	ID                    string
+	Name                  string
+	Slug                  string
+	Description           string
+	Scope                 string
+	NamespaceID           string
+	NamespaceName         string
+	RootFolderID          string
+	CreatedByType         string
+	CreatedByID           string
+	CreatedByEmail        string
+	CreatedByName         string
+	RequiredApprovals     int32
+	Protected             bool
+	NextPullRequestNumber int64
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
 type ResourceGrant struct {
 	ID              string
 	ResourceType    string
@@ -190,7 +298,7 @@ type User struct {
 type Version struct {
 	ID              string
 	DocumentID      string
-	Number          int32
+	Number          pgtype.Int4
 	HtmlBlobKey     string
 	Sha256          string
 	ParentVersionID pgtype.Text

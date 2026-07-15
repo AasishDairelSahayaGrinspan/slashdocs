@@ -1,0 +1,162 @@
+#!/usr/bin/env bash
+
+set -Eeuo pipefail
+
+SOURCE_PATH="${BASH_SOURCE[0]}"
+while [[ -L "$SOURCE_PATH" ]]; do
+	SOURCE_DIR="$(CDPATH= cd -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
+	SOURCE_PATH="$(readlink "$SOURCE_PATH")"
+	[[ "$SOURCE_PATH" == /* ]] || SOURCE_PATH="$SOURCE_DIR/$SOURCE_PATH"
+done
+ROOT_DIR="$(CDPATH= cd -- "$(dirname -- "$SOURCE_PATH")" && pwd)"
+DEV_TAG="${AIDOCS_DEV_TAG:-aidocsdev}"
+DEV_PACKAGE="${AIDOCS_DEV_PACKAGE:-./api/cmd/aidocs-dev}"
+
+usage() {
+	cat <<'EOF'
+Run aidocs from a source checkout without external infrastructure.
+
+Usage:
+  aidocs-dev [start]
+  aidocs-dev test
+  aidocs-dev clean
+  aidocs-dev help
+
+Commands:
+  dev    Rebuild the frontend and run the dev-only, in-memory Go server (default)
+  test   Rebuild the frontend and run launcher, API, CLI, and dev-server tests
+  clean  Remove local build output and clear the Go test cache
+  help   Show this help
+
+Environment:
+  AIDOCS_DEV_TAG               Go build tag (default: aidocsdev)
+  AIDOCS_DEV_PACKAGE           Go dev package (default: ./api/cmd/aidocs-dev)
+  AIDOCS_DEV_PORT              Loopback port (default: 8080)
+  AIDOCS_DEV_NPM_INSTALL       auto, always, or never (default: auto)
+  AIDOCS_DEV_SKIP_FRONTEND=1   Skip the frontend dependency check and build
+
+The start command intentionally does not use Docker Compose, Postgres, OAuth, or S3.
+Production configuration remains the responsibility of aidocs-server.
+EOF
+}
+
+say() {
+	printf '%s\n' "$*"
+}
+
+die() {
+	printf 'aidocs-dev: %s\n' "$*" >&2
+	exit 1
+}
+
+require_command() {
+	command -v "$1" >/dev/null 2>&1 || die "missing required command: $1"
+}
+
+build_frontend() {
+	if [[ "${AIDOCS_DEV_SKIP_FRONTEND:-}" == "1" ]]; then
+		say "aidocs-dev: skipping frontend build (AIDOCS_DEV_SKIP_FRONTEND=1)"
+		return
+	fi
+
+	require_command npm
+	local install_mode="${AIDOCS_DEV_NPM_INSTALL:-auto}"
+	case "$install_mode" in
+	auto)
+		if [[ ! -d "$ROOT_DIR/frontend/node_modules" || ! -f "$ROOT_DIR/frontend/node_modules/.package-lock.json" || "$ROOT_DIR/frontend/package-lock.json" -nt "$ROOT_DIR/frontend/node_modules/.package-lock.json" ]]; then
+			say "aidocs-dev: installing frontend dependencies"
+			(cd "$ROOT_DIR/frontend" && npm ci)
+		fi
+		;;
+	always)
+		say "aidocs-dev: reinstalling frontend dependencies"
+		(cd "$ROOT_DIR/frontend" && npm ci)
+		;;
+	never)
+		;;
+	*)
+		die "AIDOCS_DEV_NPM_INSTALL must be auto, always, or never (got $install_mode)"
+		;;
+	esac
+
+	say "aidocs-dev: rebuilding embedded frontend"
+	(cd "$ROOT_DIR/frontend" && npm run build)
+}
+
+validate_dev_package() {
+	case "$DEV_PACKAGE" in
+	./*)
+		local package_dir="$ROOT_DIR/${DEV_PACKAGE#./}"
+		[[ -d "$package_dir" ]] || die "dev package does not exist: $DEV_PACKAGE"
+		;;
+	esac
+}
+
+run_dev() {
+	require_command go
+	validate_dev_package
+	build_frontend
+
+	local port="${AIDOCS_DEV_PORT:-8080}"
+	local origin="http://127.0.0.1:$port"
+	say "aidocs-dev: starting local app at $origin"
+	say "aidocs-dev: owner    $origin/__dev/login?as=owner&redirect=/app/repositories"
+	say "aidocs-dev: reviewer $origin/__dev/login?as=reviewer&redirect=/app/repositories"
+	say "aidocs-dev: press Ctrl-C to stop"
+	cd "$ROOT_DIR"
+	# Replacing the shell keeps the Go process in the foreground and lets the
+	# terminal deliver interruption signals directly to the dev server group.
+	exec go run -tags "$DEV_TAG" "$DEV_PACKAGE" "$@"
+}
+
+run_tests() {
+	require_command go
+	build_frontend
+	say "aidocs-dev: testing launcher"
+	bash "$ROOT_DIR/scripts/test-aidocs-launcher.sh"
+	say "aidocs-dev: running Go tests"
+	(cd "$ROOT_DIR" && go test -tags "$DEV_TAG,testfixtures" ./...)
+}
+
+clean() {
+	say "aidocs-dev: removing local build output"
+	rm -rf "$ROOT_DIR/bin" "$ROOT_DIR/frontend/dist"
+	rm -f \
+		"$ROOT_DIR/frontend/tsconfig.tsbuildinfo" \
+		"$ROOT_DIR/frontend/tsconfig.node.tsbuildinfo" \
+		"$ROOT_DIR/frontend/vite.config.js" \
+		"$ROOT_DIR/frontend/vite.config.d.ts" \
+		"$ROOT_DIR/api/internal/server/frontend_dist/index.html" \
+		"$ROOT_DIR/api/internal/server/frontend_dist/favicon.svg"
+	if [[ -d "$ROOT_DIR/api/internal/server/frontend_dist/assets" ]]; then
+		rm -f "$ROOT_DIR/api/internal/server/frontend_dist/assets/"*
+	fi
+	if command -v go >/dev/null 2>&1; then
+		(cd "$ROOT_DIR" && go clean -testcache)
+	fi
+}
+
+command_name="${1:-dev}"
+if [[ $# -gt 0 ]]; then
+	shift
+fi
+
+case "$command_name" in
+dev | start)
+	run_dev "$@"
+	;;
+test)
+	run_tests
+	;;
+clean)
+	clean
+	;;
+help | -h | --help)
+	usage
+	;;
+*)
+	printf 'aidocs-dev: unknown launcher command: %s\n\n' "$command_name" >&2
+	usage >&2
+	exit 2
+	;;
+esac

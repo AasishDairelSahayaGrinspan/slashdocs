@@ -36,11 +36,15 @@ export function ShareSheet({
   resourceType = "document",
   resourceId,
   canManageAccess = true,
+  resourceLabel: resourceLabelOverride,
+  shareURL: shareURLOverride,
 }: {
   docId?: string;
   resourceType?: "document" | "folder";
   resourceId?: string;
   canManageAccess?: boolean;
+  resourceLabel?: string;
+  shareURL?: string;
 }) {
   const id = resourceId || docId || "";
   const isFolder = resourceType === "folder";
@@ -61,7 +65,8 @@ export function ShareSheet({
   const [debouncedAddress, setDebouncedAddress] = useState("");
   const [role, setRole] = useState(DEFAULT_ROLE);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
-  const shareURL = `${publicURL()}/app/${isFolder ? "folders" : "d"}/${id}`;
+  const shareURL =
+    shareURLOverride || `${publicURL()}/app/${isFolder ? "folders" : "d"}/${id}`;
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedAddress(address.trim()), 250);
     return () => window.clearTimeout(t);
@@ -114,7 +119,7 @@ export function ShareSheet({
         : api.createGrant(id, address.trim(), role),
     onSuccess: () => {
       setAddress("");
-      toast.success("Access granted.");
+      toast.success("Access saved.");
       invalidateAccess();
     },
     onError: (e) => toast.error(errorMessage(e, "Couldn't share.")),
@@ -240,7 +245,7 @@ export function ShareSheet({
   const everyoneLabel = config.data?.everyone_label || "Everyone on this server";
   const userPlaceholder =
     config.data?.deployment === "public" ? "user@gmail.com" : "user@org.example";
-  const resourceLabel = isFolder ? "folder" : "document";
+  const resourceLabel = resourceLabelOverride || (isFolder ? "folder" : "document");
 
   return (
     <SheetContent>
@@ -294,8 +299,9 @@ export function ShareSheet({
                     Sharing is read-only for your access level.
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[var(--color-fg-muted)]">
-                    You can see who has access and copy the link, but you need at least
-                    commenter access to change sharing.
+                    {resourceLabel === "repository"
+                      ? "You can see who has access and copy the link, but only a repository owner can change sharing."
+                      : "You can see who has access and copy the link, but you need at least commenter access to change sharing."}
                   </p>
                 </div>
               </div>
@@ -323,7 +329,8 @@ export function ShareSheet({
                     spellCheck={false}
                   />
                   <p className="mt-1.5 text-[11px] text-[var(--color-fg-muted)]">
-                    Search existing aidocs users by email, or add a bot by its address.
+                    Enter an email even if that person has not signed in yet, or add a
+                    bot by its address.
                   </p>
                   {userSuggestions.length > 0 ? (
                     <div className="mt-2 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
@@ -347,8 +354,8 @@ export function ShareSheet({
                     !debouncedAddress.includes(BOT_DOMAIN_SUFFIX) &&
                     !userSearch.isFetching ? (
                     <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-fg-muted)]">
-                      No matching aidocs users. They need to sign in once before you can
-                      share with them.
+                      No active user matches this email. Sharing creates pending access
+                      that becomes active when they sign in.
                     </div>
                   ) : null}
                 </div>

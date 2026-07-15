@@ -22,6 +22,7 @@ export type Document = {
   current_version_id?: string;
   parent_folder_id?: string;
   parent_folder?: { id: string; title: string };
+  repository_id?: string;
   updated_at?: string;
 };
 export type ServerConfig = {
@@ -29,6 +30,7 @@ export type ServerConfig = {
   org_name: string;
   everyone_label: string;
   provider_name: string;
+  development?: boolean;
 };
 export type Version = {
   id: string;
@@ -149,6 +151,364 @@ export type ServiceAccount = {
 };
 export type ServiceAccountKey = { id: string; name: string };
 
+export type RepositoryScope = "personal" | "organization";
+export type RepositoryNamespace = {
+  id?: string;
+  name?: string;
+  slug?: string;
+};
+export type Repository = {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  scope: RepositoryScope;
+  namespace_id?: string;
+  namespace_name?: string;
+  namespace?: RepositoryNamespace;
+  owner?: Principal;
+  root_folder_id?: string;
+  created_by?: Principal;
+  required_approvals?: number;
+  protected?: boolean;
+  created_at?: string;
+  updated_at?: string;
+};
+export type PullRequestReviewState = "approved" | "changes_requested";
+export type PullRequestReview = {
+  id: string;
+  state: PullRequestReviewState;
+  body?: string;
+  reviewer: Principal;
+  head_version_id?: string;
+  submitted_at?: string;
+};
+export type PullRequestStatus = "open" | "closed" | "merged";
+export type PullRequestChangeOperation =
+  | "update"
+  | "create"
+  | "rename"
+  | "move"
+  | "delete";
+export type PullRequestChange = {
+  id: string;
+  pull_request_id?: string;
+  patchset?: number;
+  operation: PullRequestChangeOperation;
+  document_id?: string;
+  folder_id?: string;
+  base_version_id?: string;
+  head_version_id?: string;
+  base_title?: string;
+  title?: string;
+  base_path?: string;
+  path?: string;
+};
+export type PullRequestChangeInput = {
+  operation: PullRequestChangeOperation;
+  document_id?: string;
+  folder_id?: string;
+  base_version_id?: string;
+  title?: string;
+  path?: string;
+  content_html?: string;
+};
+export type PullRequest = {
+  id: string;
+  number: number;
+  repository_id: string;
+  document_id: string;
+  base_version_id: string;
+  head_version_id: string;
+  title: string;
+  body?: string;
+  change_summary?: string;
+  status: PullRequestStatus;
+  author?: Principal;
+  reviews?: PullRequestReview[];
+  required_approvals?: number;
+  mergeable?: boolean;
+  merge_blocked_reason?: string;
+  created_at?: string;
+  updated_at?: string;
+  merged_at?: string;
+  merged_by?: Principal;
+  patchset?: number;
+  changes?: PullRequestChange[];
+};
+export type RepositorySourceProvider =
+  | "github"
+  | "slack"
+  | "devrev"
+  | "google_drive"
+  | "confluence"
+  | "notion"
+  | "manual";
+export type RepositorySource = {
+  id: string;
+  repository_id: string;
+  provider: RepositorySourceProvider;
+  external_repository?: string;
+  branch?: string;
+  include_paths?: string[];
+  exclude_paths?: string[];
+  target_folder_id?: string;
+  target_document_id?: string;
+  trigger_mode?:
+    | "default_branch"
+    | "merged_pull_requests"
+    | "event"
+    | "manual"
+    | "scheduled"
+    | string;
+  direction?: "into_aidocs" | "export_only" | "bidirectional" | string;
+  status?: string;
+  freshness?: {
+    state?: string;
+    checked_at?: string;
+    stale_after_hours?: number;
+  };
+  last_synced_at?: string;
+  created_by?: Principal;
+  created_at?: string;
+  updated_at?: string;
+};
+export type RepositorySourceInput = {
+  provider: RepositorySourceProvider;
+  external_repository?: string;
+  branch?: string;
+  include_paths?: string[];
+  exclude_paths?: string[];
+  target_folder_id?: string;
+  target_document_id?: string;
+  trigger_mode?: string;
+  direction?: string;
+  status?: "active" | "paused";
+};
+export type RepositorySourceCheckInput = {
+  before_sha?: string;
+  after_sha?: string;
+  delivery_id?: string;
+  changed_files?: string[];
+};
+export type RepositorySyncRun = {
+  id: string;
+  repository_id?: string;
+  source_id?: string;
+  provider?: RepositorySourceProvider;
+  direction?: string;
+  trigger?: string;
+  status: string;
+  summary?: string;
+  message?: string;
+  outcome?: string;
+  changed_files?: string[];
+  pull_request_number?: number;
+  started_at?: string;
+  completed_at?: string;
+  finished_at?: string;
+  created_at?: string;
+  added?: number;
+  updated?: number;
+  removed?: number;
+  error?: string;
+};
+export type RepositoryActivity = {
+  id: string;
+  repository_id?: string;
+  type?: string;
+  action?: string;
+  title?: string;
+  description?: string;
+  actor?: Principal;
+  resource_type?: string;
+  resource_id?: string;
+  document_id?: string;
+  pull_request_number?: number;
+  occurred_at?: string;
+  created_at?: string;
+  metadata?: Record<string, unknown>;
+  subject_type?: string;
+  subject_id?: string;
+  details?: Record<string, unknown>;
+};
+export type KnowledgeCitation = {
+  document_id?: string;
+  title?: string;
+  path?: string;
+  quote?: string;
+  snippet?: string;
+  excerpt?: string;
+  url?: string;
+  score?: number;
+  version_id?: string;
+};
+export type KnowledgeSearchResult = KnowledgeCitation & {
+  id?: string;
+  document?: Document;
+};
+export type KnowledgeGraphNode = {
+  id: string;
+  type?: string;
+  title?: string;
+  label?: string;
+  document_id?: string;
+  path?: string;
+};
+export type KnowledgeGraphEdge = {
+  id?: string;
+  source: string;
+  target: string;
+  type?: string;
+  label?: string;
+};
+export type RepositorySettings = {
+  repository_id?: string;
+  archived?: boolean;
+  required_reviewers?: string[];
+  required_teams?: string[];
+  path_rules?: Array<{
+    pattern: string;
+    required_reviewers?: string[];
+    required_teams?: string[];
+  }>;
+  portal?: {
+    enabled?: boolean;
+    slug?: string;
+    visibility?: "public" | "organization" | "private" | string;
+  };
+  freshness_policy?: {
+    stale_after_hours?: number;
+    on_stale?: "notify" | "open_pull_request" | "none" | string;
+  };
+  transfer?: {
+    owner_id?: string;
+    owner_email?: string;
+    status?: string;
+    requested_by_id?: string;
+    updated_at?: string;
+  };
+  updated_at?: string;
+};
+export type RepositoryTeam = {
+  id: string;
+  repository_id?: string;
+  name: string;
+  description?: string;
+  role?: string;
+  members?: Principal[];
+  member_ids?: string[];
+  created_at?: string;
+};
+export type AidocsNotification = {
+  id: string;
+  type?: string;
+  title: string;
+  body?: string;
+  read?: boolean;
+  repository_id?: string;
+  repository_name?: string;
+  document_id?: string;
+  pull_request_number?: number;
+  url?: string;
+  created_at?: string;
+};
+export type ReviewInboxItem = {
+  id?: string;
+  repository?: Repository;
+  repository_id?: string;
+  pull_request?: PullRequest;
+  reason?: string;
+  requested_at?: string;
+  updated_at?: string;
+};
+export type AidocsTemplate = {
+  id: string;
+  name: string;
+  description?: string;
+  category?: string;
+  tags?: string[];
+  document_count?: number;
+  preview_url?: string;
+  title?: string;
+};
+export type PublicPortal = {
+  slug: string;
+  title?: string;
+  description?: string;
+  accent_color?: string;
+  repository?: Repository;
+  documents?: Array<
+    Document & {
+      path?: string;
+      excerpt?: string;
+      text?: string;
+      public_url?: string;
+    }
+  >;
+};
+export type UserProfileDocument = {
+  document: Document;
+  repository?: Repository;
+};
+export type UserProfilePullRequest = {
+  pull_request: PullRequest;
+  repository: Repository;
+};
+export type UserContribution = {
+  id: string;
+  type: string;
+  title: string;
+  document_id?: string;
+  document_title?: string;
+  repository_id?: string;
+  repository_name?: string;
+  pull_request_number?: number;
+  state?: string;
+  occurred_at?: string;
+};
+export type UserProfile = {
+  user: Principal;
+  stats: {
+    documents_created: number;
+    pull_requests_authored: number;
+    contributions: number;
+    repositories_contributed_to: number;
+  };
+  documents: UserProfileDocument[];
+  pull_requests: UserProfilePullRequest[];
+  contributions: UserContribution[];
+};
+export type CreateRepositoryInput = {
+  name: string;
+  slug: string;
+  description?: string;
+  scope: RepositoryScope;
+  root_folder_id?: string;
+  document_id?: string;
+};
+export type ImportRepositoryInput = {
+  name: string;
+  slug: string;
+  description?: string;
+  scope: RepositoryScope;
+  import_kind: "folder" | "document";
+  files: File[];
+  paths?: string[];
+};
+export type ImportRepositoryResult = {
+  repository: Repository;
+  documents: Document[];
+};
+export type CreatePullRequestInput = {
+  document_id: string;
+  base_version_id: string;
+  title: string;
+  body?: string;
+  change_summary?: string;
+  file: File;
+};
+
 export class APIError extends Error {
   constructor(
     public status: number,
@@ -219,6 +579,8 @@ export const api = {
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>
     request<{ items: UserPrincipal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
+  getUserProfile: (id: string) =>
+    request<UserProfile>(`/v1/users/${encodeURIComponent(id)}/profile`),
   createDocument: (title: string, file: File) => {
     const fd = new FormData();
     fd.set("title", title);
@@ -364,6 +726,260 @@ export const api = {
     request<void>(`/v1/service-accounts/${id}/keys/${key}`, {
       method: "DELETE",
     }),
+  // Repositories and pull requests
+  listRepositories: () => request<{ items: Repository[] }>("/v1/repositories"),
+  createRepository: (input: CreateRepositoryInput) =>
+    request<Repository>("/v1/repositories", {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  importRepository: (input: ImportRepositoryInput) => {
+    const fd = new FormData();
+    fd.set("name", input.name);
+    fd.set("slug", input.slug);
+    fd.set("description", input.description || "");
+    fd.set("scope", input.scope);
+    fd.set("import_kind", input.import_kind);
+    input.files.forEach((file, index) => {
+      fd.append("files", file, file.name);
+      const path = input.paths?.[index];
+      if (path) fd.append("paths", path);
+    });
+    return request<ImportRepositoryResult>("/v1/repositories/import", {
+      method: "POST",
+      body: fd,
+    });
+  },
+  getRepository: (id: string) => request<Repository>(`/v1/repositories/${id}`),
+  deleteRepository: (id: string) =>
+    request<void>(`/v1/repositories/${id}`, { method: "DELETE" }),
+  getRepositorySettings: (id: string) =>
+    request<RepositorySettings>(`/v1/repositories/${id}/settings`),
+  updateRepositorySettings: (id: string, settings: Partial<RepositorySettings>) =>
+    request<RepositorySettings>(`/v1/repositories/${id}/settings`, {
+      method: "PATCH",
+      body: JSON.stringify(settings),
+    }),
+  archiveRepository: (id: string) =>
+    request<RepositorySettings>(`/v1/repositories/${id}/archive`, {
+      method: "POST",
+    }),
+  restoreRepository: (id: string) =>
+    request<RepositorySettings>(`/v1/repositories/${id}/restore`, {
+      method: "POST",
+    }),
+  transferRepository: (id: string, owner: string) =>
+    request<{ repository_id: string; target?: Principal; transfer?: unknown }>(
+      `/v1/repositories/${id}/transfer`,
+      {
+        method: "POST",
+        body: JSON.stringify(
+          owner.includes("@") ? { new_owner_email: owner } : { new_owner_id: owner },
+        ),
+      },
+    ),
+  acceptRepositoryTransfer: (id: string) =>
+    request<{ repository_id: string; transfer?: unknown }>(
+      `/v1/repositories/${id}/transfer/accept`,
+      { method: "POST" },
+    ),
+  cancelRepositoryTransfer: (id: string) =>
+    request<{ repository_id: string; transfer?: unknown }>(
+      `/v1/repositories/${id}/transfer/cancel`,
+      { method: "POST" },
+    ),
+  listRepositoryDocuments: (id: string) =>
+    request<{ items: Document[] }>(`/v1/repositories/${id}/documents`),
+  createRepositoryDocument: (id: string, title: string, file: File) => {
+    const fd = new FormData();
+    fd.set("title", title);
+    fd.set("file", file);
+    return request<{ document: Document; version: Version }>(
+      `/v1/repositories/${id}/documents`,
+      { method: "POST", body: fd },
+    );
+  },
+  listPullRequests: (repositoryId: string) =>
+    request<{ items: PullRequest[] }>(`/v1/repositories/${repositoryId}/pull-requests`),
+  createPullRequest: (repositoryId: string, input: CreatePullRequestInput) => {
+    const fd = new FormData();
+    fd.set("document_id", input.document_id);
+    fd.set("base_version_id", input.base_version_id);
+    fd.set("title", input.title);
+    fd.set("body", input.body || "");
+    fd.set("change_summary", input.change_summary || "");
+    fd.set("file", input.file);
+    return request<PullRequest>(`/v1/repositories/${repositoryId}/pull-requests`, {
+      method: "POST",
+      body: fd,
+    });
+  },
+  createPullRequestChangeSet: (
+    repositoryId: string,
+    input: {
+      title: string;
+      body?: string;
+      change_summary?: string;
+      changes: PullRequestChangeInput[];
+    },
+  ) =>
+    request<PullRequest>(`/v1/repositories/${repositoryId}/pull-requests/change-set`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  getPullRequest: (repositoryId: string, number: number | string) =>
+    request<PullRequest>(`/v1/repositories/${repositoryId}/pull-requests/${number}`),
+  createPullRequestPatchset: (
+    repositoryId: string,
+    number: number | string,
+    input: { change_summary?: string; changes: PullRequestChangeInput[] },
+  ) =>
+    request<PullRequest>(
+      `/v1/repositories/${repositoryId}/pull-requests/${number}/patchsets`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  rebasePullRequest: (repositoryId: string, number: number | string) =>
+    request<PullRequest>(
+      `/v1/repositories/${repositoryId}/pull-requests/${number}/rebase`,
+      { method: "POST" },
+    ),
+  reviewPullRequest: (
+    repositoryId: string,
+    number: number | string,
+    state: PullRequestReviewState,
+    body: string,
+  ) =>
+    request<PullRequest>(
+      `/v1/repositories/${repositoryId}/pull-requests/${number}/reviews`,
+      { method: "POST", body: JSON.stringify({ state, body }) },
+    ),
+  mergePullRequest: (repositoryId: string, number: number | string) =>
+    request<PullRequest>(
+      `/v1/repositories/${repositoryId}/pull-requests/${number}/merge`,
+      { method: "POST" },
+    ),
+  closePullRequest: (repositoryId: string, number: number | string) =>
+    request<PullRequest>(`/v1/repositories/${repositoryId}/pull-requests/${number}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status: "closed" }),
+    }),
+  listRepositorySources: (repositoryId: string) =>
+    request<{ items: RepositorySource[] }>(`/v1/repositories/${repositoryId}/sources`),
+  createRepositorySource: (repositoryId: string, input: RepositorySourceInput) =>
+    request<RepositorySource>(`/v1/repositories/${repositoryId}/sources`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateRepositorySource: (
+    repositoryId: string,
+    sourceId: string,
+    input: Partial<RepositorySourceInput>,
+  ) =>
+    request<RepositorySource>(`/v1/repositories/${repositoryId}/sources/${sourceId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteRepositorySource: (repositoryId: string, sourceId: string) =>
+    request<void>(`/v1/repositories/${repositoryId}/sources/${sourceId}`, {
+      method: "DELETE",
+    }),
+  checkRepositorySource: (
+    repositoryId: string,
+    sourceId: string,
+    input: RepositorySourceCheckInput = {},
+  ) =>
+    request<RepositorySyncRun>(
+      `/v1/repositories/${repositoryId}/sources/${sourceId}/check`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  simulateRepositorySource: (
+    repositoryId: string,
+    sourceId: string,
+    input: RepositorySourceCheckInput = {},
+  ) =>
+    request<RepositorySyncRun>(
+      `/v1/repositories/${repositoryId}/sources/${sourceId}/simulate`,
+      { method: "POST", body: JSON.stringify(input) },
+    ),
+  exportRepositorySource: (repositoryId: string, sourceId: string) =>
+    request<{ proposal: unknown }>(
+      `/v1/repositories/${repositoryId}/sources/${sourceId}/export`,
+      { method: "POST" },
+    ),
+  listRepositorySyncRuns: (repositoryId: string) =>
+    request<{ items: RepositorySyncRun[] }>(
+      `/v1/repositories/${repositoryId}/sync-runs`,
+    ),
+  listRepositoryActivity: (repositoryId: string) =>
+    request<{ items: RepositoryActivity[] }>(
+      `/v1/repositories/${repositoryId}/activity`,
+    ),
+  searchRepositoryKnowledge: (repositoryId: string, query: string) =>
+    request<{ items: KnowledgeSearchResult[] }>(
+      `/v1/repositories/${repositoryId}/search?q=${encodeURIComponent(query)}`,
+    ),
+  askRepositoryQuestion: (repositoryId: string, question: string) =>
+    request<{ answer: string; citations: KnowledgeCitation[] }>(
+      `/v1/repositories/${repositoryId}/questions`,
+      { method: "POST", body: JSON.stringify({ question }) },
+    ),
+  listRepositoryBacklinks: (repositoryId: string, documentId: string) =>
+    request<{
+      items: Array<KnowledgeCitation & { from?: string; to?: string }>;
+    }>(
+      `/v1/repositories/${repositoryId}/backlinks?document_id=${encodeURIComponent(documentId)}`,
+    ).then((result) => ({
+      items: (result.items || []).map((item) => ({
+        ...item,
+        document_id: item.document_id || item.from,
+        title: item.title || item.from,
+      })),
+    })),
+  getRepositoryGraph: (repositoryId: string) =>
+    request<{
+      nodes: KnowledgeGraphNode[];
+      edges: Array<KnowledgeGraphEdge & { from?: string; to?: string }>;
+    }>(`/v1/repositories/${repositoryId}/graph`).then((result) => ({
+      nodes: result.nodes || [],
+      edges: (result.edges || []).map((edge) => ({
+        ...edge,
+        source: edge.source || edge.from || "",
+        target: edge.target || edge.to || "",
+      })),
+    })),
+  listRepositoryTeams: (repositoryId: string) =>
+    request<{ items: RepositoryTeam[] }>(`/v1/repositories/${repositoryId}/teams`),
+  createRepositoryTeam: (
+    repositoryId: string,
+    input: Pick<RepositoryTeam, "name" | "description" | "role">,
+  ) =>
+    request<RepositoryTeam>(`/v1/repositories/${repositoryId}/teams`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  updateRepositoryTeam: (
+    repositoryId: string,
+    teamId: string,
+    input: Partial<Pick<RepositoryTeam, "name" | "description" | "role">>,
+  ) =>
+    request<RepositoryTeam>(`/v1/repositories/${repositoryId}/teams/${teamId}`, {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    }),
+  deleteRepositoryTeam: (repositoryId: string, teamId: string) =>
+    request<void>(`/v1/repositories/${repositoryId}/teams/${teamId}`, {
+      method: "DELETE",
+    }),
+  addRepositoryTeamMember: (repositoryId: string, teamId: string, userId: string) =>
+    request<RepositoryTeam>(
+      `/v1/repositories/${repositoryId}/teams/${teamId}/members/${encodeURIComponent(userId)}`,
+      { method: "PUT" },
+    ),
+  removeRepositoryTeamMember: (repositoryId: string, teamId: string, userId: string) =>
+    request<RepositoryTeam>(
+      `/v1/repositories/${repositoryId}/teams/${teamId}/members/${encodeURIComponent(userId)}`,
+      { method: "DELETE" },
+    ),
   // Folders
   listFolders: (folderId?: string, path?: string, q?: string) => {
     const params = new URLSearchParams();
@@ -432,6 +1048,58 @@ export const api = {
     request<{ items: EffectiveAccessItem[] }>(`/v1/folders/${id}/access`),
   documentAccess: (id: string) =>
     request<{ items: EffectiveAccessItem[] }>(`/v1/documents/${id}/access`),
+  listNotifications: () =>
+    request<{ items: AidocsNotification[] }>("/v1/notifications"),
+  markNotificationRead: (id: string, read = true) =>
+    request<AidocsNotification>(`/v1/notifications/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ read }),
+    }),
+  listReviewInbox: () => request<{ items: ReviewInboxItem[] }>("/v1/review-inbox"),
+  listTemplates: () => request<{ items: AidocsTemplate[] }>("/v1/templates"),
+  applyTemplate: (
+    repositoryId: string,
+    templateId: string,
+    targetDocumentId?: string,
+    title?: string,
+  ) =>
+    request<{
+      status: "preview" | "pull_request_opened";
+      template?: AidocsTemplate;
+      message?: string;
+      pull_request?: PullRequest;
+    }>(`/v1/repositories/${repositoryId}/templates/${templateId}/apply`, {
+      method: "POST",
+      body: JSON.stringify({
+        target_document_id: targetDocumentId || undefined,
+        title: title || undefined,
+      }),
+    }),
+  getPublicPortal: (slug: string) =>
+    request<{
+      repository?: Repository;
+      portal?: { enabled?: boolean; slug?: string; visibility?: string };
+      documents?: Array<
+        Document & {
+          version_id?: string;
+          text?: string;
+          excerpt?: string;
+          path?: string;
+          public_url?: string;
+        }
+      >;
+    }>(`/v1/public/portals/${encodeURIComponent(slug)}`).then(
+      (result): PublicPortal => ({
+        slug: result.portal?.slug || slug,
+        title: result.repository?.name,
+        description: result.repository?.description,
+        repository: result.repository,
+        documents: (result.documents || []).map((document) => ({
+          ...document,
+          excerpt: document.excerpt || document.text,
+        })),
+      }),
+    ),
   // Pins
   listPins: () => request<{ items: Pin[] }>("/v1/pins"),
   putPin: (resourceType: string, resourceId: string) =>
@@ -446,3 +1114,15 @@ export const docID = (d: Partial<Document>) => d.id || "";
 export const docTitle = (d: Partial<Document>) => d.title || "Untitled";
 export const currentVersionID = (d: Partial<Document>) => d.current_version_id || "";
 export const versionID = (v: Partial<Version>) => v.id || "";
+
+export function repositoryNamespaceName(repository: Partial<Repository>) {
+  return (
+    repository.namespace_name ||
+    repository.namespace?.name ||
+    repository.namespace?.slug ||
+    repository.owner?.name ||
+    repository.owner?.email ||
+    repository.owner?.id ||
+    (repository.scope === "organization" ? "Organization" : "Personal")
+  );
+}

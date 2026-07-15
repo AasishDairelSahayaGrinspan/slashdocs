@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/knowledge"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -25,12 +27,20 @@ type Config struct {
 	SessionSecret       string
 	AllowedOAuthDomains []string
 	// Deployment is "public" or "org". OrgName labels the org in UI copy.
-	Deployment string
-	OrgName    string
+	Deployment          string
+	OrgName             string
+	GitHubWebhookSecret string
+	SlackSigningSecret  string
+	DevRevWebhookSecret string
 }
 
-// Server wraps the gin engine.
-type Server struct{ engine *gin.Engine }
+// Server wraps the gin engine and owns its background workers.
+type Server struct {
+	engine                   *gin.Engine
+	closeOnce                sync.Once
+	knowledgeProcessorCancel context.CancelFunc
+	knowledgeProcessorDone   <-chan struct{}
+}
 
 type readinessCheck struct {
 	name string
@@ -38,8 +48,15 @@ type readinessCheck struct {
 }
 
 type dependencies struct {
+	environment         string
 	authenticator       auth.Authenticator
 	repository          repo.Repository
+	knowledge           knowledge.Store
+	knowledgeProcessor  bool
+	providerClient      knowledge.ProviderClient
+	githubWebhookSecret string
+	slackSigningSecret  string
+	devRevWebhookSecret string
 	stateStore          auth.LoginStateStore
 	oidc                auth.OIDC
 	oidcProviderName    string
@@ -51,6 +68,7 @@ type dependencies struct {
 	orgName             string
 	readinessChecks     []readinessCheck
 	documentKVEvents    kvevents.Subscriber
+	lifecycleContext    context.Context
 }
 
 // Option configures the Server.
@@ -68,6 +86,16 @@ func WithDocumentKVEvents(events kvevents.Subscriber) Option {
 	return func(d *dependencies) { d.documentKVEvents = events }
 }
 
+// WithKnowledgeStore supplies durable connected-source configuration and
+// queue storage. Supplying it also enables the background sync processor.
+func WithKnowledgeStore(store knowledge.Store) Option {
+	return func(d *dependencies) { d.knowledge = store; d.knowledgeProcessor = true }
+}
+
+func WithKnowledgeProviderClient(client knowledge.ProviderClient) Option {
+	return func(d *dependencies) { d.providerClient = client }
+}
+
 func WithStateStore(st auth.LoginStateStore) Option {
 	return func(d *dependencies) { d.stateStore = st }
 }
@@ -76,6 +104,17 @@ func WithReadinessCheck(name string, fn func(context.Context) error) Option {
 	return func(d *dependencies) {
 		if name != "" && fn != nil {
 			d.readinessChecks = append(d.readinessChecks, readinessCheck{name: name, fn: fn})
+		}
+	}
+}
+
+// WithLifecycleContext stops server-owned background work when ctx is
+// cancelled. Close must still be called so callers wait for that work to exit
+// before closing its dependencies.
+func WithLifecycleContext(ctx context.Context) Option {
+	return func(d *dependencies) {
+		if ctx != nil {
+			d.lifecycleContext = ctx
 		}
 	}
 }
@@ -95,6 +134,7 @@ func (denyAllAuthenticator) Authenticate(_ *http.Request) (*auth.Principal, erro
 func New(cfg Config, opts ...Option) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	deps := dependencies{
+		environment:         cfg.Environment,
 		authenticator:       denyAllAuthenticator{},
 		stateStore:          auth.NewStateStore(),
 		oidc:                cfg.OIDC,
@@ -105,6 +145,10 @@ func New(cfg Config, opts ...Option) *Server {
 		allowedOAuthDomains: cfg.AllowedOAuthDomains,
 		deployment:          cfg.Deployment,
 		orgName:             cfg.OrgName,
+		githubWebhookSecret: cfg.GitHubWebhookSecret,
+		slackSigningSecret:  cfg.SlackSigningSecret,
+		devRevWebhookSecret: cfg.DevRevWebhookSecret,
+		lifecycleContext:    context.Background(),
 	}
 	for _, opt := range opts {
 		opt(&deps)
@@ -117,6 +161,12 @@ func New(cfg Config, opts ...Option) *Server {
 		// Do not create an unowned background broker for programmatic callers.
 		deps.documentKVEvents = unavailableDocumentKVEvents{}
 	}
+	if deps.knowledge == nil {
+		deps.knowledge = knowledge.NewMemory()
+	}
+	if deps.providerClient == nil {
+		deps.providerClient = knowledge.HTTPProviderClient{}
+	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
 	r.Use(requestIDMiddleware())
@@ -127,6 +177,11 @@ func New(cfg Config, opts ...Option) *Server {
 	r.Use(prometheusMiddleware())
 	s := &Server{engine: r}
 	s.routes(deps)
+	if deps.knowledgeProcessor {
+		processorCtx, cancel := context.WithCancel(deps.lifecycleContext)
+		s.knowledgeProcessorCancel = cancel
+		s.knowledgeProcessorDone = startKnowledgeProcessor(processorCtx, deps)
+	}
 	return s
 }
 
@@ -137,6 +192,19 @@ func (unavailableDocumentKVEvents) Subscribe(context.Context, string) (<-chan re
 }
 
 func (s *Server) Handler() http.Handler { return s.engine }
+
+// Close cancels server-owned background work and waits for it to stop. It is
+// safe to call more than once.
+func (s *Server) Close() {
+	s.closeOnce.Do(func() {
+		if s.knowledgeProcessorCancel != nil {
+			s.knowledgeProcessorCancel()
+		}
+		if s.knowledgeProcessorDone != nil {
+			<-s.knowledgeProcessorDone
+		}
+	})
+}
 
 func (s *Server) routes(deps dependencies) {
 	h := handlers{deps: deps}
@@ -172,11 +240,16 @@ func (s *Server) routes(deps dependencies) {
 	v1.GET("/auth/oidc/start", h.oauthStart)
 	v1.GET("/auth/oidc/callback", h.oauthCallback)
 	v1.POST("/auth/cli/exchange", h.cliExchange)
+	v1.POST("/webhooks/github", h.githubWebhook)
+	v1.POST("/webhooks/slack", h.slackWebhook)
+	v1.POST("/webhooks/devrev", h.devRevWebhook)
+	v1.GET("/public/portals/:slug", h.publicPortal)
 
 	// Every route below requires authentication.
 	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin))
 	authed.GET("/me", h.me)
 	authed.GET("/users", h.searchUsers)
+	authed.GET("/users/:id/profile", h.getUserProfile)
 	authed.GET("/auth/cli/credentials", h.listCLICredentials)
 	authed.DELETE("/auth/cli/credentials/:id", h.revokeCLICredential)
 	authed.POST("/service-accounts", h.createServiceAccount)
@@ -190,6 +263,23 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/service-accounts/transfers/:id/accept", h.acceptOwnershipTransfer)
 	authed.POST("/service-accounts/transfers/:id/decline", h.declineOwnershipTransfer)
 	authed.POST("/documents", h.createDocument)
+	authed.POST("/repositories", h.createRepository)
+	authed.POST("/repositories/import", h.importRepository)
+	authed.GET("/repositories", h.listRepositories)
+	authed.GET("/repositories/:id", h.getRepository)
+	authed.DELETE("/repositories/:id", h.deleteRepository)
+	registerKnowledgeRoutes(authed, h)
+	authed.GET("/repositories/:id/documents", h.listRepositoryDocuments)
+	authed.POST("/repositories/:id/documents", h.createRepositoryDocument)
+	authed.POST("/repositories/:id/pull-requests", h.createPullRequest)
+	authed.POST("/repositories/:id/pull-requests/change-set", h.createPullRequestChangeSet)
+	authed.GET("/repositories/:id/pull-requests", h.listPullRequests)
+	authed.GET("/repositories/:id/pull-requests/:number", h.getPullRequest)
+	authed.POST("/repositories/:id/pull-requests/:number/patchsets", h.createPullRequestPatchset)
+	authed.POST("/repositories/:id/pull-requests/:number/rebase", h.rebasePullRequest)
+	authed.POST("/repositories/:id/pull-requests/:number/reviews", h.reviewPullRequest)
+	authed.POST("/repositories/:id/pull-requests/:number/merge", h.mergePullRequest)
+	authed.PATCH("/repositories/:id/pull-requests/:number", h.patchPullRequest)
 	authed.GET("/documents", h.listDocuments)
 	authed.GET("/documents/:id", h.getDocument)
 	authed.GET("/documents/:id/access", h.documentAccess)

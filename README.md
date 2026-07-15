@@ -2,7 +2,7 @@
 
 Give your agents the power to publish beautiful, reviewable documents.
 
-`aidocs` is a Google-Docs-like review layer for AI-generated HTML artifacts. Agents create rich, self-contained HTML reports, specs, dashboards, diagrams, and decision docs; humans review them in the browser with comments, versions, and sharing.
+`aidocs` is a GitHub-like collaboration layer for AI-generated documents. Agents create rich, self-contained HTML reports, specs, dashboards, diagrams, and decision docs; teams organize them into repositories and review protected changes through pull requests, approvals, comments, versions, and sharing.
 
 Instead of pasting giant reports into chat, let agents push a document, iterate on feedback, and keep a durable review trail.
 
@@ -23,6 +23,21 @@ Instead of pasting giant reports into chat, let agents push a document, iterate 
 - Anchored comments and resolve/reopen workflow
 - Immutable versions with optimistic concurrency
 - OpenID Connect for human users (Google, Okta, Entra ID, Keycloak, Dex, ...)
+- Personal and organization-scoped document repositories
+- Organization repositories discoverable by everyone in the workspace
+- Nested repository folders with inherited email access
+- Protected multi-document updates through pull requests and approvals
+- Atomic create, update, rename, move, and delete change sets
+- Successive pull-request patchsets, stale-base rebasing, and approval dismissal
+- Direct rendered-text editing with no HTML or Markdown exposed in the UI
+- Human-readable text-only pull-request diffs
+- Connected GitHub, Slack-thread, and DevRev-ticket sources that turn external changes into reviewable doc PRs
+- Signed, deduplicated webhooks, path filters, sync history, and provenance
+- Repository search, cited Q&A, backlinks, dependency graphs, and freshness
+- Review inbox, notifications, teams, templates, audit activity, and public portals
+- Activity profiles for documents, pull requests, reviews, and merges
+- Personal settings for account, appearance, agents, and developer access
+- Stale-base and requested-changes merge protection
 - Native service accounts for headless/agent workflows
 - Remote MCP endpoint with browser OAuth—no local MCP process or CLI required
 - Go CLI with compact default output and JSON mode
@@ -143,6 +158,54 @@ aidocs docs comments create doc_123 --quote "important text" --body "Please clar
 aidocs docs comments resolve doc_123 cmt_123
 ```
 
+Create an empty repository (or pass `--document-id` / `--folder-id` to seed one),
+then propose protected updates without changing the published version:
+
+```bash
+aidocs repos create --name "Payments handbook" --scope organization
+aidocs repos list
+
+aidocs repos prs create repo_123 doc_123 handbook.html \
+  --title "Clarify refund ownership" \
+  --summary "Address operations feedback"
+aidocs repos prs review repo_123 1 --approve --body "Looks good."
+aidocs repos prs merge repo_123 1
+
+# Repository owners can permanently remove the repository and its contents:
+aidocs repos delete repo_123
+```
+
+Repositories may start empty, from a loose document, or from a root folder. An
+empty repository can be initialized with one clean document directly in the UI;
+after that bootstrap, protected document changes use pull requests. A single
+change set can create, update, rename, move, or delete several documents and is
+validated and merged atomically.
+
+Connect a GitHub repository and test its documentation impact without needing
+provider credentials by supplying the changed paths explicitly:
+
+```bash
+aidocs repos sources add repo_123 \
+  --provider github \
+  --repository razorpay/payments \
+  --branch master \
+  --include 'docs/**,api/**' \
+  --target-document doc_123
+
+aidocs repos sources simulate repo_123 source_123 \
+  --after local-test \
+  --changed-file api/refunds/handler.go
+
+aidocs repos sources check repo_123 source_123 \
+  --after local-test \
+  --changed-file api/refunds/handler.go
+```
+
+`simulate` is read-only. `check` records the run and opens or updates a normal
+aidocs pull request when an included path changed. See
+[Connected sources](docs/connected-sources.md) for GitHub, Slack, and DevRev webhook setup and the
+full local workflow.
+
 Use `--json` for structured output:
 
 ```bash
@@ -151,11 +214,59 @@ aidocs --json docs list
 
 ## Development
 
+For the fastest local loop, run the dev-only in-memory server from the source
+checkout:
+
+```bash
+aidocs-dev
+```
+
+`aidocs-dev` is deliberately separate from the `aidocs` CLI. If the development
+launcher is not installed on your `PATH` yet, run `make install-dev` once or use
+`./aidocs-dev` directly.
+
+This rebuilds the React app, syncs it into the server's embedded assets, and
+starts aidocs at `http://127.0.0.1:8080`. It does not require Docker Compose,
+Postgres, Google OAuth credentials, or S3. `Ctrl-C` stops the foreground server
+cleanly. Local state is ephemeral; use
+`http://127.0.0.1:8080/__dev` to switch between the seeded owner and
+reviewer identities and exercise the approval flow. The launcher prints direct
+owner and reviewer links that return to the repository list after switching.
+
+The launcher also exposes the common local workflow:
+
+```bash
+aidocs-dev help
+aidocs-dev test
+aidocs-dev clean
+```
+
+Dependencies are installed with `npm ci` when `frontend/node_modules` is
+missing or its lockfile is stale. Set `AIDOCS_DEV_NPM_INSTALL=always` for a clean reinstall,
+`AIDOCS_DEV_NPM_INSTALL=never` to use the current install, or
+`AIDOCS_DEV_SKIP_FRONTEND=1` when the embedded frontend is already current.
+Set `AIDOCS_DEV_PORT` to use a loopback port other than `8080`.
+
+The production build and server remain available through the Make targets:
+
 ```bash
 make build
 make swagger
 make test
+make verify-production
+make verify-production-image
 ```
+
+`make verify-production` is the full local production-runtime gate. It builds
+the real server and embedded UI, provisions fresh PostgreSQL and S3-compatible
+storage, applies migrations, and verifies atomic imports and rollback,
+protected pull requests, signed Slack/DevRev events, persistence across restart,
+Helm wiring, and dependency readiness. `make verify-production-image` additionally
+builds and boots the actual Dockerfile artifact as the Helm non-root user with a
+read-only root filesystem and bounded writable `/tmp`; it requires Docker
+Buildx and access to the Dockerfile's public base images. See
+[Production verification](docs/production-verification.md) for the exact
+assertions and prerequisites.
 
 Useful targets:
 
@@ -169,6 +280,8 @@ make test           run backend, CLI, and frontend tests
 make lint           run Go, TypeScript, React, and formatting checks
 make e2e            run the API and CLI compose smoke test
 make e2e-browser    run the advisory Chromium browser suite
+make verify-production run the production-parity integration gate
+make verify-production-image also verify the restricted Dockerfile artifact
 ```
 
 Build the server through `make build-backend` rather than a bare `go build`.

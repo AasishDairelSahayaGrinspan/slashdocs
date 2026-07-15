@@ -33,6 +33,29 @@ export function canManageSharing(role?: string) {
   return (ROLE_RANK[role || ""] || 0) >= ROLE_RANK.commenter;
 }
 
+export function effectiveRoleForPrincipal(
+  items: Array<{
+    principal?: { type?: string; id?: string };
+    effective_role?: string;
+  }>,
+  principal?: { type?: string; id?: string },
+) {
+  if (!principal) return undefined;
+  let best: string | undefined;
+  for (const item of items) {
+    const applies =
+      item.principal?.type === "anyone" ||
+      (item.principal?.type === principal.type && item.principal?.id === principal.id);
+    if (
+      applies &&
+      (ROLE_RANK[item.effective_role || ""] || 0) > (ROLE_RANK[best || ""] || 0)
+    ) {
+      best = item.effective_role;
+    }
+  }
+  return best;
+}
+
 // GENERAL_ACCESS_NONE is the sentinel role for "no general access" (the
 // "anyone" grant is absent). The visible label comes from the server's
 // everyone_label.

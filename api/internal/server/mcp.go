@@ -38,6 +38,7 @@ func registerMCPRoutes(engine *gin.Engine, deps dependencies) {
 	engine.Any("/mcp", gin.WrapH(newMCPHTTPHandler(deps)))
 }
 
+//nolint:gocyclo // Transport validation, authentication, size limits, and metric outcomes share one ordered HTTP boundary.
 func newMCPHTTPHandler(deps dependencies) http.Handler {
 	metrics := newMCPMetricRecorder()
 	protocol := mcpserver.NewMCPServer(

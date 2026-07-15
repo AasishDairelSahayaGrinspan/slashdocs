@@ -567,15 +567,6 @@ func mustMCPObject(t *testing.T, result mcpToolHTTPResult) map[string]any {
 	return object
 }
 
-func requiredMCPObject(t *testing.T, object map[string]any, field string) map[string]any {
-	t.Helper()
-	value, ok := object[field].(map[string]any)
-	if !ok {
-		t.Fatalf("MCP object field %q = %#v, want object", field, object[field])
-	}
-	return value
-}
-
 func requiredMCPString(t *testing.T, object map[string]any, field string) string {
 	t.Helper()
 	value, ok := object[field].(string)

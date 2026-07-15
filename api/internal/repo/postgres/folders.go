@@ -58,11 +58,23 @@ func (s *Store) FolderAccessChain(ctx context.Context, p auth.Principal, folderI
 	if len(rows) == 0 {
 		return nil, repo.ErrNotFound
 	}
+	organizationViewer := false
+	if p.Type != auth.PrincipalAnonymous && p.ID != "" {
+		repository, repositoryErr := repositoryForFolderWith(ctx, s.db, folderID)
+		if repositoryErr == nil {
+			organizationViewer = repository.Scope == repo.RepositoryScopeOrganization
+		} else if !errors.Is(repositoryErr, repo.ErrNotFound) {
+			return nil, repositoryErr
+		}
+	}
 	out := make([]repo.FolderAccess, 0, len(rows))
 	for _, r := range rows {
 		role := grantRankRole(r.GrantRank)
 		if r.IsOwner {
 			role = repo.MaxRole(role, repo.RoleOwner)
+		}
+		if organizationViewer {
+			role = repo.MaxRole(role, repo.RoleViewer)
 		}
 		out = append(out, repo.FolderAccess{ID: r.ID, Title: r.Title, Role: role})
 	}
@@ -83,6 +95,7 @@ func (s *Store) RoleForFolder(ctx context.Context, p auth.Principal, folderID st
 	return chain[len(chain)-1].Role, nil
 }
 
+//nolint:gocyclo // Repository-boundary checks must share the folder transaction and lock order.
 func (s *Store) CreateFolder(ctx context.Context, owner auth.Principal, title, parent string) (repo.Folder, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -95,6 +108,28 @@ func (s *Store) CreateFolder(ctx context.Context, owner auth.Principal, title, p
 		// tree mutations so a concurrent re-parent cannot invalidate it.
 		if err := q.AcquireFolderTreeLock(ctx, folderTreeLockID); err != nil {
 			return repo.Folder{}, err
+		}
+		treeKey, err := treeKeyForFolderWith(ctx, tx, parent)
+		if err != nil {
+			return repo.Folder{}, err
+		}
+		if err := lockTreeKeys(ctx, tx, treeKey); err != nil {
+			return repo.Folder{}, err
+		}
+		if err := verifyFolderTreeKey(ctx, tx, parent, treeKey); err != nil {
+			return repo.Folder{}, err
+		}
+		repository, repositoryErr := repositoryForFolderWith(ctx, tx, parent)
+		if repositoryErr == nil {
+			protected, err := lockRepositoryProtection(ctx, tx, repository.ID)
+			if err != nil {
+				return repo.Folder{}, err
+			}
+			if protected[repository.ID] {
+				return repo.Folder{}, repo.ErrRepositoryBoundary
+			}
+		} else if !errors.Is(repositoryErr, repo.ErrNotFound) {
+			return repo.Folder{}, repositoryErr
 		}
 		depth, err := q.GetFolderDepth(ctx, parent)
 		if err != nil {
@@ -156,6 +191,7 @@ func (s *Store) getFolder(ctx context.Context, q *dbsqlc.Queries, id string) (re
 	return f, nil
 }
 
+//nolint:gocyclo // Keeping validation, repository boundaries, and the write in one transaction makes lock ordering auditable.
 func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *string) (repo.Folder, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -163,10 +199,9 @@ func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *stri
 	}
 	defer rollback(ctx, tx)
 	q := s.q.WithTx(tx)
-	if parent != nil {
-		// Re-parenting validates the cycle and depth invariants before
-		// writing; serialize with other tree mutations so concurrent moves
-		// cannot interleave between check and write.
+	if title != "" || parent != nil {
+		// Repository protection and re-parenting are check-then-write
+		// invariants. Serialize them with all other tree mutations.
 		if err := q.AcquireFolderTreeLock(ctx, folderTreeLockID); err != nil {
 			return repo.Folder{}, err
 		}
@@ -174,6 +209,55 @@ func (s *Store) UpdateFolder(ctx context.Context, id, title string, parent *stri
 	f, err := s.getFolder(ctx, q, id)
 	if err != nil {
 		return f, err
+	}
+	if title != "" || parent != nil {
+		sourceTreeKey, err := treeKeyForFolderWith(ctx, tx, id)
+		if err != nil {
+			return repo.Folder{}, err
+		}
+		destinationTreeKey := ""
+		if parent != nil && *parent != "" {
+			destinationTreeKey, err = treeKeyForFolderWith(ctx, tx, *parent)
+			if err != nil {
+				return repo.Folder{}, err
+			}
+		}
+		if err := lockTreeKeys(ctx, tx, sourceTreeKey, destinationTreeKey); err != nil {
+			return repo.Folder{}, err
+		}
+		if err := verifyFolderTreeKey(ctx, tx, id, sourceTreeKey); err != nil {
+			return repo.Folder{}, err
+		}
+		if parent != nil && *parent != "" {
+			if err := verifyFolderTreeKey(ctx, tx, *parent, destinationTreeKey); err != nil {
+				return repo.Folder{}, err
+			}
+		}
+
+		sourceRepository, sourceErr := repositoryForFolderWith(ctx, tx, id)
+		sourceWrapped := sourceErr == nil
+		if sourceErr != nil && !errors.Is(sourceErr, repo.ErrNotFound) {
+			return repo.Folder{}, sourceErr
+		}
+		var destinationRepository repo.RepositoryRecord
+		destinationWrapped := false
+		if parent != nil && *parent != "" {
+			destinationRepository, err = repositoryForFolderWith(ctx, tx, *parent)
+			destinationWrapped = err == nil
+			if err != nil && !errors.Is(err, repo.ErrNotFound) {
+				return repo.Folder{}, err
+			}
+		}
+		protected, err := lockRepositoryProtection(ctx, tx, sourceRepository.ID, destinationRepository.ID)
+		if err != nil {
+			return repo.Folder{}, err
+		}
+		if sourceWrapped && (sourceRepository.RootFolderID == id || protected[sourceRepository.ID]) {
+			return repo.Folder{}, repo.ErrRepositoryBoundary
+		}
+		if parent != nil && ((destinationWrapped && protected[destinationRepository.ID]) || sourceWrapped != destinationWrapped || (sourceWrapped && sourceRepository.ID != destinationRepository.ID)) {
+			return repo.Folder{}, repo.ErrRepositoryBoundary
+		}
 	}
 	var updateErr error
 	switch {
@@ -247,6 +331,24 @@ func (s *Store) DeleteFolder(ctx context.Context, id string, p auth.Principal) e
 	// a folder cannot be re-parented into the subtree while it is deleted.
 	if err := q.AcquireFolderTreeLock(ctx, folderTreeLockID); err != nil {
 		return err
+	}
+	treeKey, err := treeKeyForFolderWith(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if err := lockTreeKeys(ctx, tx, treeKey); err != nil {
+		return err
+	}
+	if err := verifyFolderTreeKey(ctx, tx, id, treeKey); err != nil {
+		return err
+	}
+	if repository, repositoryErr := repositoryForFolderWith(ctx, tx, id); repositoryErr == nil {
+		if _, err := lockRepositoryProtection(ctx, tx, repository.ID); err != nil {
+			return err
+		}
+		return repo.ErrRepositoryBoundary
+	} else if !errors.Is(repositoryErr, repo.ErrNotFound) {
+		return repositoryErr
 	}
 	own, err := q.GetFolderOwnership(ctx, dbsqlc.GetFolderOwnershipParams{FolderID: id, OwnerType: string(p.Type), OwnerID: p.ID})
 	if err != nil {
@@ -386,6 +488,7 @@ func (s *Store) RecordFolderOpened(ctx context.Context, folderID string, p auth.
 	return s.q.RecordFolderWorkspaceEntry(ctx, dbsqlc.RecordFolderWorkspaceEntryParams{FolderID: folderID, PrincipalType: string(p.Type), PrincipalID: p.ID})
 }
 
+//nolint:gocyclo // Source/destination boundary checks and the move must remain one atomic tree transaction.
 func (s *Store) MoveDocumentToFolder(ctx context.Context, _ auth.Principal, folderID, docID string) (bool, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
@@ -398,6 +501,40 @@ func (s *Store) MoveDocumentToFolder(ctx context.Context, _ auth.Principal, fold
 	// grant lookup observe the same ancestry.
 	if err := q.AcquireFolderTreeLock(ctx, folderTreeLockID); err != nil {
 		return false, err
+	}
+	sourceTreeKey, err := treeKeyForDocumentWith(ctx, tx, docID)
+	if err != nil {
+		return false, err
+	}
+	destinationTreeKey, err := treeKeyForFolderWith(ctx, tx, folderID)
+	if err != nil {
+		return false, err
+	}
+	if err := lockTreeKeys(ctx, tx, sourceTreeKey, destinationTreeKey); err != nil {
+		return false, err
+	}
+	if err := verifyDocumentTreeKey(ctx, tx, docID, sourceTreeKey); err != nil {
+		return false, err
+	}
+	if err := verifyFolderTreeKey(ctx, tx, folderID, destinationTreeKey); err != nil {
+		return false, err
+	}
+	sourceRepository, sourceErr := repositoryForDocumentWith(ctx, tx, docID)
+	sourceWrapped := sourceErr == nil
+	if sourceErr != nil && !errors.Is(sourceErr, repo.ErrNotFound) {
+		return false, sourceErr
+	}
+	destinationRepository, destinationErr := repositoryForFolderWith(ctx, tx, folderID)
+	destinationWrapped := destinationErr == nil
+	if destinationErr != nil && !errors.Is(destinationErr, repo.ErrNotFound) {
+		return false, destinationErr
+	}
+	protected, err := lockRepositoryProtection(ctx, tx, sourceRepository.ID, destinationRepository.ID)
+	if err != nil {
+		return false, err
+	}
+	if (sourceWrapped && protected[sourceRepository.ID]) || (destinationWrapped && protected[destinationRepository.ID]) || sourceWrapped != destinationWrapped || (sourceWrapped && sourceRepository.ID != destinationRepository.ID) {
+		return false, repo.ErrRepositoryBoundary
 	}
 	moved, err := q.MoveDocumentToFolder(ctx, dbsqlc.MoveDocumentToFolderParams{FolderID: folderID, DocumentID: docID})
 	if err != nil {
@@ -418,7 +555,47 @@ func (s *Store) MoveDocumentToFolder(ctx context.Context, _ auth.Principal, fold
 }
 
 func (s *Store) MoveDocumentToRoot(ctx context.Context, folderID, docID string) error {
-	return s.q.MoveDocumentToRoot(ctx, dbsqlc.MoveDocumentToRootParams{DocumentID: docID, FolderID: folderID})
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+	q := s.q.WithTx(tx)
+	if err := q.AcquireFolderTreeLock(ctx, folderTreeLockID); err != nil {
+		return err
+	}
+	treeKey, err := treeKeyForDocumentWith(ctx, tx, docID)
+	if err != nil {
+		return err
+	}
+	if err := lockTreeKeys(ctx, tx, treeKey); err != nil {
+		return err
+	}
+	if err := verifyDocumentTreeKey(ctx, tx, docID, treeKey); err != nil {
+		return err
+	}
+	var currentParent string
+	if err := tx.QueryRow(ctx, `SELECT COALESCE(parent_folder_id,'') FROM documents WHERE id=$1 FOR UPDATE`, docID).Scan(&currentParent); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repo.ErrNotFound
+		}
+		return err
+	}
+	if currentParent != folderID {
+		return repo.ErrNotFound
+	}
+	if repository, repositoryErr := repositoryForDocumentWith(ctx, tx, docID); repositoryErr == nil {
+		if _, err := lockRepositoryProtection(ctx, tx, repository.ID); err != nil {
+			return err
+		}
+		return repo.ErrRepositoryBoundary
+	} else if !errors.Is(repositoryErr, repo.ErrNotFound) {
+		return repositoryErr
+	}
+	if err := q.MoveDocumentToRoot(ctx, dbsqlc.MoveDocumentToRootParams{DocumentID: docID, FolderID: folderID}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) ListFolderDocuments(ctx context.Context, _ auth.Principal, folderID string) ([]repo.Document, error) {

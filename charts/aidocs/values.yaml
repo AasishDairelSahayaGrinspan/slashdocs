@@ -40,6 +40,11 @@ securityContext:
     drop:
       - ALL
 
+# Multipart folder imports spill buffered data above 8 MiB to /tmp. Keep the
+# image filesystem read-only and provide a bounded writable scratch volume.
+temporaryStorage:
+  sizeLimit: 128Mi
+
 service:
   type: ClusterIP
   port: 80
@@ -116,6 +121,22 @@ session:
   secret: ""
   existingSecret: ""
   secretKey: SESSION_SECRET
+
+# Optional GitHub connected-source credentials. The token only needs read-only
+# Contents access to repositories that aidocs is allowed to index. Configure
+# GitHub webhooks to POST to /v1/webhooks/github.
+connectedKnowledge:
+  githubToken: ""
+  githubWebhookSecret: ""
+  existingSecret: ""
+  githubTokenKey: AIDOCS_GITHUB_TOKEN
+  githubWebhookSecretKey: AIDOCS_GITHUB_WEBHOOK_SECRET
+  slackSigningSecret: ""
+  slackExistingSecret: ""
+  slackSigningSecretKey: AIDOCS_SLACK_SIGNING_SECRET
+  devRevWebhookSecret: ""
+  devRevExistingSecret: ""
+  devRevWebhookSecretKey: AIDOCS_DEVREV_WEBHOOK_SECRET
 
 # Postgres connection. The component values are read from the secret into
 # env vars, then `url` is composed from them at runtime via Kubernetes

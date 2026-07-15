@@ -85,7 +85,8 @@ func NewRoot(out io.Writer) *cobra.Command {
 	root.PersistentFlags().BoolVar(&g.json, "json", false, "JSON output")
 	root.PersistentFlags().BoolVarP(&g.quiet, "quiet", "q", false, "quiet")
 	root.PersistentFlags().BoolVarP(&g.verbose, "verbose", "v", false, "verbose")
-	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), foldersCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out), versionCmd(out), updateCmd(g, out), skillsCmd(g, out))
+	root.AddCommand(authCmd(g, out), contextCmd(g, out), docsCmd(g, out), foldersCmd(g, out), repositoriesCmd(g, out), saRoot(g, out), openCmd(g, out), guidelinesCmd(g, out), configCmd(g, out), versionCmd(out), updateCmd(g, out), skillsCmd(g, out))
+	root.AddCommand(connectedKnowledgeRootCommands(g, out)...)
 	return root
 }
 

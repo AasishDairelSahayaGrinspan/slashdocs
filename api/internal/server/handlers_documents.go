@@ -154,6 +154,13 @@ func (h handlers) patchDocument(c *gin.Context) {
 	}
 	d, err := h.deps.repository.UpdateDocument(c.Request.Context(), c.Param("id"), in.Title)
 	if err != nil {
+		if respondPullRequestRequired(c, err) {
+			return
+		}
+		if errors.Is(err, repo.ErrRepositoryBoundary) {
+			repositoryBoundary(c)
+			return
+		}
 		internalErr(c, err)
 		return
 	}
@@ -173,6 +180,13 @@ func (h handlers) deleteDocument(c *gin.Context) {
 		return
 	}
 	if err := h.deps.repository.DeleteDocument(c.Request.Context(), c.Param("id")); err != nil {
+		if respondPullRequestRequired(c, err) {
+			return
+		}
+		if errors.Is(err, repo.ErrRepositoryBoundary) {
+			repositoryBoundary(c)
+			return
+		}
 		internalErr(c, err)
 		return
 	}

@@ -18,6 +18,15 @@ import { ServiceAccountsPage } from "@/pages/service-accounts";
 import { DevelopersPage } from "@/pages/developers";
 import { ProfilePage } from "@/pages/profile";
 import { StartPage } from "@/pages/start";
+import { RepositoriesPage } from "@/pages/repositories";
+import { RepositoryPage } from "@/pages/repository";
+import { PullRequestPage } from "@/pages/pull-request";
+import { SettingsLayout } from "@/pages/settings-layout";
+import { AccountSettingsPage } from "@/pages/settings-account";
+import { AppearanceSettingsPage } from "@/pages/settings-appearance";
+import { PublicPortalPage } from "@/pages/public-portal";
+import { ReviewInboxPage } from "@/pages/review-inbox";
+import { TemplatesPage } from "@/pages/templates";
 
 // Query failures (other than auth, handled by route guards) and any mutation
 // without its own onError surface as a toast.
@@ -50,15 +59,37 @@ function App() {
                 <Route index element={<Navigate to="documents" replace />} />
                 <Route path="start" element={<StartPage />} />
                 <Route path="documents" element={<DocumentsPage />} />
+                <Route path="repositories" element={<RepositoriesPage />} />
+                <Route path="review-inbox" element={<ReviewInboxPage />} />
+                <Route path="templates" element={<TemplatesPage />} />
+                <Route path="repos/:id" element={<RepositoryPage />} />
+                <Route
+                  path="repos/:id/settings"
+                  element={<RepositoryTabRedirect tab="settings" />}
+                />
+                <Route path="repos/:id/pulls/:number" element={<PullRequestPage />} />
                 <Route path="d/:id" element={<DocumentPage />} />
                 <Route path="folders/:id" element={<FolderPage />} />
+                <Route path="profile" element={<ProfilePage />} />
+                <Route path="users/:id" element={<ProfilePage />} />
+                <Route path="settings" element={<SettingsLayout />}>
+                  <Route index element={<Navigate to="appearance" replace />} />
+                  <Route path="account" element={<AccountSettingsPage />} />
+                  <Route path="appearance" element={<AppearanceSettingsPage />} />
+                  <Route path="service-accounts" element={<ServiceAccountsPage />} />
+                  <Route path="developer" element={<DevelopersPage />} />
+                  <Route
+                    path="profile"
+                    element={<Navigate to="/app/profile" replace />}
+                  />
+                </Route>
                 <Route
-                  path="settings/service-accounts"
-                  element={<ServiceAccountsPage />}
+                  path="developers"
+                  element={<Navigate to="/app/settings/developer" replace />}
                 />
-                <Route path="settings/profile" element={<ProfilePage />} />
-                <Route path="developers" element={<DevelopersPage />} />
               </Route>
+              <Route path="/portal/:slug" element={<PublicPortalPage />} />
+              <Route path="/p/:slug" element={<PublicPortalPage />} />
               {/* legacy redirects */}
               <Route path="/documents/:id" element={<LegacyDocRedirect />} />
               <Route
@@ -78,6 +109,11 @@ function App() {
 function LegacyDocRedirect() {
   const { id = "" } = useParams();
   return <Navigate to={`/app/d/${id}`} replace />;
+}
+
+function RepositoryTabRedirect({ tab }: { tab: string }) {
+  const { id = "" } = useParams();
+  return <Navigate to={`/app/repos/${id}?tab=${encodeURIComponent(tab)}`} replace />;
 }
 
 createRoot(document.getElementById("root")!).render(
