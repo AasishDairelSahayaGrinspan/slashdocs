@@ -136,6 +136,10 @@ jobs:
   docker:
     name: Build Docker image
     runs-on: ubuntu-latest
+    # Gate on tests: no image artifact — and later, no registry push — may
+    # come out of a commit whose tests failed. The e2e job stays parallel to
+    # test since it produces nothing durable.
+    needs: test
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
