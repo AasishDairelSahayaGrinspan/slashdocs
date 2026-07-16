@@ -11,7 +11,7 @@ import { useIsMobile } from "@/lib/use-media-query";
 import { DocProvider, type PendingSelection } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
-import { Comments } from "./doc-comments";
+import { ReviewPanel } from "./doc-approvals";
 
 const MIN_PANEL_WIDTH = 240;
 const MAX_PANEL_WIDTH = 640;
@@ -307,6 +307,8 @@ export function DocumentPage() {
               onSelectVersion={setSelectedVersion}
               commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
               onToggleComments={toggleComments}
+              approvalStatus={doc.data.approval_status}
+              approvalSummary={doc.data.approval_summary}
             />
           </motion.div>
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
@@ -328,7 +330,7 @@ export function DocumentPage() {
                       className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
                       onPointerDown={onResizePointerDown}
                     />
-                    <Comments />
+                    <ReviewPanel />
                   </div>
                 </motion.aside>
               )}
@@ -343,9 +345,9 @@ export function DocumentPage() {
               aria-describedby={undefined}
             >
               <SheetHeader className="sr-only">
-                <SheetTitle>Comments</SheetTitle>
+                <SheetTitle>Review</SheetTitle>
               </SheetHeader>
-              <Comments />
+              <ReviewPanel />
             </SheetContent>
           </Sheet>
         </motion.div>

@@ -332,7 +332,7 @@ func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string
 	return repo.Grant{ID: id, DocumentID: resourceID, ResourceType: resourceType, ResourceID: resourceID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
 }
 
-func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal) (repo.Version, error) {
+func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal, resetApprovals bool) (repo.Version, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return repo.Version{}, err
@@ -367,11 +367,21 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 	if err := q.UpdateDocumentCurrentVersion(ctx, dbsqlc.UpdateDocumentCurrentVersionParams{CurrentVersionID: pgtype.Text{String: id, Valid: true}, ID: documentID}); err != nil {
 		return repo.Version{}, err
 	}
+	// Approved decisions follow the document across versions unless the
+	// publisher asks for a full re-review; approvers who requested changes
+	// (or never decided) start pending on the new version.
+	carried := 0
+	if !resetApprovals {
+		carried, err = carryForwardApprovals(ctx, q, documentID, baseVersionID, id)
+		if err != nil {
+			return repo.Version{}, err
+		}
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Version{}, err
 	}
 	committed = true
-	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum}, nil
+	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum, CarriedApprovals: carried}, nil
 }
 func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body string, anchor repo.Anchor, author auth.Principal, mentions []repo.CommentMention) (repo.Comment, error) {
 	body = repo.NormalizeCommentBody(body)

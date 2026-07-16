@@ -34,7 +34,14 @@ import {
 } from "@/components/ui/dialog";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
-import { api, type Principal, type Version } from "@/api";
+import {
+  api,
+  type Principal,
+  type Version,
+  type ApprovalStatus,
+  type ApprovalSummary,
+} from "@/api";
+import { ApprovalStatusBadge } from "./doc-approvals";
 import { canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
@@ -53,6 +60,8 @@ export function DocBar({
   onSelectVersion,
   commentsOpen,
   onToggleComments,
+  approvalStatus,
+  approvalSummary,
 }: {
   title: string;
   docId: string;
@@ -65,6 +74,8 @@ export function DocBar({
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
+  approvalStatus?: ApprovalStatus;
+  approvalSummary?: ApprovalSummary;
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
@@ -116,6 +127,11 @@ export function DocBar({
           </div>
         ) : null}
       </div>
+      <ApprovalStatusBadge
+        status={approvalStatus}
+        approved={approvalSummary?.approved}
+        total={approvalSummary?.total}
+      />
       {isViewingOlder ? (
         <Button
           variant="secondary"

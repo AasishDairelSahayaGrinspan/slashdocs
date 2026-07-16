@@ -80,6 +80,7 @@ func (h handlers) listDocuments(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	h.annotateApprovalSummaries(c, items)
 	c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
 }
 
@@ -125,7 +126,9 @@ func (h handlers) getDocument(c *gin.Context) {
 			}
 		}
 	}
-	c.JSON(http.StatusOK, d)
+	docs := []repo.Document{d}
+	h.annotateApprovalSummaries(c, docs)
+	c.JSON(http.StatusOK, docs[0])
 }
 
 // PatchDocument godoc

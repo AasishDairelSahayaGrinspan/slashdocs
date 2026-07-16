@@ -179,34 +179,38 @@ Interactive documents are allowed.
     sets, checkboxes/toggles for binary state, inputs/sliders for numbers, and
     buttons for clear commands.
   - For links, make the target obvious in the visible text.
-  - For persisted document-local state such as approvals, tracker rows, and
-    dropdown selections, use the aidocs KV primitive:
+  - For persisted document-local state such as tracker rows and dropdown
+    selections, use the aidocs KV primitive:
       aidocs guidelines interactivity kv
+  - For document sign-off, use the native approval workflow instead of
+    hand-rolled KV approval state:
+      aidocs guidelines review approvals
 `,
 	},
 	{
 		Path:    []string{"interactivity", "kv"},
-		Summary: "Persist approval states, tracker fields, dropdowns, and other document-local state.",
+		Summary: "Persist tracker fields, dropdowns, and other document-local state.",
 		Aliases: [][]string{{"kv"}, {"state"}, {"store"}, {"storage"}},
 		Body: `aidocs guidelines: interactivity kv
 
 Uploaded HTML can use a document-scoped KV store through window.aidocs.kv.
-This is for runtime state such as approvals, tracker fields, dropdown choices,
-checkboxes, and lightweight workflow metadata.
+This is for runtime state such as tracker fields, dropdown choices,
+checkboxes, and lightweight workflow metadata. (For document sign-off, prefer
+the native approval workflow: aidocs guidelines review approvals.)
 
 API:
-  const value = await window.aidocs.kv.get("approval:pm");
+  const value = await window.aidocs.kv.get("tracker:owner");
   const all = await window.aidocs.kv.all();
 
-  await window.aidocs.kv.set("approval:pm", {
-    status: "approved",
+  await window.aidocs.kv.set("tracker:owner", {
+    status: "done",
     by: "pm@example.com"
   });
 
-  await window.aidocs.kv.delete("approval:pm");
+  await window.aidocs.kv.delete("tracker:owner");
 
   await window.aidocs.kv.patch({
-    "approval:pm": { status: "approved" },
+    "tracker:owner": { status: "done" },
     "tracker:old-row": null
   });
 
@@ -261,7 +265,7 @@ Small dropdown example:
   </select>
 
   <script>
-    const key = "approval:status";
+    const key = "tracker:status";
     const select = document.querySelector("#status");
 
     window.aidocs.kv.get(key).then(value => {
@@ -302,6 +306,41 @@ Write documents for review, not just display.
   - Keep approval or tracker controls close to the content they affect.
   - Use KV for live document-local workflow state. Use versioned HTML updates for
     changes to the document template or source content.
+  - For formal sign-off, use the native approval workflow:
+      aidocs guidelines review approvals
+`,
+	},
+	{
+		Path:    []string{"review", "approvals"},
+		Summary: "Request and track document sign-off with the native approval workflow.",
+		Aliases: [][]string{{"approvals"}, {"approval"}, {"approve"}},
+		Body: `aidocs guidelines: review approvals
+
+aidocs has a first-class approval workflow. Prefer it over hand-rolled KV
+approval state: it is version-aware, server-enforced, and shows up in the
+reader UI and document listings.
+
+Model:
+  - The document owner assigns approvers. Approvers need viewer access first.
+  - Approvers approve or request changes on a specific version.
+  - The document is "approved" only when every assigned approver approved.
+  - Approved decisions carry forward to new versions automatically; only
+    approvers who requested changes (or never decided) reset to pending.
+  - Push with --reset-approvals to force a full re-review after big changes.
+  - Approvers can revoke their decision at any time.
+
+Commands:
+  aidocs docs approvers add <doc_id> --to reviewer@org.example
+  aidocs docs approvers list <doc_id>
+  aidocs docs approvers remove <doc_id> <approver_id>
+  aidocs docs approvals list <doc_id> [--version <version_id>]
+  aidocs docs approve <doc_id> [--version <version_id>]
+  aidocs docs request-changes <doc_id> [--version <version_id>]
+  aidocs docs revoke-approval <doc_id> [--version <version_id>]
+  aidocs docs push <doc_id> <file> --reset-approvals
+
+The document response includes approval_status and approval_summary once
+approvers are assigned; use --json for machine-readable output.
 `,
 	},
 }
