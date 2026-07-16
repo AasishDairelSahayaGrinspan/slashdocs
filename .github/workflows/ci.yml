@@ -48,11 +48,13 @@ jobs:
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
 
-      - name: Typecheck frontend
-        run: cd frontend && npx tsc --noEmit
-
+      # `npm run build` already typechecks via tsc -b; a separate --noEmit
+      # pass would repeat the same work.
       - name: Build frontend test assets
         run: npm run build --prefix frontend
+
+      - name: Test frontend
+        run: npm test --prefix frontend
 
       - name: Test Go
         run: go test ./...
@@ -62,7 +64,6 @@ jobs:
   e2e:
     name: E2E compose and browser
     runs-on: ubuntu-latest
-    needs: test
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
@@ -80,11 +81,38 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Build the stack image once with the shared layer cache; the compose
+      # stack and the docker job both reuse these layers instead of
+      # rebuilding the frontend and Go stages from scratch.
+      - name: Build stack image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          load: true
+          tags: aidocs-e2e:ci
+          build-args: |
+            AIDOCS_VERSION=${{ github.sha }}
+            AIDOCS_COMMIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Run compose smoke suite
         run: scripts/e2e.sh
+        env:
+          AIDOCS_IMAGE: aidocs-e2e:ci
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
+
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('frontend/package-lock.json') }}
 
       - name: Install Playwright Chromium
         run: npx playwright install --with-deps chromium
@@ -108,7 +136,6 @@ jobs:
   docker:
     name: Build Docker image
     runs-on: ubuntu-latest
-    needs: test
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
@@ -132,3 +159,7 @@ jobs:
           build-args: |
             AIDOCS_VERSION=${{ github.sha }}
             AIDOCS_COMMIT_SHA=${{ github.sha }}
+          # Read-only reuse of the layers the e2e job published; the frontend
+          # and cross-compiled Go stages are arch-independent inputs, so only
+          # the arm64 server link is genuinely new work here.
+          cache-from: type=gha

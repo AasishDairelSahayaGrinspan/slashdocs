@@ -59,7 +59,12 @@ api() { curl -sS --fail-with-body "$@"; }
 # the dedicated E2E project is reset; normal developer compose state is left
 # untouched.
 docker compose down -v --remove-orphans >/dev/null 2>&1 || true
-docker compose up -d --build
+if [[ -n "${AIDOCS_IMAGE:-}" ]]; then
+  # CI already built and tagged the image; never rebuild it inside compose.
+  docker compose up -d --no-build
+else
+  docker compose up -d --build
+fi
 
 for i in $(seq 1 120); do
   curl -sf "$APP/readyz" >/dev/null && break

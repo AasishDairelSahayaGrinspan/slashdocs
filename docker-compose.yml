@@ -71,6 +71,9 @@ services:
 
   aidocs:
     build: .
+    # CI prebuilds this image once with a shared layer cache and injects the
+    # tag; local runs fall back to an ordinary compose build.
+    image: ${AIDOCS_IMAGE:-aidocs-e2e:local}
     ports:
       - "8080:8080"
     environment:
