@@ -159,3 +159,4 @@ jobs:
           build-args: |
             AIDOCS_VERSION=${{ github.sha }}
             AIDOCS_COMMIT_SHA=${{ github.sha }}
+            BASE_IMAGE_PREFIX=c.rzp.io/proxy_dockerhub/

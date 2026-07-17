@@ -1,8 +1,15 @@
-# syntax=docker/dockerfile:1
+# No `# syntax=` directive: it would pull the docker/dockerfile frontend from
+# Docker Hub, which the internal CI runners cannot reach, and nothing here
+# needs beyond the built-in BuildKit syntax.
+
+# Registry prefix for base images. Empty means Docker Hub; internal CI passes
+# its pull-through cache (c.rzp.io/proxy_dockerhub/) because the org runners
+# cannot pull from docker.io directly.
+ARG BASE_IMAGE_PREFIX=""
 
 # Build on the native runner arch and cross-compile to the target arch, so the
 # heavy npm/vite/Go work never runs under QEMU emulation.
-FROM --platform=$BUILDPLATFORM node:22-alpine AS frontend
+FROM --platform=$BUILDPLATFORM ${BASE_IMAGE_PREFIX}node:22-alpine AS frontend
 WORKDIR /src/frontend
 COPY frontend/package*.json ./
 RUN npm ci
@@ -10,7 +17,7 @@ COPY frontend ./
 # Build the static app and iframe bridge bundles for embedding into the Go server image.
 RUN npm run build
 
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS builder
+FROM --platform=$BUILDPLATFORM ${BASE_IMAGE_PREFIX}golang:1.25-alpine AS builder
 ARG TARGETOS
 ARG TARGETARCH
 ARG AIDOCS_VERSION="dev"
@@ -30,7 +37,7 @@ RUN mkdir -p api/internal/server/download_dist && \
 RUN BRIDGE_SOURCE_HASH="$(sha256sum frontend/bridge/bridge.ts | cut -d ' ' -f1)" && test "${#BRIDGE_SOURCE_HASH}" -eq 64 && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/api/internal/server.BuildVersion=$AIDOCS_VERSION -X github.com/razorpay/aidocs/api/internal/server.BuildCommit=$AIDOCS_COMMIT_SHA -X github.com/razorpay/aidocs/api/internal/server.BuildBridgeSourceHash=$BRIDGE_SOURCE_HASH" -o /out/aidocs-server ./api/cmd/aidocs-server
 RUN env CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/cli/internal/cli.Version=$AIDOCS_VERSION -X github.com/razorpay/aidocs/cli/internal/cli.Commit=$AIDOCS_COMMIT_SHA" -o /out/aidocs ./cli
 
-FROM alpine:3.23
+FROM ${BASE_IMAGE_PREFIX}alpine:3.23
 ARG AIDOCS_COMMIT_SHA=""
 # CA certs are arch-independent data files; copy them from the builder rather
 # than running apk under emulation in the target-arch final stage.
