@@ -135,35 +135,27 @@ jobs:
 
   docker:
     name: Build Docker image
-    runs-on: ubuntu-latest
-    # Gate on tests: no image artifact — and later, no registry push — may
-    # come out of a commit whose tests failed. The e2e job stays parallel to
-    # test since it produces nothing durable.
+    # Harbor (c.rzp.io) resolves to an internal ALB, so this is the one job
+    # that must stay on the org runners. Gate on tests: no image may be
+    # pushed from a commit whose tests failed.
+    runs-on: [k8s-runner, linux-amd64]
     needs: test
     steps:
       - name: Checkout Codebase
         uses: actions/checkout@v4
 
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      # Build-only: validates the multi-arch image on every change. Registry
-      # publishing moves to a release workflow once the public registry
-      # (Docker Hub vs GHCR) is decided.
       - name: Build Docker Image For aidocs
-        uses: docker/build-push-action@v6
+        uses: razorpay/actions/docker-image-build-push@master
         with:
-          push: false
+          username: ${{ secrets.HARBOR_DOCKER_USERNAME }}
+          password: ${{ secrets.HARBOR_DOCKER_PASSWORD }}
+          registry: c.rzp.io
+          repository: aidocs
+          enable-login: true
+          push: true
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
           build-args: |
             AIDOCS_VERSION=${{ github.sha }}
             AIDOCS_COMMIT_SHA=${{ github.sha }}
-          # Read-only reuse of the layers the e2e job published; the frontend
-          # and cross-compiled Go stages are arch-independent inputs, so only
-          # the arm64 server link is genuinely new work here.
-          cache-from: type=gha
