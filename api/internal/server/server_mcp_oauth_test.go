@@ -117,6 +117,10 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 		"http://localhost:3210/callback",
 		"http://127.0.0.1:3210/callback",
 		"http://[::1]:3210/callback",
+		// Private-use app schemes (RFC 8252 §7.1) used by native MCP clients.
+		"cursor://anysphere.cursor-retrieval/oauth/user-aidocs/callback",
+		"vscode://ms-vscode.remote-server/oauth/callback",
+		"claude://oauth/callback",
 	} {
 		t.Run("allows "+redirectURI, func(t *testing.T) {
 			rr := registerMCPClient(t, e, "Conformance client", []string{redirectURI})
@@ -140,6 +144,11 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 		{"credentials", []string{"https://user:pass@client.example/callback"}},
 		{"fragment", []string{"https://client.example/callback#fragment"}},
 		{"unsupported scheme", []string{"javascript:alert(1)"}},
+		{"hierarchical javascript", []string{"javascript://client.example/callback"}},
+		{"data scheme", []string{"data://client.example/callback"}},
+		{"file scheme", []string{"file:///etc/passwd"}},
+		{"opaque private scheme", []string{"cursor:opaque-form"}},
+		{"private scheme with fragment", []string{"cursor://client/callback#fragment"}},
 		{"non-loopback IP", []string{"http://192.0.2.1/callback"}},
 		{"overlong URI", []string{paddedMCPRedirectURI(mcpTestMaxRedirectURIBytes + 1)}},
 		{"too many", []string{
@@ -265,6 +274,28 @@ func TestMCPAuthorizeRequiresBrowserSessionAndExplicitConsent(t *testing.T) {
 	assertStatus(t, invalid, http.StatusBadRequest)
 	if location := invalid.Header().Get("Location"); location != "" {
 		t.Fatalf("invalid redirect URI was followed: %q", location)
+	}
+}
+
+// Native clients such as Cursor register private-use scheme callbacks
+// (RFC 8252 §7.1); the whole flow must work end to end for them.
+func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	redirectURI := "cursor://anysphere.cursor-retrieval/oauth/user-aidocs/callback"
+	clientID := registeredMCPClientID(t, e, "Cursor", []string{redirectURI})
+
+	values := mcpAuthorizeValues(e, clientID, redirectURI, mcpTestVerifier, "cursor-state")
+	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
+	assertStatus(t, consent, http.StatusOK)
+	if got := consent.Header().Get("Content-Security-Policy"); !strings.Contains(got, "form-action 'self' cursor:") {
+		t.Fatalf("consent Content-Security-Policy = %q, want scheme-only cursor: form-action source", got)
+	}
+
+	code := approveMCPAuthorization(t, e, clientID, redirectURI, mcpTestVerifier, "cursor-state")
+	exchanged := postMCPToken(t, e, mcpTokenValues(e, code, clientID, redirectURI, mcpTestVerifier))
+	assertStatus(t, exchanged, http.StatusOK)
+	if got := jsonField(t, exchanged.Body.Bytes(), "access_token"); !strings.HasPrefix(got, auth.MCPAccessTokenPrefix) {
+		t.Fatalf("access_token = %q, want %q prefix", got, auth.MCPAccessTokenPrefix)
 	}
 }
 

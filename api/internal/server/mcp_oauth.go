@@ -195,7 +195,7 @@ func validateMCPClientRegistration(in mcpClientRegistrationRequest) string {
 			return "each redirect_uri must not exceed 1024 bytes"
 		}
 		if !validMCPRedirectURI(raw) {
-			return "redirect_uris must use HTTPS or loopback HTTP and must not contain fragments or credentials"
+			return "redirect_uris must use HTTPS, loopback HTTP, or a private-use app scheme, without fragments or credentials"
 		}
 	}
 	if in.TokenEndpointAuthMethod != "" && in.TokenEndpointAuthMethod != "none" {
@@ -212,21 +212,31 @@ func validateMCPClientRegistration(in mcpClientRegistrationRequest) string {
 
 func validMCPRedirectURI(raw string) bool {
 	u, err := url.Parse(raw)
-	if err != nil || !u.IsAbs() || u.User != nil || u.Fragment != "" || u.Host == "" {
+	if err != nil || !u.IsAbs() || u.User != nil || u.Fragment != "" || u.Opaque != "" {
 		return false
 	}
-	if strings.EqualFold(u.Scheme, "https") {
+	switch scheme := strings.ToLower(u.Scheme); scheme {
+	case "https":
+		return u.Host != ""
+	case "http":
+		// Loopback only (RFC 8252 §7.3): native apps listening on localhost.
+		host := u.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return true
+		}
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	default:
+		// Private-use app schemes (RFC 8252 §7.1): cursor://, vscode://, and
+		// friends. The OS resolves the scheme to the installed client, and an
+		// intercepted code is useless without the PKCE verifier. Refuse
+		// schemes a browser could interpret as active or local content.
+		switch scheme {
+		case "javascript", "data", "file", "blob", "about", "vbscript", "filesystem", "chrome", "chrome-extension":
+			return false
+		}
 		return true
 	}
-	if !strings.EqualFold(u.Scheme, "http") {
-		return false
-	}
-	host := u.Hostname()
-	if strings.EqualFold(host, "localhost") {
-		return true
-	}
-	ip := net.ParseIP(host)
-	return ip != nil && ip.IsLoopback()
 }
 
 func (h handlers) parseMCPClient(clientID string) (mcpOAuthClient, bool) {
@@ -335,6 +345,12 @@ func (h handlers) mcpAuthorize(c *gin.Context) {
 		}
 		redirectURL, _ := url.Parse(in.RedirectURI) // already validated against the signed client registration
 		redirectOrigin := redirectURL.Scheme + "://" + redirectURL.Host
+		if !strings.EqualFold(redirectURL.Scheme, "http") && !strings.EqualFold(redirectURL.Scheme, "https") {
+			// Private-use app schemes are expressed as scheme-only CSP
+			// sources; browsers do not reliably match host sources on
+			// unregistered schemes.
+			redirectOrigin = redirectURL.Scheme + ":"
+		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Header("Cache-Control", "no-store")
 		// form-action is checked again after redirects, so allow the registered
