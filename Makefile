@@ -62,6 +62,7 @@ format:
 # testfixtures enables the in-memory seeded repo + HTTP handler tests, which
 # live behind a build tag so the fixtures never ship in the production binary.
 test: swagger frontend
+	cd frontend && npm test
 	go test -tags testfixtures ./...
 
 clean:

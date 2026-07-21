@@ -33,6 +33,12 @@ export function canManageSharing(role?: string) {
   return (ROLE_RANK[role || ""] || 0) >= ROLE_RANK.commenter;
 }
 
+// canEditDocument reports whether a role may create new versions. It mirrors
+// the server's editor-role requirement on POST /v1/documents/:id/versions.
+export function canEditDocument(role?: string) {
+  return (ROLE_RANK[role || ""] || 0) >= ROLE_RANK.editor;
+}
+
 // GENERAL_ACCESS_NONE is the sentinel role for "no general access" (the
 // "anyone" grant is absent). The visible label comes from the server's
 // everyone_label.
