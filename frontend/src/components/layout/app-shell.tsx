@@ -24,13 +24,26 @@ export function AppShell() {
   if (me.isLoading) return <Center>Loading workspace…</Center>;
   if (!me.data) return null;
   const user = me.data.user || me.data.principal;
-  const fullscreenDocument =
-    loc.pathname.startsWith("/app/d/") &&
-    new URLSearchParams(loc.search).get("fullscreen") === "1";
+  const documentParams = loc.pathname.startsWith("/app/d/")
+    ? new URLSearchParams(loc.search)
+    : null;
+  // Full screen and the HTML editor both take over the viewport. The editor
+  // additionally has unsaved work to protect: every control in the TopBar
+  // (the logo link, the account menu's navigations) leaves the editor's tree,
+  // so none of them can prompt about the draft, and beforeunload does not
+  // fire on SPA navigation. Hiding the bar keeps the largest unguarded exit
+  // off the screen for the same reason the doc bar's own links are
+  // suppressed while editing.
+  const fullBleedDocument =
+    documentParams?.get("fullscreen") === "1" || documentParams?.get("edit") === "1";
   return (
     <div className="flex h-full flex-col">
-      {!fullscreenDocument && <TopBar user={user} />}
-      <main className={fullscreenDocument ? "flex-1 overflow-hidden" : "flex-1 overflow-auto"}>
+      {!fullBleedDocument && <TopBar user={user} />}
+      <main
+        className={
+          fullBleedDocument ? "flex-1 overflow-hidden" : "flex-1 overflow-auto"
+        }
+      >
         <Outlet />
       </main>
     </div>
