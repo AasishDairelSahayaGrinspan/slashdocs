@@ -11,6 +11,7 @@ import { useIsMobile } from "@/lib/use-media-query";
 import { DocProvider, type PendingSelection } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
+import { DocEditor } from "./doc-editor";
 import { Comments } from "./doc-comments";
 
 const MIN_PANEL_WIDTH = 240;
@@ -58,6 +59,7 @@ export function DocumentPage() {
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const fullscreen = searchParams.get("fullscreen") === "1";
+  const editing = searchParams.get("edit") === "1";
   const queryVersion = searchParams.get("version") || undefined;
   const doc = useQuery({
     queryKey: queryKeys.document(id),
@@ -185,6 +187,25 @@ export function DocumentPage() {
     };
   }, [fullscreen, exitFullscreen]);
 
+  const enterEdit = useCallback(() => {
+    setSearchParams((params) => {
+      const next = new URLSearchParams(params);
+      next.set("edit", "1");
+      return next;
+    });
+  }, [setSearchParams]);
+
+  const exitEdit = useCallback(() => {
+    setSearchParams(
+      (params) => {
+        const next = new URLSearchParams(params);
+        next.delete("edit");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
   const ctx = useMemo(
     () => ({
       docId: id,
@@ -303,13 +324,20 @@ export function DocumentPage() {
               latest={latest}
               versions={versions.data?.items || []}
               onSelectVersion={setSelectedVersion}
+              onEdit={enterEdit}
               commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
               onToggleComments={toggleComments}
             />
           </motion.div>
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
             <section className="relative flex-1 bg-[var(--color-surface-muted)]">
-              {current ? <RenderFrame /> : <Center>No version available.</Center>}
+              {editing && latest ? (
+                <DocEditor docId={id} baseVersion={latest} onClose={exitEdit} />
+              ) : current ? (
+                <RenderFrame />
+              ) : (
+                <Center>No version available.</Center>
+              )}
             </section>
             <AnimatePresence initial={false}>
               {panelOpen && (

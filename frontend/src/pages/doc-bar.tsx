@@ -12,6 +12,7 @@ import {
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
+  Pencil,
   Share2,
   Trash2,
 } from "lucide-react";
@@ -35,7 +36,7 @@ import {
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
-import { canManageSharing } from "@/lib/constants";
+import { canEditDocument, canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { ShareSheet } from "./doc-share-sheet";
 import { UploadVersionItem } from "./doc-upload-version";
@@ -50,6 +51,7 @@ export function DocBar({
   latest,
   versions,
   onSelectVersion,
+  onEdit,
   commentsOpen,
   onToggleComments,
 }: {
@@ -62,6 +64,7 @@ export function DocBar({
   latest: string;
   versions: Version[];
   onSelectVersion: (versionID: string) => void;
+  onEdit: () => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
 }) {
@@ -80,6 +83,11 @@ export function DocBar({
     samePrincipal(item.principal, principal),
   )?.effective_role;
   const canManageAccess = canManage || canManageSharing(currentAccessRole);
+  // The server allows any editor to create versions, so this is not owner-only.
+  // Editing an older version would always 409 on a stale base_version_id, so
+  // the entry point only appears on the latest version.
+  const canEdit =
+    (canManage || canEditDocument(currentAccessRole)) && !!latest && current === latest;
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -132,6 +140,17 @@ export function DocBar({
         versions={versions}
         onSelectVersion={onSelectVersion}
       />
+      {canEdit ? (
+        <Button
+          variant="outline"
+          size="sm"
+          className="shrink-0 px-2.5 sm:px-3"
+          onClick={onEdit}
+        >
+          <Pencil className="h-4 w-4" />
+          <span className="hidden sm:inline">Edit HTML</span>
+        </Button>
+      ) : null}
       <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
         <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
           <Maximize2 className="h-4 w-4" /> Full screen
