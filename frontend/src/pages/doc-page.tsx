@@ -191,7 +191,11 @@ export function DocumentPage() {
     currentVersionID(doc.data || {}) ||
     versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || queryVersion || latest;
-  const showEditor = editing && !!latest && canEdit;
+  // `current === latest` mirrors DocBar's own gate: the editor always bases
+  // its save on `latest`, so opening it while an older version is pinned
+  // would edit something other than what is on screen (and the bar would be
+  // hiding its Edit button at the same time, from the same URL).
+  const showEditor = editing && !!latest && current === latest && canEdit;
 
   const exitFullscreen = useCallback(() => {
     setSearchParams(
@@ -375,6 +379,15 @@ export function DocumentPage() {
             <section className="relative flex-1 bg-[var(--color-surface-muted)]">
               {showEditor ? (
                 <DocEditor docId={id} baseVersion={latest} onClose={exitEdit} />
+              ) : editing && access.isLoading ? (
+                // A non-owner editor's role is still in flight. Falling
+                // through to the frame here would flash the document and burn
+                // a render-token POST on a view the user never asked for.
+                // (Owners never reach this: their access query is disabled,
+                // and AppShell has already blocked on the same `me` query.)
+                <div className="h-full p-4">
+                  <Skeleton className="h-full w-full" />
+                </div>
               ) : current ? (
                 <RenderFrame />
               ) : (

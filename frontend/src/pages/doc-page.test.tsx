@@ -152,6 +152,47 @@ describe("DocumentPage ?edit=1 permission gate", () => {
       ORIGINAL,
     );
   });
+
+  it("refuses to edit a pinned older version, matching the bar's own gate", async () => {
+    vi.spyOn(api, "me").mockResolvedValue({ principal: OWNER });
+    vi.spyOn(api, "documentAccess").mockResolvedValue({ items: [] });
+
+    // ver_1 is genuinely older than the document's current version. The bar
+    // hides Edit HTML here (the base would always 409), so the page must not
+    // open an editor from the same URL -- and it would silently be editing
+    // `latest`, not the version on screen.
+    renderDocPage("/app/d/doc_1?version=ver_1&edit=1");
+
+    await waitFor(() => expect(renderFrame()).toBeInTheDocument());
+    expect(htmlBox()).not.toBeInTheDocument();
+    expect(api.getVersionHTML).not.toHaveBeenCalled();
+    expect(api.renderToken).toHaveBeenCalledWith("doc_1", "ver_1");
+  });
+
+  it("waits for the access lookup instead of flashing the document at an editor", async () => {
+    const editor = principal("user_editor");
+    vi.spyOn(api, "me").mockResolvedValue({ principal: editor });
+    let grantAccess = () => {};
+    vi.spyOn(api, "documentAccess").mockReturnValue(
+      new Promise((resolve) => {
+        grantAccess = () => resolve({ items: [accessItem(editor, "editor")] });
+      }),
+    );
+
+    renderDocPage("/app/d/doc_1?edit=1");
+
+    // The rest of the page has loaded; only the role is outstanding.
+    await waitFor(() => expect(api.listVersions).toHaveBeenCalled());
+    expect(renderFrame()).not.toBeInTheDocument();
+    expect(api.renderToken).not.toHaveBeenCalled();
+
+    grantAccess();
+    expect(await screen.findByRole("textbox", { name: /document html/i })).toHaveValue(
+      ORIGINAL,
+    );
+    // No render token was ever minted for a frame the user never wanted.
+    expect(api.renderToken).not.toHaveBeenCalled();
+  });
 });
 
 describe("DocumentPage save landing", () => {
