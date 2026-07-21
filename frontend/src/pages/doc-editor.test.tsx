@@ -17,6 +17,10 @@ vi.mock("sonner", () => ({
 }));
 
 beforeEach(() => {
+  // The Back guard pushes a real history entry and deliberately leaves it in
+  // place; jsdom keeps one history per test file, so clear the current
+  // entry's state to keep tests independent of each other's ordering.
+  window.history.replaceState(null, "");
   vi.spyOn(api, "getVersionHTML").mockResolvedValue(ORIGINAL);
 });
 
@@ -221,23 +225,123 @@ describe("DocEditor", () => {
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
   });
 
-  it("registers a beforeunload guard while dirty and removes it once clean again", async () => {
+  it("keeps saving against the base version the session started on", async () => {
     const user = userEvent.setup();
-    const addSpy = vi.spyOn(window, "addEventListener");
-    const removeSpy = vi.spyOn(window, "removeEventListener");
+    const create = vi.spyOn(api, "createVersion").mockResolvedValue(savedVersion);
+    const { rerender } = renderWithProviders(
+      <DocEditor docId="doc_1" baseVersion="ver_1" onClose={vi.fn()} />,
+    );
+
+    const box = await screen.findByRole("textbox", { name: /document html/i });
+    await user.clear(box);
+    await user.type(box, "MY EDIT");
+
+    // Someone else saved while this session was open, so the parent's
+    // `latest` advances and it hands us a newer base. Rebasing the draft
+    // onto it would turn the 409 that protects the other person's version
+    // into a silent overwrite.
+    rerender(<DocEditor docId="doc_1" baseVersion="ver_2" onClose={vi.fn()} />);
+
+    // The editor must not tear the draft down to re-fetch the newer base.
+    expect(screen.getByRole("textbox", { name: /document html/i })).toHaveValue(
+      "MY EDIT",
+    );
+    expect(api.getVersionHTML).toHaveBeenCalledTimes(1);
+
+    await user.click(screen.getByRole("button", { name: /save new version/i }));
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    const [, base, , file] = create.mock.calls[0];
+    expect(base).toBe("ver_1");
+    await expect(file.text()).resolves.toBe("MY EDIT");
+  });
+
+  it("cancels a tab close while dirty, in Safari's dialect as well as Chrome's", async () => {
+    const user = userEvent.setup();
     renderWithProviders(
       <DocEditor docId="doc_1" baseVersion="ver_1" onClose={vi.fn()} />,
     );
 
     const box = await screen.findByRole("textbox", { name: /document html/i });
-    expect(addSpy).not.toHaveBeenCalledWith("beforeunload", expect.any(Function));
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
 
     await user.type(box, "x");
-    expect(addSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function));
+    const dirtyEvent = dispatchBeforeUnload();
+    // preventDefault() alone is only honoured by Chrome 119+ and Firefox;
+    // Safari and older Chrome need returnValue set as well.
+    expect(dirtyEvent.defaultPrevented).toBe(true);
+    expect(dirtyEvent.returnValueSet).toHaveBeenCalledWith("");
 
-    // Restore the exact original text: back to not-dirty should tear the
-    // guard back down.
+    // Restore the exact original text: back to not-dirty should stop
+    // blocking the unload.
     fireEvent.change(box, { target: { value: ORIGINAL } });
-    expect(removeSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function));
+    expect(dispatchBeforeUnload().defaultPrevented).toBe(false);
+  });
+
+  it("turns browser Back into the same discard confirmation as Cancel", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    const onClose = vi.fn();
+    renderWithProviders(
+      <DocEditor docId="doc_1" baseVersion="ver_1" onClose={onClose} />,
+    );
+
+    const box = await screen.findByRole("textbox", { name: /document html/i });
+    // Clean: Back is an ordinary exit, nothing to guard.
+    expect(window.history.state?.aidocsEditorGuard).toBeUndefined();
+
+    await user.type(box, "x");
+    // A throwaway entry so Back pops it instead of unmounting the editor
+    // (beforeunload does not fire on SPA navigation, and BrowserRouter
+    // offers no useBlocker).
+    expect(window.history.state?.aidocsEditorGuard).toBe(true);
+
+    fireEvent.popState(window, { state: null });
+    expect(confirmSpy).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: /document html/i })).toHaveValue(
+      `${ORIGINAL}x`,
+    );
+    // Declining re-arms the guard, so a second Back asks again.
+    expect(window.history.state?.aidocsEditorGuard).toBe(true);
+
+    confirmSpy.mockReturnValue(true);
+    fireEvent.popState(window, { state: null });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores a Back that belongs to another guarded surface", async () => {
+    const user = userEvent.setup();
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const onClose = vi.fn();
+    renderWithProviders(
+      <DocEditor docId="doc_1" baseVersion="ver_1" onClose={onClose} />,
+    );
+
+    const box = await screen.findByRole("textbox", { name: /document html/i });
+    await user.type(box, "x");
+
+    // The mobile comments sheet pushes its own entry on top of ours; Back
+    // popping *that* lands on our guard entry and must not close the editor.
+    fireEvent.popState(window, { state: { aidocsEditorGuard: true } });
+
+    expect(confirmSpy).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });
+
+// jsdom cannot construct a BeforeUnloadEvent, and its plain Event exposes the
+// legacy boolean `returnValue` whose setter *is* preventDefault -- which would
+// make a returnValue-only handler indistinguishable from a correct one. Shadow
+// the property with a spy so the two signals stay independently observable.
+function dispatchBeforeUnload() {
+  const event = new Event("beforeunload", { cancelable: true });
+  const returnValueSet = vi.fn();
+  Object.defineProperty(event, "returnValue", {
+    configurable: true,
+    get: () => "",
+    set: returnValueSet,
+  });
+  window.dispatchEvent(event);
+  return { defaultPrevented: event.defaultPrevented, returnValueSet };
+}
