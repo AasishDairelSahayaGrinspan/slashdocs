@@ -281,6 +281,11 @@ describe("DocEditor", () => {
   it("turns browser Back into the same discard confirmation as Cancel", async () => {
     const user = userEvent.setup();
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(false);
+    // fireEvent.popState dispatches an event without touching jsdom's
+    // history, so window.history.state cannot show whether the guard was
+    // re-armed -- it still holds whatever was pushed last. Count the pushes
+    // instead.
+    const pushSpy = vi.spyOn(window.history, "pushState");
     const onClose = vi.fn();
     renderWithProviders(
       <DocEditor docId="doc_1" baseVersion="ver_1" onClose={onClose} />,
@@ -289,12 +294,14 @@ describe("DocEditor", () => {
     const box = await screen.findByRole("textbox", { name: /document html/i });
     // Clean: Back is an ordinary exit, nothing to guard.
     expect(window.history.state?.aidocsEditorGuard).toBeUndefined();
+    expect(pushSpy).not.toHaveBeenCalled();
 
     await user.type(box, "x");
     // A throwaway entry so Back pops it instead of unmounting the editor
     // (beforeunload does not fire on SPA navigation, and BrowserRouter
     // offers no useBlocker).
     expect(window.history.state?.aidocsEditorGuard).toBe(true);
+    expect(pushSpy).toHaveBeenCalledTimes(1);
 
     fireEvent.popState(window, { state: null });
     expect(confirmSpy).toHaveBeenCalledTimes(1);
@@ -302,8 +309,10 @@ describe("DocEditor", () => {
     expect(screen.getByRole("textbox", { name: /document html/i })).toHaveValue(
       `${ORIGINAL}x`,
     );
-    // Declining re-arms the guard, so a second Back asks again.
-    expect(window.history.state?.aidocsEditorGuard).toBe(true);
+    // Declining re-arms the guard -- a second entry is pushed -- so a second
+    // Back asks again rather than leaving the editor unguarded.
+    expect(pushSpy).toHaveBeenCalledTimes(2);
+    expect(pushSpy).toHaveBeenLastCalledWith({ aidocsEditorGuard: true }, "");
 
     confirmSpy.mockReturnValue(true);
     fireEvent.popState(window, { state: null });
