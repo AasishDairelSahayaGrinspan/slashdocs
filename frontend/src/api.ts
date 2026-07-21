@@ -198,6 +198,10 @@ export const api = {
   },
   listVersions: (doc: string) =>
     request<{ items: Version[] }>(`/v1/documents/${doc}/versions`),
+  // Returns the version's raw stored HTML as a string. The endpoint responds
+  // with text/html, so request() falls through to res.text().
+  getVersionHTML: (doc: string, version: string) =>
+    request<string>(`/v1/documents/${doc}/versions/${version}/html`),
   createVersion: (doc: string, base: string, summary: string, file: File) => {
     const fd = new FormData();
     fd.set("base_version_id", base);
