@@ -11,3 +11,22 @@ import "@testing-library/jest-dom/vitest";
 afterEach(() => {
   cleanup();
 });
+
+// jsdom implements no CSS media queries at all, so window.matchMedia is
+// simply absent -- any component reaching useMediaQuery/useResolvedTheme
+// throws on mount. Stand in a query list that never matches: tests assert on
+// behaviour and accessible names, so the desktop layout is the one that
+// matters, and nothing here flips a breakpoint mid-test.
+if (!window.matchMedia) {
+  window.matchMedia = (query: string) =>
+    ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    }) as unknown as MediaQueryList;
+}

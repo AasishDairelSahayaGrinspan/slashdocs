@@ -52,6 +52,7 @@ export function DocBar({
   versions,
   onSelectVersion,
   onEdit,
+  editing = false,
   commentsOpen,
   onToggleComments,
 }: {
@@ -65,6 +66,11 @@ export function DocBar({
   versions: Version[];
   onSelectVersion: (versionID: string) => void;
   onEdit: () => void;
+  // While the HTML editor is open the bar's navigation is suppressed: none of
+  // these routes can ask about unsaved edits (they leave the editor's tree),
+  // and beforeunload does not fire on SPA navigation, so a stray click would
+  // silently discard the draft.
+  editing?: boolean;
   commentsOpen: boolean;
   onToggleComments: () => void;
 }) {
@@ -99,21 +105,38 @@ export function DocBar({
   });
   return (
     <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
-      <Button asChild variant="ghost" size="icon" className="shrink-0">
-        <Link to="/app/documents" aria-label="Back to documents">
+      {editing ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          disabled
+          aria-label="Back to documents"
+          title="Finish editing first"
+        >
           <ArrowLeft className="h-4 w-4" />
-        </Link>
-      </Button>
+        </Button>
+      ) : (
+        <Button asChild variant="ghost" size="icon" className="shrink-0">
+          <Link to="/app/documents" aria-label="Back to documents">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+        </Button>
+      )}
       <div className="min-w-0 flex-1">
         {parentFolder ? (
           <div className="flex items-center gap-1 text-xs text-[var(--color-fg-muted)]">
             <FolderIcon className="h-3 w-3 shrink-0" />
-            <Link
-              to={`/app/folders/${parentFolder.id}`}
-              className="hover:text-[var(--color-fg)] hover:underline"
-            >
-              {parentFolder.title}
-            </Link>
+            {editing ? (
+              <span className="truncate">{parentFolder.title}</span>
+            ) : (
+              <Link
+                to={`/app/folders/${parentFolder.id}`}
+                className="hover:text-[var(--color-fg)] hover:underline"
+              >
+                {parentFolder.title}
+              </Link>
+            )}
           </div>
         ) : null}
         <div className="truncate text-base font-semibold leading-tight">{title}</div>
@@ -123,7 +146,7 @@ export function DocBar({
           </div>
         ) : null}
       </div>
-      {isViewingOlder ? (
+      {isViewingOlder && !editing ? (
         <Button
           variant="secondary"
           size="sm"
@@ -134,12 +157,14 @@ export function DocBar({
           <span className="sm:hidden">Latest</span>
         </Button>
       ) : null}
-      <VersionHistoryDialog
-        current={current}
-        latest={latest}
-        versions={versions}
-        onSelectVersion={onSelectVersion}
-      />
+      {editing ? null : (
+        <VersionHistoryDialog
+          current={current}
+          latest={latest}
+          versions={versions}
+          onSelectVersion={onSelectVersion}
+        />
+      )}
       {canEdit ? (
         <Button
           variant="outline"
@@ -151,11 +176,13 @@ export function DocBar({
           <span className="hidden sm:inline">Edit HTML</span>
         </Button>
       ) : null}
-      <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
-        <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
-          <Maximize2 className="h-4 w-4" /> Full screen
-        </Link>
-      </Button>
+      {editing ? null : (
+        <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
+          <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
+            <Maximize2 className="h-4 w-4" /> Full screen
+          </Link>
+        </Button>
+      )}
       <Sheet>
         <SheetTrigger asChild>
           <Button
@@ -190,12 +217,14 @@ export function DocBar({
           </Button>
         </DropdownTrigger>
         <DropdownContent>
-          <DropdownItem
-            className="sm:hidden"
-            onSelect={() => nav(`/app/d/${docId}?fullscreen=1&version=${current}`)}
-          >
-            <Maximize2 className="h-4 w-4" /> Full screen
-          </DropdownItem>
+          {editing ? null : (
+            <DropdownItem
+              className="sm:hidden"
+              onSelect={() => nav(`/app/d/${docId}?fullscreen=1&version=${current}`)}
+            >
+              <Maximize2 className="h-4 w-4" /> Full screen
+            </DropdownItem>
+          )}
           <DropdownItem
             onSelect={() =>
               window.open(

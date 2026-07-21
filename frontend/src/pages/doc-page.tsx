@@ -3,7 +3,16 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
+import {
+  api,
+  APIError,
+  currentVersionID,
+  docTitle,
+  versionID,
+  type Principal,
+  type Version,
+} from "@/api";
+import { canEditDocument } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -55,6 +64,10 @@ function DocumentErrorState({
   );
 }
 
+function samePrincipal(a?: Principal, b?: Principal) {
+  return !!a && !!b && a.type === b.type && a.id === b.id;
+}
+
 export function DocumentPage() {
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -67,6 +80,23 @@ export function DocumentPage() {
     meta: { suppressGlobalError: true },
   });
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
+  // The edit-permission lookup lives here, not just in DocBar: ?edit=1 is a
+  // shareable URL (enterEdit pushes it into history), and GET .../html is
+  // viewer-accessible, so gating only the button would hand every viewer who
+  // follows the link a working editor that can only fail at save time --
+  // with no draft persistence, that is their work gone. Same query key as
+  // DocBar's, so the two share one cached response.
+  const isOwner = samePrincipal(me.data?.principal, doc.data?.owner);
+  const access = useQuery({
+    queryKey: queryKeys.documentAccess(id),
+    queryFn: () => api.documentAccess(id),
+    enabled: !!id && !!me.data?.principal && !isOwner && !doc.error,
+    staleTime: 30_000,
+  });
+  const currentAccessRole = access.data?.items.find((item) =>
+    samePrincipal(item.principal, me.data?.principal),
+  )?.effective_role;
+  const canEdit = isOwner || canEditDocument(currentAccessRole);
   const versions = useQuery({
     queryKey: queryKeys.versions(id),
     queryFn: () => api.listVersions(id),
@@ -161,6 +191,7 @@ export function DocumentPage() {
     currentVersionID(doc.data || {}) ||
     versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || queryVersion || latest;
+  const showEditor = editing && !!latest && canEdit;
 
   const exitFullscreen = useCallback(() => {
     setSearchParams(
@@ -195,16 +226,26 @@ export function DocumentPage() {
     });
   }, [setSearchParams]);
 
-  const exitEdit = useCallback(() => {
-    setSearchParams(
-      (params) => {
-        const next = new URLSearchParams(params);
-        next.delete("edit");
-        return next;
-      },
-      { replace: true },
-    );
-  }, [setSearchParams]);
+  // DocEditor hands back the version it wrote (and nothing when the session
+  // was abandoned). A save makes that version the latest, so any pin left by
+  // the Full screen link or the version history dialog has to go with it --
+  // otherwise the page keeps rendering the pre-edit HTML and drops the Edit
+  // button, which reads as a save that silently did nothing.
+  const exitEdit = useCallback(
+    (saved?: Version) => {
+      if (saved) setSelectedVersion(undefined);
+      setSearchParams(
+        (params) => {
+          const next = new URLSearchParams(params);
+          next.delete("edit");
+          if (saved) next.delete("version");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
 
   const ctx = useMemo(
     () => ({
@@ -325,13 +366,14 @@ export function DocumentPage() {
               versions={versions.data?.items || []}
               onSelectVersion={setSelectedVersion}
               onEdit={enterEdit}
+              editing={showEditor}
               commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
               onToggleComments={toggleComments}
             />
           </motion.div>
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
             <section className="relative flex-1 bg-[var(--color-surface-muted)]">
-              {editing && latest ? (
+              {showEditor ? (
                 <DocEditor docId={id} baseVersion={latest} onClose={exitEdit} />
               ) : current ? (
                 <RenderFrame />
