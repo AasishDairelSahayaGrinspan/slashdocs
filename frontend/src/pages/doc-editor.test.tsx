@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { screen, waitFor } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { api, APIError, type Version } from "@/api";
 import { renderWithProviders } from "@/test/render";
@@ -92,7 +92,11 @@ describe("DocEditor", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent(
       /someone else saved a newer version/i,
     );
-    expect(box).toHaveValue(FIXED);
+    // Re-query rather than reuse `box`: if a regression made the component
+    // setDraft(null) on conflict, the textarea would unmount but a stale
+    // node reference would still report the old value and this assertion
+    // would pass anyway.
+    expect(screen.getByRole("textbox", { name: /document html/i })).toHaveValue(FIXED);
     expect(onClose).not.toHaveBeenCalled();
   });
 
@@ -160,5 +164,80 @@ describe("DocEditor", () => {
     expect(
       screen.queryByRole("textbox", { name: /document html/i }),
     ).not.toBeInTheDocument();
+  });
+
+  it("inserts two spaces at the caret when Tab is pressed without a selection", async () => {
+    renderWithProviders(
+      <DocEditor docId="doc_1" baseVersion="ver_1" onClose={vi.fn()} />,
+    );
+
+    const box = (await screen.findByRole("textbox", {
+      name: /document html/i,
+    })) as HTMLTextAreaElement;
+
+    // Collapse the caret to a specific mid-string position (not 0, not the
+    // end) so the assertion proves the insert happens *at the caret*, not
+    // just somewhere.
+    box.setSelectionRange(3, 3);
+    fireEvent.keyDown(box, { key: "Tab" });
+
+    expect(box).toHaveValue(`${ORIGINAL.slice(0, 3)}  ${ORIGINAL.slice(3)}`);
+  });
+
+  it("does not destroy a selected range when Tab is pressed", async () => {
+    renderWithProviders(
+      <DocEditor docId="doc_1" baseVersion="ver_1" onClose={vi.fn()} />,
+    );
+
+    const box = (await screen.findByRole("textbox", {
+      name: /document html/i,
+    })) as HTMLTextAreaElement;
+
+    // Select the entire document and press Tab, the way anyone reflexively
+    // indenting a selected block would. This must not silently replace the
+    // selection with two spaces.
+    box.setSelectionRange(0, ORIGINAL.length);
+    fireEvent.keyDown(box, { key: "Tab" });
+
+    expect(box).toHaveValue(ORIGINAL);
+  });
+
+  it("saves on Cmd/Ctrl+S when dirty, and does nothing when clean", async () => {
+    const user = userEvent.setup();
+    const create = vi.spyOn(api, "createVersion").mockResolvedValue(savedVersion);
+    renderWithProviders(
+      <DocEditor docId="doc_1" baseVersion="ver_1" onClose={vi.fn()} />,
+    );
+
+    const box = await screen.findByRole("textbox", { name: /document html/i });
+
+    fireEvent.keyDown(box, { key: "s", metaKey: true });
+    expect(create).not.toHaveBeenCalled();
+
+    await user.clear(box);
+    await user.type(box, "x");
+    fireEvent.keyDown(box, { key: "s", metaKey: true });
+
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+  });
+
+  it("registers a beforeunload guard while dirty and removes it once clean again", async () => {
+    const user = userEvent.setup();
+    const addSpy = vi.spyOn(window, "addEventListener");
+    const removeSpy = vi.spyOn(window, "removeEventListener");
+    renderWithProviders(
+      <DocEditor docId="doc_1" baseVersion="ver_1" onClose={vi.fn()} />,
+    );
+
+    const box = await screen.findByRole("textbox", { name: /document html/i });
+    expect(addSpy).not.toHaveBeenCalledWith("beforeunload", expect.any(Function));
+
+    await user.type(box, "x");
+    expect(addSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function));
+
+    // Restore the exact original text: back to not-dirty should tear the
+    // guard back down.
+    fireEvent.change(box, { target: { value: ORIGINAL } });
+    expect(removeSpy).toHaveBeenCalledWith("beforeunload", expect.any(Function));
   });
 });

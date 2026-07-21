@@ -93,24 +93,38 @@ export function DocEditor({
     // Tab indents instead of leaving the editor. Shift+Tab is left alone so
     // keyboard users can still tab out.
     if (e.key !== "Tab" || e.shiftKey) return;
-    e.preventDefault();
     const el = e.currentTarget;
     const start = el.selectionStart;
     const end = el.selectionEnd;
+    // A non-collapsed selection means the insert below would silently
+    // replace whatever was selected — and since this textarea is
+    // React-controlled, the programmatic rewrite clears the browser's
+    // native undo stack, so there'd be no way to get it back (no drafts or
+    // autosave either, per spec). Leave Tab's native behavior (move focus)
+    // alone rather than risk destroying a selected block of HTML; only a
+    // bare caret gets the two-space insert.
+    if (start !== end) return;
+    e.preventDefault();
     setDraft(`${el.value.slice(0, start)}  ${el.value.slice(end)}`);
     requestAnimationFrame(() => {
       el.selectionStart = el.selectionEnd = start + 2;
     });
   };
 
-  if (source.isLoading) {
+  // Show the skeleton both while the fetch is still in flight and for the
+  // one render where data has arrived but the seeding effect above hasn't
+  // run yet — `draft === null` alone conflates "still loading" with "load
+  // failed," which would flash the error state on every successful load
+  // (passive effects run in a later scheduler tick, after the browser can
+  // paint the pre-effect render).
+  if (source.isLoading || (draft === null && !source.error)) {
     return (
       <div className="h-full p-4">
         <Skeleton className="h-full w-full" />
       </div>
     );
   }
-  if (source.error || draft === null) {
+  if (source.error) {
     return (
       <Center>
         <div className="max-w-md text-center">
@@ -124,6 +138,12 @@ export function DocEditor({
       </Center>
     );
   }
+  // Unreachable in practice — the skeleton branch above already covers
+  // `draft === null && !source.error`, and this branch covers
+  // `source.error` — but TypeScript can't derive `draft !== null` from
+  // those two independent conditions, so this keeps the textarea's value
+  // genuinely typed as `string` below instead of silently falling back.
+  if (draft === null) return null;
 
   return (
     <div className="flex h-full flex-col bg-[var(--color-surface)]">
