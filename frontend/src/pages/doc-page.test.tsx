@@ -220,11 +220,13 @@ describe("DocumentPage save landing", () => {
 
     // The pin must go with the edit flag: left behind, it strands the user on
     // the pre-edit HTML and hides the Edit button, which reads as a silently
-    // failed save.
+    // failed save. Poll on the exact URL: toHaveTextContent matches a
+    // substring, so the pre-edit "/app/d/doc_1?version=ver_2&edit=1" already
+    // contains "/app/d/doc_1" and would let the assertion pass before the
+    // save's navigation settles (a race the slower CI runner loses).
     await waitFor(() =>
-      expect(screen.getByTestId("location")).toHaveTextContent("/app/d/doc_1"),
+      expect(screen.getByTestId("location").textContent).toBe("/app/d/doc_1"),
     );
-    expect(screen.getByTestId("location").textContent).toBe("/app/d/doc_1");
     expect(
       await screen.findByRole("button", { name: /edit html/i }),
     ).toBeInTheDocument();
