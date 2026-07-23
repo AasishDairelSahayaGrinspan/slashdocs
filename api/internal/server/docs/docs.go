@@ -1480,6 +1480,9 @@ const docTemplate = `{
                 "change_summary": {
                     "type": "string"
                 },
+                "created_at": {
+                    "type": "string"
+                },
                 "created_by": {
                     "$ref": "#/definitions/auth.Principal"
                 },

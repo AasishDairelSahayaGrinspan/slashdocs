@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
 import { api, type Anchor, type Comment, type Principal } from "@/api";
+import { formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   COMMENT_FILTERS,
@@ -461,6 +462,14 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           <Badge variant="accent">open</Badge>
         )}
       </div>
+      {(c.created_at || (resolved && c.resolved_at)) && (
+        <div className="mb-2 flex flex-wrap gap-x-3 text-[11px] text-[var(--color-fg-muted)]">
+          {c.created_at ? <span>Added {formatTimestamp(c.created_at)}</span> : null}
+          {resolved && c.resolved_at ? (
+            <span>Resolved {formatTimestamp(c.resolved_at)}</span>
+          ) : null}
+        </div>
+      )}
       {c.current_placement?.status &&
         c.current_placement.status !== PLACEMENT_STATUS.attached && (
           <Badge variant="warning" className="mb-2">
@@ -532,6 +541,11 @@ function ReplyItem({
           className="opacity-0 transition-opacity group-hover/reply:opacity-100"
         />
       </div>
+      {r.created_at ? (
+        <div className="mb-1 text-[11px] text-[var(--color-fg-muted)]">
+          {formatTimestamp(r.created_at)}
+        </div>
+      ) : null}
       <CommentBody text={r.body} />
     </div>
   );

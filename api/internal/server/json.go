@@ -94,13 +94,16 @@ func commentJSON(cm repo.Comment, placementVersionID, placementHTML string) gin.
 }
 
 func commentBaseJSON(cm repo.Comment) gin.H {
-	out := gin.H{"id": cm.ID, "author": principalJSON(cm.Author), "body": cm.Body, "status": cm.Status, "created_on_version_id": cm.VersionID}
+	out := gin.H{"id": cm.ID, "author": principalJSON(cm.Author), "body": cm.Body, "status": cm.Status, "created_on_version_id": cm.VersionID, "created_at": cm.CreatedAt}
 	if cm.ParentCommentID != "" {
 		out["parent_comment_id"] = cm.ParentCommentID
 	}
 	if cm.SelectedText != "" {
 		out["selected_text"] = cm.SelectedText
 		out["anchor"] = cm.Anchor
+	}
+	if cm.ResolvedAt != "" {
+		out["resolved_at"] = cm.ResolvedAt
 	}
 	return out
 }

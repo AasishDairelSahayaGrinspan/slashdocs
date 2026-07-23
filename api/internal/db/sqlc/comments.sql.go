@@ -21,7 +21,7 @@ func (q *Queries) DeleteComment(ctx context.Context, id string) error {
 }
 
 const getComment = `-- name: GetComment :one
-SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id
+SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id, created_at, resolved_at
 FROM comments
 WHERE id = $1
 `
@@ -40,6 +40,8 @@ type GetCommentRow struct {
 	Status             string
 	ParentCommentID    pgtype.Text
 	RootCommentID      string
+	CreatedAt          pgtype.Timestamptz
+	ResolvedAt         pgtype.Timestamptz
 }
 
 func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, error) {
@@ -59,6 +61,8 @@ func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, err
 		&i.Status,
 		&i.ParentCommentID,
 		&i.RootCommentID,
+		&i.CreatedAt,
+		&i.ResolvedAt,
 	)
 	return i, err
 }
@@ -132,7 +136,7 @@ func (q *Queries) InsertCommentReply(ctx context.Context, arg InsertCommentReply
 }
 
 const listComments = `-- name: ListComments :many
-SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id
+SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id,created_at,resolved_at
 FROM comments WHERE document_id=$1 AND ($2='' OR status=$2) AND ($3='' OR created_on_version_id=$3) ORDER BY created_at
 `
 
@@ -156,6 +160,8 @@ type ListCommentsRow struct {
 	Status             string
 	ParentCommentID    pgtype.Text
 	RootCommentID      string
+	CreatedAt          pgtype.Timestamptz
+	ResolvedAt         pgtype.Timestamptz
 }
 
 func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]ListCommentsRow, error) {
@@ -181,6 +187,8 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]L
 			&i.Status,
 			&i.ParentCommentID,
 			&i.RootCommentID,
+			&i.CreatedAt,
+			&i.ResolvedAt,
 		); err != nil {
 			return nil, err
 		}

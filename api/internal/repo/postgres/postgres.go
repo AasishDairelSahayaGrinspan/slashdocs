@@ -241,7 +241,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 		return repo.Document{}, repo.Version{}, err
 	}
 	committed = true
-	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum}, nil
+	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 func (s *Store) GetDocument(ctx context.Context, id string) (repo.Document, error) {
 	r, err := s.q.GetDocument(ctx, id)
@@ -382,7 +382,7 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 		return repo.Version{}, err
 	}
 	committed = true
-	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum}, nil
+	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body string, anchor repo.Anchor, author auth.Principal) (repo.Comment, error) {
 	v, err := s.GetVersion(ctx, versionID)
@@ -401,7 +401,7 @@ func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body s
 	if err != nil {
 		return repo.Comment{}, err
 	}
-	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen, RootCommentID: id}, nil
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen, RootCommentID: id, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommentID, body string, author auth.Principal) (repo.Comment, error) {
 	parent, err := s.GetComment(ctx, parentCommentID)
@@ -420,7 +420,7 @@ func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommen
 	if err != nil {
 		return repo.Comment{}, err
 	}
-	return repo.Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: repo.StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID}, nil
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: repo.StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 func upsertUser(ctx context.Context, q *dbsqlc.Queries, p auth.Principal) error {
 	return q.UpsertUser(ctx, dbsqlc.UpsertUserParams{ID: p.ID, Email: p.Email, Name: p.Name})
@@ -614,7 +614,7 @@ func (s *Store) ListVersions(ctx context.Context, documentID string) ([]repo.Ver
 	}
 	out := make([]repo.Version, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256})
+		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256, CreatedAt: pgTimeRFC3339(r.CreatedAt)})
 	}
 	return out, nil
 }
@@ -626,7 +626,7 @@ func (s *Store) GetVersion(ctx context.Context, id string) (repo.Version, error)
 	if err != nil {
 		return repo.Version{}, err
 	}
-	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}, nil
+	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256, CreatedAt: pgTimeRFC3339(r.CreatedAt)}, nil
 }
 func (s *Store) GetVersionHTML(ctx context.Context, id string) ([]byte, error) {
 	key, err := s.q.GetVersionBlobKey(ctx, id)
@@ -893,7 +893,7 @@ func docFromSearch(r dbsqlc.SearchDocumentsByTitleRow) repo.Document {
 	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID, CreatedAt: pgTimeRFC3339(r.CreatedAt), ResolvedAt: pgTimeRFC3339(r.ResolvedAt)}
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
 	}
@@ -901,7 +901,7 @@ func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
 	return c
 }
 func commentFromList(r dbsqlc.ListCommentsRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID, CreatedAt: pgTimeRFC3339(r.CreatedAt), ResolvedAt: pgTimeRFC3339(r.ResolvedAt)}
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
 	}

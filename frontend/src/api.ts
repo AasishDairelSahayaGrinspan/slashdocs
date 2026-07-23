@@ -26,6 +26,7 @@ export type Version = {
   created_by?: Principal;
   change_summary?: string;
   sha256?: string;
+  created_at?: string;
 };
 export type Anchor = {
   quote: string;
@@ -51,6 +52,8 @@ export type Comment = {
     confidence: number;
     matched_text: string;
   };
+  created_at?: string;
+  resolved_at?: string;
 };
 export type Grant = {
   id: string;
