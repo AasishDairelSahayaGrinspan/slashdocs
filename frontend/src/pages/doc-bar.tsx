@@ -36,6 +36,7 @@ import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
 import { canManageSharing } from "@/lib/constants";
+import { formatTimestamp } from "@/lib/format";
 import { queryKeys } from "@/lib/queryKeys";
 import { ShareSheet } from "./doc-share-sheet";
 import { UploadVersionItem } from "./doc-upload-version";
@@ -303,17 +304,4 @@ function principalLabel(p?: Principal) {
   if (p.email) return p.email;
   if (p.type === "service_account") return p.id || "Service account";
   return p.id || "Unknown";
-}
-
-function formatTimestamp(ts?: string) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }

@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
 import { api, type Anchor, type Comment, type Principal } from "@/api";
+import { formatTimestamp } from "@/lib/format";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   COMMENT_FILTERS,
@@ -40,19 +41,6 @@ const MENTION_BOUNDARY = "\u2063";
 
 function principalLabel(p: Principal) {
   return p.name || p.email || p.id;
-}
-
-function formatTimestamp(ts?: string) {
-  if (!ts) return "";
-  const d = new Date(ts);
-  if (isNaN(d.getTime())) return "";
-  return d.toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function getMentionTarget(value: string, caret: number): MentionTarget | null {
