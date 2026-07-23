@@ -282,6 +282,9 @@ function VersionHistoryDialog({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
                     <span>Created by {principalLabel(v.created_by)}</span>
+                    {v.created_at && (
+                      <span>{formatTimestamp(v.created_at)}</span>
+                    )}
                     <span className="font-mono">{v.id}</span>
                   </div>
                 </div>
@@ -300,4 +303,17 @@ function principalLabel(p?: Principal) {
   if (p.email) return p.email;
   if (p.type === "service_account") return p.id || "Service account";
   return p.id || "Unknown";
+}
+
+function formatTimestamp(ts?: string) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
 }

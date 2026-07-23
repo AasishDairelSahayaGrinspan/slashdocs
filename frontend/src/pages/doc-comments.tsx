@@ -42,6 +42,19 @@ function principalLabel(p: Principal) {
   return p.name || p.email || p.id;
 }
 
+function formatTimestamp(ts?: string) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return "";
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function getMentionTarget(value: string, caret: number): MentionTarget | null {
   const beforeCaret = value.slice(0, caret);
   const match = /(^|[\s([{])@([A-Za-z0-9._%+-]*)$/.exec(beforeCaret);
@@ -461,6 +474,16 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           <Badge variant="accent">open</Badge>
         )}
       </div>
+      {c.created_at && (
+        <div className="mb-1 text-[11px] text-[var(--color-fg-muted)]">
+          {formatTimestamp(c.created_at)}
+          {resolved && c.resolved_at && (
+            <span className="ml-2 text-[var(--color-success)]">
+              · resolved {formatTimestamp(c.resolved_at)}
+            </span>
+          )}
+        </div>
+      )}
       {c.current_placement?.status &&
         c.current_placement.status !== PLACEMENT_STATUS.attached && (
           <Badge variant="warning" className="mb-2">
@@ -532,6 +555,11 @@ function ReplyItem({
           className="opacity-0 transition-opacity group-hover/reply:opacity-100"
         />
       </div>
+      {r.created_at && (
+        <div className="mb-1 text-[11px] text-[var(--color-fg-muted)]">
+          {formatTimestamp(r.created_at)}
+        </div>
+      )}
       <CommentBody text={r.body} />
     </div>
   );

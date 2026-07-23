@@ -614,7 +614,11 @@ func (s *Store) ListVersions(ctx context.Context, documentID string) ([]repo.Ver
 	}
 	out := make([]repo.Version, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256})
+		v := repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}
+		if r.CreatedAt.Valid {
+			v.CreatedAt = r.CreatedAt.Time.Format(time.RFC3339)
+		}
+		out = append(out, v)
 	}
 	return out, nil
 }
@@ -626,7 +630,11 @@ func (s *Store) GetVersion(ctx context.Context, id string) (repo.Version, error)
 	if err != nil {
 		return repo.Version{}, err
 	}
-	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}, nil
+	v := repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}
+	if r.CreatedAt.Valid {
+		v.CreatedAt = r.CreatedAt.Time.Format(time.RFC3339)
+	}
+	return v, nil
 }
 func (s *Store) GetVersionHTML(ctx context.Context, id string) ([]byte, error) {
 	key, err := s.q.GetVersionBlobKey(ctx, id)
@@ -897,6 +905,12 @@ func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
 	}
+	if r.CreatedAt.Valid {
+		c.CreatedAt = r.CreatedAt.Time.Format(time.RFC3339)
+	}
+	if r.ResolvedAt.Valid {
+		c.ResolvedAt = r.ResolvedAt.Time.Format(time.RFC3339)
+	}
 	_ = json.Unmarshal(r.AnchorJson, &c.Anchor)
 	return c
 }
@@ -904,6 +918,12 @@ func commentFromList(r dbsqlc.ListCommentsRow) repo.Comment {
 	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
+	}
+	if r.CreatedAt.Valid {
+		c.CreatedAt = r.CreatedAt.Time.Format(time.RFC3339)
+	}
+	if r.ResolvedAt.Valid {
+		c.ResolvedAt = r.ResolvedAt.Time.Format(time.RFC3339)
 	}
 	_ = json.Unmarshal(r.AnchorJson, &c.Anchor)
 	return c

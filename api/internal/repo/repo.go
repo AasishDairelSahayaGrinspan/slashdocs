@@ -181,6 +181,7 @@ type Version struct {
 	CreatedBy     auth.Principal `json:"created_by"`
 	ChangeSummary string         `json:"change_summary"`
 	SHA256        string         `json:"sha256"`
+	CreatedAt     string         `json:"created_at,omitempty"`
 }
 
 type Anchor struct {
@@ -209,6 +210,8 @@ type Comment struct {
 	ParentCommentID string         `json:"parent_comment_id,omitempty"`
 	RootCommentID   string         `json:"root_comment_id,omitempty"`
 	Replies         []Comment      `json:"replies,omitempty"`
+	CreatedAt       string         `json:"created_at,omitempty"`
+	ResolvedAt      string         `json:"resolved_at,omitempty"`
 }
 
 type DocumentKVSnapshot struct {
