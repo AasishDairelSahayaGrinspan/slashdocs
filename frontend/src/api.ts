@@ -26,6 +26,7 @@ export type Version = {
   created_by?: Principal;
   change_summary?: string;
   sha256?: string;
+  created_at?: string;
 };
 export type Anchor = {
   quote: string;
@@ -42,6 +43,8 @@ export type Comment = {
   status: string;
   author: Principal;
   created_on_version_id: string;
+  created_at?: string;
+  resolved_at?: string;
   parent_comment_id?: string;
   root_comment_id?: string;
   anchor?: Anchor;

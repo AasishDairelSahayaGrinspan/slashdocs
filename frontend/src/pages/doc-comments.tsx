@@ -19,6 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
 import { api, type Anchor, type Comment, type Principal } from "@/api";
+import { formatDateTime } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   COMMENT_FILTERS,
@@ -449,10 +450,17 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
       className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-[border-color,box-shadow,opacity] duration-200 ease-out hover:border-[var(--color-border-strong)] hover:shadow-sm ${active ? "border-[var(--color-border-strong)] shadow-sm ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
       onClick={() => setActiveComment(active ? undefined : c.id)}
     >
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-semibold">
-          {c.author.name || c.author.email || c.author.id}
-        </span>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <div className="min-w-0">
+          <span className="text-xs font-semibold">
+            {c.author.name || c.author.email || c.author.id}
+          </span>
+          {c.created_at ? (
+            <span className="ml-2 text-xs text-[var(--color-fg-muted)]">
+              {formatDateTime(c.created_at)}
+            </span>
+          ) : null}
+        </div>
         {resolved ? (
           <Badge variant="success">
             <CheckCircle2 className="h-3 w-3" /> resolved
@@ -461,6 +469,11 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           <Badge variant="accent">open</Badge>
         )}
       </div>
+      {resolved && c.resolved_at ? (
+        <div className="mb-2 text-xs text-[var(--color-fg-muted)]">
+          Resolved {formatDateTime(c.resolved_at)}
+        </div>
+      ) : null}
       {c.current_placement?.status &&
         c.current_placement.status !== PLACEMENT_STATUS.attached && (
           <Badge variant="warning" className="mb-2">
@@ -522,9 +535,16 @@ function ReplyItem({
   return (
     <div className="group/reply rounded-md bg-[var(--color-surface-muted)]/50 p-2">
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold">
-          {r.author.name || r.author.email || r.author.id}
-        </span>
+        <div className="min-w-0">
+          <span className="text-xs font-semibold">
+            {r.author.name || r.author.email || r.author.id}
+          </span>
+          {r.created_at ? (
+            <span className="ml-2 text-xs text-[var(--color-fg-muted)]">
+              {formatDateTime(r.created_at)}
+            </span>
+          ) : null}
+        </div>
         <DeleteCommentButton
           c={r}
           docId={docId}

@@ -181,6 +181,7 @@ type Version struct {
 	CreatedBy     auth.Principal `json:"created_by"`
 	ChangeSummary string         `json:"change_summary"`
 	SHA256        string         `json:"sha256"`
+	CreatedAt     string         `json:"created_at,omitempty"`
 }
 
 type Anchor struct {
@@ -206,6 +207,8 @@ type Comment struct {
 	SelectedText    string         `json:"selected_text"`
 	Anchor          Anchor         `json:"anchor"`
 	Status          string         `json:"status"`
+	CreatedAt       string         `json:"created_at,omitempty"`
+	ResolvedAt      string         `json:"resolved_at,omitempty"`
 	ParentCommentID string         `json:"parent_comment_id,omitempty"`
 	RootCommentID   string         `json:"root_comment_id,omitempty"`
 	Replies         []Comment      `json:"replies,omitempty"`
@@ -477,7 +480,7 @@ func (m *Memory) CreateDocument(ctx context.Context, owner auth.Principal, title
 	m.docN++
 	m.verN++
 	d := Document{ID: fmt.Sprintf("doc_%d", m.docN), Title: title, Owner: owner, CurrentVersionID: fmt.Sprintf("ver_%d", m.verN)}
-	v := Version{ID: d.CurrentVersionID, Number: 1, DocumentID: d.ID, CreatedBy: owner, SHA256: fmt.Sprintf("sha_%d", m.verN)}
+	v := Version{ID: d.CurrentVersionID, Number: 1, DocumentID: d.ID, CreatedBy: owner, SHA256: fmt.Sprintf("sha_%d", m.verN), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	m.docs[d.ID] = d
 	m.versions[v.ID] = v
 	return d, v, nil
@@ -597,7 +600,7 @@ func (m *Memory) CreateVersion(ctx context.Context, documentID, baseVersionID, c
 		return Version{}, &VersionConflictError{LatestVersionID: d.CurrentVersionID}
 	}
 	m.verN++
-	v := Version{ID: fmt.Sprintf("ver_%d", m.verN), Number: m.verN, DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: fmt.Sprintf("sha_%d", m.verN)}
+	v := Version{ID: fmt.Sprintf("ver_%d", m.verN), Number: m.verN, DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: fmt.Sprintf("sha_%d", m.verN), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	d.CurrentVersionID = v.ID
 	m.docs[documentID] = d
 	m.versions[v.ID] = v
@@ -611,7 +614,7 @@ func (m *Memory) CreateComment(ctx context.Context, documentID, versionID, body 
 		return Comment{}, ErrNotFound
 	}
 	m.commentN++
-	cm := Comment{ID: fmt.Sprintf("cmt_%d", m.commentN), DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: StatusOpen}
+	cm := Comment{ID: fmt.Sprintf("cmt_%d", m.commentN), DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: StatusOpen, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	cm.RootCommentID = cm.ID
 	m.comments[cm.ID] = cm
 	return cm, nil
@@ -635,7 +638,7 @@ func (m *Memory) CreateCommentReply(ctx context.Context, documentID, parentComme
 			break
 		}
 	}
-	cm := Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID}
+	cm := Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	m.comments[cm.ID] = cm
 	return cm, nil
 }
@@ -830,6 +833,11 @@ func (m *Memory) UpdateComment(ctx context.Context, id, body, status string) (Co
 	}
 	if status != "" {
 		cm.Status = status
+		if status == "resolved" {
+			cm.ResolvedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		} else {
+			cm.ResolvedAt = ""
+		}
 	}
 	m.comments[id] = cm
 	return cm, nil

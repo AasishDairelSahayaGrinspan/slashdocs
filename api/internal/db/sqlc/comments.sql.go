@@ -21,30 +21,14 @@ func (q *Queries) DeleteComment(ctx context.Context, id string) error {
 }
 
 const getComment = `-- name: GetComment :one
-SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id
+SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, created_at, resolved_at, parent_comment_id, root_comment_id
 FROM comments
 WHERE id = $1
 `
 
-type GetCommentRow struct {
-	ID                 string
-	DocumentID         string
-	CreatedOnVersionID string
-	AuthorType         string
-	AuthorID           string
-	AuthorEmail        string
-	AuthorName         string
-	Body               string
-	SelectedText       string
-	AnchorJson         []byte
-	Status             string
-	ParentCommentID    pgtype.Text
-	RootCommentID      string
-}
-
-func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, error) {
+func (q *Queries) GetComment(ctx context.Context, id string) (Comment, error) {
 	row := q.db.QueryRow(ctx, getComment, id)
-	var i GetCommentRow
+	var i Comment
 	err := row.Scan(
 		&i.ID,
 		&i.DocumentID,
@@ -57,6 +41,8 @@ func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, err
 		&i.SelectedText,
 		&i.AnchorJson,
 		&i.Status,
+		&i.CreatedAt,
+		&i.ResolvedAt,
 		&i.ParentCommentID,
 		&i.RootCommentID,
 	)
@@ -132,7 +118,7 @@ func (q *Queries) InsertCommentReply(ctx context.Context, arg InsertCommentReply
 }
 
 const listComments = `-- name: ListComments :many
-SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id
+SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,created_at,resolved_at,parent_comment_id,root_comment_id
 FROM comments WHERE document_id=$1 AND ($2='' OR status=$2) AND ($3='' OR created_on_version_id=$3) ORDER BY created_at
 `
 
@@ -142,31 +128,15 @@ type ListCommentsParams struct {
 	Column3    interface{}
 }
 
-type ListCommentsRow struct {
-	ID                 string
-	DocumentID         string
-	CreatedOnVersionID string
-	AuthorType         string
-	AuthorID           string
-	AuthorEmail        string
-	AuthorName         string
-	Body               string
-	SelectedText       string
-	AnchorJson         []byte
-	Status             string
-	ParentCommentID    pgtype.Text
-	RootCommentID      string
-}
-
-func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]ListCommentsRow, error) {
+func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]Comment, error) {
 	rows, err := q.db.Query(ctx, listComments, arg.DocumentID, arg.Column2, arg.Column3)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListCommentsRow
+	var items []Comment
 	for rows.Next() {
-		var i ListCommentsRow
+		var i Comment
 		if err := rows.Scan(
 			&i.ID,
 			&i.DocumentID,
@@ -179,6 +149,8 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]L
 			&i.SelectedText,
 			&i.AnchorJson,
 			&i.Status,
+			&i.CreatedAt,
+			&i.ResolvedAt,
 			&i.ParentCommentID,
 			&i.RootCommentID,
 		); err != nil {
