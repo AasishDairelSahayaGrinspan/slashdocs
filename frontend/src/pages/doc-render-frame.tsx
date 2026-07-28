@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { COMMENT_STATUS } from "@/lib/constants";
@@ -340,6 +341,22 @@ export function RenderFrame() {
   useEffect(() => {
     paint();
   }, [paint]);
+
+  // Forward print requests from the DocBar dropdown to the bridge, which
+  // calls print() on the inner document iframe — preserving the bridge
+  // script, KV store, and all other integrations in the printed output.
+  useEffect(() => {
+    const onPrint = () => {
+      if (!ready || !frameOrigin) {
+        toast.error("Document is still loading. Please try again in a moment.");
+        return;
+      }
+      ref.current?.contentWindow?.postMessage({ type: "aidocs:print" }, frameOrigin);
+      toast.success('Print dialog opened — choose "Save as PDF" to export.');
+    };
+    window.addEventListener("aidocs:print", onPrint);
+    return () => window.removeEventListener("aidocs:print", onPrint);
+  }, [ready, frameOrigin]);
 
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.
