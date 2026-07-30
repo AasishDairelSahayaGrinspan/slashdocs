@@ -201,11 +201,33 @@ func validateMCPClientRegistration(in mcpClientRegistrationRequest) string {
 	if in.TokenEndpointAuthMethod != "" && in.TokenEndpointAuthMethod != "none" {
 		return "only public clients with token_endpoint_auth_method=none are supported"
 	}
-	if len(in.GrantTypes) > 0 && !slices.Equal(in.GrantTypes, []string{"authorization_code"}) {
-		return "only the authorization_code grant is supported"
+	if message := validateMCPGrantTypes(in.GrantTypes); message != "" {
+		return message
 	}
 	if len(in.ResponseTypes) > 0 && !slices.Equal(in.ResponseTypes, []string{"code"}) {
 		return "only the code response type is supported"
+	}
+	return ""
+}
+
+// validateMCPGrantTypes requires the authorization_code grant and tolerates a
+// co-registered refresh_token grant, which conformant MCP clients (mcp2cli,
+// VS Code) request by default during dynamic registration. The server never
+// issues refresh tokens, so the grant is accepted here but never exercised:
+// clients simply re-run the authorization_code flow when the short-lived
+// access token expires. Rejecting the registration outright would lock those
+// clients out entirely.
+func validateMCPGrantTypes(grantTypes []string) string {
+	if len(grantTypes) == 0 {
+		return ""
+	}
+	if !slices.Contains(grantTypes, "authorization_code") {
+		return "the authorization_code grant is required"
+	}
+	for _, grant := range grantTypes {
+		if grant != "authorization_code" && grant != "refresh_token" {
+			return "only the authorization_code and refresh_token grants are supported"
+		}
 	}
 	return ""
 }

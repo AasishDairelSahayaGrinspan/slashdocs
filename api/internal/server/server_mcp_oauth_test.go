@@ -180,6 +180,27 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 		}
 	})
 
+	// Conformant MCP clients (mcp2cli, VS Code) register authorization_code
+	// alongside refresh_token; the registration must be accepted even though
+	// the server never issues refresh tokens.
+	t.Run("allows co-registered refresh_token grant", func(t *testing.T) {
+		body := `{"client_name":"mcp2cli","redirect_uris":["http://localhost:4100/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}`
+		rr := do(t, e.h, http.MethodPost, "/oauth/register", body, map[string]string{"Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		if got := jsonField(t, rr.Body.Bytes(), "client_id"); !strings.HasPrefix(got, "aidocs_mcp_client_") {
+			t.Fatalf("client_id = %q, want signed client id", got)
+		}
+	})
+
+	t.Run("rejects unsupported grant without authorization_code", func(t *testing.T) {
+		body := `{"client_name":"bad","redirect_uris":["https://client.example/callback"],"token_endpoint_auth_method":"none","grant_types":["client_credentials"]}`
+		rr := do(t, e.h, http.MethodPost, "/oauth/register", body, map[string]string{"Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusBadRequest)
+		if got := jsonField(t, rr.Body.Bytes(), "error"); got != "invalid_client_metadata" {
+			t.Fatalf("error = %q, want invalid_client_metadata", got)
+		}
+	})
+
 	t.Run("rejects overlong client name", func(t *testing.T) {
 		rr := registerMCPClient(t, e, strings.Repeat("n", mcpTestMaxClientNameBytes+1), []string{mcpTestRedirectURI})
 		assertOAuthError(t, rr, http.StatusBadRequest, "invalid_client_metadata")
