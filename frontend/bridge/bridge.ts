@@ -479,7 +479,7 @@ type Theme = "dark" | "light";
     const s = d.createElement("style");
     s.id = "aidocs-highlight-style";
     s.textContent =
-      ".aidocs-mark{background:#fef08a!important;color:#111827!important;-webkit-text-fill-color:#111827!important;box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:2px;box-shadow:0 0 0 1px rgba(202,138,4,.55);cursor:pointer;transition:background-color .15s,box-shadow .15s}.aidocs-mark-active{background:#fde047!important;box-shadow:0 0 0 2px rgba(202,138,4,.95)}.aidocs-svg-mark-text{fill:#111827!important;-webkit-text-fill-color:#111827!important;cursor:pointer}.aidocs-svg-mark-rect{fill:#fef08a;stroke:#ca8a04;stroke-width:1;rx:3;ry:3;pointer-events:auto;opacity:.72}.aidocs-svg-mark-rect.aidocs-mark-active{fill:#fde047;stroke-width:2;opacity:.84}";
+      ".aidocs-mark{background:#fef08a!important;color:#111827!important;-webkit-text-fill-color:#111827!important;box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:2px;box-shadow:0 0 0 1px rgba(202,138,4,.55);cursor:pointer;transition:background-color .15s,box-shadow .15s}.aidocs-mark-active{background:#fde047!important;box-shadow:0 0 0 2px rgba(202,138,4,.95)}.aidocs-svg-mark-text{fill:#111827!important;-webkit-text-fill-color:#111827!important;cursor:pointer}.aidocs-svg-mark-rect{fill:#fef08a;stroke:#ca8a04;stroke-width:1;rx:3;ry:3;pointer-events:auto;opacity:.72}.aidocs-svg-mark-rect.aidocs-mark-active{fill:#fde047;stroke-width:2;opacity:.84}@media print{.aidocs-mark{background:transparent!important;box-shadow:none!important;-webkit-text-fill-color:inherit!important;color:inherit!important}.aidocs-svg-mark-rect{display:none!important}.aidocs-svg-mark-text{fill:inherit!important;-webkit-text-fill-color:inherit!important}}";
     (d.head || d.documentElement).appendChild(s);
   }
 
@@ -976,6 +976,13 @@ type Theme = "dark" | "light";
         );
     } else if (e.data.type === "aidocs:kv-event") {
       emitKVChange(e.data.detail || {});
+    } else if (e.data.type === "aidocs:print") {
+      const w = innerWindow();
+      if (!w) return;
+      try {
+        w.focus();
+        w.print();
+      } catch (err) {}
     }
   });
 })();
