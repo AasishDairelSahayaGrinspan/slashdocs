@@ -6,7 +6,11 @@ import { COMMENT_STATUS } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
 import { errorMessage } from "@/lib/errors";
+import { CHORD_KEYS } from "@/lib/esc-chord";
 import { useDoc } from "./doc-context";
+
+// Keys the in-iframe bridge is allowed to forward into the shell.
+const FORWARDED_KEYS = new Set<string>(["Escape", ...CHORD_KEYS.map((k) => k.key)]);
 
 // Renders the sandboxed document iframe and exchanges selection and paint
 // messages with the in-iframe bridge. Message origins are validated on both
@@ -273,8 +277,16 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
       }
-      if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      // The bridge forwards Escape plus, while an Esc chord window is open,
+      // the chord keys. Re-dispatching them on window means the app's chord
+      // handling does not care whether a key was pressed in the shell or
+      // inside the rendered document.
+      if (
+        e.data?.type === "aidocs:keydown" &&
+        typeof e.data.key === "string" &&
+        FORWARDED_KEYS.has(e.data.key)
+      ) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: e.data.key }));
       }
       if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
         const frameRect = ref.current?.getBoundingClientRect();

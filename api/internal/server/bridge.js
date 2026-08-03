@@ -224,7 +224,8 @@ function bridge() {
     return queueKVMutation(() => {
       if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
       const entry = kvUndoStack.pop();
-      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "undo" });
+      if (!entry)
+        return Promise.resolve({ changes: [], empty: true, operation: "undo" });
       return kvRequestItems().then((items) => {
         if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
         if (!kvPatchMatchesItems(entry.forward, items)) {
@@ -249,7 +250,8 @@ function bridge() {
     return queueKVMutation(() => {
       if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
       const entry = kvRedoStack.pop();
-      if (!entry) return Promise.resolve({ changes: [], empty: true, operation: "redo" });
+      if (!entry)
+        return Promise.resolve({ changes: [], empty: true, operation: "redo" });
       return kvRequestItems().then((items) => {
         if (generation !== kvHistoryGeneration) return rejectResetKVHistory();
         if (!kvPatchMatchesItems(entry.inverse, items)) {
@@ -287,7 +289,10 @@ function bridge() {
         },
       };
       parent.postMessage(
-        Object.assign({ type: "aidocs:kv-request", requestId, operation }, payload || {}),
+        Object.assign(
+          { type: "aidocs:kv-request", requestId, operation },
+          payload || {},
+        ),
         targetOrigin(),
       );
     });
@@ -300,8 +305,7 @@ function bridge() {
       const ev = new w.CustomEvent("kvchange", { detail });
       w.dispatchEvent(ev);
     } catch (e) {}
-    const handlers =
-      (w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange) || [];
+    const handlers = (w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange) || [];
     handlers.slice().forEach((handler) => {
       try {
         handler(detail);
@@ -382,7 +386,10 @@ function bridge() {
     kvRequest("hydrate", { source: "initial", operation: "hydrate" })
       .then((res) => {
         emitKVChange(
-          Object.assign({ source: "initial", operation: "hydrate", changes: [] }, res || {}),
+          Object.assign(
+            { source: "initial", operation: "hydrate", changes: [] },
+            res || {},
+          ),
         );
       })
       .catch(() => {});
@@ -744,8 +751,7 @@ function bridge() {
     if (!editable) return false;
     if (editable.matches && editable.matches("[contenteditable]")) {
       return (
-        String(editable.getAttribute("contenteditable") || "").toLowerCase() !==
-        "false"
+        String(editable.getAttribute("contenteditable") || "").toLowerCase() !== "false"
       );
     }
     const role = String(editable.getAttribute("role") || "").toLowerCase();
@@ -776,6 +782,35 @@ function bridge() {
     ev.preventDefault();
     ev.stopPropagation();
     kvUndo().catch(() => {});
+  }
+
+  // The app binds Esc-leader chords (Esc t theme, Esc f full screen, Esc c
+  // comments, Esc h home). Keystrokes inside this frame never reach it, so we
+  // forward them - but only Escape and, while a chord window is open, the four
+  // chord keys. Everything else the reader types stays in the document, which
+  // matters because documents may contain their own inputs and editable HTML.
+  const CHORD_WINDOW_MS = 800;
+  const CHORD_KEYS = ["t", "f", "c", "h"];
+  let chordArmedAt = 0;
+  function forwardChordKey(ev) {
+    if (ev.defaultPrevented || isTextEditingTarget(ev.target)) {
+      chordArmedAt = 0;
+      return;
+    }
+    if (ev.key === "Escape") {
+      chordArmedAt = ev.metaKey || ev.ctrlKey || ev.altKey ? 0 : Date.now();
+      parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
+      return;
+    }
+    if (!chordArmedAt || Date.now() - chordArmedAt > CHORD_WINDOW_MS) {
+      chordArmedAt = 0;
+      return;
+    }
+    chordArmedAt = 0;
+    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
+    const key = String(ev.key || "").toLowerCase();
+    if (CHORD_KEYS.indexOf(key) === -1) return;
+    parent.postMessage({ type: "aidocs:keydown", key: key }, targetOrigin());
   }
 
   curTheme = initialTheme();
@@ -833,9 +868,7 @@ function bridge() {
       selTimer = setTimeout(selection, 350);
     });
     d.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape") {
-        parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
-      }
+      forwardChordKey(ev);
       handleKVUndoRedoShortcut(ev);
     });
     // Forward trackpad pinch-to-zoom (wheel + ctrlKey) to parent so the
@@ -880,7 +913,10 @@ function bridge() {
       if (!pending) return;
       delete kvPending[requestId];
       if (e.data.ok) pending.resolve(e.data.result || {});
-      else pending.reject(new Error((e.data.error && e.data.error.message) || "KV request failed"));
+      else
+        pending.reject(
+          new Error((e.data.error && e.data.error.message) || "KV request failed"),
+        );
     } else if (e.data.type === "aidocs:kv-event") {
       emitKVChange(e.data.detail || {});
     }

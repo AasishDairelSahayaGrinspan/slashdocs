@@ -1,6 +1,6 @@
 import { useTitle } from "@/lib/use-title";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useParams } from "react-router-dom";
+import { useSearchParams, useParams, useNavigate } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
@@ -8,14 +8,20 @@ import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/lib/use-media-query";
+import { useTheme } from "@/lib/theme";
+import { useEscChord } from "@/lib/use-esc-chord";
+import type { ChordKey } from "@/lib/esc-chord";
 import { DocProvider, type PendingSelection } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
 import { Comments } from "./doc-comments";
+import { Keycast } from "./doc-keycast";
 
 const MIN_PANEL_WIDTH = 240;
 const MAX_PANEL_WIDTH = 640;
 const DEFAULT_PANEL_WIDTH = 380;
+
+const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
 
 const pageStagger = {
   hidden: {},
@@ -87,6 +93,9 @@ export function DocumentPage() {
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
+  const [chordLabel, setChordLabel] = useState<string>();
+  const nav = useNavigate();
+  const { theme, setTheme } = useTheme();
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
   const handleDocCommentClick = useCallback(
@@ -171,19 +180,80 @@ export function DocumentPage() {
     );
   }, [setSearchParams]);
 
+  // Esc f toggles in both directions with `replace`, so repeatedly toggling
+  // never piles up history entries.
+  const toggleFullscreen = useCallback(() => {
+    setSearchParams(
+      (params) => {
+        const next = new URLSearchParams(params);
+        if (next.get("fullscreen") === "1") next.delete("fullscreen");
+        else next.set("fullscreen", "1");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
   useEffect(() => {
     if (!fullscreen) return;
     setShowFullscreenHint(true);
     const timeout = window.setTimeout(() => setShowFullscreenHint(false), 4000);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") exitFullscreen();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => {
-      window.clearTimeout(timeout);
-      window.removeEventListener("keydown", onKeyDown);
-    };
+    return () => window.clearTimeout(timeout);
+  }, [fullscreen]);
+
+  // Esc-leader chords. "c" is dropped in full screen, where no comments panel
+  // exists to toggle.
+  const chordKeys = useMemo<ChordKey[]>(
+    () => (fullscreen ? ["t", "f", "h"] : ["t", "f", "c", "h"]),
+    [fullscreen],
+  );
+  const runChord = useCallback(
+    (key: ChordKey) => {
+      if (key === "t") {
+        const nextTheme =
+          theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+        setTheme(nextTheme);
+        setChordLabel(THEME_LABELS[nextTheme]);
+        return;
+      }
+      if (key === "f") {
+        setChordLabel(fullscreen ? "Exited full screen" : "Full screen");
+        toggleFullscreen();
+        return;
+      }
+      if (key === "c") {
+        setChordLabel(
+          (isMobile ? mobilePanelOpen : panelOpen)
+            ? "Comments hidden"
+            : "Comments shown",
+        );
+        toggleComments();
+        return;
+      }
+      setChordLabel("Documents");
+      nav("/app/documents");
+    },
+    [
+      theme,
+      setTheme,
+      fullscreen,
+      toggleFullscreen,
+      isMobile,
+      mobilePanelOpen,
+      panelOpen,
+      toggleComments,
+      nav,
+    ],
+  );
+  // A bare Esc keeps its old meaning once the chord window closes unused.
+  const onBareEscape = useCallback(() => {
+    if (fullscreen) exitFullscreen();
   }, [fullscreen, exitFullscreen]);
+  const chord = useEscChord({
+    available: chordKeys,
+    onRun: runChord,
+    onEscape: onBareEscape,
+  });
 
   const ctx = useMemo(
     () => ({
@@ -279,11 +349,14 @@ export function DocumentPage() {
         <div className="relative h-full bg-[var(--color-surface-muted)]">
           {showFullscreenHint ? (
             <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
-              <span className="hidden sm:inline">Press Esc to exit full screen</span>
+              <span className="hidden sm:inline">
+                Esc to exit · Esc t theme · Esc h home
+              </span>
               <span className="sm:hidden">Go back to exit full screen</span>
             </div>
           ) : null}
           {current ? <RenderFrame /> : <Center>No version available.</Center>}
+          <Keycast state={chord} available={chordKeys} label={chordLabel} />
         </div>
       ) : (
         <motion.div
@@ -310,6 +383,7 @@ export function DocumentPage() {
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
             <section className="relative flex-1 bg-[var(--color-surface-muted)]">
               {current ? <RenderFrame /> : <Center>No version available.</Center>}
+              <Keycast state={chord} available={chordKeys} label={chordLabel} />
             </section>
             <AnimatePresence initial={false}>
               {panelOpen && (
