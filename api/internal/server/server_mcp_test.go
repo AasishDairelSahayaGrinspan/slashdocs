@@ -311,7 +311,7 @@ func TestMCPDocumentAndFolderToolParity(t *testing.T) {
 	}{
 		{"whoami", map[string]any{}, fixtureUser.Email},
 		{"get_server_config", map[string]any{}, "deployment"},
-		{"get_authoring_guidelines", map[string]any{}, "self-contained HTML"},
+		{"get_authoring_guidelines", map[string]any{}, "single-file HTML contract"},
 		{"list_documents", map[string]any{}, "items"},
 		{"list_folders", map[string]any{}, "items"},
 	} {
@@ -695,4 +695,43 @@ func TestMCPCreateDocumentHonorsPrivateByDefault(t *testing.T) {
 	if strings.Contains(access.Text, `"anyone"`) {
 		t.Fatalf("private-by-default server granted org-wide access: %s", access.Text)
 	}
+}
+
+// The guidelines tool mirrors the CLI's sectioned progressive disclosure from
+// the same shared source: index -> section -> all, with aliases.
+func TestMCPGuidelinesProgressiveDisclosure(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+
+	index := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{}), "single-file HTML contract")
+	for _, want := range []string{`section="core"`, `section="rendering theme"`, `section="all"`} {
+		if !strings.Contains(index.Text, want) {
+			t.Errorf("guidelines index missing %q: %s", want, index.Text)
+		}
+	}
+
+	theme := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "rendering theme",
+	}), "aidocs guidelines: rendering theme")
+	if !strings.Contains(theme.Text, "get_authoring_guidelines") {
+		t.Errorf("section page is missing the tool-call translation footer: %s", theme.Text)
+	}
+
+	// Aliases from the CLI resolve identically.
+	assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "theme",
+	}), "aidocs guidelines: rendering theme")
+
+	all := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "all",
+	}), "aidocs guidelines: core")
+	for _, want := range []string{"aidocs guidelines: rendering theme", "aidocs guidelines: review"} {
+		if !strings.Contains(all.Text, want) {
+			t.Errorf("guidelines all is missing %q", want)
+		}
+	}
+
+	assertMCPToolError(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "no such section",
+	}), "unknown guidelines section")
 }
