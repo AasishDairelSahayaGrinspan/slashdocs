@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const orgWideViewerEnv = "AIDOCS_ORG_WIDE_VIEWER_BY_DEFAULT"
+const privateByDefaultEnv = "AIDOCS_PRIVATE_BY_DEFAULT"
 
 func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
@@ -34,7 +34,7 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 
 func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 	var title string
-	cmd := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe new document is private. Share it with people, bots, or everyone using 'aidocs docs grants add'.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe new document is shared org-wide read-only by default. Set AIDOCS_PRIVATE_BY_DEFAULT=1 to keep new documents private.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		data, fn, err := readFileArg(args[0])
 		if err != nil {
 			return err
@@ -92,7 +92,7 @@ func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title string, 
 		return err
 	}
 	if sharedByDefault {
-		return confirm(out, g, "Gave org-wide read-only access because "+orgWideViewerEnv+" is set.")
+		return confirm(out, g, "Gave org-wide read-only access by default.")
 	}
 	return printOrgWideViewerNudge(out, g, id)
 }

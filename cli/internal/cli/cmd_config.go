@@ -57,7 +57,7 @@ func serverConfigFor(g *globals) serverConfig {
 }
 
 func maybeGrantOrgWideViewer(c *Client, docID string) (bool, error) {
-	if os.Getenv(orgWideViewerEnv) == "" {
+	if os.Getenv(privateByDefaultEnv) != "" {
 		return false, nil
 	}
 	_, err := c.doJSON("POST", apiPath("/v1/documents/%s/grants", docID), map[string]any{
