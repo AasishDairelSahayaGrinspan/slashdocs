@@ -320,6 +320,40 @@ func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
 	}
 }
 
+// Native clients bind an ephemeral loopback port at request time, so a
+// client_id cached across runs carries a stale port. RFC 8252 §7.3 requires
+// the authorization server to accept any port on a loopback IP redirect, and
+// the full flow must complete on the fresh port.
+func TestMCPOAuthFlowAcceptsDifferentLoopbackPortThanRegistered(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	clientID := registeredMCPClientID(t, e, "mcp2cli", []string{"http://127.0.0.1:51726/callback"})
+	liveRedirect := "http://127.0.0.1:49812/callback" // fresh ephemeral port
+
+	values := mcpAuthorizeValues(e, clientID, liveRedirect, mcpTestVerifier, "loopback-state")
+	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
+	assertStatus(t, consent, http.StatusOK)
+
+	code := approveMCPAuthorization(t, e, clientID, liveRedirect, mcpTestVerifier, "loopback-state")
+	exchanged := postMCPToken(t, e, mcpTokenValues(e, code, clientID, liveRedirect, mcpTestVerifier))
+	assertStatus(t, exchanged, http.StatusOK)
+	if got := jsonField(t, exchanged.Body.Bytes(), "access_token"); !strings.HasPrefix(got, auth.MCPAccessTokenPrefix) {
+		t.Fatalf("access_token = %q, want %q prefix", got, auth.MCPAccessTokenPrefix)
+	}
+}
+
+// A non-loopback redirect must still match the registration exactly; the
+// loopback port exemption must not leak into https callbacks.
+func TestMCPAuthorizeRejectsHTTPSRedirectPortMismatch(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	clientID := registeredMCPClientID(t, e, "web", []string{"https://client.example:8443/callback"})
+	values := mcpAuthorizeValues(e, clientID, "https://client.example:9443/callback", mcpTestVerifier, "s")
+	rr := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
+	assertStatus(t, rr, http.StatusBadRequest)
+	if location := rr.Header().Get("Location"); location != "" {
+		t.Fatalf("mismatched https redirect was followed: %q", location)
+	}
+}
+
 func TestMCPOAuthCodeExchangeIsBoundAndOneTime(t *testing.T) {
 	e := newMCPOAuthTestEnv(t)
 	clientID := registeredMCPClientID(t, e, "Bound client", []string{mcpTestRedirectURI, "https://client.example/second"})

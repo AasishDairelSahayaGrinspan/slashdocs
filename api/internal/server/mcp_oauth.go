@@ -232,6 +232,41 @@ func validateMCPGrantTypes(grantTypes []string) string {
 	return ""
 }
 
+// redirectURIMatchesRegistration checks a request's redirect_uri against the
+// URIs frozen into the signed client_id. RFC 8252 §7.3 requires the
+// authorization server to allow any port on a loopback IP redirect URI, since
+// native apps bind an ephemeral port at request time and a client_id cached
+// across runs carries a stale port. Loopback IP literals therefore match on
+// scheme, host, path, and query while ignoring the port; everything else
+// (including https and localhost) still requires an exact match, because only
+// loopback delivery to the user's own machine makes a free port safe.
+func redirectURIMatchesRegistration(registered []string, requested string) bool {
+	if slices.Contains(registered, requested) {
+		return true
+	}
+	req, err := url.Parse(requested)
+	if err != nil || !isLoopbackIPHost(req.Hostname()) {
+		return false
+	}
+	for _, raw := range registered {
+		reg, err := url.Parse(raw)
+		if err != nil || !isLoopbackIPHost(reg.Hostname()) {
+			continue
+		}
+		if strings.EqualFold(reg.Scheme, req.Scheme) &&
+			strings.EqualFold(reg.Hostname(), req.Hostname()) &&
+			reg.Path == req.Path && reg.RawQuery == req.RawQuery {
+			return true
+		}
+	}
+	return false
+}
+
+func isLoopbackIPHost(host string) bool {
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
 func validMCPRedirectURI(raw string) bool {
 	u, err := url.Parse(raw)
 	if err != nil || !u.IsAbs() || u.User != nil || u.Fragment != "" || u.Opaque != "" {
@@ -305,7 +340,7 @@ func (h handlers) validateMCPAuthorizeRequest(in mcpAuthorizeRequest) (mcpOAuthC
 	if !ok {
 		return mcpOAuthClient{}, "unknown or expired client_id"
 	}
-	if !slices.Contains(client.RedirectURIs, in.RedirectURI) {
+	if !redirectURIMatchesRegistration(client.RedirectURIs, in.RedirectURI) {
 		return mcpOAuthClient{}, "redirect_uri is not registered for this client"
 	}
 	if in.ResponseType != "code" {
