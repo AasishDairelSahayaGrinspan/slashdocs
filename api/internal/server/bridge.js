@@ -431,7 +431,7 @@ function bridge() {
     return !!(n && n.parentElement && n.parentElement.namespaceURI === svgNS);
   }
 
-  function svgHighlight(n, active, id) {
+  function svgHighlight(n, active, id, reveal) {
     const el = n.parentElement;
     if (!el || !el.getBBox) return 0;
     let box;
@@ -454,11 +454,11 @@ function bridge() {
     rect.setAttribute("height", String(box.height + 4));
     el.parentNode.insertBefore(rect, el);
     el.classList.add("aidocs-svg-mark-text");
-    if (active) el.scrollIntoView({ block: "center", behavior: "smooth" });
+    if (reveal) el.scrollIntoView({ block: "center", behavior: "smooth" });
     return 1;
   }
 
-  function htmlHighlight(n, q, active, id) {
+  function htmlHighlight(n, q, active, id, reveal) {
     const d = doc();
     const raw = n.nodeValue;
     const i = raw.indexOf(q);
@@ -469,7 +469,7 @@ function bridge() {
     } else {
       r.selectNode(n);
     }
-    return highlightRange(r, active, id);
+    return highlightRange(r, active, id, reveal);
   }
 
   function rangeAtOffsets(d, nodes, start, end) {
@@ -501,21 +501,21 @@ function bridge() {
     return r;
   }
 
-  function highlightRange(r, active, id) {
+  function highlightRange(r, active, id, reveal) {
     const d = doc();
     const m = d.createElement("mark");
     m.className = "aidocs-mark" + (active ? " aidocs-mark-active" : "");
     if (id) m.dataset.cid = id;
     try {
       r.surroundContents(m);
-      if (active) m.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (reveal) m.scrollIntoView({ block: "center", behavior: "smooth" });
       return 1;
     } catch (e) {
       return 0;
     }
   }
 
-  function markAtAnchor(a, active, id) {
+  function markAtAnchor(a, active, id, reveal) {
     const d = doc();
     if (
       !d ||
@@ -531,12 +531,12 @@ function bridge() {
     if (a.quote && norm(r.toString()) !== norm(a.quote)) return 0;
 
     if (r.startContainer === r.endContainer && isSVGNode(r.startContainer)) {
-      return svgHighlight(r.startContainer, active, id);
+      return svgHighlight(r.startContainer, active, id, reveal);
     }
-    return highlightRange(r, active, id);
+    return highlightRange(r, active, id, reveal);
   }
 
-  function markQuote(q, active, id) {
+  function markQuote(q, active, id, reveal) {
     const d = doc();
     if (!d || !q) return 0;
     injectStyles();
@@ -547,21 +547,32 @@ function bridge() {
       const nText = norm(raw);
       if (nText.indexOf(nq) < 0 && raw.indexOf(q) < 0) continue;
       if (isSVGNode(n)) {
-        if (svgHighlight(n, active, id)) return 1;
+        if (svgHighlight(n, active, id, reveal)) return 1;
         continue;
       }
-      if (htmlHighlight(n, q, active, id)) return 1;
+      if (htmlHighlight(n, q, active, id, reveal)) return 1;
     }
     return 0;
   }
 
+  // The active comment's mark is scrolled into view only when the active
+  // comment actually changes. Repaints also happen for reasons unrelated to
+  // activation (a comment created, replied to, resolved or deleted all
+  // invalidate the comments query), and revealing on those yanked the reader
+  // away from where they were to the active mark.
+  let revealedActive = null;
+
   function paint(items, active) {
     clear();
     injectStyles();
+    const changed = !!active && active !== revealedActive;
+    revealedActive = active || null;
     (items || []).forEach((x) => {
       const a = x.anchor || {};
-      if (!markAtAnchor(a, x.id === active, x.id)) {
-        markQuote(a.quote || x.quote || x.selected_text, x.id === active, x.id);
+      const isActive = x.id === active;
+      const reveal = isActive && changed;
+      if (!markAtAnchor(a, isActive, x.id, reveal)) {
+        markQuote(a.quote || x.quote || x.selected_text, isActive, x.id, reveal);
       }
     });
   }
@@ -785,6 +796,9 @@ function bridge() {
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
     setupDoc = d;
     resetKVHistory();
+    // A freshly loaded document starts at the top with no marks, so the next
+    // paint should reveal the active comment again.
+    revealedActive = null;
     injectStyles();
     installAidocsAPI();
     prepareLinks();
