@@ -513,6 +513,7 @@ both. The redirect URI to register is
 | `AIDOCS_PORT`                            | `8080`      | Public app/API listen port.                                                                                                           |
 | `AIDOCS_METRICS_PORT`                    | `9090`      | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain. |
 | `AIDOCS_MIGRATE`                         | `true`      | Run database migrations on boot. Set `false` to skip.                                                                                 |
+| `AIDOCS_PRIVATE_BY_DEFAULT`              | unset       | Any non-empty value keeps documents created over MCP private. By default they are shared org-wide read-only, matching the CLI (which reads the same variable client-side). |
 | `AIDOCS_KV_EVENTS_MODE`                  | `auto`      | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                              |
 | `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset       | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.      |
 | `AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`     | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.         |

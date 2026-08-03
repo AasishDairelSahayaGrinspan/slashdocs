@@ -15,6 +15,7 @@ import (
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/aidocs/api/internal/server"
 )
 
 var expectedMCPTools = []string{
@@ -656,5 +657,42 @@ func decodeMCPResponse(t *testing.T, rr *httptest.ResponseRecorder, target any) 
 	t.Helper()
 	if err := json.Unmarshal(rr.Body.Bytes(), target); err != nil {
 		t.Fatalf("decode MCP response: %v; body=%s", err, rr.Body.String())
+	}
+}
+
+// Mirrors the CLI default from AIDOCS_PRIVATE_BY_DEFAULT's introduction: a
+// document created over MCP is shared org-wide read-only unless the server
+// opts out.
+func TestMCPCreateDocumentGrantsOrgWideViewerByDefault(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+
+	created := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "create_document", map[string]any{
+		"title": "Shared by default", "html": "<html><body>shared</body></html>",
+	}), `"org_wide_viewer_granted":true`))
+	docID := requiredMCPString(t, created, "id")
+
+	access := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "list_document_access", map[string]any{
+		"document_id": docID,
+	}), `"anyone"`)
+	if !strings.Contains(access.Text, `"viewer"`) {
+		t.Fatalf("org-wide grant is not viewer role: %s", access.Text)
+	}
+}
+
+func TestMCPCreateDocumentHonorsPrivateByDefault(t *testing.T) {
+	e := newMCPOAuthTestEnvConfig(t, func(cfg *server.Config) { cfg.PrivateByDefault = true })
+	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+
+	created := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "create_document", map[string]any{
+		"title": "Private by default", "html": "<html><body>private</body></html>",
+	}), `"org_wide_viewer_granted":false`))
+	docID := requiredMCPString(t, created, "id")
+
+	access := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "list_document_access", map[string]any{
+		"document_id": docID,
+	}), "items")
+	if strings.Contains(access.Text, `"anyone"`) {
+		t.Fatalf("private-by-default server granted org-wide access: %s", access.Text)
 	}
 }

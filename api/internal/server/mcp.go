@@ -224,34 +224,44 @@ func (a mcpAPIAdapter) delete(ctx context.Context, target string, params gin.Par
 }
 
 func (a mcpAPIAdapter) json(ctx context.Context, method, target string, value any, params gin.Params, handler gin.HandlerFunc) (*mcp.CallToolResult, error) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
-	}
-	response, err := a.call(ctx, method, target, "application/json", bytes.NewReader(body), params, handler)
+	response, err := a.jsonResponse(ctx, method, target, value, params, handler)
 	return a.result(response, err, false)
 }
 
+// jsonResponse issues a JSON API call and returns the raw response so a tool
+// can chain follow-up calls (e.g. the default share after document creation).
+func (a mcpAPIAdapter) jsonResponse(ctx context.Context, method, target string, value any, params gin.Params, handler gin.HandlerFunc) (mcpAPIResponse, error) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
+	}
+	return a.call(ctx, method, target, "application/json", bytes.NewReader(body), params, handler)
+}
+
 func (a mcpAPIAdapter) multipart(ctx context.Context, target string, fields map[string]string, html string, params gin.Params, handler gin.HandlerFunc) (*mcp.CallToolResult, error) {
+	response, err := a.multipartResponse(ctx, target, fields, html, params, handler)
+	return a.result(response, err, false)
+}
+
+func (a mcpAPIAdapter) multipartResponse(ctx context.Context, target string, fields map[string]string, html string, params gin.Params, handler gin.HandlerFunc) (mcpAPIResponse, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for key, value := range fields {
 		if err := writer.WriteField(key, value); err != nil {
-			return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+			return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 		}
 	}
 	file, err := writer.CreateFormFile("file", "document.html")
 	if err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 	}
 	if _, err := io.WriteString(file, html); err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 	}
 	if err := writer.Close(); err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 	}
-	response, err := a.call(ctx, http.MethodPost, target, writer.FormDataContentType(), &body, params, handler)
-	return a.result(response, err, false)
+	return a.call(ctx, http.MethodPost, target, writer.FormDataContentType(), &body, params, handler)
 }
 
 func (a mcpAPIAdapter) html(ctx context.Context, target string, params gin.Params, handler gin.HandlerFunc) (*mcp.CallToolResult, error) {

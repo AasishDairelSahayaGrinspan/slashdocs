@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 
@@ -63,7 +64,7 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 	})
 
 	server.AddTool(mcp.NewTool("create_document", mutationOptions(false, false,
-		mcp.WithDescription("Create a private aidocs document from complete self-contained HTML. Returns its document and initial version IDs."),
+		mcp.WithDescription("Create an aidocs document from complete self-contained HTML. Returns its document and initial version IDs. Unless this server opts out via AIDOCS_PRIVATE_BY_DEFAULT, the new document is shared org-wide read-only by default; the result reports org_wide_viewer_granted."),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Human-readable document title.")),
 		mcp.WithString("html", mcp.Required(), mcp.Description("Complete self-contained HTML, up to 10 MiB.")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -75,7 +76,11 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 		if invalid != nil {
 			return invalid, nil
 		}
-		return api.multipart(ctx, "/v1/documents", map[string]string{"title": title}, html, nil, api.handlers.createDocument)
+		response, err := api.multipartResponse(ctx, "/v1/documents", map[string]string{"title": title}, html, nil, api.handlers.createDocument)
+		if err != nil || response.status != http.StatusCreated {
+			return api.result(response, err, false)
+		}
+		return api.finishDocumentCreate(ctx, response)
 	})
 
 	server.AddTool(mcp.NewTool("rename_document", mutationOptions(true, true,
@@ -105,6 +110,40 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 		return api.delete(ctx, "/v1/documents/"+id, mcpParams("id", id), api.handlers.deleteDocument)
 	})
 
+}
+
+// finishDocumentCreate applies the org-wide read-only default to a freshly
+// created document, mirroring the CLI's post-create behavior (and its
+// AIDOCS_PRIVATE_BY_DEFAULT opt-out, which the server honors as its own env
+// var). The grant is best-effort: the document exists either way, so a grant
+// failure surfaces as a warning on the successful result, never as a lost
+// document ID.
+func (a mcpAPIAdapter) finishDocumentCreate(ctx context.Context, response mcpAPIResponse) (*mcp.CallToolResult, error) {
+	var payload map[string]any
+	if json.Unmarshal(response.body, &payload) != nil || payload == nil {
+		return a.result(response, nil, false)
+	}
+	id, _ := payload["id"].(string)
+	if id == "" || a.handlers.deps.privateByDefault {
+		payload["org_wide_viewer_granted"] = false
+		return mcp.NewToolResultJSON(payload)
+	}
+	grant, err := a.jsonResponse(ctx, http.MethodPost, "/v1/documents/"+id+"/grants", map[string]any{
+		"principal": map[string]any{"type": "anyone"},
+		"role":      "viewer",
+	}, mcpParams("id", id), a.handlers.createGrant)
+	granted := err == nil && grant.status >= http.StatusOK && grant.status < http.StatusMultipleChoices
+	payload["org_wide_viewer_granted"] = granted
+	if !granted {
+		detail := ""
+		if err != nil {
+			detail = err.Error()
+		} else {
+			detail = fmt.Sprintf("HTTP %d", grant.status)
+		}
+		payload["warning"] = "document created, but the default org-wide read-only grant failed (" + detail + "); share it explicitly with share_document"
+	}
+	return mcp.NewToolResultJSON(payload)
 }
 
 func registerMCPDocumentMoveTool(server *mcpserver.MCPServer, api mcpAPIAdapter) {

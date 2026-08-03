@@ -37,6 +37,13 @@ type mcpOAuthTestEnv struct {
 
 func newMCPOAuthTestEnv(t *testing.T) *mcpOAuthTestEnv {
 	t.Helper()
+	return newMCPOAuthTestEnvConfig(t, nil)
+}
+
+// newMCPOAuthTestEnvConfig lets a test adjust the server configuration (e.g.
+// PrivateByDefault) before the handler is built.
+func newMCPOAuthTestEnvConfig(t *testing.T, mutate func(*server.Config)) *mcpOAuthTestEnv {
+	t.Helper()
 	store := newTestStore(t)
 	for _, p := range []auth.Principal{fixtureOwner, fixtureUser} {
 		if _, err := store.UpsertGoogleUser(context.Background(), p.ID, p.Email, p.Name, "sub-"+p.ID, ""); err != nil {
@@ -45,11 +52,15 @@ func newMCPOAuthTestEnv(t *testing.T) *mcpOAuthTestEnv {
 	}
 	stateStore := auth.NewPostgresStateStore(store.Pool())
 	resource := mcpTestOrigin + "/mcp"
-	h := server.New(server.Config{
+	cfg := server.Config{
 		Environment:   "test",
 		AppOrigin:     mcpTestOrigin,
 		SessionSecret: oauthTestSigningMaterial,
-	},
+	}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	h := server.New(cfg,
 		server.WithRepository(store),
 		server.WithAuthenticator(auth.DBAuthenticator{Resolver: store, SessionSecret: oauthTestSigningMaterial}),
 		server.WithStateStore(stateStore),

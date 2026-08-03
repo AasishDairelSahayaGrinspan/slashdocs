@@ -249,6 +249,7 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		AllowedOAuthDomains: deployment.allowedOAuthDomains,
 		Deployment:          deployment.name,
 		OrgName:             deployment.orgName,
+		PrivateByDefault:    os.Getenv("AIDOCS_PRIVATE_BY_DEFAULT") != "",
 	}, options...), nil
 }
 

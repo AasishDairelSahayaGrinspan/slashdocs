@@ -27,6 +27,10 @@ type Config struct {
 	// Deployment is "public" or "org". OrgName labels the org in UI copy.
 	Deployment string
 	OrgName    string
+	// PrivateByDefault suppresses the org-wide read-only grant that MCP
+	// document creation otherwise applies, mirroring the CLI's
+	// AIDOCS_PRIVATE_BY_DEFAULT opt-out.
+	PrivateByDefault bool
 }
 
 // Server wraps the gin engine.
@@ -49,6 +53,7 @@ type dependencies struct {
 	allowedOAuthDomains []string
 	deployment          string
 	orgName             string
+	privateByDefault    bool
 	readinessChecks     []readinessCheck
 	documentKVEvents    kvevents.Subscriber
 }
@@ -105,6 +110,7 @@ func New(cfg Config, opts ...Option) *Server {
 		allowedOAuthDomains: cfg.AllowedOAuthDomains,
 		deployment:          cfg.Deployment,
 		orgName:             cfg.OrgName,
+		privateByDefault:    cfg.PrivateByDefault,
 	}
 	for _, opt := range opts {
 		opt(&deps)
