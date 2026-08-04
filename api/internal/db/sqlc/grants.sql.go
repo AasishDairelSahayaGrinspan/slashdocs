@@ -311,10 +311,11 @@ func (q *Queries) UpdateResourceGrantRole(ctx context.Context, arg UpdateResourc
 	return i, err
 }
 
-const upsertResourceGrant = `-- name: UpsertResourceGrant :exec
+const upsertResourceGrant = `-- name: UpsertResourceGrant :one
 INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8)
 ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id
+RETURNING id
 `
 
 type UpsertResourceGrantParams struct {
@@ -328,8 +329,11 @@ type UpsertResourceGrantParams struct {
 	GrantedByUserID string
 }
 
-func (q *Queries) UpsertResourceGrant(ctx context.Context, arg UpsertResourceGrantParams) error {
-	_, err := q.db.Exec(ctx, upsertResourceGrant,
+// A revoked grant for the same (resource, principal) is resurrected by the
+// conflict clause, keeping its ORIGINAL id; return the persisted id so
+// callers never hand out an id that was never written.
+func (q *Queries) UpsertResourceGrant(ctx context.Context, arg UpsertResourceGrantParams) (string, error) {
+	row := q.db.QueryRow(ctx, upsertResourceGrant,
 		arg.ID,
 		arg.ResourceType,
 		arg.ResourceID,
@@ -339,5 +343,7 @@ func (q *Queries) UpsertResourceGrant(ctx context.Context, arg UpsertResourceGra
 		arg.GrantedByType,
 		arg.GrantedByUserID,
 	)
-	return err
+	var id string
+	err := row.Scan(&id)
+	return id, err
 }

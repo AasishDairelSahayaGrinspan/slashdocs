@@ -1,7 +1,11 @@
--- name: UpsertResourceGrant :exec
+-- name: UpsertResourceGrant :one
+-- A revoked grant for the same (resource, principal) is resurrected by the
+-- conflict clause, keeping its ORIGINAL id; return the persisted id so
+-- callers never hand out an id that was never written.
 INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id)
 VALUES(@id,@resource_type,@resource_id,@principal_type,@principal_id,@role,@granted_by_type,@granted_by_user_id)
-ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id;
+ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id
+RETURNING id;
 
 -- name: ListResourceGrants :many
 SELECT

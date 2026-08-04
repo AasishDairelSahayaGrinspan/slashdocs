@@ -89,20 +89,21 @@ func e2eMux(t *testing.T) *http.ServeMux {
 	})
 	mux.HandleFunc("/v1/documents/doc_1/access", jsonH(t, map[string]any{"items": []any{map[string]any{"effective_role": "viewer", "principal": map[string]any{"type": "user", "id": "usr_2"}}}}))
 	mux.HandleFunc("/v1/documents/doc_1/grants", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-			writeTestJSON(t, w, map[string]any{"items": []any{}})
-			return
-		}
 		if r.Method != "POST" {
 			t.Fatalf("doc grant collection used unexpected method: %s", r.Method)
 		}
 		writeTestJSON(t, w, map[string]any{"id": "gr_1"})
 	})
+	// Like the real server: no GET /grants route; effective access lists the
+	// owner with an ownership source that carries NO grant_id.
+	mux.HandleFunc("/v1/documents/doc_new/access", jsonH(t, map[string]any{"items": []any{map[string]any{
+		"effective_role": "owner",
+		"principal":      map[string]any{"type": "user", "id": "usr_1"},
+		"sources": []any{map[string]any{
+			"resource_type": "document", "resource_id": "doc_new", "role": "owner",
+		}},
+	}}}))
 	mux.HandleFunc("/v1/documents/doc_new/grants", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == "GET" {
-			writeTestJSON(t, w, map[string]any{"items": []any{}})
-			return
-		}
 		if r.Method != "POST" {
 			t.Fatalf("new doc grant used wrong method: %s", r.Method)
 		}
@@ -396,8 +397,18 @@ func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents/doc_new/grants":
 			granted = true
 			writeTestJSON(t, w, map[string]any{"id": "gr_new"})
-		case r.Method == http.MethodGet && r.URL.Path == "/v1/documents/doc_new/grants":
-			writeTestJSON(t, w, map[string]any{"items": []any{}})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/documents/doc_new/access":
+			// Owner-only access, exactly as the live server reports for a
+			// fresh private document: non-empty items whose sources carry no
+			// grant_id. Counting raw items here (the old bug) suppresses the
+			// nudge on every real server.
+			writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{
+				"effective_role": "owner",
+				"principal":      map[string]any{"type": "user", "id": "usr_1"},
+				"sources": []any{map[string]any{
+					"resource_type": "document", "resource_id": "doc_new", "role": "owner",
+				}},
+			}}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/config":
 			writeTestJSON(t, w, map[string]any{"org_name": "Acme", "everyone_label": "Acme"})
 		default:

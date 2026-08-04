@@ -106,6 +106,39 @@ func TestCommenterCanManageDocumentGrants(t *testing.T) {
 	assertStatus(t, rr, http.StatusNoContent)
 }
 
+// TestGrantReAddAfterRevokeReturnsPersistedID locks in that re-granting a
+// previously revoked (resource, principal) pair returns the id of the
+// resurrected row: the id handed back by create must round-trip through
+// revoke, or every add->revoke->add sequence strands an unusable id.
+func TestGrantReAddAfterRevokeReturnsPersistedID(t *testing.T) {
+	e := newTestEnv(t)
+	owner := map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	}
+	body := fmt.Sprintf(`{
+	  "principal": { "type": "service_account", "id": %q },
+	  "role": "viewer"
+	}`, e.sa.ID)
+
+	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/grants", body, owner)
+	assertStatus(t, rr, http.StatusCreated)
+	firstID := jsonField(t, rr.Body.Bytes(), "id")
+
+	rr = do(t, e.h, http.MethodDelete, "/v1/documents/"+e.doc.ID+"/grants/"+firstID, "", owner)
+	assertStatus(t, rr, http.StatusNoContent)
+
+	rr = do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/grants", body, owner)
+	assertStatus(t, rr, http.StatusCreated)
+	secondID := jsonField(t, rr.Body.Bytes(), "id")
+	if secondID != firstID {
+		t.Fatalf("re-add returned id %q, want resurrected grant %q", secondID, firstID)
+	}
+
+	rr = do(t, e.h, http.MethodDelete, "/v1/documents/"+e.doc.ID+"/grants/"+secondID, "", owner)
+	assertStatus(t, rr, http.StatusNoContent)
+}
+
 func TestViewerCannotManageDocumentGrants(t *testing.T) {
 	e := newTestEnv(t)
 	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/grants", fmt.Sprintf(`{

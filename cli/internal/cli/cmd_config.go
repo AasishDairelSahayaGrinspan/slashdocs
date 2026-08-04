@@ -99,20 +99,36 @@ func printOrgWideViewerNudge(out io.Writer, g *globals, docID string) error {
 	return nil
 }
 
+// documentHasGrants reports whether the document has any explicit grant. It
+// reads the effective-access listing (the server exposes no GET /grants
+// route) and counts only sources carrying a grant_id: ownership rows have
+// none, so a freshly created private document correctly reads as grant-free.
+// Errors fail closed (true) so the nudge never nags when state is unknown.
 func documentHasGrants(g *globals, docID string) bool {
 	cl, err := client(g)
 	if err != nil {
 		return true
 	}
-	b, err := cl.do("GET", apiPath("/v1/documents/%s/grants", docID), nil, "")
+	b, err := cl.do("GET", apiPath("/v1/documents/%s/access", docID), nil, "")
 	if err != nil {
 		return true
 	}
 	var resp struct {
-		Items []any `json:"items"`
+		Items []struct {
+			Sources []struct {
+				GrantID string `json:"grant_id"`
+			} `json:"sources"`
+		} `json:"items"`
 	}
 	if json.Unmarshal(b, &resp) != nil {
 		return true
 	}
-	return len(resp.Items) > 0
+	for _, item := range resp.Items {
+		for _, source := range item.Sources {
+			if source.GrantID != "" {
+				return true
+			}
+		}
+	}
+	return false
 }

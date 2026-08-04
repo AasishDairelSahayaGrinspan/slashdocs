@@ -13,9 +13,9 @@ import (
 // fields not listed here are omitted from the compact view (use --json for the
 // full payload).
 var displayFields = []string{
-	"id", "document_id", "title", "name", "email", "type", "role", "status",
-	"disabled", "current_version_id", "number", "sha256", "token",
-	"selected_text", "body", "url",
+	"id", "document_id", "title", "name", "email", "type", "role",
+	"effective_role", "status", "disabled", "current_version_id", "number",
+	"sha256", "token", "selected_text", "body", "url",
 }
 
 // render writes b to out, honoring --quiet and --json. It is the single output
@@ -213,9 +213,19 @@ func compactRow(m map[string]any) string {
 	if m == nil {
 		return "OK"
 	}
+	// Search rows nest the entity under "document" or "folder"; fall back to
+	// that nested map so compact rows show the id and title, not just "type".
+	nested, ok := value(m, "document").(map[string]any)
+	if !ok {
+		nested, _ = value(m, "folder").(map[string]any)
+	}
 	parts := []string{}
 	for _, k := range displayFields {
-		if v := value(m, k); v != nil && fmt.Sprint(v) != "" {
+		v := value(m, k)
+		if v == nil {
+			v = value(nested, k)
+		}
+		if v != nil && fmt.Sprint(v) != "" {
 			parts = append(parts, fmt.Sprintf("%s=%v", k, v))
 		}
 	}
