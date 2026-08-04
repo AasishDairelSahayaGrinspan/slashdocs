@@ -129,9 +129,10 @@ are also not MCP tools.
 
 MCP mirrors the CLI's authoring conventions: `get_authoring_guidelines`
 serves the same sectioned guidelines as `aidocs guidelines` (index first,
-then per-section detail), and `create_document` shares new documents
-org-wide read-only by default unless the server sets
-`AIDOCS_PRIVATE_BY_DEFAULT`.
+then per-section detail). Default sharing of new documents is
+server-controlled: org deployments can set `AIDOCS_DEFAULT_DOC_PERMISSION`
+to `viewer`, `commenter`, or `editor` (default `private`), and both MCP and
+CLI creates report the applied `default_grant` so the share can be revoked.
 
 ## CLI quickstart
 

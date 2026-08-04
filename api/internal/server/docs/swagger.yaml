@@ -260,6 +260,8 @@ definitions:
     type: object
   server.configResponse:
     properties:
+      default_doc_permission:
+        type: string
       deployment:
         type: string
       everyone_label:
@@ -295,6 +297,8 @@ definitions:
     properties:
       current_version_id:
         type: string
+      default_grant:
+        $ref: '#/definitions/server.defaultGrant'
       id:
         type: string
     type: object
@@ -339,6 +343,20 @@ definitions:
         type: integer
       sha256:
         type: string
+    type: object
+  server.defaultGrant:
+    properties:
+      grant_id:
+        type: string
+      principal:
+        $ref: '#/definitions/server.defaultGrantPrincipal'
+      role:
+        $ref: '#/definitions/repo.Role'
+    type: object
+  server.defaultGrantPrincipal:
+    properties:
+      type:
+        $ref: '#/definitions/auth.PrincipalType'
     type: object
   server.discoveryAuth:
     properties:
@@ -787,6 +805,11 @@ paths:
         name: file
         required: true
         type: file
+      - description: 'Default sharing applied at create: viewer, commenter, editor
+          or private. Overrides the server-wide default.'
+        in: formData
+        name: default_permission
+        type: string
       produces:
       - application/json
       responses:

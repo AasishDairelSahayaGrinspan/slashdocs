@@ -38,6 +38,32 @@ func registerMCPRoutes(engine *gin.Engine, deps dependencies) {
 	engine.Any("/mcp", gin.WrapH(newMCPHTTPHandler(deps)))
 }
 
+// authenticateMCPRequest resolves the caller for one transport request,
+// writing the full error response itself when the request cannot proceed.
+// A nil return means the response has been written.
+func authenticateMCPRequest(w http.ResponseWriter, r *http.Request, authenticator auth.MCPAuthenticator, unauthorizedChallenge func(*http.Request) string, started time.Time) *auth.Principal {
+	if auth.BearerFromHeader(r.Header.Get("Authorization")) == "" {
+		observeMCPRequest("transport", "auth_error", time.Since(started))
+		mcpUnauthorized(w, r, unauthorizedChallenge)
+		return nil
+	}
+	principal, err := authenticator.Authenticate(r)
+	if err != nil && !errors.Is(err, auth.ErrUnauthorized) {
+		slog.ErrorContext(r.Context(), "MCP authentication failed", "error", err)
+		observeMCPRequest("transport", "transport_error", time.Since(started))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(errorResponse("internal", "internal server error", nil))
+		return nil
+	}
+	if err != nil || principal == nil {
+		observeMCPRequest("transport", "auth_error", time.Since(started))
+		mcpUnauthorized(w, r, unauthorizedChallenge)
+		return nil
+	}
+	return principal
+}
+
 func newMCPHTTPHandler(deps dependencies) http.Handler {
 	metrics := newMCPMetricRecorder()
 	protocol := mcpserver.NewMCPServer(
@@ -72,23 +98,8 @@ func newMCPHTTPHandler(deps dependencies) http.Handler {
 			http.Error(w, "cross-origin MCP requests are not allowed", http.StatusForbidden)
 			return
 		}
-		if auth.BearerFromHeader(r.Header.Get("Authorization")) == "" {
-			observeMCPRequest("transport", "auth_error", time.Since(started))
-			mcpUnauthorized(w, r, unauthorizedChallenge)
-			return
-		}
-		principal, err := authenticator.Authenticate(r)
-		if err != nil && !errors.Is(err, auth.ErrUnauthorized) {
-			slog.ErrorContext(r.Context(), "MCP authentication failed", "error", err)
-			observeMCPRequest("transport", "transport_error", time.Since(started))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(errorResponse("internal", "internal server error", nil))
-			return
-		}
-		if err != nil || principal == nil {
-			observeMCPRequest("transport", "auth_error", time.Since(started))
-			mcpUnauthorized(w, r, unauthorizedChallenge)
+		principal := authenticateMCPRequest(w, r, authenticator, unauthorizedChallenge, started)
+		if principal == nil {
 			return
 		}
 		var requestBody *mcpRequestBody

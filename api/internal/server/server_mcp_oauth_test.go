@@ -41,7 +41,7 @@ func newMCPOAuthTestEnv(t *testing.T) *mcpOAuthTestEnv {
 }
 
 // newMCPOAuthTestEnvConfig lets a test adjust the server configuration (e.g.
-// PrivateByDefault) before the handler is built.
+// DefaultDocPermission) before the handler is built.
 func newMCPOAuthTestEnvConfig(t *testing.T, mutate func(*server.Config)) *mcpOAuthTestEnv {
 	t.Helper()
 	store := newTestStore(t)

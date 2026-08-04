@@ -229,34 +229,15 @@ func compactRow(m map[string]any) string {
 			parts = append(parts, fmt.Sprintf("%s=%v", k, v))
 		}
 	}
-	if owner, ok := value(m, "owner").(map[string]any); ok {
-		if label := principalLabel(owner); label != "" {
-			parts = append(parts, "owner="+label)
-		}
-	}
-	if principal, ok := value(m, "principal").(map[string]any); ok {
-		if label := principalLabel(principal); label != "" {
-			parts = append(parts, "principal="+label)
-		}
-	}
-	if createdBy, ok := value(m, "created_by").(map[string]any); ok {
-		if label := principalLabel(createdBy); label != "" {
-			parts = append(parts, "created_by="+label)
-		}
-	}
-	// Effective-access rows carry their explicit grants in sources; surface
-	// the grant ids since revoking requires them.
-	if sources, ok := value(m, "sources").([]any); ok {
-		ids := []string{}
-		for _, raw := range sources {
-			source, _ := raw.(map[string]any)
-			if id, _ := value(source, "grant_id").(string); id != "" {
-				ids = append(ids, id)
+	for _, key := range []string{"owner", "principal", "created_by"} {
+		if p, ok := value(m, key).(map[string]any); ok {
+			if label := principalLabel(p); label != "" {
+				parts = append(parts, key+"="+label)
 			}
 		}
-		if len(ids) > 0 {
-			parts = append(parts, "grant_id="+strings.Join(ids, ","))
-		}
+	}
+	if ids := sourceGrantIDs(m); len(ids) > 0 {
+		parts = append(parts, "grant_id="+strings.Join(ids, ","))
 	}
 	if mentions := mentionLabels(value(m, "mentions")); len(mentions) > 0 {
 		parts = append(parts, "mentions="+strings.Join(mentions, ","))
@@ -265,6 +246,24 @@ func compactRow(m map[string]any) string {
 		return fmt.Sprintf("%v", m)
 	}
 	return strings.Join(parts, "  ")
+}
+
+// sourceGrantIDs collects explicit grant ids from an effective-access row's
+// sources; ownership sources carry none. Revoking a grant requires its id, so
+// compact access rows must surface them.
+func sourceGrantIDs(m map[string]any) []string {
+	sources, ok := value(m, "sources").([]any)
+	if !ok {
+		return nil
+	}
+	ids := []string{}
+	for _, raw := range sources {
+		source, _ := raw.(map[string]any)
+		if id, _ := value(source, "grant_id").(string); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
 }
 
 func principalLabel(p map[string]any) string {

@@ -414,6 +414,12 @@ const docTemplate = `{
                         "name": "file",
                         "in": "formData",
                         "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Default sharing applied at create: viewer, commenter, editor or private. Overrides the server-wide default.",
+                        "name": "default_permission",
+                        "in": "formData"
                     }
                 ],
                 "responses": {
@@ -1799,6 +1805,9 @@ const docTemplate = `{
         "server.configResponse": {
             "type": "object",
             "properties": {
+                "default_doc_permission": {
+                    "type": "string"
+                },
                 "deployment": {
                     "type": "string"
                 },
@@ -1852,6 +1861,9 @@ const docTemplate = `{
             "properties": {
                 "current_version_id": {
                     "type": "string"
+                },
+                "default_grant": {
+                    "$ref": "#/definitions/server.defaultGrant"
                 },
                 "id": {
                     "type": "string"
@@ -1919,6 +1931,28 @@ const docTemplate = `{
                 },
                 "sha256": {
                     "type": "string"
+                }
+            }
+        },
+        "server.defaultGrant": {
+            "type": "object",
+            "properties": {
+                "grant_id": {
+                    "type": "string"
+                },
+                "principal": {
+                    "$ref": "#/definitions/server.defaultGrantPrincipal"
+                },
+                "role": {
+                    "$ref": "#/definitions/repo.Role"
+                }
+            }
+        },
+        "server.defaultGrantPrincipal": {
+            "type": "object",
+            "properties": {
+                "type": {
+                    "$ref": "#/definitions/auth.PrincipalType"
                 }
             }
         },

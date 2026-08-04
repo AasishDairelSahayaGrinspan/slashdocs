@@ -27,10 +27,10 @@ type Config struct {
 	// Deployment is "public" or "org". OrgName labels the org in UI copy.
 	Deployment string
 	OrgName    string
-	// PrivateByDefault suppresses the org-wide read-only grant that MCP
-	// document creation otherwise applies, mirroring the CLI's
-	// AIDOCS_PRIVATE_BY_DEFAULT opt-out.
-	PrivateByDefault bool
+	// DefaultDocPermission is the role granted to the "anyone" principal on
+	// newly created documents when the request does not override it via the
+	// default_permission form field. repo.RoleNone means private: no grant.
+	DefaultDocPermission repo.Role
 }
 
 // Server wraps the gin engine.
@@ -42,20 +42,20 @@ type readinessCheck struct {
 }
 
 type dependencies struct {
-	authenticator       auth.Authenticator
-	repository          repo.Repository
-	stateStore          auth.LoginStateStore
-	oidc                auth.OIDC
-	oidcProviderName    string
-	sessionSecret       string
-	appOrigin           string
-	renderOrigin        string
-	allowedOAuthDomains []string
-	deployment          string
-	orgName             string
-	privateByDefault    bool
-	readinessChecks     []readinessCheck
-	documentKVEvents    kvevents.Subscriber
+	authenticator        auth.Authenticator
+	repository           repo.Repository
+	stateStore           auth.LoginStateStore
+	oidc                 auth.OIDC
+	oidcProviderName     string
+	sessionSecret        string
+	appOrigin            string
+	renderOrigin         string
+	allowedOAuthDomains  []string
+	deployment           string
+	orgName              string
+	defaultDocPermission repo.Role
+	readinessChecks      []readinessCheck
+	documentKVEvents     kvevents.Subscriber
 }
 
 // Option configures the Server.
@@ -100,17 +100,17 @@ func (denyAllAuthenticator) Authenticate(_ *http.Request) (*auth.Principal, erro
 func New(cfg Config, opts ...Option) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	deps := dependencies{
-		authenticator:       denyAllAuthenticator{},
-		stateStore:          auth.NewStateStore(),
-		oidc:                cfg.OIDC,
-		oidcProviderName:    cfg.OIDCProviderName,
-		sessionSecret:       cfg.SessionSecret,
-		appOrigin:           cfg.AppOrigin,
-		renderOrigin:        cfg.RenderOrigin,
-		allowedOAuthDomains: cfg.AllowedOAuthDomains,
-		deployment:          cfg.Deployment,
-		orgName:             cfg.OrgName,
-		privateByDefault:    cfg.PrivateByDefault,
+		authenticator:        denyAllAuthenticator{},
+		stateStore:           auth.NewStateStore(),
+		oidc:                 cfg.OIDC,
+		oidcProviderName:     cfg.OIDCProviderName,
+		sessionSecret:        cfg.SessionSecret,
+		appOrigin:            cfg.AppOrigin,
+		renderOrigin:         cfg.RenderOrigin,
+		allowedOAuthDomains:  cfg.AllowedOAuthDomains,
+		deployment:           cfg.Deployment,
+		orgName:              cfg.OrgName,
+		defaultDocPermission: cfg.DefaultDocPermission,
 	}
 	for _, opt := range opts {
 		opt(&deps)

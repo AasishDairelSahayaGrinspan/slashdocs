@@ -223,7 +223,13 @@ export const api = {
     const fd = new FormData();
     fd.set("title", title);
     fd.set("file", file);
-    return request<{ id: string; current_version_id: string }>("/v1/documents", {
+    return request<{
+      id: string;
+      current_version_id: string;
+      // Present when the server applied its configured default sharing
+      // grant to the new document.
+      default_grant?: { grant_id: string; role: string };
+    }>("/v1/documents", {
       method: "POST",
       body: fd,
     });
