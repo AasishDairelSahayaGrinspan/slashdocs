@@ -37,7 +37,6 @@ import {
   COMMENT_FILTER_ALL,
   COMMENT_STATUS,
   DEFAULT_COMMENT_FILTER,
-  PLACEMENT_STATUS,
   type CommentFilter,
 } from "@/lib/constants";
 import { useDoc } from "./doc-context";
@@ -449,7 +448,7 @@ export function Comments() {
 
 function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   const q = useQueryClient();
-  const { activeComment, setActiveComment, principal } = useDoc();
+  const { activeComment, setActiveComment, principal, unanchoredComments } = useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
   useEffect(() => {
@@ -498,12 +497,11 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           <Badge variant="accent">open</Badge>
         )}
       </div>
-      {c.current_placement?.status &&
-        c.current_placement.status !== PLACEMENT_STATUS.attached && (
-          <Badge variant="warning" className="mb-2">
-            {c.current_placement.status}
-          </Badge>
-        )}
+      {unanchoredComments.has(c.id) && (
+        <Badge variant="warning" className="mb-2">
+          highlight not found
+        </Badge>
+      )}
       {c.selected_text && (
         <blockquote className="mb-2 border-l-2 border-[var(--color-border-strong)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
           {c.selected_text}
