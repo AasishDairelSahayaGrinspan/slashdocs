@@ -128,7 +128,9 @@ export function RenderFrame() {
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
   // Zoom is anchored to the cursor position (magnifying-glass feel).
-  const MIN_SCALE = 0.25;
+  // Zoom-in only: shrinking below 100% leaves dead space around the document
+  // and reads as a broken layout, so 1 is the floor.
+  const MIN_SCALE = 1;
   const MAX_SCALE = 4;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
