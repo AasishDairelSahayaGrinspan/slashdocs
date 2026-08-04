@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -23,18 +24,31 @@ func requireEmbeddedBridge(t *testing.T) string {
 	return bridgeJSSource
 }
 
+// currentBridgeSourceHash runs the canonical fingerprint helper (the same one
+// `make backend` and the Docker build use), so the expected hash can never
+// drift from the generated one by way of a duplicated implementation. Node is
+// guaranteed wherever this check must be authoritative: CI installs it before
+// the Go step and `make test` builds the frontend first.
 func currentBridgeSourceHash(t *testing.T) string {
 	t.Helper()
 	_, filename, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("resolve bridge test source path")
 	}
-	source, err := os.ReadFile(filepath.Join(filepath.Dir(filename), "..", "..", "..", "frontend", "bridge", "bridge.ts"))
+	cmd := exec.Command("node", "scripts/bridge-source-hash.mjs")
+	cmd.Dir = filepath.Join(filepath.Dir(filename), "..", "..", "..", "frontend")
+	out, err := cmd.Output()
 	if err != nil {
-		t.Fatalf("read bridge.ts: %v", err)
+		if os.Getenv("CI") != "" {
+			t.Fatalf("compute bridge source fingerprint: %v", err)
+		}
+		t.Skipf("bridge fingerprint helper unavailable (%v); make test runs the frontend build first", err)
 	}
-	sum := sha256.Sum256(source)
-	return hex.EncodeToString(sum[:])
+	hash := strings.TrimSpace(string(out))
+	if len(hash) != sha256.Size*2 {
+		t.Fatalf("unexpected bridge fingerprint output %q", hash)
+	}
+	return hash
 }
 
 func requireBridgePattern(t *testing.T, pattern string) {
