@@ -1,3 +1,9 @@
+import type { RenderedTextWithBrPositions } from "./anchoring/rendered-text.ts";
+import { renderedTextOf } from "./anchoring/rendered-text.ts";
+import { describeAnchor, resolveAnchor } from "./anchoring/index.ts";
+import type { CommentAnchor } from "./anchoring/types.ts";
+import { clearHighlights, highlightRange } from "./highlight.ts";
+
 type KVItems = Record<string, unknown>;
 
 interface KVPatch {
@@ -37,21 +43,14 @@ interface AidocsPublicAPI {
   [key: string]: unknown;
 }
 
-interface Window {
-  __AIDOCS_APP_ORIGIN__?: string;
-  __aidocsKVHandlers?: KVHandlers;
-  __aidocsKVQueue?: QueuedKVOperation[];
-  aidocs?: AidocsPublicAPI;
-  CustomEvent: typeof CustomEvent;
-}
-
-interface CommentAnchor {
-  quote?: string;
-  prefix?: string;
-  suffix?: string;
-  dom_path?: string;
-  start_offset?: number;
-  end_offset?: number;
+declare global {
+  interface Window {
+    __AIDOCS_APP_ORIGIN__?: string;
+    __aidocsKVHandlers?: KVHandlers;
+    __aidocsKVQueue?: QueuedKVOperation[];
+    aidocs?: AidocsPublicAPI;
+    CustomEvent: typeof CustomEvent;
+  }
 }
 
 interface PaintItem {
@@ -66,7 +65,6 @@ type Theme = "dark" | "light";
 (function bridge(): void {
   const appOrigin = window.__AIDOCS_APP_ORIGIN__ || "*";
   const frame = document.getElementById("aidocs-doc") as HTMLIFrameElement;
-  const svgNS = "http://www.w3.org/2000/svg";
   let kvRequestID = 0;
   const kvPending: Record<string, KVPendingRequest> = {};
   const kvRequestTimeoutMS = 10000;
@@ -462,17 +460,6 @@ type Theme = "dark" | "light";
       .catch(() => {});
   }
 
-  function textNodes(root: Node): Text[] {
-    const w = (doc() || document).createTreeWalker(root, NodeFilter.SHOW_TEXT, {
-      acceptNode: (n) =>
-        n.nodeValue!.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT,
-    });
-    const a: Text[] = [];
-    let n: Node | null;
-    while ((n = w.nextNode())) a.push(n as Text);
-    return a;
-  }
-
   function injectStyles(): void {
     const d = doc();
     if (!d || d.getElementById("aidocs-highlight-style")) return;
@@ -483,177 +470,111 @@ type Theme = "dark" | "light";
     (d.head || d.documentElement).appendChild(s);
   }
 
-  function clear(): void {
-    const d = doc();
-    if (!d) return;
-    d.querySelectorAll("mark.aidocs-mark").forEach((m) =>
-      m.replaceWith(...m.childNodes),
+  // The last paint payload, kept so document mutations can re-anchor without
+  // a round-trip to the parent (documents that render content with JS after
+  // load would otherwise never get their highlights).
+  let lastPaint: { items: PaintItem[]; active: string | null } | null = null;
+  let mutationObserver: MutationObserver | null = null;
+  let observedRoot: Node | null = null;
+  let mutationRepaintTimer: number | null = null;
+  let mutationRepaintDeadline = 0;
+  const mutationObserverOptions: MutationObserverInit = {
+    childList: true,
+    characterData: true,
+    subtree: true,
+  };
+
+  // Debounce mutation-triggered repaints (trailing 250ms, forced within 1s)
+  // so a burst of DOM writes anchors once, and a document that mutates
+  // continuously still repaints at a bounded rate.
+  function scheduleMutationRepaint(): void {
+    if (!lastPaint || !lastPaint.items.length) return;
+    const now = Date.now();
+    if (!mutationRepaintDeadline) mutationRepaintDeadline = now + 1000;
+    clearTimeout(mutationRepaintTimer ?? undefined);
+    mutationRepaintTimer = setTimeout(
+      () => {
+        mutationRepaintTimer = null;
+        mutationRepaintDeadline = 0;
+        if (lastPaint) paint(lastPaint.items, lastPaint.active, false);
+      },
+      Math.max(0, Math.min(now + 250, mutationRepaintDeadline) - now),
     );
-    d.querySelectorAll(".aidocs-svg-mark-rect").forEach((r) => r.remove());
-    d.querySelectorAll<HTMLElement>(".aidocs-svg-mark-text").forEach((t) => {
-      t.classList.remove("aidocs-svg-mark-text");
-      delete t.dataset.cid;
-    });
-    d.body && d.body.normalize();
   }
 
-  function norm(s: string | null | undefined): string {
-    return (s || "").replace(/\s+/g, " ").trim();
+  // Our own painting mutates the document (splitText, mark wrapping, svg
+  // rects, normalize); suspend observation around it so only the document's
+  // own changes trigger re-anchoring. Pending external records are drained
+  // first — disconnect() would silently discard them.
+  function suspendMutationObserver(): void {
+    if (!mutationObserver) return;
+    if (mutationObserver.takeRecords().length) scheduleMutationRepaint();
+    mutationObserver.disconnect();
   }
 
-  function isSVGNode(n: Node | null): boolean {
-    return !!(n && n.parentElement && n.parentElement.namespaceURI === svgNS);
-  }
-
-  function svgHighlight(n: Text, active: boolean, id?: string): number {
-    const el = n.parentElement as SVGGraphicsElement | null;
-    if (!el || !el.getBBox) return 0;
-    let box;
-    try {
-      box = el.getBBox();
-    } catch (e) {
-      return 0;
-    }
-    if (!box || box.width <= 0 || box.height <= 0) return 0;
-    const rect = el.ownerDocument.createElementNS(svgNS, "rect");
-    rect.classList.add("aidocs-svg-mark-rect");
-    if (active) rect.classList.add("aidocs-mark-active");
-    if (id) {
-      rect.dataset.cid = id;
-      el.dataset.cid = id;
-    }
-    rect.setAttribute("x", String(box.x - 3));
-    rect.setAttribute("y", String(box.y - 2));
-    rect.setAttribute("width", String(box.width + 6));
-    rect.setAttribute("height", String(box.height + 4));
-    el.parentNode!.insertBefore(rect, el);
-    el.classList.add("aidocs-svg-mark-text");
-    if (active) el.scrollIntoView({ block: "center", behavior: "smooth" });
-    return 1;
-  }
-
-  function htmlHighlight(n: Text, q: string, active: boolean, id?: string): number {
-    const d = doc();
-    const raw = n.nodeValue!;
-    const i = raw.indexOf(q);
-    const r = d!.createRange();
-    if (i >= 0) {
-      r.setStart(n, i);
-      r.setEnd(n, Math.min(raw.length, i + q.length));
-    } else {
-      r.selectNode(n);
-    }
-    return highlightRange(r, active, id);
-  }
-
-  function rangeAtOffsets(
-    d: Document,
-    nodes: Text[],
-    start: number,
-    end: number,
-  ): Range | null {
-    if (start < 0 || end <= start) return null;
-    let pos = 0;
-    let startNode: Text | null = null;
-    let startOffset = 0;
-    let endNode: Text | null = null;
-    let endOffset = 0;
-    for (const n of nodes) {
-      const len = n.nodeValue!.length;
-      const ns = pos;
-      const ne = pos + len;
-      if (!startNode && start >= ns && start <= ne) {
-        startNode = n;
-        startOffset = Math.min(len, Math.max(0, start - ns));
-      }
-      if (startNode && end >= ns && end <= ne) {
-        endNode = n;
-        endOffset = Math.min(len, Math.max(0, end - ns));
-        break;
-      }
-      pos = ne;
-    }
-    if (!startNode || !endNode) return null;
-    const r = d.createRange();
-    r.setStart(startNode, startOffset);
-    r.setEnd(endNode, endOffset);
-    return r;
-  }
-
-  function highlightRange(r: Range, active: boolean, id?: string): number {
-    const d = doc();
-    const m = d!.createElement("mark");
-    m.className = "aidocs-mark" + (active ? " aidocs-mark-active" : "");
-    if (id) m.dataset.cid = id;
-    try {
-      r.surroundContents(m);
-      if (active) m.scrollIntoView({ block: "center", behavior: "smooth" });
-      return 1;
-    } catch (e) {
-      return 0;
+  function resumeMutationObserver(): void {
+    if (mutationObserver && observedRoot) {
+      mutationObserver.observe(observedRoot, mutationObserverOptions);
     }
   }
 
-  function markAtAnchor(
-    a: CommentAnchor | null | undefined,
-    active: boolean,
-    id?: string,
-  ): number {
-    const d = doc();
-    if (
-      !d ||
-      !a ||
-      typeof a.start_offset !== "number" ||
-      typeof a.end_offset !== "number"
-    ) {
-      return 0;
-    }
-    const nodes = textNodes(d.body);
-    const r = rangeAtOffsets(d, nodes, a.start_offset, a.end_offset);
-    if (!r) return 0;
-    if (a.quote && norm(r.toString()) !== norm(a.quote)) return 0;
-
-    if (r.startContainer === r.endContainer && isSVGNode(r.startContainer)) {
-      return svgHighlight(r.startContainer as Text, active, id);
-    }
-    return highlightRange(r, active, id);
-  }
-
-  function markQuote(
-    q: string | null | undefined,
-    active: boolean,
-    id?: string,
-  ): number {
-    const d = doc();
-    if (!d || !q) return 0;
-    injectStyles();
-    const nq = norm(q);
-    if (!nq) return 0;
-    for (const n of textNodes(d.body)) {
-      const raw = n.nodeValue!;
-      const nText = norm(raw);
-      if (nText.indexOf(nq) < 0 && raw.indexOf(q) < 0) continue;
-      if (isSVGNode(n)) {
-        if (svgHighlight(n, active, id)) return 1;
-        continue;
-      }
-      if (htmlHighlight(n, q, active, id)) return 1;
-    }
-    return 0;
+  function observeMutations(d: Document): void {
+    if (mutationObserver) mutationObserver.disconnect();
+    mutationObserver = new MutationObserver(scheduleMutationRepaint);
+    // Observe the root element rather than body so a script replacing
+    // document.body entirely is still seen.
+    observedRoot = d.documentElement;
+    mutationObserver.observe(observedRoot, mutationObserverOptions);
   }
 
   function paint(
     items: PaintItem[] | null | undefined,
     active: string | null | undefined,
+    scroll = true,
   ): void {
-    clear();
-    injectStyles();
-    (items || []).forEach((x) => {
-      const a = x.anchor || {};
-      if (!markAtAnchor(a, x.id === active, x.id)) {
-        markQuote(a.quote || x.quote || x.selected_text, x.id === active, x.id);
+    const d = doc();
+    const list = items || [];
+    lastPaint = { items: list, active: typeof active === "string" ? active : null };
+    const results: { id: string; anchored: boolean }[] = [];
+    const body = d && d.body;
+    if (d && body) {
+      suspendMutationObserver();
+      try {
+        clearHighlights(d);
+        injectStyles();
+        // One rendered-text snapshot serves every comment in this paint: marks
+        // add no text, so wrapping earlier comments never invalidates it.
+        let rendered: RenderedTextWithBrPositions | undefined;
+        const getRenderedText = () => (rendered ??= renderedTextOf(body));
+        list.forEach((x) => {
+          let painted: boolean;
+          // A single off-contract item must not abort the whole paint: catch
+          // per comment and report it unanchored instead.
+          try {
+            const anchor: CommentAnchor = Object.assign({}, x && x.anchor);
+            if (!anchor.quote) anchor.quote = (x && (x.quote || x.selected_text)) || "";
+            // Resolve immediately before painting each comment: wrapping a
+            // previous comment's marks moves text nodes, which corrupts other
+            // already-resolved live Ranges (overlapping comments would paint
+            // wrong extents), while character offsets into textContent stay
+            // valid across wraps and splits.
+            const r = resolveAnchor(body, anchor, getRenderedText);
+            painted = !!r && highlightRange(r, x.id === active, x.id, scroll) > 0;
+          } catch {
+            painted = false;
+          }
+          if (x && x.id) results.push({ id: x.id, anchored: painted });
+        });
+      } catch {
+        // Even a document with exotic DOM state (throwing accessors, broken
+        // replaceWith) must not prevent the paint-result post below.
+      } finally {
+        resumeMutationObserver();
       }
-    });
+    }
+    // Post even when the inner document is unavailable so the parent never
+    // keeps stale "highlight not found" state.
+    parent.postMessage({ type: "aidocs:paint-result", results }, targetOrigin());
   }
 
   function activate(e: MouseEvent): void {
@@ -770,54 +691,33 @@ type Theme = "dark" | "light";
     } catch (e) {}
   }
 
-  function offsetOfNode(nodes: Text[], target: Node, offset: number): number {
-    let pos = 0;
-    for (const n of nodes) {
-      if (n === target) return pos + offset;
-      pos += n.nodeValue!.length;
+  // Return the selection's range, merging multiple ranges (a Firefox quirk:
+  // https://bugzilla.mozilla.org/show_bug.cgi?id=1773065) into their union.
+  function selectedRange(s: Selection | null): Range | null {
+    if (!s || s.isCollapsed || s.rangeCount < 1) return null;
+    let range = s.getRangeAt(0);
+    for (let i = 1; i < s.rangeCount; i++) {
+      const other = s.getRangeAt(i);
+      const merged = range.cloneRange();
+      if (other.compareBoundaryPoints(Range.START_TO_START, range) < 0) {
+        merged.setStart(other.startContainer, other.startOffset);
+      }
+      if (other.compareBoundaryPoints(Range.END_TO_END, range) > 0) {
+        merged.setEnd(other.endContainer, other.endOffset);
+      }
+      range = merged;
     }
-    return -1;
+    return range.collapsed ? null : range;
   }
 
   function selection(): void {
     const d = doc();
-    if (!d) return;
-    const s = d.getSelection();
-    if (!s || s.isCollapsed || s.rangeCount < 1) return;
-    const q = s.toString().trim();
-    if (!q) return;
-    let pre = "";
-    let suf = "";
-    let start = 0;
-    let end = q.length;
-    const domPath = "body";
-    try {
-      const r = s.getRangeAt(0);
-      const nodes = textNodes(d.body);
-      start = offsetOfNode(nodes, r.startContainer, r.startOffset);
-      end = offsetOfNode(nodes, r.endContainer, r.endOffset);
-      const body = d.body.textContent || "";
-      if (start < 0 || end < 0) {
-        start = body.indexOf(q);
-        end = start + q.length;
-      }
-      pre = body.slice(Math.max(0, start - 64), start);
-      suf = body.slice(end, end + 64);
-    } catch (e) {}
-    parent.postMessage(
-      {
-        type: "aidocs:selection",
-        anchor: {
-          quote: q,
-          prefix: pre,
-          suffix: suf,
-          dom_path: domPath,
-          start_offset: start,
-          end_offset: end,
-        },
-      },
-      targetOrigin(),
-    );
+    if (!d || !d.body) return;
+    const range = selectedRange(d.getSelection());
+    if (!range) return;
+    const anchor = describeAnchor(d.body, range);
+    if (!anchor) return;
+    parent.postMessage({ type: "aidocs:selection", anchor }, targetOrigin());
   }
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
@@ -874,6 +774,15 @@ type Theme = "dark" | "light";
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
     setupDoc = d;
+    // A freshly loaded document has no highlights; the parent repaints after
+    // the ready signal below. Dropping the previous document's payload — and
+    // any repaint already scheduled for it — keeps its comments from being
+    // anchored into the new document mid-load.
+    lastPaint = null;
+    clearTimeout(mutationRepaintTimer ?? undefined);
+    mutationRepaintTimer = null;
+    mutationRepaintDeadline = 0;
+    observeMutations(d);
     resetKVHistory();
     injectStyles();
     installAidocsAPI();
