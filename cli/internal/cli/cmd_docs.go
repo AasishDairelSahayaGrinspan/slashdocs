@@ -1,0 +1,460 @@
+package cli
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/url"
+	"os"
+
+	"github.com/spf13/cobra"
+)
+
+const privateByDefaultEnv = "AIDOCS_PRIVATE_BY_DEFAULT"
+
+func docsCmd(g *globals, out io.Writer) *cobra.Command {
+	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
+	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
+	c.AddCommand(
+		simple(g, out, "list", "GET", "/v1/documents", 0),
+		documentCreateCmd(g, out),
+		simplePath(g, out, "show", "GET", "/v1/documents/%s"),
+		documentUpdateCmd(g, out),
+		del,
+		documentMoveCmd(g, out),
+		pullCmd(g, out),
+		docsPushCmd(g, out),
+		versionsCmd(g, out),
+		commentsCmd(g, out),
+		grantsCmd(g, out),
+	)
+	return c
+}
+
+func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
+	var title string
+	cmd := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe new document is shared org-wide read-only by default. Set AIDOCS_PRIVATE_BY_DEFAULT=1 to keep new documents private.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		data, fn, err := readFileArg(args[0])
+		if err != nil {
+			return err
+		}
+		if title == "" {
+			title = fn
+		}
+		cl, err := client(g)
+		if err != nil {
+			return err
+		}
+		b, err := cl.multipart("/v1/documents", map[string]string{"title": title}, "file", fn, data)
+		if err != nil {
+			return err
+		}
+		return renderCreatedDocument(out, g, cl, title, b)
+	}}
+	cmd.Flags().StringVar(&title, "title", "", "document title (defaults to the file name)")
+	return cmd
+}
+
+func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title string, body []byte) error {
+	var payload map[string]any
+	if json.Unmarshal(body, &payload) != nil {
+		return render(out, g, body)
+	}
+	id := fmt.Sprint(value(payload, "id"))
+	if id == "" || id == "<nil>" {
+		if g.json {
+			return render(out, g, body)
+		}
+		return confirm(out, g, fmt.Sprintf("Created document %q. Document URL unavailable: response did not include id.", title))
+	}
+	sharedByDefault, err := maybeGrantOrgWideViewer(cl, id)
+	if err != nil {
+		return err
+	}
+	if g.quiet {
+		return nil
+	}
+	documentURL := browserURL(cl.Base, "/app/d/%s", id)
+	if g.json {
+		payload["url"] = documentURL
+		payload["org_wide_viewer_granted"] = sharedByDefault
+		if sharedByDefault {
+			payload["warning"] = orgWideDefaultShareNotice(g, id)
+		} else {
+			payload["message"] = orgWideViewerNudge(g, id)
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return err
+		}
+		return render(out, g, encoded)
+	}
+	if err := confirm(out, g, fmt.Sprintf("Created document %q (%s). Review it at %s", title, id, documentURL)); err != nil {
+		return err
+	}
+	if sharedByDefault {
+		if err := confirm(out, g, "Gave org-wide read-only access by default."); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(out, orgWideDefaultShareNotice(g, id))
+		return err
+	}
+	return printOrgWideViewerNudge(out, g, id)
+}
+
+func documentUpdateCmd(g *globals, out io.Writer) *cobra.Command {
+	var ut string
+	cmd := &cobra.Command{Use: "update <doc_id>", Short: "Update document metadata", Long: "Rename a document. Sharing is managed separately with 'aidocs docs grants'.", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if !cmd.Flags().Changed("title") {
+			return errors.New("nothing to update; pass --title")
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("PATCH", apiPath("/v1/documents/%s", args[0]), map[string]any{"title": ut})
+		}, func(map[string]any) string { return "Renamed document " + args[0] + "." }, actionOptions{
+			after: func() error { return printOrgWideViewerNudge(out, g, args[0]) },
+			jsonFields: func() map[string]any {
+				return map[string]any{"message": orgWideViewerNudge(g, args[0])}
+			},
+		})
+	}}
+	cmd.Flags().StringVar(&ut, "title", "", "new document title")
+	return cmd
+}
+
+func documentMoveCmd(g *globals, out io.Writer) *cobra.Command {
+	var moveFolderID string
+	var moveRoot bool
+	cmd := &cobra.Command{Use: "move <doc_id>", Short: "Move a document to a folder or back to root", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if moveRoot && moveFolderID != "" {
+			return errors.New("--folder-id and --root are mutually exclusive")
+		}
+		if !moveRoot && moveFolderID == "" {
+			return errors.New("pass --folder-id <fld_…> or --root")
+		}
+		if moveRoot {
+			cl, err := client(g)
+			if err != nil {
+				return err
+			}
+			b, err := cl.do("GET", apiPath("/v1/documents/%s", args[0]), nil, "")
+			if err != nil {
+				return err
+			}
+			var doc struct {
+				ParentFolderID string `json:"parent_folder_id"`
+			}
+			if json.Unmarshal(b, &doc) != nil || doc.ParentFolderID == "" {
+				return errors.New("document is already at root")
+			}
+			_, err = cl.do("DELETE", apiPath("/v1/folders/%s/documents/%s", doc.ParentFolderID, args[0]), nil, "")
+			if err != nil {
+				return err
+			}
+			return confirm(out, g, "Moved "+args[0]+" to workspace root.")
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("POST", apiPath("/v1/folders/%s/documents", moveFolderID), map[string]any{"document_id": args[0]})
+		}, func(m map[string]any) string {
+			msg := "Moved " + args[0] + " to folder " + moveFolderID + "."
+			if w, ok := m["permission_warning"].(map[string]any); ok {
+				msg += " Warning: " + fmt.Sprint(value(w, "message"))
+			}
+			return msg
+		})
+	}}
+	cmd.Flags().StringVar(&moveFolderID, "folder-id", "", "destination folder ID")
+	cmd.Flags().BoolVar(&moveRoot, "root", false, "move document to workspace root")
+	return cmd
+}
+
+func grantsCmd(g *globals, out io.Writer) *cobra.Command {
+	c := &cobra.Command{Use: "grants", Short: "Manage document grants"}
+	var principal, address, role string
+	var everyone bool
+	add := &cobra.Command{
+		Use:   "add <doc_id>",
+		Short: "Share a doc with a person, bot, or everyone",
+		Long: "Share a doc by passing an email or bot address, or use --everyone to grant\n" +
+			"access to everyone who can reach this server (anyone with the link on a\n" +
+			"public deployment, or everyone in the org on an org deployment).\n\n" +
+			"Examples:\n" +
+			"  aidocs docs grants add doc_… --to user@org.example --role commenter\n" +
+			"  aidocs docs grants add doc_… --to report-creator@brave.otter.bot --role editor\n" +
+			"  aidocs docs grants add doc_… --everyone --role viewer",
+		Args: exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			body := map[string]any{"role": role}
+			var target string
+			switch {
+			case everyone && (address != "" || principal != ""):
+				return errors.New("--everyone cannot be combined with --to or --principal")
+			case everyone:
+				body["principal"] = map[string]any{"type": "anyone"}
+				target = everyoneLabelFor(g)
+			case address != "":
+				body["address"] = address
+				target = address
+			case principal != "":
+				body["principal"] = parsePrincipal(principal)
+				target = principal
+			default:
+				return errors.New("pass --to <email-or-bot-address> or --everyone")
+			}
+			return action(g, out, func(c *Client) ([]byte, error) {
+				return c.doJSON("POST", apiPath("/v1/documents/%s/grants", args[0]), body)
+			}, func(m map[string]any) string {
+				return fmt.Sprintf("Shared %s with %s as %s.", args[0], target, role)
+			})
+		},
+	}
+	add.Flags().StringVar(&address, "to", "", "email or bot address (e.g. user@org.example or report-creator@brave.otter.bot)")
+	add.Flags().BoolVar(&everyone, "everyone", false, "share with everyone who can reach this server")
+	add.Flags().StringVar(&principal, "principal", "", "legacy: sa:<id> or user:<email>")
+	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, or editor")
+	var r string
+	upd := &cobra.Command{Use: "update <doc_id> <grant_id>", Short: "Update a grant role", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("PATCH", apiPath("/v1/documents/%s/grants/%s", args[0], args[1]), map[string]any{"role": r})
+		}, func(map[string]any) string { return "Changed grant " + args[1] + " on " + args[0] + " to " + r + "." })
+	}}
+	upd.Flags().StringVar(&r, "role", "viewer", "new grant role: viewer, commenter, editor, or owner")
+	revoke := mutate(g, out, "revoke <doc_id> <grant_id>", "Revoke a document grant", "DELETE", "/v1/documents/%s/grants/%s", 2, func(a []string) string { return "Revoked grant " + a[1] + " on " + a[0] + "." })
+	list := simplePath(g, out, "list", "GET", "/v1/documents/%s/access")
+	list.Short = "List effective document access"
+	c.AddCommand(list, add, upd, revoke)
+	return c
+}
+
+func versionsCmd(g *globals, out io.Writer) *cobra.Command {
+	c := &cobra.Command{Use: "versions", Short: "Inspect document versions"}
+	list := simplePath(g, out, "list", "GET", "/v1/documents/%s/versions")
+	list.Use = "list <doc_id>"
+	c.AddCommand(
+		list,
+		docVersionCmd(g, out, "show", "GET", "/v1/documents/%s/versions/%s"),
+		docVersionCmd(g, out, "html", "GET", "/v1/documents/%s/versions/%s/html"),
+	)
+	return c
+}
+
+// docVersionCmd builds a versions subcommand scoped to a document, taking
+// <doc_id> <version_id> and filling a path template with two %s segments.
+func docVersionCmd(g *globals, out io.Writer, use, method, tmpl string) *cobra.Command {
+	return &cobra.Command{Use: use + " <doc_id> <version_id>", Short: shortFor(use), Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		return run(g, out, func(c *Client) ([]byte, error) {
+			return c.do(method, apiPath(tmpl, args[0], args[1]), nil, "")
+		})
+	}}
+}
+
+func pullCmd(g *globals, out io.Writer) *cobra.Command {
+	var ver, outp string
+	cmd := &cobra.Command{Use: "pull <doc_id>", Short: "Download a document HTML version", Example: "  aidocs docs pull doc_123 --out report.html\n  aidocs docs pull doc_123 --version ver_123", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		cl, err := client(g)
+		if err != nil {
+			return err
+		}
+		v := ver
+		if v == "" {
+			b, err := cl.do("GET", apiPath("/v1/documents/%s", args[0]), nil, "")
+			if err != nil {
+				return err
+			}
+			var m map[string]any
+			if err := json.Unmarshal(b, &m); err != nil {
+				return fmt.Errorf("could not parse document response: %w", err)
+			}
+			v = fmt.Sprint(value(m, "current_version_id"))
+			if v == "" || v == "<nil>" {
+				return errors.New("document response did not include current_version_id")
+			}
+		}
+		b, err := cl.do("GET", apiPath("/v1/documents/%s/versions/%s/html", args[0], v), nil, "")
+		if err != nil {
+			return err
+		}
+		name, cx, cfg := currentContext(g)
+		cx.Pulled[args[0]] = v
+		cfg.Contexts[name] = cx
+		if cfg.ActiveContext == "" {
+			cfg.ActiveContext = name
+		}
+		if err := saveConfig(cfg); err != nil {
+			return err
+		}
+		if outp != "" {
+			if err := os.WriteFile(outp, b, pulledFilePerm); err != nil {
+				return err
+			}
+			return confirm(out, g, "Pulled version "+v+" of "+args[0]+" to "+outp+".")
+		}
+		_, err = out.Write(b)
+		return err
+	}}
+	cmd.Flags().StringVar(&ver, "version", "", "specific version ID to pull (defaults to the current version)")
+	cmd.Flags().StringVar(&outp, "out", "", "write HTML to this file instead of stdout")
+	return cmd
+}
+
+func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
+	var base, summary string
+	cmd := &cobra.Command{Use: "push <doc_id> <file>", Short: "Upload a new document version", Example: "  aidocs docs push doc_123 report.html --base-version ver_123\n  aidocs docs push doc_123 report.html --summary 'Address comments'", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		doc, file := args[0], args[1]
+		data, fn, err := readFileArg(file)
+		if err != nil {
+			return err
+		}
+		if base == "" {
+			_, cx, _ := currentContext(g)
+			base = cx.Pulled[doc]
+		}
+		if base == "" {
+			return errors.New("no base version known; run aidocs docs pull <doc_id> first or pass --base-version")
+		}
+		cl, err := client(g)
+		if err != nil {
+			return err
+		}
+		b, err := cl.multipart(apiPath("/v1/documents/%s/versions", doc), map[string]string{"base_version_id": base, "change_summary": summary}, "file", fn, data)
+		if err != nil {
+			return err
+		}
+		return printPushedVersion(out, g, doc, cl.Base, b)
+	}}
+	cmd.Flags().StringVar(&base, "base-version", "", "base version ID")
+	cmd.Flags().StringVar(&summary, "summary", "", "change summary")
+	return cmd
+}
+
+func commentsCmd(g *globals, out io.Writer) *cobra.Command {
+	c := &cobra.Command{Use: "comments", Short: "Manage document review comments"}
+
+	var listStatus, listVersion string
+	list := &cobra.Command{Use: "list <doc_id>", Short: "List document comments", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		q := url.Values{}
+		if listStatus != "" {
+			q.Set("status", listStatus)
+		}
+		if listVersion != "" {
+			q.Set("version_id", listVersion)
+		}
+		path := apiPath("/v1/documents/%s/comments", args[0])
+		if len(q) > 0 {
+			path += "?" + q.Encode()
+		}
+		return run(g, out, func(c *Client) ([]byte, error) {
+			return c.do("GET", path, nil, "")
+		})
+	}}
+	list.Flags().StringVar(&listStatus, "status", "", "filter by status: open or resolved")
+	list.Flags().StringVar(&listVersion, "version", "", "filter by version ID")
+
+	var createBody, createQuote, createPrefix, createSuffix, createVersion string
+	create := &cobra.Command{Use: "create <doc_id>", Short: "Create a document comment", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		if createBody == "" || createVersion == "" || createQuote == "" {
+			return errors.New("--body, --version, and --quote are required")
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("POST", apiPath("/v1/documents/%s/comments", args[0]), map[string]any{"body": createBody, "version_id": createVersion, "anchor": map[string]any{"quote": createQuote, "prefix": createPrefix, "suffix": createSuffix}})
+		}, func(m map[string]any) string {
+			return "Added comment " + fmt.Sprint(value(m, "id")) + " on " + args[0] + "."
+		})
+	}}
+	create.Flags().StringVar(&createBody, "body", "", "comment body text")
+	create.Flags().StringVar(&createQuote, "quote", "", "anchor: the exact quoted text")
+	create.Flags().StringVar(&createPrefix, "prefix", "", "anchor: text immediately before the quote")
+	create.Flags().StringVar(&createSuffix, "suffix", "", "anchor: text immediately after the quote")
+	create.Flags().StringVar(&createVersion, "version", "", "version ID the comment anchors to")
+
+	var replyBody string
+	reply := &cobra.Command{Use: "reply <doc_id> <comment_id>", Short: "Create a reply in a comment thread", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		if replyBody == "" {
+			return errors.New("--body is required")
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("POST", apiPath("/v1/documents/%s/comments/%s/replies", args[0], args[1]), map[string]any{"body": replyBody})
+		}, func(m map[string]any) string {
+			return "Created reply " + fmt.Sprint(value(m, "id")) + " on comment " + args[1] + "."
+		})
+	}}
+	reply.Flags().StringVar(&replyBody, "body", "", "reply body text")
+
+	var updateBody, updateStatus string
+	update := &cobra.Command{Use: "update <doc_id> <comment_id>", Short: "Update a document comment", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		body := map[string]any{}
+		if cmd.Flags().Changed("body") {
+			if updateBody == "" {
+				return errors.New("--body cannot be empty")
+			}
+			body["body"] = updateBody
+		}
+		if cmd.Flags().Changed("status") {
+			body["status"] = updateStatus
+		}
+		if len(body) == 0 {
+			return errors.New("nothing to update; pass --body and/or --status")
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.doJSON("PATCH", apiPath("/v1/documents/%s/comments/%s", args[0], args[1]), body)
+		}, func(map[string]any) string { return "Updated comment " + args[1] + "." })
+	}}
+	update.Flags().StringVar(&updateBody, "body", "", "new comment body text")
+	update.Flags().StringVar(&updateStatus, "status", "", "new status: open or resolved")
+
+	c.AddCommand(list, create, reply, update, deleteCommentCmd(g, out), resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"))
+	return c
+}
+
+func deleteCommentCmd(g *globals, out io.Writer) *cobra.Command {
+	return mutate(g, out, "delete <doc_id> <comment_id>", "Delete a document comment", "DELETE", "/v1/documents/%s/comments/%s", 2, func(a []string) string { return "Deleted comment " + a[1] + "." })
+}
+
+func resolveCmd(g *globals, out io.Writer, name, status string) *cobra.Command {
+	short := "Resolve document comments"
+	verb := "Resolved"
+	if status == "open" {
+		short = "Reopen document comments"
+		verb = "Reopened"
+	}
+	return &cobra.Command{Use: name + " <doc_id> <comment_id>...", Short: short, Args: minArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		cl, err := client(g)
+		if err != nil {
+			return err
+		}
+		docID := args[0]
+		for _, id := range args[1:] {
+			b, err := cl.doJSON("PATCH", apiPath("/v1/documents/%s/comments/%s", docID, id), map[string]any{"status": status})
+			if err != nil {
+				return err
+			}
+			if g.json {
+				if err := render(out, g, b); err != nil {
+					return err
+				}
+				continue
+			}
+			if err := confirm(out, g, verb+" comment "+id+"."); err != nil {
+				return err
+			}
+		}
+		return nil
+	}}
+}
+
+func openCmd(g *globals, out io.Writer) *cobra.Command {
+	return &cobra.Command{Use: "open <doc_id>", Short: "Open a document in the browser", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		c, err := client(g)
+		if err != nil {
+			return err
+		}
+		u := browserURL(c.Base, "/app/d/%s", args[0])
+		if err := openBrowserErr(u); err != nil {
+			return err
+		}
+		if os.Getenv("AIDOCS_NO_BROWSER") != "" {
+			return message(out, g, "Browser launch is disabled (AIDOCS_NO_BROWSER). Open this URL manually:\n"+u)
+		}
+		return confirm(out, g, "Opened "+args[0]+" in your browser: "+u)
+	}}
+}

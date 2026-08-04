@@ -36,6 +36,19 @@ type Comment struct {
 	RootCommentID      string
 }
 
+// Structured principals mentioned in comment bodies. Mention metadata grants no access; future notification delivery must re-check effective document access and apply rate limits.
+type CommentMention struct {
+	CommentID     string
+	PrincipalType string
+	PrincipalID   string
+	// Zero-based offset in UTF-16 code units, matching JavaScript string indexes.
+	OffsetUtf16 int32
+	// Mention length in UTF-16 code units, matching JavaScript string indexes.
+	LengthUtf16 int32
+	// Internal snapshot of the exact visible @label, used to preserve valid mentions across principal renames.
+	LabelText string
+}
+
 type CommentPlacement struct {
 	ID          string
 	CommentID   string

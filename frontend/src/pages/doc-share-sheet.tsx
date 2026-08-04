@@ -13,8 +13,16 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { api, AccessSource, EffectiveAccessItem } from "@/api";
+import { publicURL } from "@/lib/config";
 import { queryKeys } from "@/lib/queryKeys";
-import { ROLES, DEFAULT_ROLE, GENERAL_ACCESS_NONE, ROLE_RANK } from "@/lib/constants";
+import {
+  ROLES,
+  DEFAULT_ROLE,
+  GENERAL_ACCESS_NONE,
+  ROLE_RANK,
+  BOT_DOMAIN_SUFFIX,
+  BOT_ADDRESS_EXAMPLE,
+} from "@/lib/constants";
 
 type PendingChange = {
   label: string;
@@ -45,7 +53,7 @@ export function ShareSheet({
     queryFn: () => (isFolder ? api.folderAccess(id) : api.documentAccess(id)),
   });
   const config = useQuery({
-    queryKey: ["config"],
+    queryKey: queryKeys.config(),
     queryFn: () => api.getConfig(),
     staleTime: Infinity,
   });
@@ -53,18 +61,18 @@ export function ShareSheet({
   const [debouncedAddress, setDebouncedAddress] = useState("");
   const [role, setRole] = useState(DEFAULT_ROLE);
   const [pendingChange, setPendingChange] = useState<PendingChange | null>(null);
-  const shareURL = `${window.location.origin}/app/${isFolder ? "folders" : "d"}/${id}`;
+  const shareURL = `${publicURL()}/app/${isFolder ? "folders" : "d"}/${id}`;
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedAddress(address.trim()), 250);
     return () => window.clearTimeout(t);
   }, [address]);
   const userSearch = useQuery({
-    queryKey: ["users", "search", debouncedAddress],
+    queryKey: queryKeys.userSearch(debouncedAddress),
     queryFn: () => api.searchUsers(debouncedAddress),
     enabled:
       canManageAccess &&
       debouncedAddress.length >= 2 &&
-      !debouncedAddress.includes(".bot"),
+      !debouncedAddress.includes(BOT_DOMAIN_SUFFIX),
     staleTime: 30_000,
   });
   const userSuggestions = userSearch.data?.items || [];
@@ -87,7 +95,6 @@ export function ShareSheet({
   }, [anyoneItem, id]);
 
   const anyoneEffectiveRole = anyoneItem?.effective_role || GENERAL_ACCESS_NONE;
-  const anyoneIsInherited = !anyoneDirectSource && !!anyoneInheritedSource;
 
   const directGrantId = (item: EffectiveAccessItem) =>
     item.sources?.find((s) => s.resource_id === id)?.grant_id;
@@ -95,12 +102,9 @@ export function ShareSheet({
   const inheritedSource = (item: EffectiveAccessItem) =>
     item.sources?.find((s) => s.resource_id !== id && s.grant_id);
 
-  const isInheritedOnly = (item: EffectiveAccessItem) =>
-    !item.sources?.some((s) => s.resource_id === id);
-
   const invalidateAccess = () => {
     q.invalidateQueries({ queryKey: accessKey });
-    q.invalidateQueries({ queryKey: ["folder-access"] });
+    q.invalidateQueries({ queryKey: queryKeys.folderAccessAll() });
   };
 
   const m = useMutation({
@@ -282,7 +286,7 @@ export function ShareSheet({
             {!canManageAccess ? (
               <div
                 id="share-read-only-note"
-                className="mb-4 flex gap-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 text-sm dark:border-red-900/60 dark:bg-red-950/30"
+                className="mb-4 flex gap-3 rounded-lg border border-[var(--color-danger)]/25 bg-[var(--color-danger)]/5 px-3 py-2.5 text-sm"
               >
                 <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-[var(--color-danger)]" />
                 <div>
@@ -311,7 +315,7 @@ export function ShareSheet({
               >
                 <div>
                   <Input
-                    placeholder={`${userPlaceholder}  or  report-creator@brave.otter.bot`}
+                    placeholder={`${userPlaceholder}  or  ${BOT_ADDRESS_EXAMPLE}`}
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
                     autoCapitalize="off"
@@ -340,7 +344,7 @@ export function ShareSheet({
                       ))}
                     </div>
                   ) : debouncedAddress.length >= 2 &&
-                    !debouncedAddress.includes(".bot") &&
+                    !debouncedAddress.includes(BOT_DOMAIN_SUFFIX) &&
                     !userSearch.isFetching ? (
                     <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-fg-muted)]">
                       No matching aidocs users. They need to sign in once before you can
@@ -390,7 +394,6 @@ export function ShareSheet({
                 ) : (
                   namedItems.map((item) => {
                     const grantId = directGrantId(item);
-                    const inherited = isInheritedOnly(item);
                     const src = inheritedSource(item);
                     return (
                       <div

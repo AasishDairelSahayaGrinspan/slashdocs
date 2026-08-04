@@ -7,11 +7,11 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
@@ -20,12 +20,17 @@ type Config struct {
 	Environment         string
 	AppOrigin           string
 	RenderOrigin        string
-	GoogleOAuth         auth.GoogleOAuth
+	OIDC                auth.OIDC
+	OIDCProviderName    string
 	SessionSecret       string
 	AllowedOAuthDomains []string
 	// Deployment is "public" or "org". OrgName labels the org in UI copy.
 	Deployment string
 	OrgName    string
+	// PrivateByDefault suppresses the org-wide read-only grant that MCP
+	// document creation otherwise applies, mirroring the CLI's
+	// AIDOCS_PRIVATE_BY_DEFAULT opt-out.
+	PrivateByDefault bool
 }
 
 // Server wraps the gin engine.
@@ -40,15 +45,17 @@ type dependencies struct {
 	authenticator       auth.Authenticator
 	repository          repo.Repository
 	stateStore          auth.LoginStateStore
-	googleOAuth         auth.GoogleOAuth
+	oidc                auth.OIDC
+	oidcProviderName    string
 	sessionSecret       string
 	appOrigin           string
 	renderOrigin        string
 	allowedOAuthDomains []string
 	deployment          string
 	orgName             string
+	privateByDefault    bool
 	readinessChecks     []readinessCheck
-	documentKVEvents    *documentKVEventHub
+	documentKVEvents    kvevents.Subscriber
 }
 
 // Option configures the Server.
@@ -59,6 +66,12 @@ func WithAuthenticator(a auth.Authenticator) Option {
 }
 
 func WithRepository(r repo.Repository) Option { return func(d *dependencies) { d.repository = r } }
+
+// WithDocumentKVEvents supplies the process-wide persisted-event broker used
+// by document KV SSE streams.
+func WithDocumentKVEvents(events kvevents.Subscriber) Option {
+	return func(d *dependencies) { d.documentKVEvents = events }
+}
 
 func WithStateStore(st auth.LoginStateStore) Option {
 	return func(d *dependencies) { d.stateStore = st }
@@ -81,16 +94,6 @@ func (denyAllAuthenticator) Authenticate(_ *http.Request) (*auth.Principal, erro
 	return nil, auth.ErrUnauthorized
 }
 
-// logFormatter formats a single gin access-log line.
-func logFormatter(param gin.LogFormatterParams) string {
-	return param.TimeStamp.Format(time.RFC3339) + " " +
-		param.Method + " " +
-		param.Path + " " +
-		param.ClientIP + " " +
-		param.StatusCodeColor() + http.StatusText(param.StatusCode) + param.ResetColor() + " " +
-		param.Latency.String() + "\n"
-}
-
 // New constructs and returns a configured Server. The authenticator defaults to
 // one that denies every request, and a repository must be supplied via
 // WithRepository outside of tests.
@@ -99,46 +102,60 @@ func New(cfg Config, opts ...Option) *Server {
 	deps := dependencies{
 		authenticator:       denyAllAuthenticator{},
 		stateStore:          auth.NewStateStore(),
-		googleOAuth:         cfg.GoogleOAuth,
+		oidc:                cfg.OIDC,
+		oidcProviderName:    cfg.OIDCProviderName,
 		sessionSecret:       cfg.SessionSecret,
 		appOrigin:           cfg.AppOrigin,
 		renderOrigin:        cfg.RenderOrigin,
 		allowedOAuthDomains: cfg.AllowedOAuthDomains,
 		deployment:          cfg.Deployment,
 		orgName:             cfg.OrgName,
-		documentKVEvents:    newDocumentKVEventHub(),
+		privateByDefault:    cfg.PrivateByDefault,
 	}
 	for _, opt := range opts {
 		opt(&deps)
 	}
-	// Outside tests a repository is mandatory; falling back to an in-memory
-	// store would silently discard data on restart.
+	// Missing storage is a startup wiring bug, not a recoverable request error.
 	if deps.repository == nil {
-		if cfg.Environment == envTest {
-			deps.repository = repo.NewMemory()
-		} else {
-			panic("server.New: repository is required (use server.WithRepository)")
-		}
+		panic("server.New: repository is required (use server.WithRepository)")
+	}
+	if deps.documentKVEvents == nil {
+		// Do not create an unowned background broker for programmatic callers.
+		deps.documentKVEvents = unavailableDocumentKVEvents{}
 	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
+	r.Use(requestIDMiddleware())
 	if cfg.Environment != envTest {
-		r.Use(gin.LoggerWithFormatter(logFormatter))
+		r.Use(accessLogMiddleware())
 	}
-	r.Use(gin.Recovery())
+	r.Use(recoveryMiddleware())
 	r.Use(prometheusMiddleware())
 	s := &Server{engine: r}
 	s.routes(deps)
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return s.engine }
+type unavailableDocumentKVEvents struct{}
 
-func (s *Server) Run(addr string) error { return s.engine.Run(addr) }
+func (unavailableDocumentKVEvents) Subscribe(context.Context, string) (<-chan repo.DocumentKVEvent, func(), error) {
+	return nil, func() {}, errors.New("repository does not support document KV event streaming")
+}
+
+func (s *Server) Handler() http.Handler { return s.engine }
 
 func (s *Server) routes(deps dependencies) {
 	h := handlers{deps: deps}
 	s.engine.GET("/.well-known/aidocs.json", h.discovery)
+	s.engine.GET("/.well-known/oauth-protected-resource", h.mcpProtectedResourceMetadata)
+	s.engine.GET("/.well-known/oauth-protected-resource/mcp", h.mcpProtectedResourceMetadata)
+	s.engine.GET("/.well-known/oauth-authorization-server", h.mcpAuthorizationServerMetadata)
+	s.engine.POST("/oauth/register", h.mcpRegisterClient)
+	s.engine.POST("/oauth/token", h.mcpToken)
+	mcpOAuth := s.engine.Group("/oauth", requireAuth(deps.authenticator, deps.appOrigin))
+	mcpOAuth.GET("/authorize", h.mcpAuthorize)
+	mcpOAuth.POST("/authorize", h.mcpAuthorize)
+	registerMCPRoutes(s.engine, deps)
 	s.engine.GET("/commit.txt", h.commitTXT)
 	s.engine.GET("/version.json", h.versionJSON)
 	s.engine.GET("/install.sh", h.installScript)
@@ -153,8 +170,13 @@ func (s *Server) routes(deps dependencies) {
 
 	v1 := s.engine.Group("/v1")
 	v1.GET("/config", h.config)
-	v1.GET("/auth/google/start", h.googleStart)
-	v1.GET("/auth/google/callback", h.googleCallback)
+	// The /auth/google/* paths predate generic OIDC support and stay
+	// registered so existing Google redirect URIs, CLIs, and bookmarks keep
+	// working; /auth/oidc/* is the provider-neutral spelling.
+	v1.GET("/auth/google/start", h.oauthStart)
+	v1.GET("/auth/google/callback", h.oauthCallback)
+	v1.GET("/auth/oidc/start", h.oauthStart)
+	v1.GET("/auth/oidc/callback", h.oauthCallback)
 	v1.POST("/auth/cli/exchange", h.cliExchange)
 
 	// Every route below requires authentication.
@@ -214,8 +236,15 @@ func (s *Server) routes(deps dependencies) {
 
 type handlers struct{ deps dependencies }
 
+const principalContextKey = "principal"
+
 func (h handlers) needDocRole(c *gin.Context, docID string, need repo.Role) bool {
-	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
+	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
+	if err != nil {
+		// A lookup failure is a server fault, not a permission verdict.
+		internalErr(c, err)
+		return false
+	}
 	if !atLeast(role, need) {
 		forbidden(c, string(need)+" role required")
 		return false
@@ -247,7 +276,7 @@ func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
 			return
 		}
 		incAuth("request", "success")
-		c.Set("principal", p)
+		c.Set(principalContextKey, p)
 		c.Next()
 	}
 }
@@ -285,7 +314,7 @@ func wantsBrowserLogin(c *gin.Context) bool {
 }
 
 func current(c *gin.Context) *auth.Principal {
-	p, ok := c.Get("principal")
+	p, ok := c.Get(principalContextKey)
 	if !ok {
 		return nil
 	}
@@ -306,7 +335,9 @@ func readMultipartFile(c *gin.Context, field string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() {
+		_ = rc.Close()
+	}()
 	b, err := io.ReadAll(io.LimitReader(rc, maxHTMLBytes+1))
 	if err != nil {
 		return nil, err

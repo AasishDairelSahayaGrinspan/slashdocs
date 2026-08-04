@@ -14,9 +14,10 @@ const (
 	authModeCLI = "cli"
 )
 
-// Deployment types. A public deployment lets anyone with a Google account in;
-// an org deployment gates login to the org's domains. The only authz
-// difference is the login gate — the document ACL is identical.
+// Deployment types. A public deployment lets anyone who can authenticate with
+// the identity provider in; an org deployment gates login to the org's
+// domains. The only authz difference is the login gate — the document ACL is
+// identical.
 const (
 	DeploymentPublic = "public"
 	DeploymentOrg    = "org"
@@ -26,6 +27,9 @@ const (
 const (
 	commentStatusOpen     = "open"
 	commentStatusResolved = "resolved"
+	// commentMentionsMediaType is a rolling-upgrade sentinel: old servers reject
+	// it before writing, so structured metadata can never be silently dropped.
+	commentMentionsMediaType = "application/vnd.aidocs.comment-mentions+json"
 )
 
 // Comment placement statuses relative to the rendered version.
@@ -41,8 +45,13 @@ const renderAudiencePrefix = "render:"
 // meaningful for an event (e.g. a comment's status after it is deleted).
 const labelUnknown = "unknown"
 
-// googleUserIDPrefix prefixes user IDs minted from a Google subject.
-const googleUserIDPrefix = "usr_google_"
+// User IDs are minted from the OIDC subject. Google subjects keep the
+// historical usr_google_ prefix so accounts created before generic OIDC
+// support resolve to the same user.
+const (
+	googleUserIDPrefix = "usr_google_"
+	oidcUserIDPrefix   = "usr_oidc_"
+)
 
 // Environment values for Config.Environment.
 const (

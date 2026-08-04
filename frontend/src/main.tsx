@@ -1,17 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import {
-  BrowserRouter,
-  Navigate,
-  Route,
-  Routes,
-  useParams,
-} from "react-router-dom";
-import {
-  QueryCache,
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
+import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
+import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import "./styles.css";
@@ -70,15 +60,10 @@ function App() {
                 <Route path="developers" element={<DevelopersPage />} />
               </Route>
               {/* legacy redirects */}
-              <Route
-                path="/documents/:id"
-                element={<LegacyDocRedirect />}
-              />
+              <Route path="/documents/:id" element={<LegacyDocRedirect />} />
               <Route
                 path="/service-accounts"
-                element={
-                  <Navigate to="/app/settings/service-accounts" replace />
-                }
+                element={<Navigate to="/app/settings/service-accounts" replace />}
               />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

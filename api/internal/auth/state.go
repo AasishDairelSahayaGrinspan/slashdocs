@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/base64"
+	"encoding/json"
 	"sync"
 	"time"
 )
@@ -18,8 +19,83 @@ const codeTTL = 5 * time.Minute
 type LoginState struct {
 	Mode, Redirect, CLIRedirect, CodeChallenge string
 	ExpiresAt                                  time.Time
-	GoogleUser                                 GoogleUser
+	User                                       OIDCUser
 	UserID                                     string
+	// MCP OAuth authorization codes reuse the same one-time, persisted code
+	// store as CLI login while carrying the audience and public-client binding
+	// required by OAuth 2.1.
+	OAuthClientID    string
+	OAuthRedirectURI string
+	OAuthResource    string
+	OAuthScope       string
+	// WebBindingRequired marks web login states created after browser binding
+	// was introduced. Its zero value preserves callbacks for states created by
+	// older instances during a rolling deployment.
+	WebBindingRequired bool
+}
+
+// loginStateJSON preserves the historical GoogleUser wire key while allowing
+// the provider-neutral User name used by LoginState in Go. User is decode-only
+// compatibility for states briefly written under that key.
+type loginStateJSON struct {
+	Mode               string
+	Redirect           string
+	CLIRedirect        string
+	CodeChallenge      string
+	ExpiresAt          time.Time
+	GoogleUser         *OIDCUser
+	User               *OIDCUser `json:",omitempty"`
+	UserID             string
+	WebBindingRequired bool
+	OAuthClientID      string
+	OAuthRedirectURI   string
+	OAuthResource      string
+	OAuthScope         string
+}
+
+func (s LoginState) MarshalJSON() ([]byte, error) {
+	return json.Marshal(loginStateJSON{
+		Mode:               s.Mode,
+		Redirect:           s.Redirect,
+		CLIRedirect:        s.CLIRedirect,
+		CodeChallenge:      s.CodeChallenge,
+		ExpiresAt:          s.ExpiresAt,
+		GoogleUser:         &s.User,
+		UserID:             s.UserID,
+		WebBindingRequired: s.WebBindingRequired,
+		OAuthClientID:      s.OAuthClientID,
+		OAuthRedirectURI:   s.OAuthRedirectURI,
+		OAuthResource:      s.OAuthResource,
+		OAuthScope:         s.OAuthScope,
+	})
+}
+
+func (s *LoginState) UnmarshalJSON(data []byte) error {
+	var wire loginStateJSON
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	var user OIDCUser
+	if wire.GoogleUser != nil {
+		user = *wire.GoogleUser
+	} else if wire.User != nil {
+		user = *wire.User
+	}
+	*s = LoginState{
+		Mode:               wire.Mode,
+		Redirect:           wire.Redirect,
+		CLIRedirect:        wire.CLIRedirect,
+		CodeChallenge:      wire.CodeChallenge,
+		ExpiresAt:          wire.ExpiresAt,
+		User:               user,
+		UserID:             wire.UserID,
+		WebBindingRequired: wire.WebBindingRequired,
+		OAuthClientID:      wire.OAuthClientID,
+		OAuthRedirectURI:   wire.OAuthRedirectURI,
+		OAuthResource:      wire.OAuthResource,
+		OAuthScope:         wire.OAuthScope,
+	}
+	return nil
 }
 
 type LoginStateStore interface {

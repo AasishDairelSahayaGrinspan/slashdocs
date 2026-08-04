@@ -2,29 +2,17 @@ package postgres_test
 
 import (
 	"context"
-	"os"
 	"testing"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
-	"github.com/razorpay/aidocs/api/internal/db"
 	"github.com/razorpay/aidocs/api/internal/repo"
 	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
+	"github.com/razorpay/aidocs/api/internal/testdb"
 )
 
 func TestPostgresRepositoryDocumentGrantVersionCommentFlow(t *testing.T) {
-	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
-	}
-	if err := db.Migrate(url); err != nil {
-		t.Fatal(err)
-	}
-	store, err := pgrepo.Connect(context.Background(), url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := newStore(t)
 
 	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_owner", Email: "pg-owner@example.com", Name: "Owner"}
 	doc, ver, err := store.CreateDocument(context.Background(), owner, "Postgres doc", []byte("<html>v1</html>"))
@@ -67,7 +55,7 @@ func TestPostgresRepositoryDocumentGrantVersionCommentFlow(t *testing.T) {
 	}
 
 	commenter := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_commenter", Email: "c@example.com", Name: "Commenter"}
-	cm, err := store.CreateComment(context.Background(), doc.ID, ver2.ID, "Looks good", repo.Anchor{Quote: "v2", Prefix: "<html>", Suffix: "</html>", DOMPath: "body", StartOffset: 0, EndOffset: 2}, commenter)
+	cm, err := store.CreateComment(context.Background(), doc.ID, ver2.ID, "Looks good", repo.Anchor{Quote: "v2", Prefix: "<html>", Suffix: "</html>", DOMPath: "body", StartOffset: 0, EndOffset: 2}, commenter, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -80,18 +68,7 @@ func TestPostgresRepositoryDocumentGrantVersionCommentFlow(t *testing.T) {
 // link, but it only joins their workspace listing once they open it -- and an
 // explicit grant lists the document without needing an open.
 func TestPostgresAnyoneGrantListsAfterOpen(t *testing.T) {
-	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
-	}
-	if err := db.Migrate(url); err != nil {
-		t.Fatal(err)
-	}
-	store, err := pgrepo.Connect(context.Background(), url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := newStore(t)
 	ctx := context.Background()
 
 	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_anyone_owner", Email: "anyone-owner@example.com", Name: "Owner"}
@@ -149,16 +126,9 @@ func listed(t *testing.T, store *pgrepo.Store, p auth.Principal, docID string) b
 }
 
 func TestPostgresCreateDocumentDeletesBlobWhenDBFailsAfterPut(t *testing.T) {
-	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
-	}
-	if err := db.Migrate(url); err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithCancel(context.Background())
 	blobs := &cancelAfterPutBlob{cancel: cancel}
-	store, err := pgrepo.ConnectWithBlob(context.Background(), url, blobs)
+	store, err := pgrepo.ConnectWithBlob(context.Background(), testdb.New(t), blobs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -178,15 +148,8 @@ func TestPostgresCreateDocumentDeletesBlobWhenDBFailsAfterPut(t *testing.T) {
 }
 
 func TestPostgresCreateVersionDeletesBlobWhenDBFailsAfterPut(t *testing.T) {
-	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
-	}
-	if err := db.Migrate(url); err != nil {
-		t.Fatal(err)
-	}
 	blobs := &cancelAfterPutBlob{}
-	store, err := pgrepo.ConnectWithBlob(context.Background(), url, blobs)
+	store, err := pgrepo.ConnectWithBlob(context.Background(), testdb.New(t), blobs)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,18 +201,7 @@ func (b *cancelAfterPutBlob) Delete(ctx context.Context, key string) error {
 }
 
 func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
-	url := os.Getenv("AIDOCS_TEST_DATABASE_URL")
-	if url == "" {
-		t.Skip("set AIDOCS_TEST_DATABASE_URL to run postgres integration tests")
-	}
-	if err := db.Migrate(url); err != nil {
-		t.Fatal(err)
-	}
-	store, err := pgrepo.Connect(context.Background(), url)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := newStore(t)
 	ctx := context.Background()
 
 	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_search_folder_owner", Email: "search-folder-owner@test.com", Name: "Owner"}
@@ -298,4 +250,15 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 	if !found {
 		t.Fatal("viewer cannot find doc after folder grant — folder-inherited search is broken")
 	}
+}
+
+// newStore connects a Store to a fresh test database.
+func newStore(t *testing.T) *pgrepo.Store {
+	t.Helper()
+	store, err := pgrepo.Connect(context.Background(), testdb.New(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(store.Close)
+	return store
 }

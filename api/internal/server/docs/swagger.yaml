@@ -25,6 +25,28 @@ definitions:
     - PrincipalServiceAccount
     - PrincipalAnyone
     - PrincipalAnonymous
+  repo.Anchor:
+    properties:
+      dom_path:
+        type: string
+      end_offset:
+        type: integer
+      prefix:
+        type: string
+      quote:
+        type: string
+      start_offset:
+        type: integer
+      suffix:
+        type: string
+    type: object
+  repo.CLICredential:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   repo.Document:
     properties:
       current_version_id:
@@ -104,6 +126,13 @@ definitions:
       owner:
         $ref: '#/definitions/auth.Principal'
     type: object
+  repo.ServiceAccountKey:
+    properties:
+      id:
+        type: string
+      name:
+        type: string
+    type: object
   repo.Version:
     properties:
       change_summary:
@@ -117,6 +146,393 @@ definitions:
       number:
         type: integer
       sha256:
+        type: string
+    type: object
+  server.cliExchangePrincipal:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.cliExchangeResponse:
+    properties:
+      id:
+        type: string
+      principal:
+        $ref: '#/definitions/server.cliExchangePrincipal'
+      token:
+        type: string
+    type: object
+  server.commentMentionPrincipalRef:
+    properties:
+      id:
+        type: string
+      type:
+        $ref: '#/definitions/server.commentMentionPrincipalType'
+    type: object
+  server.commentMentionPrincipalResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      picture_url:
+        type: string
+      type:
+        $ref: '#/definitions/server.commentMentionPrincipalType'
+    type: object
+  server.commentMentionPrincipalType:
+    enum:
+    - user
+    - service_account
+    type: string
+    x-enum-varnames:
+    - commentMentionPrincipalUser
+    - commentMentionPrincipalServiceAccount
+  server.commentMentionRequest:
+    properties:
+      length:
+        description: Length is the range length in UTF-16 code units.
+        type: integer
+      offset:
+        description: Offset is the zero-based start in UTF-16 code units.
+        type: integer
+      principal:
+        $ref: '#/definitions/server.commentMentionPrincipalRef'
+    type: object
+  server.commentMentionResponse:
+    properties:
+      length:
+        description: Length is the range length in UTF-16 code units.
+        type: integer
+      offset:
+        description: Offset is the zero-based start in UTF-16 code units.
+        type: integer
+      principal:
+        $ref: '#/definitions/server.commentMentionPrincipalResponse'
+    type: object
+  server.commentPlacementResponse:
+    properties:
+      anchor:
+        $ref: '#/definitions/repo.Anchor'
+      confidence:
+        type: number
+      matched_text:
+        type: string
+      status:
+        type: string
+      version_id:
+        type: string
+    type: object
+  server.commentResponse:
+    properties:
+      anchor:
+        $ref: '#/definitions/repo.Anchor'
+      author:
+        $ref: '#/definitions/server.principalResponse'
+      body:
+        type: string
+      created_on_version_id:
+        type: string
+      current_placement:
+        $ref: '#/definitions/server.commentPlacementResponse'
+      id:
+        type: string
+      mentions:
+        items:
+          $ref: '#/definitions/server.commentMentionResponse'
+        type: array
+      parent_comment_id:
+        type: string
+      replies:
+        items:
+          $ref: '#/definitions/server.commentResponse'
+        type: array
+      selected_text:
+        type: string
+      status:
+        type: string
+    type: object
+  server.configResponse:
+    properties:
+      deployment:
+        type: string
+      everyone_label:
+        type: string
+      org_name:
+        type: string
+      provider_name:
+        type: string
+    type: object
+  server.createCommentReplyRequest:
+    properties:
+      body:
+        type: string
+      mentions:
+        items:
+          $ref: '#/definitions/server.commentMentionRequest'
+        type: array
+    type: object
+  server.createCommentRequest:
+    properties:
+      anchor:
+        $ref: '#/definitions/repo.Anchor'
+      body:
+        type: string
+      mentions:
+        items:
+          $ref: '#/definitions/server.commentMentionRequest'
+        type: array
+      version_id:
+        type: string
+    type: object
+  server.createDocumentResponse:
+    properties:
+      current_version_id:
+        type: string
+      id:
+        type: string
+    type: object
+  server.createGrantResponse:
+    properties:
+      granted_by:
+        $ref: '#/definitions/server.grantGrantedBy'
+      id:
+        type: string
+      principal:
+        $ref: '#/definitions/server.grantPrincipal'
+      resource:
+        $ref: '#/definitions/server.grantResource'
+      role:
+        $ref: '#/definitions/repo.Role'
+    type: object
+  server.createServiceAccountResponse:
+    properties:
+      disabled:
+        type: boolean
+      grants:
+        items: {}
+        type: array
+      id:
+        type: string
+      key:
+        $ref: '#/definitions/server.serviceAccountKey'
+      label:
+        type: string
+      name:
+        type: string
+      owner:
+        $ref: '#/definitions/server.serviceAccountOwner'
+    type: object
+  server.createVersionResponse:
+    properties:
+      change_summary:
+        type: string
+      id:
+        type: string
+      number:
+        type: integer
+      sha256:
+        type: string
+    type: object
+  server.discoveryAuth:
+    properties:
+      modes:
+        items:
+          type: string
+        type: array
+    type: object
+  server.discoveryResponse:
+    properties:
+      api_version:
+        type: string
+      auth:
+        $ref: '#/definitions/server.discoveryAuth'
+      name:
+        type: string
+    type: object
+  server.errorBody:
+    properties:
+      code:
+        type: string
+      details: {}
+      message:
+        type: string
+    type: object
+  server.errorEnvelope:
+    properties:
+      error:
+        $ref: '#/definitions/server.errorBody'
+    type: object
+  server.grantGrantedBy:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+    type: object
+  server.grantPrincipal:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      type:
+        $ref: '#/definitions/auth.PrincipalType'
+    type: object
+  server.grantResource:
+    properties:
+      id:
+        type: string
+      type:
+        type: string
+    type: object
+  server.listResponse-repo_CLICredential:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/repo.CLICredential'
+        type: array
+    type: object
+  server.listResponse-repo_Document:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/repo.Document'
+        type: array
+    type: object
+  server.listResponse-repo_OwnershipTransfer:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/repo.OwnershipTransfer'
+        type: array
+    type: object
+  server.listResponse-repo_ServiceAccount:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/repo.ServiceAccount'
+        type: array
+    type: object
+  server.listResponse-repo_ServiceAccountKey:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/repo.ServiceAccountKey'
+        type: array
+    type: object
+  server.listResponse-repo_Version:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/repo.Version'
+        type: array
+    type: object
+  server.listResponse-server_commentResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/server.commentResponse'
+        type: array
+    type: object
+  server.meResponse:
+    properties:
+      principal:
+        $ref: '#/definitions/server.principalRef'
+      service_account:
+        $ref: '#/definitions/server.meServiceAccount'
+      user:
+        $ref: '#/definitions/server.userResponse'
+    type: object
+  server.meServiceAccount:
+    properties:
+      disabled:
+        type: boolean
+      id:
+        type: string
+      name:
+        type: string
+      owner:
+        $ref: '#/definitions/server.meServiceOwner'
+    type: object
+  server.meServiceOwner:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  server.patchCommentRequest:
+    properties:
+      body:
+        type: string
+      mentions:
+        items:
+          $ref: '#/definitions/server.commentMentionRequest'
+        type: array
+      status:
+        type: string
+    type: object
+  server.principalRef:
+    properties:
+      id:
+        type: string
+      type:
+        $ref: '#/definitions/auth.PrincipalType'
+    type: object
+  server.principalResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      picture_url:
+        type: string
+      type:
+        $ref: '#/definitions/auth.PrincipalType'
+    type: object
+  server.renderTokenResponse:
+    properties:
+      token:
+        type: string
+      url:
+        type: string
+    type: object
+  server.serviceAccountKey:
+    properties:
+      id:
+        type: string
+      token:
+        type: string
+    type: object
+  server.serviceAccountOwner:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+    type: object
+  server.userResponse:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      picture_url:
         type: string
     type: object
 info:
@@ -135,8 +551,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.discoveryResponse'
       summary: Deployment discovery
       tags:
       - discovery
@@ -188,8 +603,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.listResponse-repo_CLICredential'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -223,13 +637,11 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.cliExchangeResponse'
         "401":
           description: Unauthorized
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.errorEnvelope'
       summary: Exchange CLI login code
       tags:
       - auth
@@ -249,7 +661,7 @@ paths:
       responses:
         "302":
           description: Found
-      summary: Google OAuth callback
+      summary: OIDC login callback
       tags:
       - auth
   /v1/auth/google/start:
@@ -271,14 +683,62 @@ paths:
         in: query
         name: code_challenge
         type: string
-      - description: OAuth state
+      - description: CLI correlation state; web state is generated by the server
         in: query
         name: state
         type: string
       responses:
         "302":
           description: Found
-      summary: Start Google OAuth
+      summary: Start OIDC login
+      tags:
+      - auth
+  /v1/auth/oidc/callback:
+    get:
+      parameters:
+      - description: OAuth code
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: OAuth state
+        in: query
+        name: state
+        required: true
+        type: string
+      responses:
+        "302":
+          description: Found
+      summary: OIDC login callback
+      tags:
+      - auth
+  /v1/auth/oidc/start:
+    get:
+      parameters:
+      - description: web or cli
+        in: query
+        name: mode
+        type: string
+      - description: web redirect
+        in: query
+        name: redirect
+        type: string
+      - description: CLI loopback redirect
+        in: query
+        name: cli_redirect
+        type: string
+      - description: PKCE challenge
+        in: query
+        name: code_challenge
+        type: string
+      - description: CLI correlation state; web state is generated by the server
+        in: query
+        name: state
+        type: string
+      responses:
+        "302":
+          description: Found
+      summary: Start OIDC login
       tags:
       - auth
   /v1/config:
@@ -289,8 +749,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.configResponse'
       summary: Deployment configuration
       tags:
       - discovery
@@ -307,8 +766,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.listResponse-repo_Document'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -335,8 +793,7 @@ paths:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.createDocumentResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -416,8 +873,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.listResponse-server_commentResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -427,18 +883,26 @@ paths:
     post:
       consumes:
       - application/json
+      - application/vnd.aidocs.comment-mentions+json
+      description: Requests with non-empty mentions must use Content-Type application/vnd.aidocs.comment-mentions+json
+        so mixed-version deployments fail closed instead of dropping metadata.
       parameters:
       - description: Document ID
         in: path
         name: id
         required: true
         type: string
+      - description: Comment body, anchor, and structured mentions
+        in: body
+        name: comment
+        required: true
+        schema:
+          $ref: '#/definitions/server.createCommentRequest'
       responses:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.commentResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -468,6 +932,12 @@ paths:
       tags:
       - comments
     patch:
+      consumes:
+      - application/json
+      - application/vnd.aidocs.comment-mentions+json
+      description: Any request containing the mentions key, including an empty array,
+        must use Content-Type application/vnd.aidocs.comment-mentions+json so mixed-version
+        deployments fail closed.
       parameters:
       - description: Document ID
         in: path
@@ -479,12 +949,18 @@ paths:
         name: comment_id
         required: true
         type: string
+      - description: Fields to update; omitted mentions are preserved unless the body
+          changes
+        in: body
+        name: update
+        required: true
+        schema:
+          $ref: '#/definitions/server.patchCommentRequest'
       responses:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.commentResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -495,6 +971,9 @@ paths:
     post:
       consumes:
       - application/json
+      - application/vnd.aidocs.comment-mentions+json
+      description: Requests with non-empty mentions must use Content-Type application/vnd.aidocs.comment-mentions+json
+        so mixed-version deployments fail closed instead of dropping metadata.
       parameters:
       - description: Document ID
         in: path
@@ -506,12 +985,17 @@ paths:
         name: comment_id
         required: true
         type: string
+      - description: Reply body and structured mentions
+        in: body
+        name: reply
+        required: true
+        schema:
+          $ref: '#/definitions/server.createCommentReplyRequest'
       responses:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.commentResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -530,8 +1014,7 @@ paths:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.createGrantResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -595,8 +1078,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.listResponse-repo_Version'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -630,8 +1112,7 @@ paths:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.createVersionResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -705,8 +1186,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.renderTokenResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -721,13 +1201,11 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.meResponse'
         "401":
           description: Unauthorized
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.errorEnvelope'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -740,8 +1218,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.listResponse-repo_ServiceAccount'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -757,8 +1234,7 @@ paths:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.createServiceAccountResponse'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -796,8 +1272,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.listResponse-repo_ServiceAccountKey'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -815,8 +1290,7 @@ paths:
         "201":
           description: Created
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.serviceAccountKey'
       security:
       - bearerAuth: []
       - cookieAuth: []
@@ -870,8 +1344,7 @@ paths:
         "200":
           description: OK
           schema:
-            additionalProperties: true
-            type: object
+            $ref: '#/definitions/server.listResponse-repo_OwnershipTransfer'
       security:
       - bearerAuth: []
       - cookieAuth: []

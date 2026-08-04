@@ -69,7 +69,9 @@ func (s *S3) Get(ctx context.Context, key string) ([]byte, string, error) {
 		}
 		return nil, "", fmt.Errorf("%w: get %q: %v", ErrStorage, key, err)
 	}
-	defer out.Body.Close()
+	defer func() {
+		_ = out.Body.Close()
+	}()
 	b, err := io.ReadAll(out.Body)
 	if err != nil {
 		return nil, "", fmt.Errorf("%w: read %q: %v", ErrStorage, key, err)

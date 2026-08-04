@@ -10,7 +10,7 @@ autoscaling:
   targetMemoryUtilizationPercentage: 70
 
 image:
-  repository: harbor.razorpay.com/razorpay/aidocs
+  repository: razorpay/aidocs
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -52,21 +52,38 @@ metrics:
   service:
     enabled: true
 
-# Deployment mode. `public` allows any Google login (optionally gated by
-# allowedOAuthDomains); `org` gates login to deployment.orgDomains and labels
-# "everyone" sharing as the org.
+# Deployment mode. `public` (the default) allows any account accepted by the
+# configured OIDC provider (optionally gated by allowedOAuthDomains); `org`
+# gates login to deployment.orgDomains and labels "everyone" sharing as the
+# org. To restrict the install to your company domain, switch to org mode:
+#
+#   deployment:
+#     mode: org
+#     orgDomains: "acme.com"        # comma-separated; required when mode=org
+#     orgName: "Acme"               # share UI copy, e.g. "Anyone in Acme"
 deployment:
-  mode: org
+  mode: public
   # Comma-separated org domains. Required when mode=org; also the login gate.
-  orgDomains: "razorpay.com"
+  orgDomains: ""
   # Org display name used in share UI copy (e.g. "Anyone in Acme").
-  orgName: "Razorpay"
+  orgName: ""
 
-# Public origins. In production, prefer a separate render origin to isolate
-# untrusted uploaded HTML from the authenticated application.
+# Kubernetes Deployment rollout strategy. Keep RollingUpdate normally. The
+# structured-mentions upgrade documented in docs/self-hosting.md requires one
+# Recreate rollout so old and new comment writers never overlap.
+updateStrategy:
+  type: RollingUpdate
+
+# Public origins. `app` and `render` MUST be different hosts in production:
+# the render origin serves untrusted uploaded HTML in a sandboxed frame, and
+# a separate host keeps that content outside the authenticated app origin's
+# cookie and same-origin boundary.
 origins:
-  app: https://aidocs.dev.razorpay.in
-  render: https://render.aidocs.razorpay.in
+  app: https://aidocs.example.com
+  render: https://render.aidocs.example.com
+
+# Sign-in. Configure exactly one of `googleOAuth` and `oidc` (setting
+# oidc.issuerURL switches the chart to the generic OIDC variables).
 
 # Google OAuth web client. Configure the callback URL in Google Cloud as:
 #   https://aidocs.example.com/v1/auth/google/callback
@@ -76,6 +93,23 @@ googleOAuth:
   existingSecret: ""
   clientIDKey: GOOGLE_OAUTH_CLIENT_ID
   clientSecretKey: GOOGLE_OAUTH_CLIENT_SECRET
+
+# Generic OpenID Connect provider (Okta, Entra ID, Keycloak, Dex, ...).
+# Register the redirect URI with the provider as:
+#   https://aidocs.example.com/v1/auth/oidc/callback
+oidc:
+  issuerURL: ""
+  # Display label for the login button ("Continue with <name>"); the server
+  # defaults it to "SSO".
+  providerName: ""
+  # Base URL where the server reaches the IdP when that differs from the
+  # browser-facing issuer (split horizon). Usually empty.
+  internalIssuerURL: ""
+  clientID: ""
+  clientSecret: ""
+  existingSecret: ""
+  clientIDKey: AIDOCS_OIDC_CLIENT_ID
+  clientSecretKey: AIDOCS_OIDC_CLIENT_SECRET
 
 # Session secret must be at least 32 bytes.
 session:
@@ -112,8 +146,25 @@ blob:
   accessKeyIDKey: blob-access-key-id
   secretAccessKeyKey: blob-secret-access-key
 
-# Optional comma-separated domain allowlist for Google OAuth login.
-allowedOAuthDomains: "razorpay.com"
+# Optional comma-separated email-domain allowlist applied after OIDC login
+# (e.g. "acme.com"). Leave empty to accept any account the provider allows.
+allowedOAuthDomains: ""
+
+# Realtime document KV event delivery (see docs/self-hosting.md, "Optional"
+# env vars). Both values render env vars only when set.
+kvEvents:
+  # AIDOCS_KV_EVENTS_MODE: "auto", "notify", or "poll". Empty uses the server
+  # default (auto). Use "poll" when the only database route is a
+  # transaction-pooling endpoint (e.g. PgBouncer transaction mode).
+  mode: ""
+  # AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL: direct or session-pooled URL to
+  # the same database for the dedicated LISTEN connection. Never a
+  # transaction-pooling endpoint. Contains credentials, so it is stored in the
+  # chart-managed Secret; or reference a pre-created Secret instead via
+  # existingSecret + listenerDatabaseURLKey.
+  listenerDatabaseURL: ""
+  existingSecret: ""
+  listenerDatabaseURLKey: AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL
 
 # Optional runtime revision surfaced at /commit.txt.
 commitSha: ""
@@ -168,8 +219,11 @@ ingress:
 ingressRoute:
   enabled: false
   host: ""
-  # Optional separate origin for sandbox-rendered HTML. Leave empty to serve
-  # render on the same host (acceptable for non-production only).
+  # Separate host for sandbox-rendered HTML. Required when the IngressRoute is
+  # enabled, and it must differ from `host`: rendering untrusted document HTML
+  # on the app origin would let uploaded scripts run same-origin with the
+  # authenticated application. Template rendering fails if this is empty or
+  # equal to `host`.
   renderHost: ""
   entryPoints:
     - http

@@ -1,0 +1,89 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - asciicheck
+    - bodyclose
+    - copyloopvar
+    - errcheck
+    - forcetypeassert
+    - gocritic
+    - gocyclo
+    - gosec
+    - govet
+    - iface
+    - ineffassign
+    - interfacebloat
+    - makezero
+    - misspell
+    - nolintlint
+    - revive
+    - staticcheck
+    - unused
+  settings:
+    gocyclo:
+      min-complexity: 15
+    iface:
+      enable:
+        - opaque
+        - identical
+    interfacebloat:
+      max: 5
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+    revive:
+      # Revive disables its defaults as soon as any rule is configured unless
+      # this stays explicit. Keep the correctness/style defaults active while
+      # excluding only documentation coverage and intentionally unused callback
+      # parameters, which are not useful gates for this existing codebase.
+      enable-default-rules: true
+      rules:
+        - name: exported
+          disabled: true
+        - name: package-comments
+          disabled: true
+        - name: unused-parameter
+          disabled: true
+  exclusions:
+    # sqlc emits canonical generated markers. Swagger prefixes its marker with
+    # a package comment, so its single output file is excluded exactly.
+    generated: strict
+    # v2.12 reports a clean path exclusion as unused; keep the exact generated
+    # path without emitting a warning on every successful run.
+    warn-unused: false
+    paths:
+      - ^api/internal/server/docs/docs\.go$
+    rules:
+      # Scenario-style tests may be intentionally linear and verbose; the
+      # production functions remain capped at the configured threshold.
+      - path: _test\.go$
+        linters:
+          - gocyclo
+      # Repository is the existing persistence boundary. Splitting it into
+      # consumer-specific interfaces remains a separate, optional refactor.
+      - path: ^api/internal/repo/repo\.go$
+        linters:
+          - interfacebloat
+
+formatters:
+  enable:
+    - gci
+    - gofmt
+    - goimports
+  settings:
+    gci:
+      sections:
+        - standard
+        - default
+        - prefix(github.com/razorpay/aidocs)
+      custom-order: true
+  exclusions:
+    generated: strict
+    paths:
+      - ^(api/)?internal/server/docs/docs\.go$
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

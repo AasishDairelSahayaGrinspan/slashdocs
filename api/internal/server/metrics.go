@@ -69,6 +69,24 @@ var (
 		Help:    "Uploaded or downloaded HTML payload sizes.",
 		Buckets: byteBuckets,
 	}, []string{"operation"})
+	mcpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aidocs_mcp_requests_total",
+		Help: "MCP protocol requests by bounded method and outcome.",
+	}, []string{"method", "outcome"})
+	mcpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "aidocs_mcp_request_duration_seconds",
+		Help:    "MCP protocol request latency by bounded method and outcome.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"method", "outcome"})
+	mcpToolCallsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aidocs_mcp_tool_calls_total",
+		Help: "MCP tool calls by registered tool, outcome, and actor type.",
+	}, []string{"tool", "outcome", "actor_type"})
+	mcpToolCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "aidocs_mcp_tool_call_duration_seconds",
+		Help:    "MCP tool call latency by registered tool and outcome.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"tool", "outcome"})
 )
 
 func init() {
@@ -87,6 +105,10 @@ func init() {
 		serviceAccountEventsTotal,
 		renderEventsTotal,
 		htmlBytes,
+		mcpRequestsTotal,
+		mcpRequestDuration,
+		mcpToolCallsTotal,
+		mcpToolCallDuration,
 	)
 }
 
@@ -148,4 +170,14 @@ func incServiceAccount(event, actor string) {
 func incRender(event, outcome string) { renderEventsTotal.WithLabelValues(event, outcome).Inc() }
 func observeHTML(operation string, size int) {
 	htmlBytes.WithLabelValues(operation).Observe(float64(size))
+}
+
+func observeMCPRequest(method, outcome string, duration time.Duration) {
+	mcpRequestsTotal.WithLabelValues(method, outcome).Inc()
+	mcpRequestDuration.WithLabelValues(method, outcome).Observe(duration.Seconds())
+}
+
+func observeMCPToolCall(tool, outcome, actor string, duration time.Duration) {
+	mcpToolCallsTotal.WithLabelValues(tool, outcome, actor).Inc()
+	mcpToolCallDuration.WithLabelValues(tool, outcome).Observe(duration.Seconds())
 }

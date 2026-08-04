@@ -19,6 +19,10 @@ export type DocContextValue = {
   setSelection: (s: PendingSelection | null) => void;
   activeComment?: string;
   setActiveComment: (id?: string) => void;
+  // Ids of comments whose highlight the bridge could not anchor in the
+  // currently rendered version; replaced wholesale on every repaint.
+  unanchoredComments: ReadonlySet<string>;
+  setUnanchoredComments: (ids: ReadonlySet<string>) => void;
   handleDocCommentClick: (id: string) => void;
 };
 

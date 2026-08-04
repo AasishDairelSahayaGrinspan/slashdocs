@@ -53,6 +53,20 @@ If the user is iterating on an existing aidocs document, push a new version
 instead of creating a duplicate. Use the CLI help to find the current push/update
 syntax and include a short summary of what changed.
 
+## MCP server (optional)
+
+The aidocs application server exposes MCP directly over Streamable HTTP at:
+
+```bash
+https://<your-aidocs-host>/mcp
+```
+
+Connect the URL from the MCP client; no aidocs CLI installation or local MCP
+process is required. Interactive clients authenticate through the server's
+browser flow. Headless clients can use a service-account bearer key created in
+the aidocs web application. If the remote aidocs MCP tools are already available
+in your session, prefer them; otherwise use the CLI commands described above.
+
 ## Authentication and setup
 
 Assume the user installed aidocs and the bundled skill via the server's

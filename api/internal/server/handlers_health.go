@@ -8,8 +8,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// livezResponse is the payload of /livez.
+type livezResponse struct {
+	Status string `json:"status"`
+}
+
+// readyzResponse is the payload of /readyz; Checks is always present, even
+// when no readiness checks are configured.
+type readyzResponse struct {
+	Status string            `json:"status"`
+	Checks map[string]string `json:"checks"`
+}
+
 func (h handlers) livez(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+	c.JSON(http.StatusOK, livezResponse{Status: "ok"})
 }
 
 func (h handlers) readyz(c *gin.Context) {
@@ -27,8 +39,8 @@ func (h handlers) readyz(c *gin.Context) {
 		checks[check.name] = "ok"
 	}
 	if !ready {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "error", "checks": checks})
+		c.JSON(http.StatusServiceUnavailable, readyzResponse{Status: "error", Checks: checks})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ok", "checks": checks})
+	c.JSON(http.StatusOK, readyzResponse{Status: "ok", Checks: checks})
 }

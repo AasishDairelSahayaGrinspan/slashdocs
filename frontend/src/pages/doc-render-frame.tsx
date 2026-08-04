@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { COMMENT_STATUS } from "@/lib/constants";
@@ -19,6 +20,7 @@ export function RenderFrame() {
     activeComment,
     setSelection,
     handleDocCommentClick,
+    setUnanchoredComments,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -28,6 +30,11 @@ export function RenderFrame() {
   // could arrive during listener teardown and be missed).
   const themeRef = useRef(theme);
   themeRef.current = theme;
+  // Same pattern for readiness: paint-results from a document that is being
+  // navigated away from (the iframe's WindowProxy survives navigation) must
+  // not repopulate unanchoredComments after the reset below.
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
   const kvRevisionRef = useRef(0);
 
   useEffect(() => {
@@ -80,7 +87,10 @@ export function RenderFrame() {
   // Reset readiness whenever we load a different frame.
   useEffect(() => {
     setReady(false);
-  }, [frameOrigin, token.data?.url]);
+    // Anchoring results belong to the frame that produced them; drop them so
+    // "highlight not found" badges never linger across version switches.
+    setUnanchoredComments(new Set());
+  }, [frameOrigin, token.data?.url, setUnanchoredComments]);
 
   // The resolved theme is baked into the iframe URL so the bridge can apply
   // it before the document's first paint (no flash); live toggles are pushed
@@ -118,7 +128,9 @@ export function RenderFrame() {
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
   // Zoom is anchored to the cursor position (magnifying-glass feel).
-  const MIN_SCALE = 0.25;
+  // Zoom-in only: shrinking below 100% leaves dead space around the document
+  // and reads as a broken layout, so 1 is the floor.
+  const MIN_SCALE = 1;
   const MAX_SCALE = 4;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(1);
@@ -273,6 +285,25 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
       }
+      if (
+        e.data?.type === "aidocs:paint-result" &&
+        Array.isArray(e.data.results) &&
+        readyRef.current
+      ) {
+        // Cap accepted entries: the render frame hosts untrusted HTML that
+        // shares the bridge's origin, so a forged message must not be able to
+        // allocate an unbounded Set in app state.
+        const results = (
+          e.data.results as Array<{ id?: unknown; anchored?: unknown }>
+        ).slice(0, 10_000);
+        setUnanchoredComments(
+          new Set(
+            results
+              .filter((r) => r && r.anchored === false && typeof r.id === "string")
+              .map((r) => r.id as string),
+          ),
+        );
+      }
       if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
       }
@@ -304,6 +335,7 @@ export function RenderFrame() {
     frameOrigin,
     setSelection,
     handleDocCommentClick,
+    setUnanchoredComments,
     applyZoom,
     rememberKVRevision,
   ]);
@@ -340,6 +372,22 @@ export function RenderFrame() {
   useEffect(() => {
     paint();
   }, [paint]);
+
+  // Forward print requests from the DocBar dropdown to the bridge, which
+  // calls print() on the inner document iframe — preserving the bridge
+  // script, KV store, and all other integrations in the printed output.
+  useEffect(() => {
+    const onPrint = () => {
+      if (!ready || !frameOrigin) {
+        toast.error("Document is still loading. Please try again in a moment.");
+        return;
+      }
+      ref.current?.contentWindow?.postMessage({ type: "aidocs:print" }, frameOrigin);
+      toast.success('Print dialog opened — choose "Save as PDF" to export.');
+    };
+    window.addEventListener("aidocs:print", onPrint);
+    return () => window.removeEventListener("aidocs:print", onPrint);
+  }, [ready, frameOrigin]);
 
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -29,19 +30,30 @@ func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, pr
 		return auth.Principal{Type: auth.PrincipalAnyone}, nil
 	}
 	if address != "" {
-		_, domain, ok := bots.Split(address)
-		if !ok {
-			return auth.Principal{}, errInvalidAddress
-		}
-		if strings.HasSuffix(domain, ".bot") {
-			principal = auth.Principal{Type: auth.PrincipalServiceAccount, Name: address}
-		} else {
-			principal = auth.Principal{Type: auth.PrincipalUser, Email: address}
+		var err error
+		principal, err = grantPrincipalFromAddress(address)
+		if err != nil {
+			return auth.Principal{}, err
 		}
 	}
+	return resolveStoredGrantPrincipal(c.Request.Context(), r, principal)
+}
+
+func grantPrincipalFromAddress(address string) (auth.Principal, error) {
+	_, domain, ok := bots.Split(address)
+	if !ok {
+		return auth.Principal{}, errInvalidAddress
+	}
+	if strings.HasSuffix(domain, ".bot") {
+		return auth.Principal{Type: auth.PrincipalServiceAccount, Name: address}, nil
+	}
+	return auth.Principal{Type: auth.PrincipalUser, Email: address}, nil
+}
+
+func resolveStoredGrantPrincipal(ctx context.Context, r repo.Repository, principal auth.Principal) (auth.Principal, error) {
 	switch {
 	case principal.Type == auth.PrincipalUser && principal.ID == "" && principal.Email != "":
-		p, err := r.UserByEmail(c.Request.Context(), principal.Email)
+		p, err := r.UserByEmail(ctx, principal.Email)
 		if errors.Is(err, repo.ErrNotFound) {
 			return auth.Principal{}, errUnknownUserEmail
 		}
@@ -50,7 +62,7 @@ func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, pr
 		}
 		return p, nil
 	case principal.Type == auth.PrincipalServiceAccount && principal.ID == "" && principal.Name != "":
-		sa, err := r.GetServiceAccountByName(c.Request.Context(), principal.Name)
+		sa, err := r.GetServiceAccountByName(ctx, principal.Name)
 		if err != nil {
 			return auth.Principal{}, err
 		}
@@ -59,7 +71,7 @@ func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, pr
 		if principal.ID == "" {
 			return auth.Principal{}, errPrincipalIDRequired
 		}
-		exists, err := r.PrincipalExists(c.Request.Context(), principal)
+		exists, err := r.PrincipalExists(ctx, principal)
 		if err != nil {
 			return auth.Principal{}, err
 		}
@@ -70,13 +82,39 @@ func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, pr
 	}
 }
 
+// createGrantResponse is the payload of POST /v1/documents/{id}/grants.
+type createGrantResponse struct {
+	ID        string         `json:"id"`
+	Resource  grantResource  `json:"resource"`
+	Principal grantPrincipal `json:"principal"`
+	Role      repo.Role      `json:"role"`
+	GrantedBy grantGrantedBy `json:"granted_by"`
+}
+
+type grantResource struct {
+	Type string `json:"type"`
+	ID   string `json:"id"`
+}
+
+type grantPrincipal struct {
+	Type  auth.PrincipalType `json:"type"`
+	ID    string             `json:"id"`
+	Email string             `json:"email,omitempty"`
+	Name  string             `json:"name,omitempty"`
+}
+
+type grantGrantedBy struct {
+	ID    string `json:"id"`
+	Email string `json:"email"`
+}
+
 // CreateGrant godoc
 // @Summary Create document grant
 // @Tags grants
 // @Security bearerAuth
 // @Security cookieAuth
 // @Param id path string true "Document ID"
-// @Success 201 {object} map[string]interface{}
+// @Success 201 {object} createGrantResponse
 // @Router /v1/documents/{id}/grants [post]
 func (h handlers) createGrant(c *gin.Context) {
 	if !h.needDocRole(c, c.Param("id"), repo.RoleCommenter) {
@@ -126,15 +164,19 @@ func (h handlers) createGrant(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	pr := gin.H{"type": g.Principal.Type, "id": g.Principal.ID}
-	if g.Principal.Email != "" {
-		pr["email"] = g.Principal.Email
-	}
-	if g.Principal.Name != "" {
-		pr["name"] = g.Principal.Name
-	}
 	incGrant("created", string(g.Role), string(g.Principal.Type), actorType(c))
-	c.JSON(http.StatusCreated, gin.H{"id": g.ID, "resource": gin.H{"type": "document", "id": g.DocumentID}, "principal": pr, "role": g.Role, "granted_by": gin.H{"id": g.GrantedBy.ID, "email": g.GrantedBy.Email}})
+	c.JSON(http.StatusCreated, createGrantResponse{
+		ID:       g.ID,
+		Resource: grantResource{Type: "document", ID: g.DocumentID},
+		Principal: grantPrincipal{
+			Type:  g.Principal.Type,
+			ID:    g.Principal.ID,
+			Email: g.Principal.Email,
+			Name:  g.Principal.Name,
+		},
+		Role:      g.Role,
+		GrantedBy: grantGrantedBy{ID: g.GrantedBy.ID, Email: g.GrantedBy.Email},
+	})
 }
 
 // PatchGrant godoc

@@ -125,4 +125,29 @@ grafana.dashboard.new('aidocs App Overview')
   table('Top slow routes p95', 12, 36, 12, 8, [
     prom('topk(10, histogram_quantile(0.95, sum(rate(aidocs_http_request_duration_seconds_bucket[$__rate_interval])) by (le, method, route)))', '{{method}} {{route}}'),
   ]),
+
+  stat('MCP request rate', 0, 44, 6, 4, 'sum(rate(aidocs_mcp_requests_total[$__rate_interval]))', 'reqps', 2),
+  stat('MCP protocol/transport error ratio', 6, 44, 6, 4, 'sum(rate(aidocs_mcp_requests_total{outcome!="success"}[$__rate_interval])) / clamp_min(sum(rate(aidocs_mcp_requests_total[$__rate_interval])), 0.000001)', 'percentunit', 3),
+  stat('MCP tool error ratio', 12, 44, 6, 4, 'sum(rate(aidocs_mcp_tool_calls_total{outcome!="success"}[$__rate_interval])) / clamp_min(sum(rate(aidocs_mcp_tool_calls_total[$__rate_interval])), 0.000001)', 'percentunit', 3),
+  stat('MCP tool p95', 18, 44, 6, 4, 'histogram_quantile(0.95, sum(rate(aidocs_mcp_tool_call_duration_seconds_bucket[$__rate_interval])) by (le))', 's', 3),
+
+  timeseries('MCP protocol requests', 0, 48, 12, 8, [
+    prom('sum(rate(aidocs_mcp_requests_total[$__rate_interval])) by (method, outcome)', '{{method}} {{outcome}}'),
+  ], 'reqps', 2),
+  timeseries('MCP tool calls', 12, 48, 12, 8, [
+    prom('sum(rate(aidocs_mcp_tool_calls_total[$__rate_interval])) by (tool, outcome)', '{{tool}} {{outcome}}'),
+  ], 'ops', 2),
+
+  timeseries('MCP tool latency p50/p95', 0, 56, 12, 8, [
+    prom('histogram_quantile(0.50, sum(rate(aidocs_mcp_tool_call_duration_seconds_bucket[$__rate_interval])) by (le, tool))', 'p50 {{tool}}'),
+    prom('histogram_quantile(0.95, sum(rate(aidocs_mcp_tool_call_duration_seconds_bucket[$__rate_interval])) by (le, tool))', 'p95 {{tool}}'),
+  ], 's', 3),
+  table('Top MCP tools', 12, 56, 12, 8, [
+    prom('topk(10, sum(rate(aidocs_mcp_tool_calls_total[$__rate_interval])) by (tool, outcome))', '{{tool}} {{outcome}}'),
+  ]),
+
+  timeseries('MCP request latency p50/p95', 0, 64, 24, 8, [
+    prom('histogram_quantile(0.50, sum(rate(aidocs_mcp_request_duration_seconds_bucket[$__rate_interval])) by (le, method))', 'p50 {{method}}'),
+    prom('histogram_quantile(0.95, sum(rate(aidocs_mcp_request_duration_seconds_bucket[$__rate_interval])) by (le, method))', 'p95 {{method}}'),
+  ], 's', 3),
 ])

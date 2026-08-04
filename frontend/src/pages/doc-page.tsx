@@ -81,6 +81,9 @@ export function DocumentPage() {
   });
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
+  const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
   const [panelOpen, setPanelOpen] = useState(true);
@@ -138,7 +141,9 @@ export function DocumentPage() {
   // Radix Dialog's scroll-lock (react-remove-scroll) can leave the body
   // with `overflow: hidden` / `pointer-events: none` after the mobile
   // comments sheet closes, which freezes document scrolling. Restore the
-  // body once the sheet is fully closed.
+  // body once the sheet is fully closed. (`modal={false}` on the Sheet
+  // would avoid the lock, but Radix then skips the overlay and outside
+  // dismissal entirely, so we keep modal behavior and clean up after it.)
   useEffect(() => {
     if (mobilePanelOpen) return;
     const restore = () => {
@@ -197,6 +202,8 @@ export function DocumentPage() {
       setSelection,
       activeComment,
       setActiveComment,
+      unanchoredComments,
+      setUnanchoredComments,
       handleDocCommentClick,
     }),
     [
@@ -208,6 +215,7 @@ export function DocumentPage() {
       me.data,
       selection,
       activeComment,
+      unanchoredComments,
       setActiveComment,
       handleDocCommentClick,
     ],

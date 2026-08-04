@@ -1,4 +1,10 @@
-import { type KeyboardEvent, type ReactNode, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -18,14 +24,25 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
-import { api, type Anchor, type Comment, type Principal } from "@/api";
+import { api, type Anchor, type Comment, type UserPrincipal } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { samePrincipal } from "@/lib/principals";
+import {
+  emptyMentionDraft,
+  inferTextareaEdit,
+  insertMention,
+  MAX_COMMENT_MENTIONS,
+  mentionPrincipalLabel,
+  mentionTextSegments,
+  reconcileMentionDraft,
+  type MentionDraft,
+  type TextSelection,
+} from "@/lib/comment-mentions";
 import {
   COMMENT_FILTERS,
   COMMENT_FILTER_ALL,
   COMMENT_STATUS,
   DEFAULT_COMMENT_FILTER,
-  PLACEMENT_STATUS,
   type CommentFilter,
 } from "@/lib/constants";
 import { useDoc } from "./doc-context";
@@ -36,22 +53,16 @@ type MentionTarget = {
   query: string;
 };
 
-const MENTION_BOUNDARY = "\u2063";
-
-function principalLabel(p: Principal) {
-  return p.name || p.email || p.id;
-}
-
 function getMentionTarget(value: string, caret: number): MentionTarget | null {
   const beforeCaret = value.slice(0, caret);
-  const match = /(^|[\s([{])@([A-Za-z0-9._%+-]*)$/.exec(beforeCaret);
+  const match = /(^|\p{White_Space}|[([{])@([A-Za-z0-9._%+-]*)$/u.exec(beforeCaret);
   if (!match) return null;
   const start = match.index + match[1].length;
   return { start, end: caret, query: match[2] };
 }
 
 function MentionTextarea({
-  value,
+  draft,
   onChange,
   onKeyDown,
   placeholder,
@@ -59,8 +70,8 @@ function MentionTextarea({
   className,
   autoFocus,
 }: {
-  value: string;
-  onChange: (value: string) => void;
+  draft: MentionDraft;
+  onChange: (draft: MentionDraft) => void;
   onKeyDown?: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   placeholder?: string;
   rows?: number;
@@ -68,9 +79,14 @@ function MentionTextarea({
   autoFocus?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
+  const beforeInputSelection = useRef<TextSelection | null>(null);
+  // Caret position to apply right after the commit that renders an accepted
+  // mention. A layout effect (not requestAnimationFrame) applies it: rAF can
+  // fire after further keystrokes and yank the caret back mid-word.
+  const caretRestore = useRef<number | null>(null);
   const [caret, setCaret] = useState(0);
   const [target, setTarget] = useState<MentionTarget | null>(null);
-  const [suggestions, setSuggestions] = useState<Principal[]>([]);
+  const [suggestions, setSuggestions] = useState<UserPrincipal[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [open, setOpen] = useState(false);
 
@@ -81,8 +97,8 @@ function MentionTextarea({
   };
 
   useEffect(() => {
-    setTarget(getMentionTarget(value, caret));
-  }, [value, caret]);
+    setTarget(getMentionTarget(draft.body, caret));
+  }, [draft.body, caret]);
 
   useEffect(() => {
     const query = target?.query.trim() || "";
@@ -112,19 +128,30 @@ function MentionTextarea({
     };
   }, [target?.query]);
 
-  const accept = (user: Principal) => {
+  useLayoutEffect(() => {
+    if (caretRestore.current === null) return;
+    const el = ref.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(caretRestore.current, caretRestore.current);
+    }
+    caretRestore.current = null;
+  });
+
+  const accept = (user: UserPrincipal) => {
     if (!target) return;
-    const mention = `@${principalLabel(user)}${MENTION_BOUNDARY} `;
-    const nextValue = value.slice(0, target.start) + mention + value.slice(target.end);
-    const nextCaret = target.start + mention.length;
-    onChange(nextValue);
+    if (draft.mentions.length >= MAX_COMMENT_MENTIONS) {
+      toast.error(`A comment can mention up to ${MAX_COMMENT_MENTIONS} people.`);
+      setOpen(false);
+      return;
+    }
+    const label = `@${mentionPrincipalLabel(user)}`;
+    const nextCaret = target.start + label.length + 1;
+    onChange(insertMention(draft, target.start, target.end, user));
     setOpen(false);
     setSuggestions([]);
     setCaret(nextCaret);
-    window.requestAnimationFrame(() => {
-      ref.current?.focus();
-      ref.current?.setSelectionRange(nextCaret, nextCaret);
-    });
+    caretRestore.current = nextCaret;
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -161,9 +188,55 @@ function MentionTextarea({
         ref={ref}
         autoFocus={autoFocus}
         rows={rows}
-        value={value}
+        value={draft.body}
+        onBeforeInput={(event) => {
+          beforeInputSelection.current = {
+            start: event.currentTarget.selectionStart ?? 0,
+            end: event.currentTarget.selectionEnd ?? 0,
+          };
+        }}
+        // React's synthetic onChange may suppress an input event whose final
+        // value is unchanged (for example, pasting the same label over a
+        // selection). Native onInput still lets that exact replacement clear
+        // an overlapping structured mention.
+        onInput={(event) => {
+          if (event.currentTarget.value !== draft.body) return;
+          const before = beforeInputSelection.current;
+          beforeInputSelection.current = null;
+          if (!before) {
+            onChange({ body: event.currentTarget.value, mentions: [] });
+            syncTarget(event.currentTarget);
+            return;
+          }
+          const after = {
+            start: event.currentTarget.selectionStart ?? 0,
+            end: event.currentTarget.selectionEnd ?? 0,
+          };
+          const edit = inferTextareaEdit(
+            draft.body,
+            event.currentTarget.value,
+            before,
+            after,
+          );
+          onChange(
+            edit
+              ? reconcileMentionDraft(draft, event.currentTarget.value, edit)
+              : { body: event.currentTarget.value, mentions: [] },
+          );
+          syncTarget(event.currentTarget);
+        }}
         onChange={(event) => {
-          onChange(event.target.value);
+          if (event.target.value === draft.body) return;
+          const before = beforeInputSelection.current;
+          beforeInputSelection.current = null;
+          const after = {
+            start: event.target.selectionStart ?? 0,
+            end: event.target.selectionEnd ?? 0,
+          };
+          const edit = before
+            ? inferTextareaEdit(draft.body, event.target.value, before, after)
+            : null;
+          onChange(reconcileMentionDraft(draft, event.target.value, edit));
           syncTarget(event.target);
         }}
         onClick={(event) => syncTarget(event.currentTarget)}
@@ -190,9 +263,9 @@ function MentionTextarea({
                 }}
               >
                 <span className="block truncate font-medium">
-                  {principalLabel(user)}
+                  {mentionPrincipalLabel(user)}
                 </span>
-                {user.email && user.email !== principalLabel(user) ? (
+                {user.email && user.email !== mentionPrincipalLabel(user) ? (
                   <span className="block truncate text-xs text-[var(--color-fg-muted)]">
                     {user.email}
                   </span>
@@ -206,72 +279,28 @@ function MentionTextarea({
   );
 }
 
-const MENTION_PATTERN =
-  /@(?:[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}|[A-Za-z][A-Za-z0-9._'-]*(?: [A-Z][A-Za-z0-9._'-]*){0,3})/g;
-const EXPLICIT_MENTION_PATTERN = new RegExp(
-  `@([^${MENTION_BOUNDARY}\\n]+)${MENTION_BOUNDARY}`,
-  "g",
-);
-
-function mentionNode(mention: string, key: string) {
+function CommentBody({
+  text,
+  mentions,
+}: {
+  text: string;
+  mentions: Comment["mentions"];
+}) {
   return (
-    <span
-      key={key}
-      className="rounded bg-[var(--color-accent-muted)] px-1 py-0.5 font-medium text-[var(--color-accent)]"
-    >
-      {mention}
-    </span>
-  );
-}
-
-function renderFallbackMentionText(text: string, keyPrefix = ""): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = MENTION_PATTERN.exec(text))) {
-    const raw = match[0];
-    const trailing = raw.match(/[.,;:!?)]$/)?.[0] || "";
-    const mention = trailing ? raw.slice(0, -trailing.length) : raw;
-    const start = match.index;
-    const end = start + mention.length;
-    if (start > lastIndex) parts.push(text.slice(lastIndex, start));
-    parts.push(mentionNode(mention, `${keyPrefix}${start}-${mention}`));
-    if (trailing) parts.push(trailing);
-    lastIndex = start + raw.length;
-  }
-  const rest = text.slice(lastIndex).replaceAll(MENTION_BOUNDARY, "");
-  if (rest) parts.push(rest);
-  return parts;
-}
-
-function renderMentionText(text: string): ReactNode[] {
-  const parts: ReactNode[] = [];
-  let lastIndex = 0;
-  let match: RegExpExecArray | null;
-  while ((match = EXPLICIT_MENTION_PATTERN.exec(text))) {
-    if (match.index > lastIndex) {
-      parts.push(
-        ...renderFallbackMentionText(
-          text.slice(lastIndex, match.index),
-          `plain-${lastIndex}-`,
+    <p className="whitespace-pre-wrap break-words text-sm">
+      {mentionTextSegments(text, mentions || []).map((segment, index) =>
+        segment.mention ? (
+          <span
+            key={`${segment.mention.offset}-${segment.mention.principal.type}-${segment.mention.principal.id}`}
+            className="rounded bg-[var(--color-accent-muted)] px-1 py-0.5 font-medium text-[var(--color-accent)]"
+          >
+            {segment.text}
+          </span>
+        ) : (
+          <span key={`text-${index}`}>{segment.text}</span>
         ),
-      );
-    }
-    const mention = `@${match[1].trimEnd()}`;
-    parts.push(mentionNode(mention, `explicit-${match.index}-${mention}`));
-    lastIndex = match.index + match[0].length;
-  }
-  if (lastIndex < text.length) {
-    parts.push(
-      ...renderFallbackMentionText(text.slice(lastIndex), `plain-${lastIndex}-`),
-    );
-  }
-  return parts;
-}
-
-function CommentBody({ text }: { text: string }) {
-  return (
-    <p className="whitespace-pre-wrap break-words text-sm">{renderMentionText(text)}</p>
+      )}
+    </p>
   );
 }
 
@@ -284,12 +313,11 @@ export function Comments() {
     commentsError,
     selection,
     setSelection,
-    setActiveComment,
   } = useDoc();
   const q = useQueryClient();
   const [filter, setFilter] = useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
   const [quote, setQuote] = useState("");
-  const [body, setBody] = useState("");
+  const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
   const anchorRef = useRef<Partial<Anchor> | undefined>(undefined);
 
   useEffect(() => {
@@ -300,9 +328,17 @@ export function Comments() {
   }, [selection]);
 
   const create = useMutation({
-    mutationFn: () => api.createComment(docId, version, body, quote, anchorRef.current),
+    mutationFn: () =>
+      api.createComment(
+        docId,
+        version,
+        draft.body,
+        quote,
+        anchorRef.current,
+        draft.mentions,
+      ),
     onSuccess: () => {
-      setBody("");
+      setDraft(emptyMentionDraft());
       setQuote("");
       anchorRef.current = undefined;
       setSelection(null);
@@ -314,7 +350,7 @@ export function Comments() {
 
   const clear = () => {
     setQuote("");
-    setBody("");
+    setDraft(emptyMentionDraft());
     anchorRef.current = undefined;
     setSelection(null);
   };
@@ -359,12 +395,12 @@ export function Comments() {
             <MentionTextarea
               autoFocus
               rows={3}
-              value={body}
-              onChange={setBody}
+              draft={draft}
+              onChange={setDraft}
               onKeyDown={(e) => {
                 if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
                   e.preventDefault();
-                  if (body.trim() && !create.isPending) create.mutate();
+                  if (draft.body.trim() && !create.isPending) create.mutate();
                 }
               }}
               placeholder="Add a comment…"
@@ -373,7 +409,11 @@ export function Comments() {
               <Button type="button" variant="ghost" size="sm" onClick={clear}>
                 Cancel
               </Button>
-              <Button size="sm" type="submit" disabled={!body || create.isPending}>
+              <Button
+                size="sm"
+                type="submit"
+                disabled={!draft.body || create.isPending}
+              >
                 Comment ⌘↵
               </Button>
             </div>
@@ -425,7 +465,7 @@ export function Comments() {
 
 function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   const q = useQueryClient();
-  const { activeComment, setActiveComment, principal } = useDoc();
+  const { activeComment, setActiveComment, principal, unanchoredComments } = useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
   useEffect(() => {
@@ -433,21 +473,34 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
       cardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
   }, [active]);
   const reply = useMutation({
-    mutationFn: (body: string) => api.createCommentReply(docId, c.id, body),
+    mutationFn: (draft: MentionDraft) =>
+      api.createCommentReply(docId, c.id, draft.body, draft.mentions),
     onSuccess: () => q.invalidateQueries({ queryKey: queryKeys.comments(docId) }),
     onError: (e) => toast.error(errorMessage(e, "Could not add reply")),
   });
   const m = useMutation({
-    mutationFn: (status: string) => api.patchComment(docId, c.id, c.body, status),
+    mutationFn: (status: string) => api.patchComment(docId, c.id, { status }),
     onSuccess: () => q.invalidateQueries({ queryKey: queryKeys.comments(docId) }),
     onError: (e) => toast.error(errorMessage(e, "Could not update comment")),
   });
   const resolved = c.status === COMMENT_STATUS.resolved;
+  const toggleActive = () => setActiveComment(active ? undefined : c.id);
   return (
     <article
       ref={cardRef}
+      role="button"
+      tabIndex={0}
       className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-[border-color,box-shadow,opacity] duration-200 ease-out hover:border-[var(--color-border-strong)] hover:shadow-sm ${active ? "border-[var(--color-border-strong)] shadow-sm ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
-      onClick={() => setActiveComment(active ? undefined : c.id)}
+      onClick={toggleActive}
+      onKeyDown={(e) => {
+        // Only toggle when the card itself is focused, not when typing in the
+        // reply composer or activating a nested button.
+        if (e.target !== e.currentTarget) return;
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          toggleActive();
+        }
+      }}
     >
       <div className="mb-1 flex items-center justify-between">
         <span className="text-xs font-semibold">
@@ -461,19 +514,18 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           <Badge variant="accent">open</Badge>
         )}
       </div>
-      {c.current_placement?.status &&
-        c.current_placement.status !== PLACEMENT_STATUS.attached && (
-          <Badge variant="warning" className="mb-2">
-            {c.current_placement.status}
-          </Badge>
-        )}
+      {unanchoredComments.has(c.id) && (
+        <Badge variant="warning" className="mb-2">
+          highlight not found
+        </Badge>
+      )}
       {c.selected_text && (
         <blockquote className="mb-2 border-l-2 border-[var(--color-border-strong)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
           {c.selected_text}
         </blockquote>
       )}
       <div className="flex items-start justify-between gap-2">
-        <CommentBody text={c.body} />
+        <CommentBody text={c.body} mentions={c.mentions} />
         <DeleteCommentButton
           c={c}
           docId={docId}
@@ -493,7 +545,12 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           ))}
         </div>
       )}
-      <ReplyComposer onReply={(body) => reply.mutate(body)} pending={reply.isPending} />
+      <ReplyComposer
+        onReply={async (draft) => {
+          await reply.mutateAsync(draft);
+        }}
+        pending={reply.isPending}
+      />
       <div className="mt-2 flex justify-end">
         <Button
           variant="ghost"
@@ -532,7 +589,7 @@ function ReplyItem({
           className="opacity-0 transition-opacity group-hover/reply:opacity-100"
         />
       </div>
-      <CommentBody text={r.body} />
+      <CommentBody text={r.body} mentions={r.mentions} />
     </div>
   );
 }
@@ -541,31 +598,38 @@ function ReplyComposer({
   onReply,
   pending,
 }: {
-  onReply: (body: string) => void;
+  onReply: (draft: MentionDraft) => Promise<void>;
   pending: boolean;
 }) {
-  const [body, setBody] = useState("");
+  const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
   return (
     <form
       className="mt-3 flex gap-2"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!body.trim() || pending) return;
-        onReply(body.trim());
-        setBody("");
+        if (!draft.body.trim() || pending) return;
+        const submittedDraft = draft;
+        void onReply(submittedDraft)
+          .then(() => {
+            setDraft((current) =>
+              current === submittedDraft ? emptyMentionDraft() : current,
+            );
+          })
+          // The mutation displays the error; retaining the draft lets the user retry.
+          .catch(() => undefined);
       }}
     >
       <MentionTextarea
         rows={1}
-        value={body}
-        onChange={setBody}
+        draft={draft}
+        onChange={setDraft}
         placeholder="Reply…"
         className="min-h-9 text-sm"
       />
       <Button
         size="sm"
         type="submit"
-        disabled={!body.trim() || pending}
+        disabled={!draft.body.trim() || pending}
         className="shrink-0"
       >
         Reply
@@ -623,8 +687,4 @@ function DeleteCommentButton({
       </AlertDialogContent>
     </AlertDialog>
   );
-}
-
-function samePrincipal(a: Principal | undefined, b: Principal) {
-  return !!a && a.type === b.type && a.id === b.id;
 }

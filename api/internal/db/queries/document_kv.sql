@@ -14,6 +14,9 @@ SELECT COALESCE(MAX(revision), 0)::bigint FROM document_kv WHERE document_id=$1;
 INSERT INTO document_kv_events(document_id,revision,changes,updated_by_type,updated_by_id,updated_by_email,updated_by_name)
 VALUES($1,$2,$3,$4,$5,$6,$7);
 
+-- name: NotifyDocumentKVEvent :exec
+SELECT pg_notify('aidocs_kv_events', sqlc.arg(document_id)::text);
+
 -- name: ListDocumentKVEventsAfter :many
 SELECT document_id,revision,changes,updated_at,updated_by_type,updated_by_id,updated_by_email,updated_by_name
 FROM document_kv_events

@@ -5,6 +5,16 @@ export type Principal = {
   name?: string;
   picture_url?: string;
 };
+export type CommentMentionPrincipal = Omit<Principal, "type"> & {
+  type: "user" | "service_account";
+};
+export type CommentMentionPrincipalRef = Pick<CommentMentionPrincipal, "type" | "id">;
+export type UserPrincipal = Omit<Principal, "type"> & { type: "user" };
+export type CommentMention = {
+  principal: CommentMentionPrincipal;
+  offset: number;
+  length: number;
+};
 export type Document = {
   id: string;
   title: string;
@@ -18,6 +28,7 @@ export type ServerConfig = {
   deployment: "public" | "org";
   org_name: string;
   everyone_label: string;
+  provider_name: string;
 };
 export type Version = {
   id: string;
@@ -44,6 +55,9 @@ export type Comment = {
   created_on_version_id: string;
   parent_comment_id?: string;
   root_comment_id?: string;
+  // Optional only for rolling-upgrade reads from an older server. New servers
+  // always return an array, including when it is empty.
+  mentions?: CommentMention[];
   anchor?: Anchor;
   replies?: Comment[];
   current_placement?: {
@@ -52,6 +66,13 @@ export type Comment = {
     matched_text: string;
   };
 };
+export type CommentPatch = {
+  body?: string;
+  status?: string;
+  mentions?: CommentMention[];
+};
+
+const COMMENT_MENTIONS_MEDIA_TYPE = "application/vnd.aidocs.comment-mentions+json";
 export type Grant = {
   id: string;
   principal?: Principal;
@@ -170,6 +191,17 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   return (await res.text()) as T;
 }
 
+function mentionPayload(mentions: CommentMention[]) {
+  return mentions.map((mention) => ({
+    principal: {
+      type: mention.principal.type,
+      id: mention.principal.id,
+    } satisfies CommentMentionPrincipalRef,
+    offset: mention.offset,
+    length: mention.length,
+  }));
+}
+
 export const api = {
   me: () =>
     request<{
@@ -186,7 +218,7 @@ export const api = {
   getDocument: (id: string) => request<Document>(`/v1/documents/${id}`),
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>
-    request<{ items: Principal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
+    request<{ items: UserPrincipal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
   createDocument: (title: string, file: File) => {
     const fd = new FormData();
     fd.set("title", title);
@@ -230,12 +262,17 @@ export const api = {
     body: string,
     quote: string,
     anchor?: Partial<Anchor>,
+    mentions: CommentMention[] = [],
   ) =>
     request<Comment>(`/v1/documents/${doc}/comments`, {
       method: "POST",
+      ...(mentions.length > 0
+        ? { headers: { "Content-Type": COMMENT_MENTIONS_MEDIA_TYPE } }
+        : {}),
       body: JSON.stringify({
         version_id: version,
         body,
+        mentions: mentionPayload(mentions),
         // Use the anchor captured from the render bridge, falling back to a
         // placeholder when the bridge supplied no selection offsets.
         anchor: {
@@ -248,15 +285,31 @@ export const api = {
         },
       }),
     }),
-  createCommentReply: (doc: string, id: string, body: string) =>
+  createCommentReply: (
+    doc: string,
+    id: string,
+    body: string,
+    mentions: CommentMention[] = [],
+  ) =>
     request<Comment>(`/v1/documents/${doc}/comments/${id}/replies`, {
       method: "POST",
-      body: JSON.stringify({ body }),
+      ...(mentions.length > 0
+        ? { headers: { "Content-Type": COMMENT_MENTIONS_MEDIA_TYPE } }
+        : {}),
+      body: JSON.stringify({ body, mentions: mentionPayload(mentions) }),
     }),
-  patchComment: (doc: string, id: string, body: string, status: string) =>
+  patchComment: (doc: string, id: string, patch: CommentPatch) =>
     request<Comment>(`/v1/documents/${doc}/comments/${id}`, {
       method: "PATCH",
-      body: JSON.stringify({ body, status }),
+      ...(patch.mentions !== undefined
+        ? { headers: { "Content-Type": COMMENT_MENTIONS_MEDIA_TYPE } }
+        : {}),
+      body: JSON.stringify({
+        ...patch,
+        ...(patch.mentions !== undefined
+          ? { mentions: mentionPayload(patch.mentions) }
+          : {}),
+      }),
     }),
   deleteComment: (doc: string, id: string) =>
     request<void>(`/v1/documents/${doc}/comments/${id}`, { method: "DELETE" }),

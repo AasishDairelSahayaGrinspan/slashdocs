@@ -13,6 +13,26 @@ import (
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
+// createVersionResponse is the payload of POST /v1/documents/{id}/versions.
+type createVersionResponse struct {
+	ID            string `json:"id"`
+	Number        int    `json:"number"`
+	SHA256        string `json:"sha256"`
+	ChangeSummary string `json:"change_summary,omitempty"`
+}
+
+// versionConflictDetails names the latest version when a create hits a stale
+// base_version_id.
+type versionConflictDetails struct {
+	CurrentVersionID string `json:"current_version_id"`
+}
+
+// renderTokenResponse is the payload of POST .../render-token.
+type renderTokenResponse struct {
+	Token string `json:"token"`
+	URL   string `json:"url"`
+}
+
 // CreateVersion godoc
 // @Summary Create version
 // @Tags versions
@@ -23,7 +43,7 @@ import (
 // @Param base_version_id formData string true "Base version ID"
 // @Param change_summary formData string false "Change summary"
 // @Param file formData file true "HTML file"
-// @Success 201 {object} map[string]interface{}
+// @Success 201 {object} createVersionResponse
 // @Router /v1/documents/{id}/versions [post]
 func (h handlers) createVersion(c *gin.Context) {
 	if !h.needDocRole(c, c.Param("id"), repo.RoleEditor) {
@@ -49,14 +69,14 @@ func (h handlers) createVersion(c *gin.Context) {
 			if errors.As(err, &vce) {
 				latestID = vce.LatestVersionID
 			}
-			c.JSON(http.StatusConflict, errorResponse("version_conflict", "base_version_id is stale", gin.H{"current_version_id": latestID}))
+			c.JSON(http.StatusConflict, errorResponse("version_conflict", "base_version_id is stale", versionConflictDetails{CurrentVersionID: latestID}))
 			return
 		}
 		internalErr(c, err)
 		return
 	}
 	incVersion("created", actorType(c))
-	c.JSON(http.StatusCreated, gin.H{"id": v.ID, "number": v.Number, "sha256": v.SHA256})
+	c.JSON(http.StatusCreated, createVersionResponse{ID: v.ID, Number: v.Number, SHA256: v.SHA256, ChangeSummary: v.ChangeSummary})
 }
 
 // CreateRenderToken godoc
@@ -66,7 +86,7 @@ func (h handlers) createVersion(c *gin.Context) {
 // @Security cookieAuth
 // @Param id path string true "Document ID"
 // @Param version_id path string true "Version ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} renderTokenResponse
 // @Router /v1/documents/{id}/versions/{version_id}/render-token [post]
 func (h handlers) createRenderToken(c *gin.Context) {
 	v, ok := h.loadVersionForViewer(c)
@@ -77,7 +97,8 @@ func (h handlers) createRenderToken(c *gin.Context) {
 	token := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).SignForAudience(subject, "render", 5*time.Minute)
 	renderPath := "/v/" + v.DocumentID + "/" + v.ID
 	path := renderPath
-	if h.deps.renderOrigin == "" || sameOrigin(h.deps.appOrigin, h.deps.renderOrigin) {
+	if h.deps.renderOrigin == "" || sameHTTPOrigin(h.deps.appOrigin, h.deps.renderOrigin) {
+		//nolint:gosec // G124: Secure is conditional so explicit local HTTP development remains usable.
 		http.SetCookie(c.Writer, &http.Cookie{
 			Name:     "aidocs_render_token",
 			Value:    token,
@@ -94,7 +115,7 @@ func (h handlers) createRenderToken(c *gin.Context) {
 		path = strings.TrimRight(h.deps.renderOrigin, "/") + path
 	}
 	incRender("token_created", "success")
-	c.JSON(http.StatusOK, gin.H{"token": token, "url": path})
+	c.JSON(http.StatusOK, renderTokenResponse{Token: token, URL: path})
 }
 
 // RenderVersion godoc
@@ -125,8 +146,13 @@ func (h handlers) renderVersion(c *gin.Context) {
 	}
 	b, err := h.deps.repository.GetVersionHTML(c.Request.Context(), vid)
 	if err != nil {
-		incRender("rendered", "not_found")
-		notFound(c)
+		if errors.Is(err, repo.ErrNotFound) {
+			incRender("rendered", "not_found")
+			notFound(c)
+			return
+		}
+		incRender("rendered", "error")
+		internalErr(c, err)
 		return
 	}
 	appOrigin := h.deps.appOrigin
@@ -141,17 +167,8 @@ func (h handlers) renderVersion(c *gin.Context) {
 	c.Data(http.StatusOK, "text/html; charset=utf-8", renderWrapperHTML(b, appOrigin))
 }
 
-func sameOrigin(a, b string) bool {
-	if a == "" || b == "" {
-		return false
-	}
-	au, errA := url.Parse(a)
-	bu, errB := url.Parse(b)
-	return errA == nil && errB == nil && au.Scheme == bu.Scheme && au.Host == bu.Host
-}
-
 func secureRenderCookie(c *gin.Context, appOrigin string) bool {
-	if u, err := url.Parse(appOrigin); err == nil && u.Scheme == "https" {
+	if u, err := url.Parse(appOrigin); err == nil && strings.EqualFold(u.Scheme, "https") {
 		return true
 	}
 	if c.Request.TLS != nil {
@@ -166,7 +183,7 @@ func secureRenderCookie(c *gin.Context, appOrigin string) bool {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Param id path string true "Document ID"
-// @Success 200 {object} map[string]interface{}
+// @Success 200 {object} listResponse[repo.Version]
 // @Router /v1/documents/{id}/versions [get]
 func (h handlers) listVersions(c *gin.Context) {
 	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
@@ -177,7 +194,7 @@ func (h handlers) listVersions(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	c.JSON(http.StatusOK, listResponse[repo.Version]{Items: items})
 }
 
 // GetVersion godoc
@@ -207,6 +224,10 @@ func (h handlers) loadVersionForViewer(c *gin.Context) (repo.Version, bool) {
 		return repo.Version{}, false
 	}
 	v, err := h.deps.repository.GetVersion(c.Request.Context(), c.Param("version_id"))
+	if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		internalErr(c, err)
+		return repo.Version{}, false
+	}
 	if err != nil || v.DocumentID != docID {
 		notFound(c)
 		return repo.Version{}, false

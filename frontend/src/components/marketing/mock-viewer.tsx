@@ -90,9 +90,7 @@ export function MockDocViewer({
                 <div className="mb-1 border-l-2 border-[var(--color-border-strong)] pl-1 text-[var(--color-fg-muted)]">
                   …impact window…
                 </div>
-                <div className="text-[var(--color-fg)]">
-                  Clarify the impact window.
-                </div>
+                <div className="text-[var(--color-fg)]">Clarify the impact window.</div>
               </motion.div>
             )}
           </AnimatePresence>
@@ -111,14 +109,16 @@ function RichDoc({ highlight }: { highlight: boolean }) {
       <div className="mb-3 flex items-center gap-2 text-[10px] text-[var(--color-fg-muted)]">
         <span>Sept 14, 2025</span>
         <span>·</span>
-        <span className="rounded bg-red-500/15 px-1.5 py-px text-red-500">
-          Sev-1
-        </span>
+        <span className="rounded bg-red-500/15 px-1.5 py-px text-red-500">Sev-1</span>
         <span>·</span>
         <span>owner: payments-platform</span>
       </div>
       <p className="mb-3">
-        On Sept 14, the payments API returned <code className="rounded bg-[var(--color-surface-muted)] px-1 font-mono text-[10px]">5xx</code> errors for{" "}
+        On Sept 14, the payments API returned{" "}
+        <code className="rounded bg-[var(--color-surface-muted)] px-1 font-mono text-[10px]">
+          5xx
+        </code>{" "}
+        errors for{" "}
         <span
           className={cn(
             "rounded px-0.5 transition-colors duration-300",
