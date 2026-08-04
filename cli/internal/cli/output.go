@@ -244,6 +244,20 @@ func compactRow(m map[string]any) string {
 			parts = append(parts, "created_by="+label)
 		}
 	}
+	// Effective-access rows carry their explicit grants in sources; surface
+	// the grant ids since revoking requires them.
+	if sources, ok := value(m, "sources").([]any); ok {
+		ids := []string{}
+		for _, raw := range sources {
+			source, _ := raw.(map[string]any)
+			if id, _ := value(source, "grant_id").(string); id != "" {
+				ids = append(ids, id)
+			}
+		}
+		if len(ids) > 0 {
+			parts = append(parts, "grant_id="+strings.Join(ids, ","))
+		}
+	}
 	if mentions := mentionLabels(value(m, "mentions")); len(mentions) > 0 {
 		parts = append(parts, "mentions="+strings.Join(mentions, ","))
 	}
@@ -258,6 +272,11 @@ func principalLabel(p map[string]any) string {
 		if v := value(p, k); v != nil && fmt.Sprint(v) != "" {
 			return fmt.Sprint(v)
 		}
+	}
+	// The "anyone" principal has no name, email, or id; its type is the only
+	// meaningful label (an access row showing no principal at all is worse).
+	if v := value(p, "type"); v != nil && fmt.Sprint(v) != "" {
+		return fmt.Sprint(v)
 	}
 	return ""
 }

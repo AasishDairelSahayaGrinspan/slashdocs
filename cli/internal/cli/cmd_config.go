@@ -38,6 +38,7 @@ func everyoneLabelFor(g *globals) string {
 }
 
 type serverConfig struct {
+	Deployment    string `json:"deployment"`
 	OrgName       string `json:"org_name"`
 	EveryoneLabel string `json:"everyone_label"`
 }
@@ -68,20 +69,31 @@ func maybeGrantOrgWideViewer(c *Client, docID string) (bool, error) {
 }
 
 // orgWideDefaultShareNotice is printed after the default grant is applied so
-// neither an agent nor a human can miss how widely the new document is shared.
+// neither an agent nor a human can miss how widely the new document is
+// shared. Public deployments admit anyone with the link, so the org wording
+// would understate the exposure there. An empty deployment means a server
+// that predates /v1/config's deployment field; those were org installs.
 func orgWideDefaultShareNotice(g *globals, docID string) string {
-	org := serverConfigFor(g).OrgName
+	cfg := serverConfigFor(g)
+	if cfg.Deployment == "public" {
+		return fmt.Sprintf("This document is viewable by anyone with the link by default. Make sure your user knows it is publicly accessible. To make it private, revoke the default grant: aidocs docs grants list %s, then aidocs docs grants revoke %s <grant_id>.", docID, docID)
+	}
+	org := cfg.OrgName
 	if org == "" {
 		org = "your org"
 	}
-	return fmt.Sprintf("This document is org-wide viewable by default: anyone at %s who can reach this server can read it. Make sure your user knows this document is shared org-wide. To make it private, revoke the default grant: aidocs docs grants list %s, then aidocs docs grants revoke %s <grant_id>.", org, docID, docID)
+	return fmt.Sprintf("This document is org-wide viewable by default: anyone at %s can read it. Make sure your user knows this document is shared org-wide. To make it private, revoke the default grant: aidocs docs grants list %s, then aidocs docs grants revoke %s <grant_id>.", org, docID, docID)
 }
 
 func orgWideViewerNudge(g *globals, docID string) string {
 	if documentHasGrants(g, docID) {
 		return ""
 	}
-	org := serverConfigFor(g).OrgName
+	cfg := serverConfigFor(g)
+	if cfg.Deployment == "public" {
+		return fmt.Sprintf("Give read-only access to anyone with the link? You can do it with: aidocs docs grants add %s --everyone --role viewer", docID)
+	}
+	org := cfg.OrgName
 	if org == "" {
 		org = "your org"
 	}

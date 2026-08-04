@@ -135,11 +135,19 @@ func (a mcpAPIAdapter) finishDocumentCreate(ctx context.Context, response mcpAPI
 	granted := err == nil && grant.status >= http.StatusOK && grant.status < http.StatusMultipleChoices
 	payload["org_wide_viewer_granted"] = granted
 	if granted {
-		org := a.handlers.deps.orgName
-		if org == "" {
-			org = "your org"
+		// Public deployments admit anyone with the link; the org wording would
+		// understate the exposure there. Test-constructed servers may leave
+		// deployment empty, which main.go never does for real installs; treat
+		// only an explicit public deployment as public.
+		if a.handlers.deps.deployment == DeploymentPublic {
+			payload["warning"] = fmt.Sprintf("This document is viewable by anyone with the link by default. Make sure your user knows it is publicly accessible. To make it private, call list_document_access for %s, then revoke_document_grant with the grant_id of the everyone grant.", id)
+		} else {
+			org := a.handlers.deps.orgName
+			if org == "" {
+				org = "your org"
+			}
+			payload["warning"] = fmt.Sprintf("This document is org-wide viewable by default: anyone at %s can read it. Make sure your user knows this document is shared org-wide. To make it private, call list_document_access for %s, then revoke_document_grant with the grant_id of the everyone grant.", org, id)
 		}
-		payload["warning"] = fmt.Sprintf("This document is org-wide viewable by default: anyone at %s who can reach this server can read it. Make sure your user knows this document is shared org-wide. To make it private, revoke the default grant: call list_document_access for %s, then revoke_document_grant with the grant_id of the everyone grant.", org, id)
 	} else {
 		detail := ""
 		if err != nil {
