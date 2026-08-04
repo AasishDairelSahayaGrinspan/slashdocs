@@ -1,4 +1,10 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -74,6 +80,10 @@ function MentionTextarea({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const beforeInputSelection = useRef<TextSelection | null>(null);
+  // Caret position to apply right after the commit that renders an accepted
+  // mention. A layout effect (not requestAnimationFrame) applies it: rAF can
+  // fire after further keystrokes and yank the caret back mid-word.
+  const caretRestore = useRef<number | null>(null);
   const [caret, setCaret] = useState(0);
   const [target, setTarget] = useState<MentionTarget | null>(null);
   const [suggestions, setSuggestions] = useState<UserPrincipal[]>([]);
@@ -118,6 +128,16 @@ function MentionTextarea({
     };
   }, [target?.query]);
 
+  useLayoutEffect(() => {
+    if (caretRestore.current === null) return;
+    const el = ref.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(caretRestore.current, caretRestore.current);
+    }
+    caretRestore.current = null;
+  });
+
   const accept = (user: UserPrincipal) => {
     if (!target) return;
     if (draft.mentions.length >= MAX_COMMENT_MENTIONS) {
@@ -131,10 +151,7 @@ function MentionTextarea({
     setOpen(false);
     setSuggestions([]);
     setCaret(nextCaret);
-    window.requestAnimationFrame(() => {
-      ref.current?.focus();
-      ref.current?.setSelectionRange(nextCaret, nextCaret);
-    });
+    caretRestore.current = nextCaret;
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
