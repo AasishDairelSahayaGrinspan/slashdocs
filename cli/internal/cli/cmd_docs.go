@@ -57,9 +57,6 @@ func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 }
 
 func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title string, body []byte) error {
-	if g.quiet {
-		return nil
-	}
 	var payload map[string]any
 	if json.Unmarshal(body, &payload) != nil {
 		return render(out, g, body)
@@ -71,15 +68,20 @@ func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title string, 
 		}
 		return confirm(out, g, fmt.Sprintf("Created document %q. Document URL unavailable: response did not include id.", title))
 	}
-	documentURL := browserURL(cl.Base, "/app/d/%s", id)
 	sharedByDefault, err := maybeGrantOrgWideViewer(cl, id)
 	if err != nil {
 		return err
 	}
+	if g.quiet {
+		return nil
+	}
+	documentURL := browserURL(cl.Base, "/app/d/%s", id)
 	if g.json {
 		payload["url"] = documentURL
 		payload["org_wide_viewer_granted"] = sharedByDefault
-		if !sharedByDefault {
+		if sharedByDefault {
+			payload["warning"] = orgWideDefaultShareNotice(g, id)
+		} else {
 			payload["message"] = orgWideViewerNudge(g, id)
 		}
 		encoded, err := json.Marshal(payload)
@@ -92,7 +94,11 @@ func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title string, 
 		return err
 	}
 	if sharedByDefault {
-		return confirm(out, g, "Gave org-wide read-only access by default.")
+		if err := confirm(out, g, "Gave org-wide read-only access by default."); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(out, orgWideDefaultShareNotice(g, id))
+		return err
 	}
 	return printOrgWideViewerNudge(out, g, id)
 }

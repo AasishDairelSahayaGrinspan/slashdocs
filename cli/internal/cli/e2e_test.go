@@ -196,7 +196,7 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 		want []string
 	}{
 		{[]string{"auth", "whoami"}, []string{"me@example.com", "server=" + srv.URL}},
-		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Gave org-wide read-only access by default"}},
+		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Gave org-wide read-only access by default", "org-wide viewable by default"}},
 		{[]string{"docs", "update", "doc_1", "--title", "New"}, []string{"Renamed document", "doc_1"}},
 		{[]string{"docs", "pull", "doc_1", "--out", out}, []string{"Pulled version", "doc_1"}},
 		{[]string{"docs", "push", "doc_1", html}, []string{"Pushed version", "ver_2"}},
@@ -290,6 +290,10 @@ func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 				if m["org_wide_viewer_granted"] != true {
 					t.Fatalf("create JSON should report org_wide_viewer_granted=true, got %v (output %q)", m["org_wide_viewer_granted"], got)
 				}
+				warning, _ := m["warning"].(string)
+				if !strings.Contains(warning, "org-wide viewable by default") {
+					t.Fatalf("create JSON should carry the org-wide share warning, got %q (output %q)", warning, got)
+				}
 				if msg, ok := m["message"].(string); ok && strings.Contains(msg, "aidocs docs grants add") {
 					t.Fatalf("create JSON should not include nudge when auto-granted, got %q", got)
 				}
@@ -317,6 +321,8 @@ func TestCreateGrantsOrgWideViewerByDefault(t *testing.T) {
 				t.Fatalf("grant principal = %#v, want anyone", p)
 			}
 			writeTestJSON(t, w, map[string]any{"id": "gr_new"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/config":
+			writeTestJSON(t, w, map[string]any{"org_name": "Acme", "everyone_label": "Acme"})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -338,6 +344,45 @@ func TestCreateGrantsOrgWideViewerByDefault(t *testing.T) {
 	}
 	if !strings.Contains(got, "Gave org-wide read-only access by default") || strings.Contains(got, "Give org-wide read-only access?") {
 		t.Fatalf("unexpected output %q", got)
+	}
+	if !strings.Contains(got, "org-wide viewable by default") || !strings.Contains(got, "anyone at Acme") {
+		t.Fatalf("expected org-wide share notice, got %q", got)
+	}
+}
+
+// TestCreateQuietStillGrantsOrgWideViewer locks in that --quiet only
+// suppresses output: the default org-wide viewer grant must still be applied.
+func TestCreateQuietStillGrantsOrgWideViewer(t *testing.T) {
+	granted := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents":
+			requireMultipart(t, r)
+			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents/doc_new/grants":
+			granted = true
+			writeTestJSON(t, w, map[string]any{"id": "gr_new"})
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	html := filepath.Join(t.TempDir(), "x.html")
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
+
+	got, err := Execute([]string{"--quiet", "docs", "create", html})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if !granted {
+		t.Fatal("quiet create did not grant org-wide viewer access")
+	}
+	if got != "" {
+		t.Fatalf("quiet create should print nothing, got %q", got)
 	}
 }
 
@@ -377,6 +422,21 @@ func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
 	}
 	if !strings.Contains(got, "Give org-wide read-only access?") {
 		t.Fatalf("expected nudge when private by default, got %q", got)
+	}
+
+	got, err = Execute([]string{"--json", "docs", "create", html})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	var m map[string]any
+	if json.Unmarshal([]byte(got), &m) != nil {
+		t.Fatalf("--json output is not valid JSON: %q", got)
+	}
+	if granted {
+		t.Fatal("JSON create should not grant org-wide viewer access when AIDOCS_PRIVATE_BY_DEFAULT is set")
+	}
+	if _, ok := m["warning"]; ok {
+		t.Fatalf("JSON create should not carry the org-wide share warning when private by default, got %q", got)
 	}
 }
 

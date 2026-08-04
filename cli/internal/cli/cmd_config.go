@@ -67,6 +67,16 @@ func maybeGrantOrgWideViewer(c *Client, docID string) (bool, error) {
 	return true, err
 }
 
+// orgWideDefaultShareNotice is printed after the default grant is applied so
+// neither an agent nor a human can miss how widely the new document is shared.
+func orgWideDefaultShareNotice(g *globals, docID string) string {
+	org := serverConfigFor(g).OrgName
+	if org == "" {
+		org = "your org"
+	}
+	return fmt.Sprintf("This document is org-wide viewable by default: anyone at %s who can reach this server can read it. Make sure your user knows this document is shared org-wide. To make it private, revoke the default grant: aidocs docs grants list %s, then aidocs docs grants revoke %s <grant_id>.", org, docID, docID)
+}
+
 func orgWideViewerNudge(g *globals, docID string) string {
 	if documentHasGrants(g, docID) {
 		return ""

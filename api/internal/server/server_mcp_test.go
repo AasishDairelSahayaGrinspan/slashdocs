@@ -671,6 +671,10 @@ func TestMCPCreateDocumentGrantsOrgWideViewerByDefault(t *testing.T) {
 		"title": "Shared by default", "html": "<html><body>shared</body></html>",
 	}), `"org_wide_viewer_granted":true`))
 	docID := requiredMCPString(t, created, "id")
+	warning, _ := created["warning"].(string)
+	if !strings.Contains(warning, "org-wide viewable by default") || !strings.Contains(warning, "revoke_document_grant") {
+		t.Fatalf("create result missing org-wide share warning, got %q", warning)
+	}
 
 	access := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "list_document_access", map[string]any{
 		"document_id": docID,
@@ -688,6 +692,9 @@ func TestMCPCreateDocumentHonorsPrivateByDefault(t *testing.T) {
 		"title": "Private by default", "html": "<html><body>private</body></html>",
 	}), `"org_wide_viewer_granted":false`))
 	docID := requiredMCPString(t, created, "id")
+	if warning, ok := created["warning"]; ok {
+		t.Fatalf("private-by-default create should not carry a warning, got %v", warning)
+	}
 
 	access := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "list_document_access", map[string]any{
 		"document_id": docID,

@@ -64,7 +64,7 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 	})
 
 	server.AddTool(mcp.NewTool("create_document", mutationOptions(false, false,
-		mcp.WithDescription("Create an aidocs document from complete self-contained HTML. Returns its document and initial version IDs. Unless this server opts out via AIDOCS_PRIVATE_BY_DEFAULT, the new document is shared org-wide read-only by default; the result reports org_wide_viewer_granted."),
+		mcp.WithDescription("Create an aidocs document from complete self-contained HTML. Returns its document and initial version IDs. Unless this server opts out via AIDOCS_PRIVATE_BY_DEFAULT, the new document is shared org-wide read-only by default; the result reports org_wide_viewer_granted plus a warning describing the org-wide share and how to revoke it."),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Human-readable document title.")),
 		mcp.WithString("html", mcp.Required(), mcp.Description("Complete self-contained HTML, up to 10 MiB.")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -134,7 +134,13 @@ func (a mcpAPIAdapter) finishDocumentCreate(ctx context.Context, response mcpAPI
 	}, mcpParams("id", id), a.handlers.createGrant)
 	granted := err == nil && grant.status >= http.StatusOK && grant.status < http.StatusMultipleChoices
 	payload["org_wide_viewer_granted"] = granted
-	if !granted {
+	if granted {
+		org := a.handlers.deps.orgName
+		if org == "" {
+			org = "your org"
+		}
+		payload["warning"] = fmt.Sprintf("This document is org-wide viewable by default: anyone at %s who can reach this server can read it. Make sure your user knows this document is shared org-wide. To make it private, revoke the default grant: call list_document_access for %s, then revoke_document_grant with the grant_id of the everyone grant.", org, id)
+	} else {
 		detail := ""
 		if err != nil {
 			detail = err.Error()
