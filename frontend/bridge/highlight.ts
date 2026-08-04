@@ -239,20 +239,23 @@ export function clearHighlights(d: Document): void {
 /**
  * Remove only the artifacts of one comment, leaving every other highlight
  * untouched. Used by mutation-driven repair so an unrelated DOM change never
- * rebuilds the whole overlay.
+ * rebuilds the whole overlay. Returns the number of artifacts removed.
  */
-export function clearHighlightsFor(d: Document, id: string): void {
+export function clearHighlightsFor(d: Document, id: string): number {
   const cid = CSS.escape(id);
   const parents = new Set<Node>();
+  let removed = 0;
   d.querySelectorAll('mark.aidocs-mark[data-cid="' + cid + '"]').forEach((m) => {
     if (m.parentNode) {
       parents.add(m.parentNode);
     }
     m.replaceWith(...m.childNodes);
+    removed += 1;
   });
-  d.querySelectorAll('.aidocs-svg-mark-rect[data-cid="' + cid + '"]').forEach((r) =>
-    r.remove(),
-  );
+  d.querySelectorAll('.aidocs-svg-mark-rect[data-cid="' + cid + '"]').forEach((r) => {
+    r.remove();
+    removed += 1;
+  });
   d.querySelectorAll<HTMLElement>(
     '.aidocs-svg-mark-text[data-cid="' + cid + '"]',
   ).forEach((t) => {
@@ -260,6 +263,7 @@ export function clearHighlightsFor(d: Document, id: string): void {
     delete t.dataset.cid;
   });
   parents.forEach((p) => p.normalize());
+  return removed;
 }
 
 /**

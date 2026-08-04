@@ -616,6 +616,11 @@ type Theme = "dark" | "light";
     // are supersets of the quote.
     return strippedText(text).indexOf(expected) >= 0;
   }
+  // True while a selection gesture (mouse drag or touch) is in progress.
+  // Repairs must wait: replacing text nodes or programmatically setting the
+  // selection mid-drag makes the browser stop rendering the native
+  // selection highlight until the user stops moving.
+  let selectionGestureActive = false;
 
   // Debounce mutation-triggered scans (trailing 250ms, forced within 1s) so
   // a burst of DOM writes is handled once, and a document that mutates
@@ -629,6 +634,12 @@ type Theme = "dark" | "light";
       () => {
         mutationRepaintTimer = null;
         mutationRepaintDeadline = 0;
+        if (selectionGestureActive) {
+          // Try again after the gesture settles; the reschedule keeps the
+          // 250ms cadence without doing any DOM work mid-drag.
+          scheduleMutationScan();
+          return;
+        }
         repairAfterMutations();
       },
       Math.max(0, Math.min(now + 250, mutationRepaintDeadline) - now),
@@ -662,6 +673,7 @@ type Theme = "dark" | "light";
 
     suspendMutationObserver();
     const savedSelection = saveSelection(d, body);
+    let mutatedDOM = false;
     try {
       injectStyles();
       let rendered: RenderedTextWithBrPositions | undefined;
@@ -669,20 +681,23 @@ type Theme = "dark" | "light";
       for (const x of dirty) {
         let painted: boolean;
         try {
-          clearHighlightsFor(d, x.id!);
+          if (clearHighlightsFor(d, x.id!) > 0) mutatedDOM = true;
           const anchor: CommentAnchor = Object.assign({}, x.anchor);
           if (!anchor.quote) anchor.quote = x.quote || x.selected_text || "";
           paintedQuotes.set(x.id!, strippedText(anchor.quote));
           const r = resolveAnchor(body, anchor, getRenderedText);
           painted =
             !!r && highlightRange(r, x.id === lastPaint.active, x.id, false) > 0;
+          if (painted) mutatedDOM = true;
         } catch {
           painted = false;
         }
         const res = resultByID.get(x.id!);
         if (res) res.anchored = painted;
       }
-      if (savedSelection) restoreSelection(d, body, savedSelection);
+      // Only put the selection back when this repair actually touched the
+      // DOM; a fruitless retry must not churn the user's selection.
+      if (savedSelection && mutatedDOM) restoreSelection(d, body, savedSelection);
     } catch {
       // Never let one exotic document abort the repair loop.
     } finally {
@@ -1019,6 +1034,14 @@ type Theme = "dark" | "light";
     installAidocsAPI();
     prepareLinks();
     applyTheme(curTheme);
+    // Track the selection gesture so mutation repairs never run mid-drag
+    // (they would make the browser stop rendering the native selection).
+    d.addEventListener("mousedown", () => {
+      selectionGestureActive = true;
+    });
+    d.addEventListener("mouseup", () => {
+      selectionGestureActive = false;
+    });
     d.addEventListener("mouseup", () => setTimeout(selection, 0));
     d.addEventListener("keyup", () => setTimeout(selection, 0));
     // Touch devices: while a finger is down the user is still adjusting the
@@ -1031,6 +1054,7 @@ type Theme = "dark" | "light";
       "touchstart",
       function () {
         touching = true;
+        selectionGestureActive = true;
         // A new touch (e.g. grabbing a selection handle to drag) cancels a
         // pending emit from the previous touchend.
         if (touchEmitTimer) {
@@ -1042,6 +1066,7 @@ type Theme = "dark" | "light";
     );
     d.addEventListener("touchend", function () {
       touching = false;
+      selectionGestureActive = false;
       // Wait after the finger lifts before emitting. If the user grabs a
       // selection handle to keep dragging, touchstart cancels this timer, so
       // the sheet only appears once they've truly finished selecting.
@@ -1053,6 +1078,7 @@ type Theme = "dark" | "light";
     });
     d.addEventListener("touchcancel", function () {
       touching = false;
+      selectionGestureActive = false;
     });
     // selectionchange handles mouse drag-selection on desktop; on touch it
     // fires continuously mid-drag, so skip it while a finger is down.
