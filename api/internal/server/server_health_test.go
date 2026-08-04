@@ -161,17 +161,19 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "deployment": "public",
 	  "org_name": "",
 	  "everyone_label": "Anyone with the link",
-	  "provider_name": "SSO"
+	  "provider_name": "SSO",
+	  "default_doc_permission": "private"
 	}`)
 
-	org := newConfiguredTestEnv(t, server.Config{Environment: "test", Deployment: "org", OrgName: "Acme", OIDCProviderName: "Google"})
+	org := newConfiguredTestEnv(t, server.Config{Environment: "test", Deployment: "org", OrgName: "Acme", OIDCProviderName: "Google", DefaultDocPermission: repo.RoleCommenter})
 	rr := do(t, org.h, http.MethodGet, "/v1/config", "", nil)
 	assertStatus(t, rr, http.StatusOK)
 	assertJSON(t, rr.Body.Bytes(), `{
 	  "deployment": "org",
 	  "org_name": "Acme",
 	  "everyone_label": "Anyone in Acme",
-	  "provider_name": "Google"
+	  "provider_name": "Google",
+	  "default_doc_permission": "commenter"
 	}`)
 }
 

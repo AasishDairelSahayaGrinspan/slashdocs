@@ -493,6 +493,15 @@ type Theme = "dark" | "light";
   // repaint that only changes the active comment can skip re-anchoring.
   let lastPaintKey: string | null = null;
   let lastPaintResults: { id: string; anchored: boolean }[] | null = null;
+  // The active comment whose mark was last revealed (scrolled into view).
+  // Reveal fires only when activation changes to a different comment:
+  // repaints also arrive for reasons unrelated to activation (a comment
+  // created, replied to, resolved or deleted all refetch the list, as does a
+  // window refocus), and revealing on those yanked the reader away from
+  // where they were to the active mark. Cleared when activation clears, so
+  // re-activating the same comment reveals it again — mirroring the
+  // edge-triggered card scroll on the sidebar side.
+  let revealedActive: string | null = null;
   // Selection restored after a repaint, kept briefly so the resulting
   // selectionchange does not re-emit aidocs:selection (which would re-open
   // the comment composer the user may have dismissed).
@@ -748,8 +757,10 @@ type Theme = "dark" | "light";
     // Repaint with the same comments (sidebar clicks changing the active
     // id): move the active class without touching DOM structure. Any damage
     // from document mutations is healed by repairAfterMutations.
+    const reveal = activeID !== null && activeID !== revealedActive;
     if (d && body && lastPaintResults && key === lastPaintKey) {
-      applyActiveOnly(d, activeID, true);
+      revealedActive = activeID;
+      applyActiveOnly(d, activeID, reveal);
       parent.postMessage(
         { type: "aidocs:paint-result", results: lastPaintResults },
         targetOrigin(),
@@ -759,6 +770,7 @@ type Theme = "dark" | "light";
 
     const results: { id: string; anchored: boolean }[] = [];
     if (d && body) {
+      revealedActive = activeID;
       suspendMutationObserver();
       const savedSelection = saveSelection(d, body);
       try {
@@ -783,7 +795,7 @@ type Theme = "dark" | "light";
             // wrong extents), while character offsets into textContent stay
             // valid across wraps and splits.
             const r = resolveAnchor(body, anchor, getRenderedText);
-            painted = !!r && highlightRange(r, x.id === activeID, x.id, true) > 0;
+            painted = !!r && highlightRange(r, x.id === activeID, x.id, reveal) > 0;
           } catch {
             painted = false;
           }
@@ -1023,6 +1035,7 @@ type Theme = "dark" | "light";
     lastPaint = null;
     lastPaintKey = null;
     lastPaintResults = null;
+    revealedActive = null;
     restoredSelection = null;
     paintedQuotes.clear();
     clearTimeout(mutationRepaintTimer ?? undefined);

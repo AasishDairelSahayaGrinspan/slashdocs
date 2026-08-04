@@ -67,6 +67,13 @@ deployment:
   orgDomains: ""
   # Org display name used in share UI copy (e.g. "Anyone in Acme").
   orgName: ""
+  # Sharing default the server applies to every created document:
+  # viewer | commenter | editor | private. Empty means private. Non-private
+  # values require mode=org (a public server would share with anyone holding
+  # the link); the server refuses to start otherwise, so a misconfiguration
+  # fails at rollout. Clients can override per document with the
+  # default_permission field and revoke the reported default grant.
+  defaultDocPermission: ""
 
 # Kubernetes Deployment rollout strategy. Keep RollingUpdate normally. The
 # structured-mentions upgrade documented in docs/self-hosting.md requires one

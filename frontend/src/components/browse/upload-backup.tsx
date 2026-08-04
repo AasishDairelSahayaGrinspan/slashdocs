@@ -42,7 +42,20 @@ function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
     mutationFn: () => api.createDocument(title || file?.name || "Untitled", file!),
     onSuccess: (r) => {
       q.invalidateQueries({ queryKey: queryKeys.documents() });
-      toast.success("Document uploaded.");
+      if (r.default_grant) {
+        const verb =
+          r.default_grant.role === "editor"
+            ? "read, comment on and edit"
+            : r.default_grant.role === "commenter"
+              ? "read and comment on"
+              : "read";
+        toast.info(
+          `Uploaded — shared by default: everyone on this server can ${verb} this document. Manage access from the document's share menu.`,
+          { duration: 8000 },
+        );
+      } else {
+        toast.success("Document uploaded.");
+      }
       setOpen(false);
       reset();
       nav(`/app/d/${r.id}`);

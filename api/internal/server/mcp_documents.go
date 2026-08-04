@@ -64,7 +64,7 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 	})
 
 	server.AddTool(mcp.NewTool("create_document", mutationOptions(false, false,
-		mcp.WithDescription("Create an aidocs document from complete self-contained HTML. Returns its document and initial version IDs. Unless this server opts out via AIDOCS_PRIVATE_BY_DEFAULT, the new document is shared org-wide read-only by default; the result reports org_wide_viewer_granted plus a warning describing the org-wide share and how to revoke it."),
+		mcp.WithDescription("Create an aidocs document from complete self-contained HTML. Returns its document and initial version IDs. The server applies its configured default sharing at create; when a default grant was applied, the result carries default_grant (grant_id, principal, role) plus a warning describing who can access the document and how to revoke the grant."),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Human-readable document title.")),
 		mcp.WithString("html", mcp.Required(), mcp.Description("Complete self-contained HTML, up to 10 MiB.")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -80,7 +80,7 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 		if err != nil || response.status != http.StatusCreated {
 			return api.result(response, err, false)
 		}
-		return api.finishDocumentCreate(ctx, response)
+		return api.finishDocumentCreate(response)
 	})
 
 	server.AddTool(mcp.NewTool("rename_document", mutationOptions(true, true,
@@ -112,44 +112,50 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 
 }
 
-// finishDocumentCreate applies the org-wide read-only default to a freshly
-// created document, mirroring the CLI's post-create behavior (and its
-// AIDOCS_PRIVATE_BY_DEFAULT opt-out, which the server honors as its own env
-// var). The grant is best-effort: the document exists either way, so a grant
-// failure surfaces as a warning on the successful result, never as a lost
-// document ID.
-func (a mcpAPIAdapter) finishDocumentCreate(ctx context.Context, response mcpAPIResponse) (*mcp.CallToolResult, error) {
+// finishDocumentCreate annotates a successful create with a warning derived
+// from the server-applied default grant, so MCP callers surface the exposure
+// to their users. The server's createDocument owns the granting; this only
+// reads default_grant back from the response payload.
+func (a mcpAPIAdapter) finishDocumentCreate(response mcpAPIResponse) (*mcp.CallToolResult, error) {
 	var payload map[string]any
 	if json.Unmarshal(response.body, &payload) != nil || payload == nil {
 		return a.result(response, nil, false)
 	}
-	id, _ := payload["id"].(string)
-	if id == "" || a.handlers.deps.privateByDefault {
-		payload["org_wide_viewer_granted"] = false
+	grant, _ := payload["default_grant"].(map[string]any)
+	if grant == nil {
 		return mcp.NewToolResultJSON(payload)
 	}
-	grant, err := a.jsonResponse(ctx, http.MethodPost, "/v1/documents/"+id+"/grants", map[string]any{
-		"principal": map[string]any{"type": "anyone"},
-		"role":      "viewer",
-	}, mcpParams("id", id), a.handlers.createGrant)
-	granted := err == nil && grant.status >= http.StatusOK && grant.status < http.StatusMultipleChoices
-	payload["org_wide_viewer_granted"] = granted
-	if granted {
+	id, _ := payload["id"].(string)
+	grantID, _ := grant["grant_id"].(string)
+	role, _ := grant["role"].(string)
+	revoke := fmt.Sprintf("To make it private, call revoke_document_grant with grant_id %s on document %s.", grantID, id)
+	// Public deployments admit anyone with the link; the org wording would
+	// understate the exposure there. Test-constructed servers may leave
+	// deployment empty, which main.go never does for real installs; treat
+	// only an explicit public deployment as public.
+	if a.handlers.deps.deployment == DeploymentPublic {
+		payload["warning"] = fmt.Sprintf("This document is shared by default: anyone with the link can %s. Make sure your user knows it is publicly accessible. %s", defaultGrantVerb(role), revoke)
+	} else {
 		org := a.handlers.deps.orgName
 		if org == "" {
 			org = "your org"
 		}
-		payload["warning"] = fmt.Sprintf("This document is org-wide viewable by default: anyone at %s who can reach this server can read it. Make sure your user knows this document is shared org-wide. To make it private, revoke the default grant: call list_document_access for %s, then revoke_document_grant with the grant_id of the everyone grant.", org, id)
-	} else {
-		detail := ""
-		if err != nil {
-			detail = err.Error()
-		} else {
-			detail = fmt.Sprintf("HTTP %d", grant.status)
-		}
-		payload["warning"] = "document created, but the default org-wide read-only grant failed (" + detail + "); share it explicitly with share_document"
+		payload["warning"] = fmt.Sprintf("This document is shared org-wide by default: anyone at %s can %s. Make sure your user knows this document is shared org-wide. %s", org, defaultGrantVerb(role), revoke)
 	}
 	return mcp.NewToolResultJSON(payload)
+}
+
+// defaultGrantVerb spells out what an "anyone" grant of the given role lets
+// its audience do to the document.
+func defaultGrantVerb(role string) string {
+	switch role {
+	case "commenter":
+		return "read and comment on it"
+	case "editor":
+		return "read, comment and edit it"
+	default:
+		return "read it"
+	}
 }
 
 func registerMCPDocumentMoveTool(server *mcpserver.MCPServer, api mcpAPIAdapter) {

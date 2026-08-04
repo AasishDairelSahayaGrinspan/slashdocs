@@ -568,15 +568,6 @@ func mustMCPObject(t *testing.T, result mcpToolHTTPResult) map[string]any {
 	return object
 }
 
-func requiredMCPObject(t *testing.T, object map[string]any, field string) map[string]any {
-	t.Helper()
-	value, ok := object[field].(map[string]any)
-	if !ok {
-		t.Fatalf("MCP object field %q = %#v, want object", field, object[field])
-	}
-	return value
-}
-
 func requiredMCPString(t *testing.T, object map[string]any, field string) string {
 	t.Helper()
 	value, ok := object[field].(string)
@@ -660,38 +651,64 @@ func decodeMCPResponse(t *testing.T, rr *httptest.ResponseRecorder, target any) 
 	}
 }
 
-// Mirrors the CLI default from AIDOCS_PRIVATE_BY_DEFAULT's introduction: a
-// document created over MCP is shared org-wide read-only unless the server
-// opts out.
-func TestMCPCreateDocumentGrantsOrgWideViewerByDefault(t *testing.T) {
-	e := newMCPOAuthTestEnv(t)
+// The server applies its configured default sharing at create; the MCP result
+// passes default_grant through and derives a role-aware warning from it,
+// including the persisted grant id in the revoke recipe.
+func TestMCPCreateDocumentPassesThroughDefaultGrant(t *testing.T) {
+	e := newMCPOAuthTestEnvConfig(t, func(cfg *server.Config) {
+		cfg.Deployment = server.DeploymentOrg
+		cfg.OrgName = "Acme"
+		cfg.DefaultDocPermission = repo.RoleViewer
+	})
 	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
 
 	created := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "create_document", map[string]any{
 		"title": "Shared by default", "html": "<html><body>shared</body></html>",
-	}), `"org_wide_viewer_granted":true`))
+	}), `"default_grant"`))
 	docID := requiredMCPString(t, created, "id")
+	grant, _ := created["default_grant"].(map[string]any)
+	if grant == nil {
+		t.Fatalf("create result missing default_grant object: %v", created)
+	}
+	grantID, _ := grant["grant_id"].(string)
+	if !strings.HasPrefix(grantID, "gr_") {
+		t.Fatalf("default_grant.grant_id = %q, want gr_ prefix", grantID)
+	}
+	if role, _ := grant["role"].(string); role != "viewer" {
+		t.Fatalf("default_grant.role = %q, want viewer", role)
+	}
 	warning, _ := created["warning"].(string)
-	if !strings.Contains(warning, "org-wide viewable by default") || !strings.Contains(warning, "revoke_document_grant") {
-		t.Fatalf("create result missing org-wide share warning, got %q", warning)
+	if !strings.Contains(warning, "anyone at Acme can read it") {
+		t.Fatalf("warning missing role verb for viewer, got %q", warning)
+	}
+	if !strings.Contains(warning, "revoke_document_grant with grant_id "+grantID) {
+		t.Fatalf("warning missing revoke recipe with the persisted grant id, got %q", warning)
 	}
 
 	access := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "list_document_access", map[string]any{
 		"document_id": docID,
 	}), `"anyone"`)
+	if !strings.Contains(access.Text, grantID) {
+		t.Fatalf("listed grants do not include the default grant %s: %s", grantID, access.Text)
+	}
 	if !strings.Contains(access.Text, `"viewer"`) {
-		t.Fatalf("org-wide grant is not viewer role: %s", access.Text)
+		t.Fatalf("default grant is not viewer role: %s", access.Text)
 	}
 }
 
-func TestMCPCreateDocumentHonorsPrivateByDefault(t *testing.T) {
-	e := newMCPOAuthTestEnvConfig(t, func(cfg *server.Config) { cfg.PrivateByDefault = true })
+// A server with no configured default (private) applies no grant: the MCP
+// result carries neither default_grant nor warning.
+func TestMCPCreateDocumentPrivateDefaultServer(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
 	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
 
 	created := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "create_document", map[string]any{
 		"title": "Private by default", "html": "<html><body>private</body></html>",
-	}), `"org_wide_viewer_granted":false`))
+	}), `"current_version_id"`))
 	docID := requiredMCPString(t, created, "id")
+	if grant, ok := created["default_grant"]; ok {
+		t.Fatalf("private-by-default create should not carry default_grant, got %v", grant)
+	}
 	if warning, ok := created["warning"]; ok {
 		t.Fatalf("private-by-default create should not carry a warning, got %v", warning)
 	}

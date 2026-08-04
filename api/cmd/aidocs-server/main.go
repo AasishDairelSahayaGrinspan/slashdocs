@@ -19,6 +19,7 @@ import (
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/db"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
+	"github.com/razorpay/aidocs/api/internal/repo"
 	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
 	"github.com/razorpay/aidocs/api/internal/server"
 )
@@ -176,9 +177,10 @@ func loadOriginSettings() (originSettings, error) {
 }
 
 type deploymentSettings struct {
-	name                string
-	orgName             string
-	allowedOAuthDomains []string
+	name                 string
+	orgName              string
+	allowedOAuthDomains  []string
+	defaultDocPermission repo.Role
 }
 
 func loadDeploymentSettings() (deploymentSettings, error) {
@@ -194,7 +196,38 @@ func loadDeploymentSettings() (deploymentSettings, error) {
 	default:
 		return deploymentSettings{}, fmt.Errorf("AIDOCS_DEPLOYMENT must be %q or %q (got %q)", server.DeploymentPublic, server.DeploymentOrg, deployment)
 	}
-	return deploymentSettings{name: deployment, orgName: os.Getenv("AIDOCS_ORG_NAME"), allowedOAuthDomains: allowedOAuthDomains}, nil
+	defaultDocPermission, err := loadDefaultDocPermission(deployment)
+	if err != nil {
+		return deploymentSettings{}, err
+	}
+	return deploymentSettings{
+		name:                 deployment,
+		orgName:              os.Getenv("AIDOCS_ORG_NAME"),
+		allowedOAuthDomains:  allowedOAuthDomains,
+		defaultDocPermission: defaultDocPermission,
+	}, nil
+}
+
+// loadDefaultDocPermission parses AIDOCS_DEFAULT_DOC_PERMISSION, the
+// server-wide default sharing applied at document create. Unset means
+// private. Non-private defaults are only meaningful behind an org login
+// gate, so they require AIDOCS_DEPLOYMENT=org.
+func loadDefaultDocPermission(deployment string) (repo.Role, error) {
+	raw := os.Getenv("AIDOCS_DEFAULT_DOC_PERMISSION")
+	if raw == "" {
+		return repo.RoleNone, nil
+	}
+	role, ok := server.ParseDefaultDocPermission(raw)
+	if !ok {
+		return repo.RoleNone, fmt.Errorf("AIDOCS_DEFAULT_DOC_PERMISSION must be %q, %q, %q or %q (got %q)", repo.RoleViewer, repo.RoleCommenter, repo.RoleEditor, "private", raw)
+	}
+	if role != repo.RoleNone && deployment != server.DeploymentOrg {
+		return repo.RoleNone, fmt.Errorf("AIDOCS_DEFAULT_DOC_PERMISSION=%s requires AIDOCS_DEPLOYMENT=org: on a public server the default \"anyone\" grant admits anyone with the link, not just your org", role)
+	}
+	if role == repo.RoleEditor {
+		slog.Warn("AIDOCS_DEFAULT_DOC_PERMISSION=editor grants org-wide write access to every newly created document")
+	}
+	return role, nil
 }
 
 func loadOIDC(ctx context.Context, appOrigin string) (auth.OIDC, string, error) {
@@ -240,16 +273,16 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		options = append(options, server.WithReadinessCheck("blob", pinger.Ping))
 	}
 	return server.New(server.Config{
-		Environment:         server.EnvProduction,
-		AppOrigin:           origins.appOrigin,
-		RenderOrigin:        origins.renderOrigin,
-		OIDC:                oidcProvider,
-		OIDCProviderName:    providerName,
-		SessionSecret:       origins.sessionSecret,
-		AllowedOAuthDomains: deployment.allowedOAuthDomains,
-		Deployment:          deployment.name,
-		OrgName:             deployment.orgName,
-		PrivateByDefault:    os.Getenv("AIDOCS_PRIVATE_BY_DEFAULT") != "",
+		Environment:          server.EnvProduction,
+		AppOrigin:            origins.appOrigin,
+		RenderOrigin:         origins.renderOrigin,
+		OIDC:                 oidcProvider,
+		OIDCProviderName:     providerName,
+		SessionSecret:        origins.sessionSecret,
+		AllowedOAuthDomains:  deployment.allowedOAuthDomains,
+		Deployment:           deployment.name,
+		OrgName:              deployment.orgName,
+		DefaultDocPermission: deployment.defaultDocPermission,
 	}, options...), nil
 }
 

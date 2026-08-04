@@ -25,7 +25,7 @@ func e2eMux(t *testing.T) *http.ServeMux {
 			writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{"id": "doc_1", "title": "Doc", "current_version_id": "ver_1"}}})
 		case "POST":
 			requireMultipart(t, r)
-			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
+			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new", "default_grant": map[string]any{"grant_id": "gr_new", "principal": map[string]any{"type": "anyone"}, "role": "viewer"}})
 		default:
 			w.WriteHeader(405)
 		}
@@ -94,29 +94,11 @@ func e2eMux(t *testing.T) *http.ServeMux {
 		}
 		writeTestJSON(t, w, map[string]any{"id": "gr_1"})
 	})
-	// Like the real server: no GET /grants route; effective access lists the
-	// owner with an ownership source that carries NO grant_id.
-	mux.HandleFunc("/v1/documents/doc_new/access", jsonH(t, map[string]any{"items": []any{map[string]any{
-		"effective_role": "owner",
-		"principal":      map[string]any{"type": "user", "id": "usr_1"},
-		"sources": []any{map[string]any{
-			"resource_type": "document", "resource_id": "doc_new", "role": "owner",
-		}},
-	}}}))
+	// Default sharing is the server's job now: it reports the applied grant
+	// on the create response, and the CLI must never POST grants for a fresh
+	// document. (The explicit `docs grants add` tests use doc_1.)
 	mux.HandleFunc("/v1/documents/doc_new/grants", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != "POST" {
-			t.Fatalf("new doc grant used wrong method: %s", r.Method)
-		}
-		var in map[string]any
-		_ = json.NewDecoder(r.Body).Decode(&in)
-		if in["role"] != "viewer" {
-			t.Fatalf("new doc grant used wrong role: %#v", in)
-		}
-		p, _ := in["principal"].(map[string]any)
-		if p["type"] != "anyone" {
-			t.Fatalf("new doc grant used wrong principal: %#v", in)
-		}
-		writeTestJSON(t, w, map[string]any{"id": "gr_new"})
+		t.Fatalf("create flow must not touch grants client-side: %s %s", r.Method, r.URL.Path)
 	})
 	mux.HandleFunc("/v1/documents/doc_1/grants/gr_1", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "DELETE" {
@@ -197,7 +179,7 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 		want []string
 	}{
 		{[]string{"auth", "whoami"}, []string{"me@example.com", "server=" + srv.URL}},
-		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Gave org-wide read-only access by default", "org-wide viewable by default"}},
+		{[]string{"docs", "create", html}, []string{"Created document", "doc_new", "Gave org-wide read-only access by default", "shared org-wide by default", "grants revoke doc_new gr_new"}},
 		{[]string{"docs", "update", "doc_1", "--title", "New"}, []string{"Renamed document", "doc_1"}},
 		{[]string{"docs", "pull", "doc_1", "--out", out}, []string{"Pulled version", "doc_1"}},
 		{[]string{"docs", "push", "doc_1", html}, []string{"Pushed version", "ver_2"}},
@@ -288,12 +270,13 @@ func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 				t.Fatalf("url = %v, want %v (output %q)", m["url"], tc.wantURL, got)
 			}
 			if strings.Join(tc.args, " ") == "--json docs create "+html {
-				if m["org_wide_viewer_granted"] != true {
-					t.Fatalf("create JSON should report org_wide_viewer_granted=true, got %v (output %q)", m["org_wide_viewer_granted"], got)
+				dg, ok := m["default_grant"].(map[string]any)
+				if !ok || dg["grant_id"] != "gr_new" {
+					t.Fatalf("create JSON should pass default_grant through, got %v (output %q)", m["default_grant"], got)
 				}
 				warning, _ := m["warning"].(string)
-				if !strings.Contains(warning, "org-wide viewable by default") {
-					t.Fatalf("create JSON should carry the org-wide share warning, got %q (output %q)", warning, got)
+				if !strings.Contains(warning, "shared org-wide by default") || !strings.Contains(warning, "aidocs docs grants revoke doc_new gr_new") {
+					t.Fatalf("create JSON should carry the share warning with the real grant id, got %q (output %q)", warning, got)
 				}
 				if msg, ok := m["message"].(string); ok && strings.Contains(msg, "aidocs docs grants add") {
 					t.Fatalf("create JSON should not include nudge when auto-granted, got %q", got)
@@ -303,27 +286,21 @@ func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 	}
 }
 
+// TestCreateGrantsOrgWideViewerByDefault locks in the response-driven share
+// rendering: the server applies its default grant and reports it on the
+// create response; the CLI renders the notice with the real grant id and
+// never POSTs grants itself during create (the default case enforces it).
 func TestCreateGrantsOrgWideViewerByDefault(t *testing.T) {
-	granted := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents":
 			requireMultipart(t, r)
-			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents/doc_new/grants":
-			granted = true
-			var in map[string]any
-			_ = json.NewDecoder(r.Body).Decode(&in)
-			if in["role"] != "viewer" {
-				t.Fatalf("grant role = %v, want viewer", in["role"])
+			if v := r.FormValue("default_permission"); v != "" {
+				t.Fatalf("create sent default_permission %q with no env override", v)
 			}
-			p, _ := in["principal"].(map[string]any)
-			if p["type"] != "anyone" {
-				t.Fatalf("grant principal = %#v, want anyone", p)
-			}
-			writeTestJSON(t, w, map[string]any{"id": "gr_new"})
+			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new", "default_grant": map[string]any{"grant_id": "gr_srv", "principal": map[string]any{"type": "anyone"}, "role": "viewer"}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/config":
-			writeTestJSON(t, w, map[string]any{"org_name": "Acme", "everyone_label": "Acme"})
+			writeTestJSON(t, w, map[string]any{"deployment": "org", "org_name": "Acme", "everyone_label": "Acme"})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -340,38 +317,36 @@ func TestCreateGrantsOrgWideViewerByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if !granted {
-		t.Fatal("create did not grant org-wide viewer access")
-	}
 	if !strings.Contains(got, "Gave org-wide read-only access by default") || strings.Contains(got, "Give org-wide read-only access?") {
 		t.Fatalf("unexpected output %q", got)
 	}
-	if !strings.Contains(got, "org-wide viewable by default") || !strings.Contains(got, "anyone at Acme") {
+	if !strings.Contains(got, "shared org-wide by default") || !strings.Contains(got, "anyone at Acme can read it") {
 		t.Fatalf("expected org-wide share notice, got %q", got)
+	}
+	if !strings.Contains(got, "aidocs docs grants revoke doc_new gr_srv") {
+		t.Fatalf("expected revoke recipe with the real grant id, got %q", got)
 	}
 }
 
-// TestCreateQuietStillGrantsOrgWideViewer locks in that --quiet only
-// suppresses output: the default org-wide viewer grant must still be applied.
-func TestCreateQuietStillGrantsOrgWideViewer(t *testing.T) {
-	granted := false
+// TestCreateQuietSendsDefaultPermission locks in that the CLI env override is
+// forwarded as the default_permission form field even under --quiet, which
+// suppresses all output — the granting itself is the server's job.
+func TestCreateQuietSendsDefaultPermission(t *testing.T) {
+	permission := ""
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents":
-			requireMultipart(t, r)
-			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents/doc_new/grants":
-			granted = true
-			writeTestJSON(t, w, map[string]any{"id": "gr_new"})
-		default:
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/documents" {
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
+		requireMultipart(t, r)
+		permission = r.FormValue("default_permission")
+		writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new", "default_grant": map[string]any{"grant_id": "gr_srv", "principal": map[string]any{"type": "anyone"}, "role": "commenter"}})
 	}))
 	defer srv.Close()
 	t.Setenv("AIDOCS_TOKEN", "tok")
 	t.Setenv("AIDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv(defaultDocPermissionEnv, "commenter")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
@@ -379,24 +354,72 @@ func TestCreateQuietStillGrantsOrgWideViewer(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if !granted {
-		t.Fatal("quiet create did not grant org-wide viewer access")
+	if permission != "commenter" {
+		t.Fatalf("default_permission form field = %q, want commenter", permission)
 	}
 	if got != "" {
 		t.Fatalf("quiet create should print nothing, got %q", got)
 	}
 }
 
+// TestCreatePrivateByDefaultOptsOut locks in the private override: the env is
+// forwarded as default_permission=private, the server applies no grant, and
+// the explicit preference suppresses the share nudge in both output modes.
 func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
-	granted := false
+	permission := ""
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/documents" {
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+		requireMultipart(t, r)
+		permission = r.FormValue("default_permission")
+		writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv(defaultDocPermissionEnv, "private")
+	html := filepath.Join(t.TempDir(), "x.html")
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
+
+	got, err := Execute([]string{"docs", "create", html})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if permission != "private" {
+		t.Fatalf("default_permission form field = %q, want private", permission)
+	}
+	if strings.Contains(got, "Give org-wide read-only access?") || strings.Contains(got, "Gave org-wide") {
+		t.Fatalf("private override should render neither grant line nor nudge, got %q", got)
+	}
+
+	got, err = Execute([]string{"--json", "docs", "create", html})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	var m map[string]any
+	if json.Unmarshal([]byte(got), &m) != nil {
+		t.Fatalf("--json output is not valid JSON: %q", got)
+	}
+	if _, ok := m["warning"]; ok {
+		t.Fatalf("JSON create should not carry a share warning for a private create, got %q", got)
+	}
+	if _, ok := m["message"]; ok {
+		t.Fatalf("JSON create should not nudge when the user chose private, got %q", got)
+	}
+}
+
+// TestCreateWithoutDefaultGrantNudges keeps the transparency nudge for
+// servers that default to private: no default_grant on the response and no
+// explicit private preference means the CLI suggests sharing.
+func TestCreateWithoutDefaultGrantNudges(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents":
 			requireMultipart(t, r)
 			writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents/doc_new/grants":
-			granted = true
-			writeTestJSON(t, w, map[string]any{"id": "gr_new"})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/documents/doc_new/access":
 			// Owner-only access, exactly as the live server reports for a
 			// fresh private document: non-empty items whose sources carry no
@@ -410,7 +433,7 @@ func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
 				}},
 			}}})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/config":
-			writeTestJSON(t, w, map[string]any{"org_name": "Acme", "everyone_label": "Acme"})
+			writeTestJSON(t, w, map[string]any{"deployment": "org", "org_name": "Acme", "everyone_label": "Acme"})
 		default:
 			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
 		}
@@ -420,7 +443,6 @@ func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
 	t.Setenv("AIDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
-	t.Setenv(privateByDefaultEnv, "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
@@ -428,11 +450,8 @@ func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("%v", err)
 	}
-	if granted {
-		t.Fatal("create should not grant org-wide viewer access when AIDOCS_PRIVATE_BY_DEFAULT is set")
-	}
-	if !strings.Contains(got, "Give org-wide read-only access?") {
-		t.Fatalf("expected nudge when private by default, got %q", got)
+	if !strings.Contains(got, "Give org-wide read-only access?") || !strings.Contains(got, "We are transparent here at Acme") {
+		t.Fatalf("expected nudge for an ungranted create, got %q", got)
 	}
 
 	got, err = Execute([]string{"--json", "docs", "create", html})
@@ -443,11 +462,30 @@ func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
 	if json.Unmarshal([]byte(got), &m) != nil {
 		t.Fatalf("--json output is not valid JSON: %q", got)
 	}
-	if granted {
-		t.Fatal("JSON create should not grant org-wide viewer access when AIDOCS_PRIVATE_BY_DEFAULT is set")
+	msg, _ := m["message"].(string)
+	if !strings.Contains(msg, "aidocs docs grants add doc_new --everyone --role viewer") {
+		t.Fatalf("JSON create should carry the nudge, got %q (output %q)", msg, got)
 	}
-	if _, ok := m["warning"]; ok {
-		t.Fatalf("JSON create should not carry the org-wide share warning when private by default, got %q", got)
+}
+
+// TestCreateInvalidDefaultPermissionEnv rejects a bad override with a command
+// error before any request leaves the machine.
+func TestCreateInvalidDefaultPermissionEnv(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("invalid override must not reach the server: %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv(defaultDocPermissionEnv, "everyone")
+	html := filepath.Join(t.TempDir(), "x.html")
+	writeTestFile(t, html, []byte("<h1>x</h1>"))
+
+	_, err := Execute([]string{"docs", "create", html})
+	if err == nil || !strings.Contains(err.Error(), defaultDocPermissionEnv) || !strings.Contains(err.Error(), "everyone") {
+		t.Fatalf("expected invalid-permission command error, got %v", err)
 	}
 }
 

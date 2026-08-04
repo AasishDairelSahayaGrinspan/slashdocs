@@ -100,6 +100,23 @@ deployment:
 In public mode you can still apply a lighter email-domain allowlist with
 `allowedOAuthDomains: "acme.com"` (empty by default, meaning no gate).
 
+Org installs can also pick the sharing default the server applies to every
+created document (`viewer`, `commenter`, `editor`, or `private`, the
+default):
+
+```yaml
+deployment:
+  mode: org
+  orgDomains: "acme.com"
+  defaultDocPermission: "commenter" # new documents are org-commentable
+```
+
+Creators can override per document with the `default_permission` field on
+create, and every applied default is reported back with its grant id so it
+can be revoked. Non-private defaults require org mode: a public server
+would share every new document with anyone holding the link, so the server
+refuses to start rather than apply that silently.
+
 ## One-time structured-mentions upgrade
 
 When upgrading an installation from an image that stored comment mentions as

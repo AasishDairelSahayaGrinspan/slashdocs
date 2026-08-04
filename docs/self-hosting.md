@@ -194,6 +194,14 @@ AIDOCS_ORG_DOMAINS=acme.com,acme-labs.io
 AIDOCS_ORG_NAME=Acme
 ```
 
+Org deployments can also set a server-wide sharing default applied to every
+created document (`AIDOCS_DEFAULT_DOC_PERMISSION`: `viewer`, `commenter`,
+`editor`, or `private`, the default). Creators can override per document via
+the `default_permission` field on create, and every applied default is
+reported back with its grant id so it can be revoked. Non-private values
+require org mode - on a public server they would share every new document
+with anyone holding the link, so the server refuses to start instead.
+
 ### Remote MCP clients
 
 Every deployment serves a remote Streamable HTTP MCP endpoint at
@@ -301,6 +309,7 @@ image:
 #     mode: org
 #     orgDomains: "acme.com"   # comma-separated; required when mode=org
 #     orgName: "Acme"          # share UI copy, e.g. "Anyone in Acme"
+#     defaultDocPermission: "commenter"  # optional org-wide sharing default
 deployment:
   mode: public
 
@@ -420,7 +429,7 @@ Sealed Secrets, etc.).
 | `googleOAuth.{clientID,clientSecret}`                                      | Google OAuth credentials.                                                                                                    |
 | `oidc.{issuerURL,providerName,internalIssuerURL,clientID,clientSecret}`    | Generic OIDC provider; used instead of `googleOAuth` when `issuerURL` is set.                                                |
 | `session.secret`                                                           | At least 32 random bytes.                                                                                                    |
-| `deployment.{mode,orgDomains,orgName}`                                     | `public` (default) or `org`; org mode gates login to `orgDomains`.                                                           |
+| `deployment.{mode,orgDomains,orgName,defaultDocPermission}`                | `public` (default) or `org`; org mode gates login to `orgDomains` and may set a sharing default for new documents.           |
 | `allowedOAuthDomains`                                                      | Comma-separated email domain allowlist (public mode); empty = no gate.                                                       |
 | `kvEvents.{mode,listenerDatabaseURL,existingSecret}`                       | Realtime KV events: `AIDOCS_KV_EVENTS_MODE` and the dedicated LISTEN connection URL (secret-backed). Rendered only when set. |
 | `commitSha`                                                                | Optional revision surfaced at `/commit.txt`.                                                                                 |
@@ -513,7 +522,7 @@ both. The redirect URI to register is
 | `AIDOCS_PORT`                            | `8080`      | Public app/API listen port.                                                                                                           |
 | `AIDOCS_METRICS_PORT`                    | `9090`      | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain. |
 | `AIDOCS_MIGRATE`                         | `true`      | Run database migrations on boot. Set `false` to skip.                                                                                 |
-| `AIDOCS_PRIVATE_BY_DEFAULT`              | unset       | Any non-empty value keeps documents created over MCP private. By default they are shared org-wide read-only, matching the CLI (which reads the same variable client-side). |
+| `AIDOCS_DEFAULT_DOC_PERMISSION`          | `private`   | Server-wide default sharing applied when a document is created: `viewer`, `commenter`, `editor`, or `private` (no grant). Non-private values require `AIDOCS_DEPLOYMENT=org`; requests may override per document via the `default_permission` form field. |
 | `AIDOCS_KV_EVENTS_MODE`                  | `auto`      | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                              |
 | `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset       | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.      |
 | `AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`     | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.         |
