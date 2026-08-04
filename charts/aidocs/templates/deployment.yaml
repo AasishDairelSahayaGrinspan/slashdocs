@@ -66,6 +66,10 @@ spec:
               value: {{ .Values.deployment.orgName | quote }}
             {{- end }}
             {{- end }}
+            {{- if .Values.deployment.defaultDocPermission }}
+            - name: AIDOCS_DEFAULT_DOC_PERMISSION
+              value: {{ .Values.deployment.defaultDocPermission | quote }}
+            {{- end }}
             {{- if .Values.kvEvents.mode }}
             - name: AIDOCS_KV_EVENTS_MODE
               value: {{ .Values.kvEvents.mode | quote }}
