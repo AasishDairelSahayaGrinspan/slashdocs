@@ -156,7 +156,10 @@ jobs:
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
+          # On pull_request events github.sha is the synthetic merge commit;
+          # tag with the pushed head so image tags match `git log` SHAs.
+          custom-tag: ${{ github.event.pull_request.head.sha || github.sha }}
           build-args: |
-            AIDOCS_VERSION=${{ github.sha }}
-            AIDOCS_COMMIT_SHA=${{ github.sha }}
+            AIDOCS_VERSION=${{ github.event.pull_request.head.sha || github.sha }}
+            AIDOCS_COMMIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}
             BASE_IMAGE_PREFIX=c.rzp.io/proxy_dockerhub/
