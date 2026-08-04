@@ -235,3 +235,61 @@ export function clearHighlights(d: Document): void {
   // document's own scripts, breaking any references those scripts hold.
   parents.forEach((p) => p.normalize());
 }
+
+/**
+ * Remove only the artifacts of one comment, leaving every other highlight
+ * untouched. Used by mutation-driven repair so an unrelated DOM change never
+ * rebuilds the whole overlay.
+ */
+export function clearHighlightsFor(d: Document, id: string): void {
+  const cid = CSS.escape(id);
+  const parents = new Set<Node>();
+  d.querySelectorAll('mark.aidocs-mark[data-cid="' + cid + '"]').forEach((m) => {
+    if (m.parentNode) {
+      parents.add(m.parentNode);
+    }
+    m.replaceWith(...m.childNodes);
+  });
+  d.querySelectorAll('.aidocs-svg-mark-rect[data-cid="' + cid + '"]').forEach((r) =>
+    r.remove(),
+  );
+  d.querySelectorAll<HTMLElement>(
+    '.aidocs-svg-mark-text[data-cid="' + cid + '"]',
+  ).forEach((t) => {
+    t.classList.remove("aidocs-svg-mark-text");
+    delete t.dataset.cid;
+  });
+  parents.forEach((p) => p.normalize());
+}
+
+/**
+ * Recompute the geometry of SVG highlight rects. They are the one artifact
+ * that goes stale when a document mutation shifts layout without touching
+ * the highlighted text itself.
+ */
+export function refreshSVGRects(d: Document): void {
+  d.querySelectorAll(".aidocs-svg-mark-rect").forEach((rect) => {
+    // svgHighlight inserts the rect immediately before the element it
+    // covers; several comments on one element stack contiguous rects.
+    let target = rect.nextElementSibling;
+    while (target && target.classList.contains("aidocs-svg-mark-rect")) {
+      target = target.nextElementSibling;
+    }
+    const el = target as SVGGraphicsElement | null;
+    if (!el || !el.classList.contains("aidocs-svg-mark-text") || !el.getBBox) {
+      rect.remove();
+      return;
+    }
+    let box;
+    try {
+      box = el.getBBox();
+    } catch {
+      rect.remove();
+      return;
+    }
+    rect.setAttribute("x", String(box.x - 3));
+    rect.setAttribute("y", String(box.y - 2));
+    rect.setAttribute("width", String(box.width + 6));
+    rect.setAttribute("height", String(box.height + 4));
+  });
+}

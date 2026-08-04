@@ -56,9 +56,18 @@ export function renderedTextOf(root: Element): RenderedTextWithBrPositions {
     if (node.nodeType !== Node.ELEMENT_NODE) {
       return;
     }
-    if ((node as Element).tagName === "BR") {
+    const tag = (node as Element).tagName;
+    if (tag === "BR") {
       brPositionsInText.push(text.length);
       text += " ";
+      return;
+    }
+    if (tag === "SCRIPT" || tag === "STYLE" || tag === "NOSCRIPT") {
+      // Non-rendered text (inline script source, CSS) must never match a
+      // quote — documents routinely embed their own visible strings in
+      // scripts. Substitute unmatchable characters of the SAME length so
+      // offsets into the rendered text stay aligned with raw textContent.
+      text += "\u0000".repeat((node.textContent ?? "").length);
       return;
     }
     for (const child of Array.from(node.childNodes)) {

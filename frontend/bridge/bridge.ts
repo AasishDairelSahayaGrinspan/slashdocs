@@ -1,8 +1,14 @@
 import type { RenderedTextWithBrPositions } from "./anchoring/rendered-text.ts";
 import { renderedTextOf } from "./anchoring/rendered-text.ts";
 import { describeAnchor, resolveAnchor } from "./anchoring/index.ts";
+import { TextRange } from "./anchoring/text-range.ts";
 import type { CommentAnchor } from "./anchoring/types.ts";
-import { clearHighlights, highlightRange } from "./highlight.ts";
+import {
+  clearHighlights,
+  clearHighlightsFor,
+  highlightRange,
+  refreshSVGRects,
+} from "./highlight.ts";
 
 type KVItems = Record<string, unknown>;
 
@@ -483,11 +489,138 @@ type Theme = "dark" | "light";
     characterData: true,
     subtree: true,
   };
+  // Identity of the last fully painted item list, and its results, so a
+  // repaint that only changes the active comment can skip re-anchoring.
+  let lastPaintKey: string | null = null;
+  let lastPaintResults: { id: string; anchored: boolean }[] | null = null;
+  // Selection restored after a repaint, kept briefly so the resulting
+  // selectionchange does not re-emit aidocs:selection (which would re-open
+  // the comment composer the user may have dismissed).
+  let restoredSelection: Range | null = null;
+  let restoredSelectionExpiry = 0;
 
-  // Debounce mutation-triggered repaints (trailing 250ms, forced within 1s)
-  // so a burst of DOM writes anchors once, and a document that mutates
-  // continuously still repaints at a bounded rate.
-  function scheduleMutationRepaint(): void {
+  function paintKeyOf(list: PaintItem[]): string {
+    return JSON.stringify(
+      list.map((x) => [x && x.id, x && x.anchor, x && x.quote, x && x.selected_text]),
+    );
+  }
+
+  // Snapshot the user's live selection as character offsets into
+  // body.textContent (unchanged by highlight wrapping) so a repaint can put
+  // it back. Without this, unwrapping and re-wrapping the text nodes under
+  // the selection makes the browser drop the native selection highlight
+  // while the user is still selecting.
+  function saveSelection(
+    d: Document,
+    body: HTMLElement,
+  ): { start: number; end: number; backward: boolean } | null {
+    const sel = d.getSelection();
+    if (!sel || sel.isCollapsed || sel.rangeCount < 1) return null;
+    try {
+      const range = sel.getRangeAt(0);
+      if (!body.contains(range.commonAncestorContainer)) return null;
+      const textRange = TextRange.fromRange(range).relativeTo(body);
+      const probe = d.createRange();
+      probe.setStart(sel.anchorNode!, sel.anchorOffset);
+      probe.collapse(true);
+      const backward = probe.comparePoint(sel.focusNode!, sel.focusOffset) === -1;
+      return { start: textRange.start.offset, end: textRange.end.offset, backward };
+    } catch {
+      return null;
+    }
+  }
+
+  function restoreSelection(
+    d: Document,
+    body: HTMLElement,
+    saved: { start: number; end: number; backward: boolean },
+  ): void {
+    try {
+      const range = TextRange.fromOffsets(body, saved.start, saved.end).toRange();
+      // Offset resolution is forward-biased: an end offset on a node
+      // boundary resolves to (nextNode, 0), which visually stretches the
+      // restored selection across the block boundary. Pull it back to the
+      // end of the preceding text node.
+      if (range.endOffset === 0 && range.endContainer !== range.startContainer) {
+        const tw = d.createTreeWalker(body, NodeFilter.SHOW_TEXT);
+        tw.currentNode = range.endContainer;
+        const prev = tw.previousNode() as Text | null;
+        if (prev) range.setEnd(prev, prev.data.length);
+      }
+      const sel = d.getSelection();
+      if (!sel) return;
+      if (saved.backward) {
+        sel.setBaseAndExtent(
+          range.endContainer,
+          range.endOffset,
+          range.startContainer,
+          range.startOffset,
+        );
+      } else {
+        sel.setBaseAndExtent(
+          range.startContainer,
+          range.startOffset,
+          range.endContainer,
+          range.endOffset,
+        );
+      }
+      restoredSelection = range;
+      restoredSelectionExpiry = Date.now() + 1000;
+    } catch {
+      // The selected text no longer exists after a document mutation.
+    }
+  }
+
+  // Repaint with the same comments but a different active id: move the
+  // active class instead of re-anchoring, leaving the DOM structure (and
+  // any live selection) untouched.
+  function applyActiveOnly(d: Document, active: string | null, scroll: boolean): void {
+    let scrollTarget: Element | null = null;
+    d.querySelectorAll(
+      "mark.aidocs-mark,.aidocs-svg-mark-rect,.aidocs-svg-mark-text",
+    ).forEach((el) => {
+      const isActive = !!active && (el as HTMLElement).dataset.cid === active;
+      el.classList.toggle("aidocs-mark-active", isActive);
+      if (isActive && !scrollTarget) scrollTarget = el;
+    });
+    if (scroll && scrollTarget) {
+      (scrollTarget as Element).scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  }
+
+  // Whitespace-insensitive text key: mark text omits synthesized <br> spaces
+  // and reformatting must not read as a content change.
+  function strippedText(s: string): string {
+    return s.replace(/\s+/g, "");
+  }
+
+  // Painted quote (whitespace-stripped) per comment id, used to detect
+  // whether a highlight survived a document mutation intact.
+  const paintedQuotes = new Map<string, string>();
+
+  function highlightIntact(d: Document, id: string): boolean {
+    const expected = paintedQuotes.get(id);
+    if (!expected) return false;
+    const cid = CSS.escape(id);
+    let text = "";
+    d.querySelectorAll('mark.aidocs-mark[data-cid="' + cid + '"]').forEach((m) => {
+      text += m.textContent || "";
+    });
+    d.querySelectorAll('.aidocs-svg-mark-text[data-cid="' + cid + '"]').forEach(
+      (el) => {
+        text += el.textContent || "";
+      },
+    );
+    if (!text) return false;
+    // Containment, not equality: SVG artifacts cover whole elements, which
+    // are supersets of the quote.
+    return strippedText(text).indexOf(expected) >= 0;
+  }
+
+  // Debounce mutation-triggered scans (trailing 250ms, forced within 1s) so
+  // a burst of DOM writes is handled once, and a document that mutates
+  // continuously is scanned at a bounded rate.
+  function scheduleMutationScan(): void {
     if (!lastPaint || !lastPaint.items.length) return;
     const now = Date.now();
     if (!mutationRepaintDeadline) mutationRepaintDeadline = now + 1000;
@@ -496,9 +629,68 @@ type Theme = "dark" | "light";
       () => {
         mutationRepaintTimer = null;
         mutationRepaintDeadline = 0;
-        if (lastPaint) paint(lastPaint.items, lastPaint.active, false);
+        repairAfterMutations();
       },
       Math.max(0, Math.min(now + 250, mutationRepaintDeadline) - now),
+    );
+  }
+
+  // Repair only what a mutation actually affected. Highlights are DOM nodes
+  // and move with the document, so an anchored comment whose marks are still
+  // present with their text intact needs no work at all — an unrelated DOM
+  // change (opening a dropdown, an animation tick) touches nothing. Only
+  // comments whose highlighted text was removed or edited, and comments
+  // still waiting for their text to appear, are re-anchored.
+  function repairAfterMutations(): void {
+    const d = doc();
+    const body = d && d.body;
+    if (!d || !body || !lastPaint || !lastPaint.items.length || !lastPaintResults) {
+      return;
+    }
+    refreshSVGRects(d);
+    const resultByID = new Map(lastPaintResults.map((r) => [r.id, r]));
+    const dirty: PaintItem[] = [];
+    for (const x of lastPaint.items) {
+      if (!x || !x.id) continue;
+      const res = resultByID.get(x.id);
+      if (!res) continue;
+      // Unanchored comments retry (their text may just have been rendered);
+      // anchored comments only repaint when their highlight was damaged.
+      if (!res.anchored || !highlightIntact(d, x.id)) dirty.push(x);
+    }
+    if (!dirty.length) return;
+
+    suspendMutationObserver();
+    const savedSelection = saveSelection(d, body);
+    try {
+      injectStyles();
+      let rendered: RenderedTextWithBrPositions | undefined;
+      const getRenderedText = () => (rendered ??= renderedTextOf(body));
+      for (const x of dirty) {
+        let painted: boolean;
+        try {
+          clearHighlightsFor(d, x.id!);
+          const anchor: CommentAnchor = Object.assign({}, x.anchor);
+          if (!anchor.quote) anchor.quote = x.quote || x.selected_text || "";
+          paintedQuotes.set(x.id!, strippedText(anchor.quote));
+          const r = resolveAnchor(body, anchor, getRenderedText);
+          painted =
+            !!r && highlightRange(r, x.id === lastPaint.active, x.id, false) > 0;
+        } catch {
+          painted = false;
+        }
+        const res = resultByID.get(x.id!);
+        if (res) res.anchored = painted;
+      }
+      if (savedSelection) restoreSelection(d, body, savedSelection);
+    } catch {
+      // Never let one exotic document abort the repair loop.
+    } finally {
+      resumeMutationObserver();
+    }
+    parent.postMessage(
+      { type: "aidocs:paint-result", results: lastPaintResults },
+      targetOrigin(),
     );
   }
 
@@ -508,7 +700,7 @@ type Theme = "dark" | "light";
   // first — disconnect() would silently discard them.
   function suspendMutationObserver(): void {
     if (!mutationObserver) return;
-    if (mutationObserver.takeRecords().length) scheduleMutationRepaint();
+    if (mutationObserver.takeRecords().length) scheduleMutationScan();
     mutationObserver.disconnect();
   }
 
@@ -520,7 +712,7 @@ type Theme = "dark" | "light";
 
   function observeMutations(d: Document): void {
     if (mutationObserver) mutationObserver.disconnect();
-    mutationObserver = new MutationObserver(scheduleMutationRepaint);
+    mutationObserver = new MutationObserver(scheduleMutationScan);
     // Observe the root element rather than body so a script replacing
     // document.body entirely is still seen.
     observedRoot = d.documentElement;
@@ -530,17 +722,33 @@ type Theme = "dark" | "light";
   function paint(
     items: PaintItem[] | null | undefined,
     active: string | null | undefined,
-    scroll = true,
   ): void {
     const d = doc();
     const list = items || [];
-    lastPaint = { items: list, active: typeof active === "string" ? active : null };
-    const results: { id: string; anchored: boolean }[] = [];
+    const activeID = typeof active === "string" ? active : null;
+    lastPaint = { items: list, active: activeID };
+    const key = paintKeyOf(list);
     const body = d && d.body;
+
+    // Repaint with the same comments (sidebar clicks changing the active
+    // id): move the active class without touching DOM structure. Any damage
+    // from document mutations is healed by repairAfterMutations.
+    if (d && body && lastPaintResults && key === lastPaintKey) {
+      applyActiveOnly(d, activeID, true);
+      parent.postMessage(
+        { type: "aidocs:paint-result", results: lastPaintResults },
+        targetOrigin(),
+      );
+      return;
+    }
+
+    const results: { id: string; anchored: boolean }[] = [];
     if (d && body) {
       suspendMutationObserver();
+      const savedSelection = saveSelection(d, body);
       try {
         clearHighlights(d);
+        paintedQuotes.clear();
         injectStyles();
         // One rendered-text snapshot serves every comment in this paint: marks
         // add no text, so wrapping earlier comments never invalidates it.
@@ -553,24 +761,28 @@ type Theme = "dark" | "light";
           try {
             const anchor: CommentAnchor = Object.assign({}, x && x.anchor);
             if (!anchor.quote) anchor.quote = (x && (x.quote || x.selected_text)) || "";
+            if (x && x.id) paintedQuotes.set(x.id, strippedText(anchor.quote || ""));
             // Resolve immediately before painting each comment: wrapping a
             // previous comment's marks moves text nodes, which corrupts other
             // already-resolved live Ranges (overlapping comments would paint
             // wrong extents), while character offsets into textContent stay
             // valid across wraps and splits.
             const r = resolveAnchor(body, anchor, getRenderedText);
-            painted = !!r && highlightRange(r, x.id === active, x.id, scroll) > 0;
+            painted = !!r && highlightRange(r, x.id === activeID, x.id, true) > 0;
           } catch {
             painted = false;
           }
           if (x && x.id) results.push({ id: x.id, anchored: painted });
         });
+        if (savedSelection) restoreSelection(d, body, savedSelection);
       } catch {
         // Even a document with exotic DOM state (throwing accessors, broken
         // replaceWith) must not prevent the paint-result post below.
       } finally {
         resumeMutationObserver();
       }
+      lastPaintKey = key;
+      lastPaintResults = results;
     }
     // Post even when the inner document is unavailable so the parent never
     // keeps stale "highlight not found" state.
@@ -715,6 +927,21 @@ type Theme = "dark" | "light";
     if (!d || !d.body) return;
     const range = selectedRange(d.getSelection());
     if (!range) return;
+    // A selection this bridge just restored after a repaint is not a new
+    // user gesture: re-emitting it would re-open the comment composer.
+    if (restoredSelection && Date.now() < restoredSelectionExpiry) {
+      try {
+        if (
+          range.compareBoundaryPoints(Range.START_TO_START, restoredSelection) === 0 &&
+          range.compareBoundaryPoints(Range.END_TO_END, restoredSelection) === 0
+        ) {
+          return;
+        }
+      } catch {
+        // The restored range's nodes were removed since; treat as new.
+      }
+    }
+    restoredSelection = null;
     const anchor = describeAnchor(d.body, range);
     if (!anchor) return;
     parent.postMessage({ type: "aidocs:selection", anchor }, targetOrigin());
@@ -779,6 +1006,10 @@ type Theme = "dark" | "light";
     // any repaint already scheduled for it — keeps its comments from being
     // anchored into the new document mid-load.
     lastPaint = null;
+    lastPaintKey = null;
+    lastPaintResults = null;
+    restoredSelection = null;
+    paintedQuotes.clear();
     clearTimeout(mutationRepaintTimer ?? undefined);
     mutationRepaintTimer = null;
     mutationRepaintDeadline = 0;

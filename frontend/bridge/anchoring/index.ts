@@ -46,6 +46,15 @@ const CONTEXT_LENGTH = 32;
 const MIN_ANCHOR_SCORE = 0.6;
 
 /**
+ * Fuzzy floor for anchors that carry NO prefix/suffix context. matchQuote's
+ * context components (40 of 92 points) score a free 1.0 when absent, so the
+ * regular floor would accept a match with only ~20% quote similarity —
+ * highlighting garbage when the real text was deleted. 0.89 corresponds to a
+ * quote similarity of ~0.8 with the context points given away.
+ */
+const MIN_ANCHOR_SCORE_WITHOUT_CONTEXT = 0.89;
+
+/**
  * Collapse runs of whitespace so quote verification tolerates reformatting
  * that doesn't change visible text.
  */
@@ -165,7 +174,9 @@ export function resolveAnchor(
   // to reject garbled fuzzy matches, not exact text whose surrounding context
   // was rewritten.
   const exact = text.slice(match.start, match.end) === quote;
-  if (!exact && match.score < MIN_ANCHOR_SCORE) {
+  const minScore =
+    prefix || suffix ? MIN_ANCHOR_SCORE : MIN_ANCHOR_SCORE_WITHOUT_CONTEXT;
+  if (!exact && match.score < minScore) {
     return null;
   }
   try {
