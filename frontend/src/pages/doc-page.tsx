@@ -3,8 +3,10 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
-import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
+import { api, APIError, docTitle } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { documentErrorState } from "@/lib/doc-error";
+import { DOC_REFRESH, useDocumentVersion } from "@/lib/use-doc-version";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/lib/use-media-query";
@@ -58,33 +60,58 @@ export function DocumentPage() {
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const fullscreen = searchParams.get("fullscreen") === "1";
-  const queryVersion = searchParams.get("version") || undefined;
   const doc = useQuery({
     queryKey: queryKeys.document(id),
     queryFn: () => api.getDocument(id),
     meta: { suppressGlobalError: true },
+    ...DOC_REFRESH,
   });
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
-  const versions = useQuery({
+  // A failed background refresh sets doc.error while doc.data stays good, so the
+  // dependent queries gate on "we could never load it", not on "error present".
+  const docError = documentErrorState({
+    failed: !!doc.error,
+    status: doc.error instanceof APIError ? doc.error.status : undefined,
+    hasCachedCopy: !!doc.data,
+  });
+  const versionList = useQuery({
     queryKey: queryKeys.versions(id),
     queryFn: () => api.listVersions(id),
-    enabled: !!id && !doc.error,
+    enabled: !!id && !docError,
+    // Suppressed: versionsUnavailable already covers a failed list, and a focus
+    // error toast would double up with the "updated to a newer version" one.
     meta: { suppressGlobalError: true },
+    placeholderData: (prev) => prev,
+    ...DOC_REFRESH,
   });
-  // One comments query feeds both the paint overlay and the side panel so they
-  // stay in sync.
+  // Declared before the version hook, which reads it: an open selection holds
+  // the version so a mid-draft publish can't move the anchor's text underneath it.
+  const [selection, setSelection] = useState<PendingSelection | null>(null);
+  // isError only flips after retries exhaust, so this is a real failure, not a
+  // retry-in-progress. True even with a stale cached copy — the hook then
+  // announces an unnumbered "updated to a newer version" toast rather than
+  // swapping silently.
+  const versionsUnavailable = versionList.isError;
+  const { current, latest, pinned, versions, selectVersion, newerVersionPending } =
+    useDocumentVersion(doc.data, versionList.data, {
+      versionsUnavailable,
+      hold: !!selection?.quote,
+    });
+  // Dropping the selection discards the draft and releases the version hold.
+  const jumpToLatest = useCallback(() => setSelection(null), []);
+  // Not scoped to `current` — see queryKeys.comments.
   const comments = useQuery({
     queryKey: queryKeys.comments(id),
     queryFn: () => api.listComments(id),
-    enabled: !!id && !doc.error,
+    enabled: !!id && !docError,
     meta: { suppressGlobalError: true },
+    placeholderData: (prev) => prev,
+    ...DOC_REFRESH,
   });
-  const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
   const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
     new Set(),
   );
-  const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
   const [panelOpen, setPanelOpen] = useState(true);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
@@ -159,12 +186,6 @@ export function DocumentPage() {
     return () => window.cancelAnimationFrame(id);
   }, [mobilePanelOpen]);
 
-  const versionItems = versions.data?.items || [];
-  const latest =
-    currentVersionID(doc.data || {}) ||
-    versionID(versionItems[versionItems.length - 1] || {});
-  const current = selectedVersion || queryVersion || latest;
-
   const exitFullscreen = useCallback(() => {
     setSearchParams(
       (params) => {
@@ -196,10 +217,13 @@ export function DocumentPage() {
       version: current,
       comments: comments.data?.items || [],
       commentsLoading: comments.isLoading,
-      commentsError: !!comments.error,
+      // Same cached-copy rule as the document: only flag an error when there's
+      // nothing to show, so a failed refresh doesn't replace a populated thread.
+      commentsError: !!comments.error && !comments.data,
       principal: me.data?.principal,
       selection,
       setSelection,
+      newerVersionPending,
       activeComment,
       setActiveComment,
       unanchoredComments,
@@ -214,6 +238,7 @@ export function DocumentPage() {
       comments.error,
       me.data,
       selection,
+      newerVersionPending,
       activeComment,
       unanchoredComments,
       setActiveComment,
@@ -253,32 +278,7 @@ export function DocumentPage() {
       </div>
     );
   }
-  if (doc.error) {
-    if (doc.error instanceof APIError) {
-      if (doc.error.status === 403) {
-        return (
-          <DocumentErrorState
-            title="You don't have access to this document"
-            description="Please ask the document owner to grant you access."
-          />
-        );
-      }
-      if (doc.error.status === 404) {
-        return (
-          <DocumentErrorState
-            title="Document not found"
-            description="This document may have been deleted, or the link may be incorrect."
-          />
-        );
-      }
-    }
-    return (
-      <DocumentErrorState
-        title="Could not load document"
-        description="Something went wrong while loading this document. Please try again."
-      />
-    );
-  }
+  if (docError) return <DocumentErrorState {...docError} />;
   if (!doc.data) return null;
 
   return (
@@ -309,8 +309,12 @@ export function DocumentPage() {
               parentFolder={doc.data.parent_folder}
               current={current}
               latest={latest}
-              versions={versions.data?.items || []}
-              onSelectVersion={setSelectedVersion}
+              pinned={pinned}
+              versions={versions}
+              versionsUnavailable={versionsUnavailable}
+              onSelectVersion={selectVersion}
+              newerVersionPending={newerVersionPending}
+              onJumpToLatest={jumpToLatest}
               commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
               onToggleComments={toggleComments}
             />

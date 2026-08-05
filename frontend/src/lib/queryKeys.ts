@@ -7,6 +7,9 @@ export const queryKeys = {
   document: (id: string) => ["document", id] as const,
   versions: (doc: string) => ["versions", doc] as const,
   render: (version: string) => ["render", version] as const,
+  // Not keyed by version on purpose: the list endpoint's version_id filter
+  // (backend) hides comments written against other versions; the render bridge
+  // re-anchors the full list client-side.
   comments: (doc: string) => ["comments", doc] as const,
   serviceAccounts: () => ["service-accounts"] as const,
   serviceAccountKeys: (id: string) => ["service-account-keys", id] as const,

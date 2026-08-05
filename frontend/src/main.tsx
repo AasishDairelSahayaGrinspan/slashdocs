@@ -1,13 +1,19 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
-import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  QueryCache,
+  QueryClient,
+  QueryClientProvider,
+  focusManager,
+} from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
 import { TooltipProvider } from "@radix-ui/react-tooltip";
 import "./styles.css";
 import { APIError } from "@/api";
 import { errorMessage } from "@/lib/errors";
 import { ThemeProvider } from "@/lib/theme";
+import { focusEventSetup } from "@/lib/query-focus";
 import { AppShell } from "@/components/layout/app-shell";
 import { LandingPage } from "@/pages/landing";
 import { LoginPage } from "@/pages/login";
@@ -18,6 +24,10 @@ import { ServiceAccountsPage } from "@/pages/service-accounts";
 import { DevelopersPage } from "@/pages/developers";
 import { ProfilePage } from "@/pages/profile";
 import { StartPage } from "@/pages/start";
+
+// Adds window focus as a refetch trigger (see lib/query-focus.ts); queries
+// still opt in individually — refetchOnWindowFocus stays false by default below.
+focusManager.setEventListener(focusEventSetup(window));
 
 // Query failures (other than auth, handled by route guards) and any mutation
 // without its own onError surface as a toast.

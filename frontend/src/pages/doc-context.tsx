@@ -17,6 +17,7 @@ export type DocContextValue = {
   principal?: Principal;
   selection: PendingSelection | null;
   setSelection: (s: PendingSelection | null) => void;
+  newerVersionPending: boolean;
   activeComment?: string;
   setActiveComment: (id?: string) => void;
   // Ids of comments whose highlight the bridge could not anchor in the

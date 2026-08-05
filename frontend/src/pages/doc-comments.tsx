@@ -313,6 +313,7 @@ export function Comments() {
     commentsError,
     selection,
     setSelection,
+    newerVersionPending,
   } = useDoc();
   const q = useQueryClient();
   const [filter, setFilter] = useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
@@ -320,10 +321,17 @@ export function Comments() {
   const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
   const anchorRef = useRef<Partial<Anchor> | undefined>(undefined);
 
+  // Mirror `selection` both ways: clearing it (cancel, successful send, or a
+  // discard-and-advance "Back to latest") must also close the compose box,
+  // since doc-page reads `selection` to decide the version hold.
   useEffect(() => {
     if (selection?.quote) {
       setQuote(selection.quote);
       anchorRef.current = selection.anchor;
+    } else {
+      setQuote("");
+      setDraft(emptyMentionDraft());
+      anchorRef.current = undefined;
     }
   }, [selection]);
 
@@ -338,9 +346,7 @@ export function Comments() {
         draft.mentions,
       ),
     onSuccess: () => {
-      setDraft(emptyMentionDraft());
-      setQuote("");
-      anchorRef.current = undefined;
+      // The effect above clears quote, draft and anchor off the back of this.
       setSelection(null);
       toast.success("Comment added.");
       q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
@@ -348,12 +354,7 @@ export function Comments() {
     onError: (e) => toast.error(errorMessage(e, "Could not add comment")),
   });
 
-  const clear = () => {
-    setQuote("");
-    setDraft(emptyMentionDraft());
-    anchorRef.current = undefined;
-    setSelection(null);
-  };
+  const clear = () => setSelection(null);
 
   const items = comments.filter((c) => {
     if (filter === COMMENT_FILTER_ALL) return true;
@@ -392,6 +393,12 @@ export function Comments() {
             <div className="border-l-2 border-[var(--color-accent)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
               “{quote.length > 80 ? quote.slice(0, 80) + "…" : quote}”
             </div>
+            {newerVersionPending ? (
+              <div className="rounded-md bg-[var(--color-surface-muted)] px-2 py-1 text-xs text-[var(--color-fg-muted)]">
+                A newer version is available — it will load once you finish or cancel
+                this comment.
+              </div>
+            ) : null}
             <MentionTextarea
               autoFocus
               rows={3}

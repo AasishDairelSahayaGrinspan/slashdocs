@@ -50,8 +50,12 @@ export function DocBar({
   parentFolder,
   current,
   latest,
+  pinned,
   versions,
+  versionsUnavailable,
   onSelectVersion,
+  newerVersionPending,
+  onJumpToLatest,
   commentsOpen,
   onToggleComments,
 }: {
@@ -62,8 +66,14 @@ export function DocBar({
   parentFolder?: { id: string; title: string };
   current: string;
   latest: string;
+  pinned: boolean;
   versions: Version[];
+  /** The version list's last refetch failed; `versions` may be empty or stale. */
+  versionsUnavailable: boolean;
   onSelectVersion: (versionID: string) => void;
+  newerVersionPending: boolean;
+  /** Discards that comment and lets the held version move to latest. */
+  onJumpToLatest: () => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
 }) {
@@ -71,6 +81,11 @@ export function DocBar({
   const q = useQueryClient();
   const currentVersion = versions.find((v) => v.id === current);
   const isViewingOlder = !!current && !!latest && current !== latest;
+  // Carry the pin, not staleness: full screen has no bar, so a pinned reader
+  // must keep their version or a publish would silently move them.
+  const fullscreenTo = `/app/d/${docId}?fullscreen=1${
+    pinned ? `&version=${current}` : ""
+  }`;
   const canManage = samePrincipal(principal, owner);
   const access = useQuery({
     queryKey: queryKeys.documentAccess(docId),
@@ -93,6 +108,13 @@ export function DocBar({
   });
   const exportPDF = () => {
     window.dispatchEvent(new CustomEvent("aidocs:print"));
+  };
+  // Being behind can stack: an older selection and a comment-held newer version.
+  // The hold isn't a chosen version, so release it separately; when both apply,
+  // one press must clear both.
+  const backToLatest = () => {
+    if (newerVersionPending) onJumpToLatest();
+    if (isViewingOlder) onSelectVersion(latest);
   };
   return (
     <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
@@ -120,12 +142,12 @@ export function DocBar({
           </div>
         ) : null}
       </div>
-      {isViewingOlder ? (
+      {isViewingOlder || newerVersionPending ? (
         <Button
           variant="secondary"
           size="sm"
           className="shrink-0 px-2 sm:px-3"
-          onClick={() => onSelectVersion(latest)}
+          onClick={backToLatest}
         >
           <span className="hidden sm:inline">Back to latest</span>
           <span className="sm:hidden">Latest</span>
@@ -135,10 +157,11 @@ export function DocBar({
         current={current}
         latest={latest}
         versions={versions}
+        versionsUnavailable={versionsUnavailable}
         onSelectVersion={onSelectVersion}
       />
       <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
-        <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
+        <Link to={fullscreenTo}>
           <Maximize2 className="h-4 w-4" /> Full screen
         </Link>
       </Button>
@@ -176,10 +199,7 @@ export function DocBar({
           </Button>
         </DropdownTrigger>
         <DropdownContent>
-          <DropdownItem
-            className="sm:hidden"
-            onSelect={() => nav(`/app/d/${docId}?fullscreen=1&version=${current}`)}
-          >
+          <DropdownItem className="sm:hidden" onSelect={() => nav(fullscreenTo)}>
             <Maximize2 className="h-4 w-4" /> Full screen
           </DropdownItem>
           <DropdownItem
@@ -224,11 +244,13 @@ function VersionHistoryDialog({
   current,
   latest,
   versions,
+  versionsUnavailable,
   onSelectVersion,
 }: {
   current: string;
   latest: string;
   versions: Version[];
+  versionsUnavailable: boolean;
   onSelectVersion: (versionID: string) => void;
 }) {
   const sorted = [...versions].sort((a, b) => b.number - a.number);
@@ -251,7 +273,11 @@ function VersionHistoryDialog({
         </DialogHeader>
         {sorted.length === 0 ? (
           <div className="rounded-lg border border-[var(--color-border)] p-4 text-sm text-[var(--color-fg-muted)]">
-            No versions available yet.
+            {/* Empty and failed-to-fetch look identical here; don't claim "no
+                history" when the request just failed. */}
+            {versionsUnavailable
+              ? "Could not load version history. Please try again."
+              : "No versions available yet."}
           </div>
         ) : (
           <div className="max-h-[60vh] space-y-2 overflow-auto pr-1">
