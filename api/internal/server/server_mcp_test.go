@@ -15,6 +15,7 @@ import (
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/aidocs/api/internal/server"
 )
 
 var expectedMCPTools = []string{
@@ -310,7 +311,7 @@ func TestMCPDocumentAndFolderToolParity(t *testing.T) {
 	}{
 		{"whoami", map[string]any{}, fixtureUser.Email},
 		{"get_server_config", map[string]any{}, "deployment"},
-		{"get_authoring_guidelines", map[string]any{}, "self-contained HTML"},
+		{"get_authoring_guidelines", map[string]any{}, "single-file HTML contract"},
 		{"list_documents", map[string]any{}, "items"},
 		{"list_folders", map[string]any{}, "items"},
 	} {
@@ -567,15 +568,6 @@ func mustMCPObject(t *testing.T, result mcpToolHTTPResult) map[string]any {
 	return object
 }
 
-func requiredMCPObject(t *testing.T, object map[string]any, field string) map[string]any {
-	t.Helper()
-	value, ok := object[field].(map[string]any)
-	if !ok {
-		t.Fatalf("MCP object field %q = %#v, want object", field, object[field])
-	}
-	return value
-}
-
 func requiredMCPString(t *testing.T, object map[string]any, field string) string {
 	t.Helper()
 	value, ok := object[field].(string)
@@ -657,4 +649,113 @@ func decodeMCPResponse(t *testing.T, rr *httptest.ResponseRecorder, target any) 
 	if err := json.Unmarshal(rr.Body.Bytes(), target); err != nil {
 		t.Fatalf("decode MCP response: %v; body=%s", err, rr.Body.String())
 	}
+}
+
+// The server applies its configured default sharing at create; the MCP result
+// passes default_grant through and derives a role-aware warning from it,
+// including the persisted grant id in the revoke recipe.
+func TestMCPCreateDocumentPassesThroughDefaultGrant(t *testing.T) {
+	e := newMCPOAuthTestEnvConfig(t, func(cfg *server.Config) {
+		cfg.Deployment = server.DeploymentOrg
+		cfg.OrgName = "Acme"
+		cfg.DefaultDocPermission = repo.RoleViewer
+	})
+	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+
+	created := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "create_document", map[string]any{
+		"title": "Shared by default", "html": "<html><body>shared</body></html>",
+	}), `"default_grant"`))
+	docID := requiredMCPString(t, created, "id")
+	grant, _ := created["default_grant"].(map[string]any)
+	if grant == nil {
+		t.Fatalf("create result missing default_grant object: %v", created)
+	}
+	grantID, _ := grant["grant_id"].(string)
+	if !strings.HasPrefix(grantID, "gr_") {
+		t.Fatalf("default_grant.grant_id = %q, want gr_ prefix", grantID)
+	}
+	if role, _ := grant["role"].(string); role != "viewer" {
+		t.Fatalf("default_grant.role = %q, want viewer", role)
+	}
+	warning, _ := created["warning"].(string)
+	if !strings.Contains(warning, "anyone at Acme can read it") {
+		t.Fatalf("warning missing role verb for viewer, got %q", warning)
+	}
+	if !strings.Contains(warning, "revoke_document_grant with grant_id "+grantID) {
+		t.Fatalf("warning missing revoke recipe with the persisted grant id, got %q", warning)
+	}
+
+	access := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "list_document_access", map[string]any{
+		"document_id": docID,
+	}), `"anyone"`)
+	if !strings.Contains(access.Text, grantID) {
+		t.Fatalf("listed grants do not include the default grant %s: %s", grantID, access.Text)
+	}
+	if !strings.Contains(access.Text, `"viewer"`) {
+		t.Fatalf("default grant is not viewer role: %s", access.Text)
+	}
+}
+
+// A server with no configured default (private) applies no grant: the MCP
+// result carries neither default_grant nor warning.
+func TestMCPCreateDocumentPrivateDefaultServer(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+
+	created := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "create_document", map[string]any{
+		"title": "Private by default", "html": "<html><body>private</body></html>",
+	}), `"current_version_id"`))
+	docID := requiredMCPString(t, created, "id")
+	if grant, ok := created["default_grant"]; ok {
+		t.Fatalf("private-by-default create should not carry default_grant, got %v", grant)
+	}
+	if warning, ok := created["warning"]; ok {
+		t.Fatalf("private-by-default create should not carry a warning, got %v", warning)
+	}
+
+	access := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "list_document_access", map[string]any{
+		"document_id": docID,
+	}), "items")
+	if strings.Contains(access.Text, `"anyone"`) {
+		t.Fatalf("private-by-default server granted org-wide access: %s", access.Text)
+	}
+}
+
+// The guidelines tool mirrors the CLI's sectioned progressive disclosure from
+// the same shared source: index -> section -> all, with aliases.
+func TestMCPGuidelinesProgressiveDisclosure(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+
+	index := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{}), "single-file HTML contract")
+	for _, want := range []string{`section="core"`, `section="rendering theme"`, `section="all"`} {
+		if !strings.Contains(index.Text, want) {
+			t.Errorf("guidelines index missing %q: %s", want, index.Text)
+		}
+	}
+
+	theme := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "rendering theme",
+	}), "aidocs guidelines: rendering theme")
+	if !strings.Contains(theme.Text, "get_authoring_guidelines") {
+		t.Errorf("section page is missing the tool-call translation footer: %s", theme.Text)
+	}
+
+	// Aliases from the CLI resolve identically.
+	assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "theme",
+	}), "aidocs guidelines: rendering theme")
+
+	all := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "all",
+	}), "aidocs guidelines: core")
+	for _, want := range []string{"aidocs guidelines: rendering theme", "aidocs guidelines: review"} {
+		if !strings.Contains(all.Text, want) {
+			t.Errorf("guidelines all is missing %q", want)
+		}
+	}
+
+	assertMCPToolError(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "no such section",
+	}), "unknown guidelines section")
 }

@@ -69,8 +69,10 @@ var (
 )
 
 // ValidateEmbeddedBridge rejects production startup when the generated iframe
-// bridge is absent, stale relative to bridge.ts, or corrupt. Supported server
-// builds link BuildBridgeSourceHash from the canonical TypeScript source.
+// bridge is absent, stale, or corrupt. Supported server builds link
+// BuildBridgeSourceHash from a fingerprint covering every TypeScript source
+// under frontend/bridge/, so a change to any bridge module invalidates an
+// outdated bundle.
 func ValidateEmbeddedBridge() error {
 	return validateEmbeddedBridgeSource(bridgeJSSource, bridgeSourceHash, bridgeBundleHash, BuildBridgeSourceHash)
 }

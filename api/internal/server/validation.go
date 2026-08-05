@@ -41,6 +41,21 @@ func validGrantRole(role repo.Role) bool {
 	return role == repo.RoleViewer || role == repo.RoleCommenter || role == repo.RoleEditor
 }
 
+// ParseDefaultDocPermission maps the default-sharing vocabulary
+// (viewer | commenter | editor | private) to a repo.Role. "private" is
+// repo.RoleNone: no grant is applied. Callers own the unset/absent case and
+// their own error wording; the second return is false for anything else.
+func ParseDefaultDocPermission(value string) (repo.Role, bool) {
+	switch role := repo.Role(value); role {
+	case "private":
+		return repo.RoleNone, true
+	case repo.RoleViewer, repo.RoleCommenter, repo.RoleEditor:
+		return role, true
+	default:
+		return repo.RoleNone, false
+	}
+}
+
 func requireJSON(c *gin.Context) bool {
 	mediaType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
 	if err != nil || !strings.EqualFold(mediaType, "application/json") {

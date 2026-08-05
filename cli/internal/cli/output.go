@@ -13,10 +13,10 @@ import (
 // fields not listed here are omitted from the compact view (use --json for the
 // full payload).
 var displayFields = []string{
-	"id", "document_id", "title", "name", "email", "type", "role", "status",
-	"disabled", "current_version_id", "number", "sha256", "token",
-	"selected_text", "body", "url", "decision", "approval_status",
-	"carried_from_version_id",
+	"id", "document_id", "title", "name", "email", "type", "role",
+	"effective_role", "status", "disabled", "current_version_id", "number",
+	"sha256", "token", "selected_text", "body", "url", "decision",
+	"approval_status", "carried_from_version_id",
 }
 
 // render writes b to out, honoring --quiet and --json. It is the single output
@@ -214,26 +214,31 @@ func compactRow(m map[string]any) string {
 	if m == nil {
 		return "OK"
 	}
+	// Search rows nest the entity under "document" or "folder"; fall back to
+	// that nested map so compact rows show the id and title, not just "type".
+	nested, ok := value(m, "document").(map[string]any)
+	if !ok {
+		nested, _ = value(m, "folder").(map[string]any)
+	}
 	parts := []string{}
 	for _, k := range displayFields {
-		if v := value(m, k); v != nil && fmt.Sprint(v) != "" {
+		v := value(m, k)
+		if v == nil {
+			v = value(nested, k)
+		}
+		if v != nil && fmt.Sprint(v) != "" {
 			parts = append(parts, fmt.Sprintf("%s=%v", k, v))
 		}
 	}
-	if owner, ok := value(m, "owner").(map[string]any); ok {
-		if label := principalLabel(owner); label != "" {
-			parts = append(parts, "owner="+label)
+	for _, key := range []string{"owner", "principal", "created_by"} {
+		if p, ok := value(m, key).(map[string]any); ok {
+			if label := principalLabel(p); label != "" {
+				parts = append(parts, key+"="+label)
+			}
 		}
 	}
-	if principal, ok := value(m, "principal").(map[string]any); ok {
-		if label := principalLabel(principal); label != "" {
-			parts = append(parts, "principal="+label)
-		}
-	}
-	if createdBy, ok := value(m, "created_by").(map[string]any); ok {
-		if label := principalLabel(createdBy); label != "" {
-			parts = append(parts, "created_by="+label)
-		}
+	if ids := sourceGrantIDs(m); len(ids) > 0 {
+		parts = append(parts, "grant_id="+strings.Join(ids, ","))
 	}
 	if mentions := mentionLabels(value(m, "mentions")); len(mentions) > 0 {
 		parts = append(parts, "mentions="+strings.Join(mentions, ","))
@@ -244,11 +249,34 @@ func compactRow(m map[string]any) string {
 	return strings.Join(parts, "  ")
 }
 
+// sourceGrantIDs collects explicit grant ids from an effective-access row's
+// sources; ownership sources carry none. Revoking a grant requires its id, so
+// compact access rows must surface them.
+func sourceGrantIDs(m map[string]any) []string {
+	sources, ok := value(m, "sources").([]any)
+	if !ok {
+		return nil
+	}
+	ids := []string{}
+	for _, raw := range sources {
+		source, _ := raw.(map[string]any)
+		if id, _ := value(source, "grant_id").(string); id != "" {
+			ids = append(ids, id)
+		}
+	}
+	return ids
+}
+
 func principalLabel(p map[string]any) string {
 	for _, k := range []string{"name", "email", "id"} {
 		if v := value(p, k); v != nil && fmt.Sprint(v) != "" {
 			return fmt.Sprint(v)
 		}
+	}
+	// The "anyone" principal has no name, email, or id; its type is the only
+	// meaningful label (an access row showing no principal at all is worse).
+	if v := value(p, "type"); v != nil && fmt.Sprint(v) != "" {
+		return fmt.Sprint(v)
 	}
 	return ""
 }

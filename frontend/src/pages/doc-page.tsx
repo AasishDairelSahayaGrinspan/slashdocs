@@ -81,6 +81,9 @@ export function DocumentPage() {
   });
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
+  const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
   const [panelOpen, setPanelOpen] = useState(true);
@@ -199,6 +202,8 @@ export function DocumentPage() {
       setSelection,
       activeComment,
       setActiveComment,
+      unanchoredComments,
+      setUnanchoredComments,
       handleDocCommentClick,
     }),
     [
@@ -210,6 +215,7 @@ export function DocumentPage() {
       me.data,
       selection,
       activeComment,
+      unanchoredComments,
       setActiveComment,
       handleDocCommentClick,
     ],

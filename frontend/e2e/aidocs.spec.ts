@@ -111,7 +111,9 @@ test("creates a structured mention with a clean API body", async ({ page, aidocs
   await composer.fill("Please review @ad");
   await page.getByRole("button", { name: /admin@example\.com/ }).click();
   await expect(composer).toHaveValue("Please review @admin ");
-  await composer.press("End");
+  // Accepting a suggestion focuses the composer and places the caret after
+  // the inserted mention in the same commit (layout effect), so once the
+  // value assertion above passes it is safe to keep typing.
   await composer.pressSequentially("when you can");
 
   const commentResponsePromise = page.waitForResponse((response) => {

@@ -16,6 +16,10 @@ RUN npm ci
 COPY frontend ./
 # Build the static app and iframe bridge bundles for embedding into the Go server image.
 RUN npm run build
+# Export the canonical bridge source fingerprint (all bridge sources plus
+# resolved production deps) for the Go stage, which has no Node runtime. This
+# is the same helper `make backend` uses, so the logic lives in one place.
+RUN node scripts/bridge-source-hash.mjs > /src/bridge.source.hash
 
 FROM --platform=$BUILDPLATFORM ${BASE_IMAGE_PREFIX}golang:1.25-alpine AS builder
 ARG TARGETOS
@@ -29,12 +33,13 @@ RUN go mod download
 COPY . ./
 COPY --from=frontend /src/api/internal/server/frontend_dist ./api/internal/server/frontend_dist
 COPY --from=frontend /src/api/internal/server/bridge_dist ./api/internal/server/bridge_dist
+COPY --from=frontend /src/bridge.source.hash ./bridge.source.hash
 RUN mkdir -p api/internal/server/download_dist && \
     for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do \
       os="${target%/*}"; arch="${target#*/}"; \
       CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/cli/internal/cli.Version=$AIDOCS_VERSION -X github.com/razorpay/aidocs/cli/internal/cli.Commit=$AIDOCS_COMMIT_SHA" -o "api/internal/server/download_dist/aidocs-$os-$arch" ./cli; \
     done
-RUN BRIDGE_SOURCE_HASH="$(sha256sum frontend/bridge/bridge.ts | cut -d ' ' -f1)" && test "${#BRIDGE_SOURCE_HASH}" -eq 64 && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/api/internal/server.BuildVersion=$AIDOCS_VERSION -X github.com/razorpay/aidocs/api/internal/server.BuildCommit=$AIDOCS_COMMIT_SHA -X github.com/razorpay/aidocs/api/internal/server.BuildBridgeSourceHash=$BRIDGE_SOURCE_HASH" -o /out/aidocs-server ./api/cmd/aidocs-server
+RUN BRIDGE_SOURCE_HASH="$(cat bridge.source.hash)" && test "${#BRIDGE_SOURCE_HASH}" -eq 64 && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/api/internal/server.BuildVersion=$AIDOCS_VERSION -X github.com/razorpay/aidocs/api/internal/server.BuildCommit=$AIDOCS_COMMIT_SHA -X github.com/razorpay/aidocs/api/internal/server.BuildBridgeSourceHash=$BRIDGE_SOURCE_HASH" -o /out/aidocs-server ./api/cmd/aidocs-server
 RUN env CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/cli/internal/cli.Version=$AIDOCS_VERSION -X github.com/razorpay/aidocs/cli/internal/cli.Commit=$AIDOCS_COMMIT_SHA" -o /out/aidocs ./cli
 
 FROM ${BASE_IMAGE_PREFIX}alpine:3.23

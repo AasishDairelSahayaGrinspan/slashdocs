@@ -6,6 +6,7 @@ import {
   ArrowLeft,
   Check,
   ExternalLink,
+  FileDown,
   FolderIcon,
   Maximize2,
   GitBranch,
@@ -101,6 +102,9 @@ export function DocBar({
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
+  const exportPDF = () => {
+    window.dispatchEvent(new CustomEvent("aidocs:print"));
+  };
   return (
     <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
       <Button asChild variant="ghost" size="icon" className="shrink-0">
@@ -204,6 +208,9 @@ export function DocBar({
             }
           >
             <ExternalLink className="h-4 w-4" /> Open raw HTML
+          </DropdownItem>
+          <DropdownItem onSelect={exportPDF}>
+            <FileDown className="h-4 w-4" /> Export as PDF
           </DropdownItem>
           {canManage ? (
             <>

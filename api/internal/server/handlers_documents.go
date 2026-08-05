@@ -2,18 +2,33 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 // createDocumentResponse is the payload of POST /v1/documents.
 type createDocumentResponse struct {
-	ID               string `json:"id"`
-	CurrentVersionID string `json:"current_version_id"`
+	ID               string        `json:"id"`
+	CurrentVersionID string        `json:"current_version_id"`
+	DefaultGrant     *defaultGrant `json:"default_grant,omitempty"`
+}
+
+// defaultGrant reports the server-applied default "anyone" grant so clients
+// can explain the exposure to their users and revoke it by id.
+type defaultGrant struct {
+	GrantID   string                `json:"grant_id"`
+	Principal defaultGrantPrincipal `json:"principal"`
+	Role      repo.Role             `json:"role"`
+}
+
+type defaultGrantPrincipal struct {
+	Type auth.PrincipalType `json:"type"`
 }
 
 // CreateDocument godoc
@@ -25,11 +40,24 @@ type createDocumentResponse struct {
 // @Produce json
 // @Param title formData string true "Document title"
 // @Param file formData file true "Single-file HTML"
+// @Param default_permission formData string false "Default sharing applied at create: viewer, commenter, editor or private. Overrides the server-wide default."
 // @Success 201 {object} createDocumentResponse
 // @Router /v1/documents [post]
 func (h handlers) createDocument(c *gin.Context) {
 	p := current(c)
 	title := c.PostForm("title")
+	// The request override beats the server-wide default regardless of
+	// deployment mode: only the server env is org-gated (at startup), because
+	// a caller who sets the field makes an explicit per-document choice.
+	permission := h.deps.defaultDocPermission
+	if raw, ok := c.GetPostForm("default_permission"); ok {
+		role, valid := ParseDefaultDocPermission(raw)
+		if !valid {
+			badRequest(c, "default_permission must be viewer, commenter, editor or private")
+			return
+		}
+		permission = role
+	}
 	html, err := readMultipartFile(c, "file")
 	if errors.Is(err, errPayloadTooLarge) {
 		c.JSON(http.StatusRequestEntityTooLarge, errorResponse("payload_too_large", "HTML file exceeds 10 MiB", nil))
@@ -51,7 +79,22 @@ func (h handlers) createDocument(c *gin.Context) {
 	}
 	incDocument("created", actorType(c))
 	incVersion("created_initial", actorType(c))
-	c.JSON(http.StatusCreated, createDocumentResponse{ID: d.ID, CurrentVersionID: d.CurrentVersionID})
+	var granted *defaultGrant
+	if permission != repo.RoleNone {
+		g, err := h.deps.repository.CreateGrant(c.Request.Context(), "document", d.ID, auth.Principal{Type: auth.PrincipalAnyone}, permission, *p)
+		if err != nil {
+			// Rare storage fault. The document already exists at this point;
+			// erroring beats returning a document that is silently less shared
+			// than the effective default promised. Name the orphan so an
+			// operator can find it and a retrying client's duplicate is
+			// explainable.
+			internalErr(c, fmt.Errorf("default grant for created document %s: %w", d.ID, err))
+			return
+		}
+		incGrant("created", string(g.Role), string(g.Principal.Type), actorType(c))
+		granted = &defaultGrant{GrantID: g.ID, Principal: defaultGrantPrincipal{Type: auth.PrincipalAnyone}, Role: g.Role}
+	}
+	c.JSON(http.StatusCreated, createDocumentResponse{ID: d.ID, CurrentVersionID: d.CurrentVersionID, DefaultGrant: granted})
 }
 
 // ListDocuments godoc

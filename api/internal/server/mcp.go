@@ -38,6 +38,32 @@ func registerMCPRoutes(engine *gin.Engine, deps dependencies) {
 	engine.Any("/mcp", gin.WrapH(newMCPHTTPHandler(deps)))
 }
 
+// authenticateMCPRequest resolves the caller for one transport request,
+// writing the full error response itself when the request cannot proceed.
+// A nil return means the response has been written.
+func authenticateMCPRequest(w http.ResponseWriter, r *http.Request, authenticator auth.MCPAuthenticator, unauthorizedChallenge func(*http.Request) string, started time.Time) *auth.Principal {
+	if auth.BearerFromHeader(r.Header.Get("Authorization")) == "" {
+		observeMCPRequest("transport", "auth_error", time.Since(started))
+		mcpUnauthorized(w, r, unauthorizedChallenge)
+		return nil
+	}
+	principal, err := authenticator.Authenticate(r)
+	if err != nil && !errors.Is(err, auth.ErrUnauthorized) {
+		slog.ErrorContext(r.Context(), "MCP authentication failed", "error", err)
+		observeMCPRequest("transport", "transport_error", time.Since(started))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		_ = json.NewEncoder(w).Encode(errorResponse("internal", "internal server error", nil))
+		return nil
+	}
+	if err != nil || principal == nil {
+		observeMCPRequest("transport", "auth_error", time.Since(started))
+		mcpUnauthorized(w, r, unauthorizedChallenge)
+		return nil
+	}
+	return principal
+}
+
 func newMCPHTTPHandler(deps dependencies) http.Handler {
 	metrics := newMCPMetricRecorder()
 	protocol := mcpserver.NewMCPServer(
@@ -72,23 +98,8 @@ func newMCPHTTPHandler(deps dependencies) http.Handler {
 			http.Error(w, "cross-origin MCP requests are not allowed", http.StatusForbidden)
 			return
 		}
-		if auth.BearerFromHeader(r.Header.Get("Authorization")) == "" {
-			observeMCPRequest("transport", "auth_error", time.Since(started))
-			mcpUnauthorized(w, r, unauthorizedChallenge)
-			return
-		}
-		principal, err := authenticator.Authenticate(r)
-		if err != nil && !errors.Is(err, auth.ErrUnauthorized) {
-			slog.ErrorContext(r.Context(), "MCP authentication failed", "error", err)
-			observeMCPRequest("transport", "transport_error", time.Since(started))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(errorResponse("internal", "internal server error", nil))
-			return
-		}
-		if err != nil || principal == nil {
-			observeMCPRequest("transport", "auth_error", time.Since(started))
-			mcpUnauthorized(w, r, unauthorizedChallenge)
+		principal := authenticateMCPRequest(w, r, authenticator, unauthorizedChallenge, started)
+		if principal == nil {
 			return
 		}
 		var requestBody *mcpRequestBody
@@ -224,34 +235,44 @@ func (a mcpAPIAdapter) delete(ctx context.Context, target string, params gin.Par
 }
 
 func (a mcpAPIAdapter) json(ctx context.Context, method, target string, value any, params gin.Params, handler gin.HandlerFunc) (*mcp.CallToolResult, error) {
-	body, err := json.Marshal(value)
-	if err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
-	}
-	response, err := a.call(ctx, method, target, "application/json", bytes.NewReader(body), params, handler)
+	response, err := a.jsonResponse(ctx, method, target, value, params, handler)
 	return a.result(response, err, false)
 }
 
+// jsonResponse issues a JSON API call and returns the raw response so a tool
+// can chain follow-up calls (e.g. the default share after document creation).
+func (a mcpAPIAdapter) jsonResponse(ctx context.Context, method, target string, value any, params gin.Params, handler gin.HandlerFunc) (mcpAPIResponse, error) {
+	body, err := json.Marshal(value)
+	if err != nil {
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
+	}
+	return a.call(ctx, method, target, "application/json", bytes.NewReader(body), params, handler)
+}
+
 func (a mcpAPIAdapter) multipart(ctx context.Context, target string, fields map[string]string, html string, params gin.Params, handler gin.HandlerFunc) (*mcp.CallToolResult, error) {
+	response, err := a.multipartResponse(ctx, target, fields, html, params, handler)
+	return a.result(response, err, false)
+}
+
+func (a mcpAPIAdapter) multipartResponse(ctx context.Context, target string, fields map[string]string, html string, params gin.Params, handler gin.HandlerFunc) (mcpAPIResponse, error) {
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
 	for key, value := range fields {
 		if err := writer.WriteField(key, value); err != nil {
-			return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+			return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 		}
 	}
 	file, err := writer.CreateFormFile("file", "document.html")
 	if err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 	}
 	if _, err := io.WriteString(file, html); err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 	}
 	if err := writer.Close(); err != nil {
-		return mcp.NewToolResultError("could not encode request: " + err.Error()), nil
+		return mcpAPIResponse{}, fmt.Errorf("could not encode request: %w", err)
 	}
-	response, err := a.call(ctx, http.MethodPost, target, writer.FormDataContentType(), &body, params, handler)
-	return a.result(response, err, false)
+	return a.call(ctx, http.MethodPost, target, writer.FormDataContentType(), &body, params, handler)
 }
 
 func (a mcpAPIAdapter) html(ctx context.Context, target string, params gin.Params, handler gin.HandlerFunc) (*mcp.CallToolResult, error) {

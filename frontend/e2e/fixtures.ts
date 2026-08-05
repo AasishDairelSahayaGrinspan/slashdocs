@@ -62,6 +62,13 @@ type DocumentRecord = {
   parent_folder_id?: string;
 };
 
+type VersionRecord = {
+  id: string;
+  number: number;
+  sha256: string;
+  change_summary?: string;
+};
+
 type AccessItem = {
   principal: { type: string; id: string; name?: string };
   effective_role: string;
@@ -127,6 +134,28 @@ export class AidocsAPI {
     return responseJSON<DocumentRecord>(
       await this.request.get(`/v1/documents/${id}`),
       `get document ${id}`,
+    );
+  }
+
+  async pushVersion(
+    id: string,
+    html: string,
+    baseVersionID?: string,
+  ): Promise<VersionRecord> {
+    const base = baseVersionID ?? (await this.getDocument(id)).current_version_id;
+    return responseJSON<VersionRecord>(
+      await this.request.post(`/v1/documents/${id}/versions`, {
+        headers: this.writeHeaders(),
+        multipart: {
+          base_version_id: base,
+          file: {
+            name: "browser-e2e-v2.html",
+            mimeType: "text/html",
+            buffer: Buffer.from(html),
+          },
+        },
+      }),
+      `push version for ${id}`,
     );
   }
 

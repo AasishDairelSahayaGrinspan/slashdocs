@@ -32,6 +32,36 @@ func TestCompactRowAnnotatesMentionsInStableDeduplicatedOrder(t *testing.T) {
 	}
 }
 
+// TestCompactRowRendersEffectiveAccess locks in that an access listing row is
+// actionable: the anyone grant shows a principal label and the grant id that
+// `grants revoke` requires.
+func TestCompactRowRendersEffectiveAccess(t *testing.T) {
+	t.Parallel()
+	anyoneRow := map[string]any{
+		"effective_role": "viewer",
+		"principal":      map[string]any{"type": "anyone"},
+		"sources": []any{map[string]any{
+			"resource_type": "document", "resource_id": "doc_1",
+			"role": "viewer", "grant_id": "gr_1",
+		}},
+	}
+	want := "effective_role=viewer  principal=anyone  grant_id=gr_1"
+	if got := compactRow(anyoneRow); got != want {
+		t.Fatalf("compactRow()\n got: %q\nwant: %q", got, want)
+	}
+
+	ownerRow := map[string]any{
+		"effective_role": "owner",
+		"principal":      map[string]any{"type": "user", "id": "usr_1"},
+		"sources": []any{map[string]any{
+			"resource_type": "document", "resource_id": "doc_1", "role": "owner",
+		}},
+	}
+	if got := compactRow(ownerRow); strings.Contains(got, "grant_id=") {
+		t.Fatalf("ownership source rendered a grant id: %q", got)
+	}
+}
+
 func TestJSONRenderingLeavesMentionPayloadUnchanged(t *testing.T) {
 	t.Parallel()
 	payload := []byte(`{"items":[{"id":"cmt_1","body":"Ping @Alice","mentions":[{"principal":{"type":"user","id":"usr_1","name":"Alice"},"offset":5,"length":6}]}]}`)

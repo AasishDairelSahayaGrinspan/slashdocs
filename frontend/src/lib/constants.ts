@@ -10,12 +10,6 @@ export type CommentFilter = (typeof COMMENT_FILTERS)[number];
 export const COMMENT_FILTER_ALL: CommentFilter = "all";
 export const DEFAULT_COMMENT_FILTER: CommentFilter = "open";
 
-// Placement status of a comment relative to the rendered version.
-export const PLACEMENT_STATUS = {
-  attached: "attached",
-  orphaned: "orphaned",
-} as const;
-
 export const ROLES = [
   { value: "viewer", label: "Viewer" },
   { value: "commenter", label: "Commenter" },

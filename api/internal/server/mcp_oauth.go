@@ -195,14 +195,14 @@ func validateMCPClientRegistration(in mcpClientRegistrationRequest) string {
 			return "each redirect_uri must not exceed 1024 bytes"
 		}
 		if !validMCPRedirectURI(raw) {
-			return "redirect_uris must use HTTPS or loopback HTTP and must not contain fragments or credentials"
+			return "redirect_uris must use HTTPS, loopback HTTP, or a private-use app scheme, without fragments or credentials"
 		}
 	}
 	if in.TokenEndpointAuthMethod != "" && in.TokenEndpointAuthMethod != "none" {
 		return "only public clients with token_endpoint_auth_method=none are supported"
 	}
-	if len(in.GrantTypes) > 0 && !slices.Equal(in.GrantTypes, []string{"authorization_code"}) {
-		return "only the authorization_code grant is supported"
+	if message := validateMCPGrantTypes(in.GrantTypes); message != "" {
+		return message
 	}
 	if len(in.ResponseTypes) > 0 && !slices.Equal(in.ResponseTypes, []string{"code"}) {
 		return "only the code response type is supported"
@@ -210,23 +210,90 @@ func validateMCPClientRegistration(in mcpClientRegistrationRequest) string {
 	return ""
 }
 
-func validMCPRedirectURI(raw string) bool {
-	u, err := url.Parse(raw)
-	if err != nil || !u.IsAbs() || u.User != nil || u.Fragment != "" || u.Host == "" {
-		return false
+// validateMCPGrantTypes requires the authorization_code grant and tolerates a
+// co-registered refresh_token grant, which conformant MCP clients (mcp2cli,
+// VS Code) request by default during dynamic registration. The server never
+// issues refresh tokens, so the grant is accepted here but never exercised:
+// clients simply re-run the authorization_code flow when the short-lived
+// access token expires. Rejecting the registration outright would lock those
+// clients out entirely.
+func validateMCPGrantTypes(grantTypes []string) string {
+	if len(grantTypes) == 0 {
+		return ""
 	}
-	if strings.EqualFold(u.Scheme, "https") {
+	if !slices.Contains(grantTypes, "authorization_code") {
+		return "the authorization_code grant is required"
+	}
+	for _, grant := range grantTypes {
+		if grant != "authorization_code" && grant != "refresh_token" {
+			return "only the authorization_code and refresh_token grants are supported"
+		}
+	}
+	return ""
+}
+
+// redirectURIMatchesRegistration checks a request's redirect_uri against the
+// URIs frozen into the signed client_id. RFC 8252 §7.3 requires the
+// authorization server to allow any port on a loopback IP redirect URI, since
+// native apps bind an ephemeral port at request time and a client_id cached
+// across runs carries a stale port. Loopback IP literals therefore match on
+// scheme, host, path, and query while ignoring the port; everything else
+// (including https and localhost) still requires an exact match, because only
+// loopback delivery to the user's own machine makes a free port safe.
+func redirectURIMatchesRegistration(registered []string, requested string) bool {
+	if slices.Contains(registered, requested) {
 		return true
 	}
-	if !strings.EqualFold(u.Scheme, "http") {
+	req, err := url.Parse(requested)
+	if err != nil || !isLoopbackIPHost(req.Hostname()) {
 		return false
 	}
-	host := u.Hostname()
-	if strings.EqualFold(host, "localhost") {
-		return true
+	for _, raw := range registered {
+		reg, err := url.Parse(raw)
+		if err != nil || !isLoopbackIPHost(reg.Hostname()) {
+			continue
+		}
+		if strings.EqualFold(reg.Scheme, req.Scheme) &&
+			strings.EqualFold(reg.Hostname(), req.Hostname()) &&
+			reg.Path == req.Path && reg.RawQuery == req.RawQuery {
+			return true
+		}
 	}
+	return false
+}
+
+func isLoopbackIPHost(host string) bool {
 	ip := net.ParseIP(host)
 	return ip != nil && ip.IsLoopback()
+}
+
+func validMCPRedirectURI(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.User != nil || u.Fragment != "" || u.Opaque != "" {
+		return false
+	}
+	switch scheme := strings.ToLower(u.Scheme); scheme {
+	case "https":
+		return u.Host != ""
+	case "http":
+		// Loopback only (RFC 8252 §7.3): native apps listening on localhost.
+		host := u.Hostname()
+		if strings.EqualFold(host, "localhost") {
+			return true
+		}
+		ip := net.ParseIP(host)
+		return ip != nil && ip.IsLoopback()
+	default:
+		// Private-use app schemes (RFC 8252 §7.1): cursor://, vscode://, and
+		// friends. The OS resolves the scheme to the installed client, and an
+		// intercepted code is useless without the PKCE verifier. Refuse
+		// schemes a browser could interpret as active or local content.
+		switch scheme {
+		case "javascript", "data", "file", "blob", "about", "vbscript", "filesystem", "chrome", "chrome-extension":
+			return false
+		}
+		return true
+	}
 }
 
 func (h handlers) parseMCPClient(clientID string) (mcpOAuthClient, bool) {
@@ -273,7 +340,7 @@ func (h handlers) validateMCPAuthorizeRequest(in mcpAuthorizeRequest) (mcpOAuthC
 	if !ok {
 		return mcpOAuthClient{}, "unknown or expired client_id"
 	}
-	if !slices.Contains(client.RedirectURIs, in.RedirectURI) {
+	if !redirectURIMatchesRegistration(client.RedirectURIs, in.RedirectURI) {
 		return mcpOAuthClient{}, "redirect_uri is not registered for this client"
 	}
 	if in.ResponseType != "code" {
@@ -335,6 +402,12 @@ func (h handlers) mcpAuthorize(c *gin.Context) {
 		}
 		redirectURL, _ := url.Parse(in.RedirectURI) // already validated against the signed client registration
 		redirectOrigin := redirectURL.Scheme + "://" + redirectURL.Host
+		if !strings.EqualFold(redirectURL.Scheme, "http") && !strings.EqualFold(redirectURL.Scheme, "https") {
+			// Private-use app schemes are expressed as scheme-only CSP
+			// sources; browsers do not reliably match host sources on
+			// unregistered schemes.
+			redirectOrigin = redirectURL.Scheme + ":"
+		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Header("Cache-Control", "no-store")
 		// form-action is checked again after redirects, so allow the registered

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/url"
 
@@ -63,7 +64,7 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 	})
 
 	server.AddTool(mcp.NewTool("create_document", mutationOptions(false, false,
-		mcp.WithDescription("Create a private aidocs document from complete self-contained HTML. Returns its document and initial version IDs."),
+		mcp.WithDescription("Create an aidocs document from complete self-contained HTML. Returns its document and initial version IDs. The server applies its configured default sharing at create; when a default grant was applied, the result carries default_grant (grant_id, principal, role) plus a warning describing who can access the document and how to revoke the grant."),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Human-readable document title.")),
 		mcp.WithString("html", mcp.Required(), mcp.Description("Complete self-contained HTML, up to 10 MiB.")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
@@ -75,7 +76,11 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 		if invalid != nil {
 			return invalid, nil
 		}
-		return api.multipart(ctx, "/v1/documents", map[string]string{"title": title}, html, nil, api.handlers.createDocument)
+		response, err := api.multipartResponse(ctx, "/v1/documents", map[string]string{"title": title}, html, nil, api.handlers.createDocument)
+		if err != nil || response.status != http.StatusCreated {
+			return api.result(response, err, false)
+		}
+		return api.finishDocumentCreate(response)
 	})
 
 	server.AddTool(mcp.NewTool("rename_document", mutationOptions(true, true,
@@ -105,6 +110,52 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 		return api.delete(ctx, "/v1/documents/"+id, mcpParams("id", id), api.handlers.deleteDocument)
 	})
 
+}
+
+// finishDocumentCreate annotates a successful create with a warning derived
+// from the server-applied default grant, so MCP callers surface the exposure
+// to their users. The server's createDocument owns the granting; this only
+// reads default_grant back from the response payload.
+func (a mcpAPIAdapter) finishDocumentCreate(response mcpAPIResponse) (*mcp.CallToolResult, error) {
+	var payload map[string]any
+	if json.Unmarshal(response.body, &payload) != nil || payload == nil {
+		return a.result(response, nil, false)
+	}
+	grant, _ := payload["default_grant"].(map[string]any)
+	if grant == nil {
+		return mcp.NewToolResultJSON(payload)
+	}
+	id, _ := payload["id"].(string)
+	grantID, _ := grant["grant_id"].(string)
+	role, _ := grant["role"].(string)
+	revoke := fmt.Sprintf("To make it private, call revoke_document_grant with grant_id %s on document %s.", grantID, id)
+	// Public deployments admit anyone with the link; the org wording would
+	// understate the exposure there. Test-constructed servers may leave
+	// deployment empty, which main.go never does for real installs; treat
+	// only an explicit public deployment as public.
+	if a.handlers.deps.deployment == DeploymentPublic {
+		payload["warning"] = fmt.Sprintf("This document is shared by default: anyone with the link can %s. Make sure your user knows it is publicly accessible. %s", defaultGrantVerb(role), revoke)
+	} else {
+		org := a.handlers.deps.orgName
+		if org == "" {
+			org = "your org"
+		}
+		payload["warning"] = fmt.Sprintf("This document is shared org-wide by default: anyone at %s can %s. Make sure your user knows this document is shared org-wide. %s", org, defaultGrantVerb(role), revoke)
+	}
+	return mcp.NewToolResultJSON(payload)
+}
+
+// defaultGrantVerb spells out what an "anyone" grant of the given role lets
+// its audience do to the document.
+func defaultGrantVerb(role string) string {
+	switch role {
+	case "commenter":
+		return "read and comment on it"
+	case "editor":
+		return "read, comment and edit it"
+	default:
+		return "read it"
+	}
 }
 
 func registerMCPDocumentMoveTool(server *mcpserver.MCPServer, api mcpAPIAdapter) {

@@ -2,24 +2,14 @@ package server
 
 import (
 	"context"
+	"fmt"
+	"strings"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
+
+	"github.com/razorpay/aidocs/internal/guidelines"
 )
-
-const mcpAuthoringGuidelines = `aidocs document authoring guidelines
-
-- Publish one complete, self-contained HTML document. Inline critical CSS and JavaScript.
-- Use semantic, selectable HTML for prose and data so review comments anchor reliably.
-- Embed important images as data URLs. External HTTPS assets are allowed, but only use stable sources you trust.
-- Keep the first screen useful and avoid hiding important content behind hover-only interactions.
-- Respect the reader theme. Use CSS variables with sensible fallbacks and support light and dark color schemes.
-- Prefer accessible labels, keyboard-operable controls, readable typography, and responsive layouts.
-- Use versioned HTML updates for source/template changes. Start every update from the current HTML and current_version_id.
-- Check open review comments before publishing a new version and include a short change summary.
-- New documents are private until explicitly shared. Grant only the access role the recipient needs.
-- Keep secrets and private credentials out of document HTML. Uploaded HTML is rendered as active content on an isolated origin.
-`
 
 func registerMCPGeneralTools(server *mcpserver.MCPServer, api mcpAPIAdapter) {
 	server.AddTool(mcp.NewTool(
@@ -38,8 +28,57 @@ func registerMCPGeneralTools(server *mcpserver.MCPServer, api mcpAPIAdapter) {
 
 	server.AddTool(mcp.NewTool(
 		"get_authoring_guidelines",
-		readOnlyOptions(mcp.WithDescription("Return the aidocs single-file HTML authoring and publishing rules. Read these before creating or updating a document."))...,
-	), func(context.Context, mcp.CallToolRequest) (*mcp.CallToolResult, error) {
-		return mcp.NewToolResultText(mcpAuthoringGuidelines), nil
+		readOnlyOptions(
+			mcp.WithDescription("Return the aidocs single-file HTML authoring and publishing guidelines. Call without arguments for the section index, then fetch the sections relevant to your task; read at least the core section before creating or updating a document."),
+			mcp.WithString("section", mcp.Description("Guidelines section path from the index, e.g. \"core\", \"rendering theme\", or \"all\" for every section. Omit for the index.")),
+		)...,
+	), func(_ context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		return mcpGuidelineResult(request.GetString("section", "")), nil
 	})
+}
+
+// mcpGuidelineResult mirrors the CLI's `aidocs guidelines` progressive
+// disclosure over the shared guidelines source: an index by default, one page
+// per section path, and "all" for the full dump. Pages reference sibling
+// sections as CLI commands, so each one carries a translation footer.
+func mcpGuidelineResult(section string) *mcp.CallToolResult {
+	path := guidelines.NormalizePath(strings.Fields(section))
+	if len(path) == 0 {
+		return mcp.NewToolResultText(mcpGuidelineIndex())
+	}
+	if len(path) == 1 && path[0] == "all" {
+		var b strings.Builder
+		b.WriteString(mcpGuidelineIndex())
+		for _, p := range guidelines.Pages {
+			b.WriteString("\n---\n\n")
+			b.WriteString(p.Body)
+		}
+		return mcp.NewToolResultText(b.String())
+	}
+	if p, ok := guidelines.Find(path); ok {
+		return mcp.NewToolResultText(p.Body + mcpGuidelineFooter)
+	}
+	return mcp.NewToolResultError(fmt.Sprintf("unknown guidelines section %q; available sections:\n%s", section, mcpGuidelineSectionList()))
+}
+
+const mcpGuidelineFooter = "\nAny `aidocs guidelines <path>` reference above is a section of this tool: call get_authoring_guidelines with section=\"<path>\".\n"
+
+func mcpGuidelineIndex() string {
+	var b strings.Builder
+	b.WriteString("aidocs document authoring guidelines\n\n")
+	b.WriteString("Fetch a section for details by calling get_authoring_guidelines with its path:\n")
+	for _, p := range guidelines.Pages {
+		fmt.Fprintf(&b, "  section=%-22q %s\n", strings.Join(p.Path, " "), p.Summary)
+	}
+	b.WriteString("\nsection=\"all\" returns every section at once.\n")
+	return b.String()
+}
+
+func mcpGuidelineSectionList() string {
+	lines := make([]string, 0, len(guidelines.Pages)+1)
+	for _, p := range guidelines.Pages {
+		lines = append(lines, "  "+strings.Join(p.Path, " "))
+	}
+	lines = append(lines, "  all")
+	return strings.Join(lines, "\n")
 }

@@ -1,4 +1,10 @@
-import { type KeyboardEvent, useEffect, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -37,7 +43,6 @@ import {
   COMMENT_FILTER_ALL,
   COMMENT_STATUS,
   DEFAULT_COMMENT_FILTER,
-  PLACEMENT_STATUS,
   type CommentFilter,
 } from "@/lib/constants";
 import { useDoc } from "./doc-context";
@@ -75,6 +80,10 @@ function MentionTextarea({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const beforeInputSelection = useRef<TextSelection | null>(null);
+  // Caret position to apply right after the commit that renders an accepted
+  // mention. A layout effect (not requestAnimationFrame) applies it: rAF can
+  // fire after further keystrokes and yank the caret back mid-word.
+  const caretRestore = useRef<number | null>(null);
   const [caret, setCaret] = useState(0);
   const [target, setTarget] = useState<MentionTarget | null>(null);
   const [suggestions, setSuggestions] = useState<UserPrincipal[]>([]);
@@ -119,6 +128,16 @@ function MentionTextarea({
     };
   }, [target?.query]);
 
+  useLayoutEffect(() => {
+    if (caretRestore.current === null) return;
+    const el = ref.current;
+    if (el) {
+      el.focus();
+      el.setSelectionRange(caretRestore.current, caretRestore.current);
+    }
+    caretRestore.current = null;
+  });
+
   const accept = (user: UserPrincipal) => {
     if (!target) return;
     if (draft.mentions.length >= MAX_COMMENT_MENTIONS) {
@@ -132,10 +151,7 @@ function MentionTextarea({
     setOpen(false);
     setSuggestions([]);
     setCaret(nextCaret);
-    window.requestAnimationFrame(() => {
-      ref.current?.focus();
-      ref.current?.setSelectionRange(nextCaret, nextCaret);
-    });
+    caretRestore.current = nextCaret;
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
@@ -449,7 +465,7 @@ export function Comments() {
 
 function CommentCard({ c, docId }: { c: Comment; docId: string }) {
   const q = useQueryClient();
-  const { activeComment, setActiveComment, principal } = useDoc();
+  const { activeComment, setActiveComment, principal, unanchoredComments } = useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
   useEffect(() => {
@@ -498,12 +514,11 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           <Badge variant="accent">open</Badge>
         )}
       </div>
-      {c.current_placement?.status &&
-        c.current_placement.status !== PLACEMENT_STATUS.attached && (
-          <Badge variant="warning" className="mb-2">
-            {c.current_placement.status}
-          </Badge>
-        )}
+      {unanchoredComments.has(c.id) && (
+        <Badge variant="warning" className="mb-2">
+          highlight not found
+        </Badge>
+      )}
       {c.selected_text && (
         <blockquote className="mb-2 border-l-2 border-[var(--color-border-strong)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
           {c.selected_text}

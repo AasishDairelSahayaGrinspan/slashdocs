@@ -312,9 +312,11 @@ func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string
 			return repo.Grant{}, err
 		}
 	}
-	id := newID("gr")
-	err = q.UpsertResourceGrant(ctx, dbsqlc.UpsertResourceGrantParams{
-		ID:              id,
+	// A revoked grant for this (resource, principal) is resurrected under its
+	// original id by the upsert's conflict clause; use the persisted id, not
+	// the candidate, or revoking the returned grant 404s.
+	persistedID, err := q.UpsertResourceGrant(ctx, dbsqlc.UpsertResourceGrantParams{
+		ID:              newID("gr"),
 		ResourceType:    resourceType,
 		ResourceID:      resourceID,
 		PrincipalType:   string(principal.Type),
@@ -329,7 +331,7 @@ func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Grant{}, err
 	}
-	return repo.Grant{ID: id, DocumentID: resourceID, ResourceType: resourceType, ResourceID: resourceID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
+	return repo.Grant{ID: persistedID, DocumentID: resourceID, ResourceType: resourceType, ResourceID: resourceID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
 }
 
 func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal, resetApprovals bool) (repo.Version, error) {

@@ -3,14 +3,14 @@ import { createHash } from "node:crypto";
 import { readFile, writeFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { bridgeSourceHash } from "./bridge-source-files.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(here, "..");
 const sourcePath = resolve(frontendRoot, "bridge/bridge.ts");
 const outputDirectory = resolve(frontendRoot, "../api/internal/server/bridge_dist");
 const outputPath = resolve(outputDirectory, "bridge.js");
-const source = await readFile(sourcePath);
-const sourceHash = createHash("sha256").update(source).digest("hex");
+const sourceHash = await bridgeSourceHash();
 
 await build({
   entryPoints: [sourcePath],
@@ -24,8 +24,8 @@ await build({
   tsconfigRaw: { compilerOptions: { alwaysStrict: false } },
   minifyWhitespace: true,
   minifySyntax: true,
-  // Keep identifiers stable so the erased TypeScript port can be compared
-  // exactly with the legacy bridge after both pass through this build.
+  // Keep identifiers stable so the built bundle stays readable enough to
+  // diff between builds.
   minifyIdentifiers: false,
   legalComments: "none",
   sourcemap: false,

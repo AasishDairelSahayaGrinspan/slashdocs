@@ -37,6 +37,13 @@ type mcpOAuthTestEnv struct {
 
 func newMCPOAuthTestEnv(t *testing.T) *mcpOAuthTestEnv {
 	t.Helper()
+	return newMCPOAuthTestEnvConfig(t, nil)
+}
+
+// newMCPOAuthTestEnvConfig lets a test adjust the server configuration (e.g.
+// DefaultDocPermission) before the handler is built.
+func newMCPOAuthTestEnvConfig(t *testing.T, mutate func(*server.Config)) *mcpOAuthTestEnv {
+	t.Helper()
 	store := newTestStore(t)
 	for _, p := range []auth.Principal{fixtureOwner, fixtureUser} {
 		if _, err := store.UpsertGoogleUser(context.Background(), p.ID, p.Email, p.Name, "sub-"+p.ID, ""); err != nil {
@@ -45,11 +52,15 @@ func newMCPOAuthTestEnv(t *testing.T) *mcpOAuthTestEnv {
 	}
 	stateStore := auth.NewPostgresStateStore(store.Pool())
 	resource := mcpTestOrigin + "/mcp"
-	h := server.New(server.Config{
+	cfg := server.Config{
 		Environment:   "test",
 		AppOrigin:     mcpTestOrigin,
 		SessionSecret: oauthTestSigningMaterial,
-	},
+	}
+	if mutate != nil {
+		mutate(&cfg)
+	}
+	h := server.New(cfg,
 		server.WithRepository(store),
 		server.WithAuthenticator(auth.DBAuthenticator{Resolver: store, SessionSecret: oauthTestSigningMaterial}),
 		server.WithStateStore(stateStore),
@@ -117,6 +128,10 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 		"http://localhost:3210/callback",
 		"http://127.0.0.1:3210/callback",
 		"http://[::1]:3210/callback",
+		// Private-use app schemes (RFC 8252 §7.1) used by native MCP clients.
+		"cursor://anysphere.cursor-retrieval/oauth/user-aidocs/callback",
+		"vscode://ms-vscode.remote-server/oauth/callback",
+		"claude://oauth/callback",
 	} {
 		t.Run("allows "+redirectURI, func(t *testing.T) {
 			rr := registerMCPClient(t, e, "Conformance client", []string{redirectURI})
@@ -140,6 +155,11 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 		{"credentials", []string{"https://user:pass@client.example/callback"}},
 		{"fragment", []string{"https://client.example/callback#fragment"}},
 		{"unsupported scheme", []string{"javascript:alert(1)"}},
+		{"hierarchical javascript", []string{"javascript://client.example/callback"}},
+		{"data scheme", []string{"data://client.example/callback"}},
+		{"file scheme", []string{"file:///etc/passwd"}},
+		{"opaque private scheme", []string{"cursor:opaque-form"}},
+		{"private scheme with fragment", []string{"cursor://client/callback#fragment"}},
 		{"non-loopback IP", []string{"http://192.0.2.1/callback"}},
 		{"overlong URI", []string{paddedMCPRedirectURI(mcpTestMaxRedirectURIBytes + 1)}},
 		{"too many", []string{
@@ -164,6 +184,27 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 
 	t.Run("rejects confidential clients", func(t *testing.T) {
 		body := `{"client_name":"bad","redirect_uris":["https://client.example/callback"],"token_endpoint_auth_method":"client_secret_basic"}`
+		rr := do(t, e.h, http.MethodPost, "/oauth/register", body, map[string]string{"Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusBadRequest)
+		if got := jsonField(t, rr.Body.Bytes(), "error"); got != "invalid_client_metadata" {
+			t.Fatalf("error = %q, want invalid_client_metadata", got)
+		}
+	})
+
+	// Conformant MCP clients (mcp2cli, VS Code) register authorization_code
+	// alongside refresh_token; the registration must be accepted even though
+	// the server never issues refresh tokens.
+	t.Run("allows co-registered refresh_token grant", func(t *testing.T) {
+		body := `{"client_name":"mcp2cli","redirect_uris":["http://localhost:4100/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}`
+		rr := do(t, e.h, http.MethodPost, "/oauth/register", body, map[string]string{"Content-Type": "application/json"})
+		assertStatus(t, rr, http.StatusCreated)
+		if got := jsonField(t, rr.Body.Bytes(), "client_id"); !strings.HasPrefix(got, "aidocs_mcp_client_") {
+			t.Fatalf("client_id = %q, want signed client id", got)
+		}
+	})
+
+	t.Run("rejects unsupported grant without authorization_code", func(t *testing.T) {
+		body := `{"client_name":"bad","redirect_uris":["https://client.example/callback"],"token_endpoint_auth_method":"none","grant_types":["client_credentials"]}`
 		rr := do(t, e.h, http.MethodPost, "/oauth/register", body, map[string]string{"Content-Type": "application/json"})
 		assertStatus(t, rr, http.StatusBadRequest)
 		if got := jsonField(t, rr.Body.Bytes(), "error"); got != "invalid_client_metadata" {
@@ -265,6 +306,62 @@ func TestMCPAuthorizeRequiresBrowserSessionAndExplicitConsent(t *testing.T) {
 	assertStatus(t, invalid, http.StatusBadRequest)
 	if location := invalid.Header().Get("Location"); location != "" {
 		t.Fatalf("invalid redirect URI was followed: %q", location)
+	}
+}
+
+// Native clients such as Cursor register private-use scheme callbacks
+// (RFC 8252 §7.1); the whole flow must work end to end for them.
+func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	redirectURI := "cursor://anysphere.cursor-retrieval/oauth/user-aidocs/callback"
+	clientID := registeredMCPClientID(t, e, "Cursor", []string{redirectURI})
+
+	values := mcpAuthorizeValues(e, clientID, redirectURI, mcpTestVerifier, "cursor-state")
+	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
+	assertStatus(t, consent, http.StatusOK)
+	if got := consent.Header().Get("Content-Security-Policy"); !strings.Contains(got, "form-action 'self' cursor:") {
+		t.Fatalf("consent Content-Security-Policy = %q, want scheme-only cursor: form-action source", got)
+	}
+
+	code := approveMCPAuthorization(t, e, clientID, redirectURI, mcpTestVerifier, "cursor-state")
+	exchanged := postMCPToken(t, e, mcpTokenValues(e, code, clientID, redirectURI, mcpTestVerifier))
+	assertStatus(t, exchanged, http.StatusOK)
+	if got := jsonField(t, exchanged.Body.Bytes(), "access_token"); !strings.HasPrefix(got, auth.MCPAccessTokenPrefix) {
+		t.Fatalf("access_token = %q, want %q prefix", got, auth.MCPAccessTokenPrefix)
+	}
+}
+
+// Native clients bind an ephemeral loopback port at request time, so a
+// client_id cached across runs carries a stale port. RFC 8252 §7.3 requires
+// the authorization server to accept any port on a loopback IP redirect, and
+// the full flow must complete on the fresh port.
+func TestMCPOAuthFlowAcceptsDifferentLoopbackPortThanRegistered(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	clientID := registeredMCPClientID(t, e, "mcp2cli", []string{"http://127.0.0.1:51726/callback"})
+	liveRedirect := "http://127.0.0.1:49812/callback" // fresh ephemeral port
+
+	values := mcpAuthorizeValues(e, clientID, liveRedirect, mcpTestVerifier, "loopback-state")
+	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
+	assertStatus(t, consent, http.StatusOK)
+
+	code := approveMCPAuthorization(t, e, clientID, liveRedirect, mcpTestVerifier, "loopback-state")
+	exchanged := postMCPToken(t, e, mcpTokenValues(e, code, clientID, liveRedirect, mcpTestVerifier))
+	assertStatus(t, exchanged, http.StatusOK)
+	if got := jsonField(t, exchanged.Body.Bytes(), "access_token"); !strings.HasPrefix(got, auth.MCPAccessTokenPrefix) {
+		t.Fatalf("access_token = %q, want %q prefix", got, auth.MCPAccessTokenPrefix)
+	}
+}
+
+// A non-loopback redirect must still match the registration exactly; the
+// loopback port exemption must not leak into https callbacks.
+func TestMCPAuthorizeRejectsHTTPSRedirectPortMismatch(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	clientID := registeredMCPClientID(t, e, "web", []string{"https://client.example:8443/callback"})
+	values := mcpAuthorizeValues(e, clientID, "https://client.example:9443/callback", mcpTestVerifier, "s")
+	rr := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
+	assertStatus(t, rr, http.StatusBadRequest)
+	if location := rr.Header().Get("Location"); location != "" {
+		t.Fatalf("mismatched https redirect was followed: %q", location)
 	}
 }
 

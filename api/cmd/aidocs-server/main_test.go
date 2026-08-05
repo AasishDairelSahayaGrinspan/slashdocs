@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -37,6 +38,45 @@ func TestServeShutsDownSiblingWhenListenerFails(t *testing.T) {
 	}
 	if err := rebound.Close(); err != nil {
 		t.Fatalf("close rebound listener: %v", err)
+	}
+}
+
+func TestLoadDeploymentSettingsDefaultDocPermission(t *testing.T) {
+	cases := []struct {
+		name       string
+		deployment string
+		orgDomains string
+		value      string
+		want       repo.Role
+		wantErr    string
+	}{
+		{name: "unset means private", deployment: "org", orgDomains: "example.com", want: repo.RoleNone},
+		{name: "explicit private", deployment: "org", orgDomains: "example.com", value: "private", want: repo.RoleNone},
+		{name: "viewer on org", deployment: "org", orgDomains: "example.com", value: "viewer", want: repo.RoleViewer},
+		{name: "editor on org warns but loads", deployment: "org", orgDomains: "example.com", value: "editor", want: repo.RoleEditor},
+		{name: "private allowed on public", deployment: "public", value: "private", want: repo.RoleNone},
+		{name: "non-private requires org", deployment: "public", value: "viewer", wantErr: "requires AIDOCS_DEPLOYMENT=org"},
+		{name: "invalid value", deployment: "org", orgDomains: "example.com", value: "everyone", wantErr: "AIDOCS_DEFAULT_DOC_PERMISSION must be"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("AIDOCS_DEPLOYMENT", tc.deployment)
+			t.Setenv("AIDOCS_ORG_DOMAINS", tc.orgDomains)
+			t.Setenv("AIDOCS_DEFAULT_DOC_PERMISSION", tc.value)
+			settings, err := loadDeploymentSettings()
+			if tc.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
+					t.Fatalf("loadDeploymentSettings() error = %v, want containing %q", err, tc.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("loadDeploymentSettings() error = %v", err)
+			}
+			if settings.defaultDocPermission != tc.want {
+				t.Fatalf("defaultDocPermission = %q, want %q", settings.defaultDocPermission, tc.want)
+			}
+		})
 	}
 }
 

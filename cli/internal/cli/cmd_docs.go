@@ -11,7 +11,10 @@ import (
 	"github.com/spf13/cobra"
 )
 
-const orgWideViewerEnv = "AIDOCS_ORG_WIDE_VIEWER_BY_DEFAULT"
+// defaultDocPermissionEnv is the CLI-side per-user override for the sharing
+// default applied when a document is created. The server does the granting;
+// the CLI only forwards the preference.
+const defaultDocPermissionEnv = "AIDOCS_DEFAULT_DOC_PERMISSION"
 
 func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
@@ -39,7 +42,11 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 
 func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 	var title string
-	cmd := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe new document is private. Share it with people, bots, or everyone using 'aidocs docs grants add'.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe sharing default for new documents is controlled by the server. Set AIDOCS_DEFAULT_DOC_PERMISSION to viewer, commenter, editor, or private to override it per-user; private keeps new documents private.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		perm, err := defaultDocPermission()
+		if err != nil {
+			return err
+		}
 		data, fn, err := readFileArg(args[0])
 		if err != nil {
 			return err
@@ -51,20 +58,50 @@ func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		b, err := cl.multipart("/v1/documents", map[string]string{"title": title}, "file", fn, data)
+		fields := map[string]string{"title": title}
+		if perm != "" {
+			fields["default_permission"] = perm
+		}
+		b, err := cl.multipart("/v1/documents", fields, "file", fn, data)
 		if err != nil {
 			return err
 		}
-		return renderCreatedDocument(out, g, cl, title, b)
+		return renderCreatedDocument(out, g, cl, title, perm, b)
 	}}
 	cmd.Flags().StringVar(&title, "title", "", "document title (defaults to the file name)")
 	return cmd
 }
 
-func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title string, body []byte) error {
-	if g.quiet {
-		return nil
+// defaultDocPermission reads the per-user sharing override sent with document
+// creation. Empty means the server-wide default applies.
+func defaultDocPermission() (string, error) {
+	perm := os.Getenv(defaultDocPermissionEnv)
+	switch perm {
+	case "", "viewer", "commenter", "editor", "private":
+		return perm, nil
+	default:
+		return "", fmt.Errorf("invalid %s value %q: must be viewer, commenter, editor, or private", defaultDocPermissionEnv, perm)
 	}
+}
+
+// defaultGrantInfo extracts the server-applied default grant from a create
+// response. An empty grant id means the document stayed private.
+func defaultGrantInfo(payload map[string]any) (role, grantID string) {
+	dg, ok := payload["default_grant"].(map[string]any)
+	if !ok {
+		return "", ""
+	}
+	role, _ = dg["role"].(string)
+	grantID, _ = dg["grant_id"].(string)
+	return role, grantID
+}
+
+// renderCreatedDocument reports a document create from the server response
+// alone: the server owns default sharing, so a default_grant in the payload
+// is the only signal that the document was shared. requestedPermission is the
+// CLI env override that was sent with the request; "private" is an explicit
+// user preference, so it also suppresses the share nudge.
+func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title, requestedPermission string, body []byte) error {
 	var payload map[string]any
 	if json.Unmarshal(body, &payload) != nil {
 		return render(out, g, body)
@@ -76,30 +113,53 @@ func renderCreatedDocument(out io.Writer, g *globals, cl *Client, title string, 
 		}
 		return confirm(out, g, fmt.Sprintf("Created document %q. Document URL unavailable: response did not include id.", title))
 	}
-	documentURL := browserURL(cl.Base, "/app/d/%s", id)
-	sharedByDefault, err := maybeGrantOrgWideViewer(cl, id)
-	if err != nil {
-		return err
+	if g.quiet {
+		return nil
 	}
+	role, grantID := defaultGrantInfo(payload)
+	documentURL := browserURL(cl.Base, "/app/d/%s", id)
 	if g.json {
-		payload["url"] = documentURL
-		payload["org_wide_viewer_granted"] = sharedByDefault
-		if !sharedByDefault {
-			payload["message"] = orgWideViewerNudge(g, id)
-		}
-		encoded, err := json.Marshal(payload)
-		if err != nil {
-			return err
-		}
-		return render(out, g, encoded)
+		return renderCreatedDocumentJSON(out, g, id, requestedPermission, documentURL, role, grantID, payload)
 	}
 	if err := confirm(out, g, fmt.Sprintf("Created document %q (%s). Review it at %s", title, id, documentURL)); err != nil {
 		return err
 	}
-	if sharedByDefault {
-		return confirm(out, g, "Gave org-wide read-only access because "+orgWideViewerEnv+" is set.")
+	if grantID != "" {
+		// The confirm line must not claim "org-wide" on a public deployment,
+		// where the anyone grant admits anyone with the link.
+		cfg := serverConfigFor(g)
+		audience := "org-wide"
+		if cfg.Deployment == "public" {
+			audience = "anyone with the link"
+		}
+		if err := confirm(out, g, fmt.Sprintf("Gave %s %s access by default.", audience, roleAccess(role))); err != nil {
+			return err
+		}
+		_, err := fmt.Fprintln(out, defaultShareNotice(cfg, id, role, grantID))
+		return err
+	}
+	if requestedPermission == "private" {
+		return nil
 	}
 	return printOrgWideViewerNudge(out, g, id)
+}
+
+// renderCreatedDocumentJSON augments the create payload with the URL and the
+// share warning (grant applied) or nudge (org server, not explicitly private).
+func renderCreatedDocumentJSON(out io.Writer, g *globals, id, requestedPermission, documentURL, role, grantID string, payload map[string]any) error {
+	payload["url"] = documentURL
+	if grantID != "" {
+		payload["warning"] = defaultShareNotice(serverConfigFor(g), id, role, grantID)
+	} else if requestedPermission != "private" {
+		if nudge := orgWideViewerNudge(g, id); nudge != "" {
+			payload["message"] = nudge
+		}
+	}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return err
+	}
+	return render(out, g, encoded)
 }
 
 func documentUpdateCmd(g *globals, out io.Writer) *cobra.Command {
