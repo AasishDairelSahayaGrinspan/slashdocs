@@ -11,8 +11,8 @@ export function focusEventSetup(target: EventTarget) {
     target.addEventListener("visibilitychange", listener, false);
     target.addEventListener("focus", listener, false);
     return () => {
-      target.removeEventListener("visibilitychange", listener);
-      target.removeEventListener("focus", listener);
+      target.removeEventListener("visibilitychange", listener, false);
+      target.removeEventListener("focus", listener, false);
     };
   };
 }
