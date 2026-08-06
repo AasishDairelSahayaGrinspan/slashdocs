@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -231,10 +232,16 @@ function VersionHistoryDialog({
   versions: Version[];
   onSelectVersion: (versionID: string) => void;
 }) {
+  const [pickerOpen, setPickerOpen] = useState(false);
   const sorted = [...versions].sort((a, b) => b.number - a.number);
   const currentVersion = versions.find((v) => v.id === current);
+  const selectVersion = (versionId: string) => {
+    if (versionId === current) return;
+    onSelectVersion(versionId);
+    setPickerOpen(false);
+  };
   return (
-    <Dialog>
+    <Dialog open={pickerOpen} onOpenChange={setPickerOpen}>
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="hidden sm:inline-flex">
           <GitBranch className="h-4 w-4" />
@@ -259,7 +266,7 @@ function VersionHistoryDialog({
               <button
                 key={v.id}
                 type="button"
-                onClick={() => onSelectVersion(v.id)}
+                onClick={() => selectVersion(v.id)}
                 className={`flex w-full gap-3 rounded-xl border border-[var(--color-border)] p-4 text-left transition-colors hover:bg-[var(--color-surface-muted)]/60 ${
                   v.id === current
                     ? "bg-[var(--color-accent-muted)]/35"
