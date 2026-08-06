@@ -35,7 +35,7 @@ COPY --from=frontend /src/api/internal/server/frontend_dist ./api/internal/serve
 COPY --from=frontend /src/api/internal/server/bridge_dist ./api/internal/server/bridge_dist
 COPY --from=frontend /src/bridge.source.hash ./bridge.source.hash
 RUN mkdir -p api/internal/server/download_dist && \
-    for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do \
+    for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64 windows/amd64 windows/arm64; do \
       os="${target%/*}"; arch="${target#*/}"; \
       CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X github.com/razorpay/aidocs/cli/internal/cli.Version=$AIDOCS_VERSION -X github.com/razorpay/aidocs/cli/internal/cli.Commit=$AIDOCS_COMMIT_SHA" -o "api/internal/server/download_dist/aidocs-$os-$arch" ./cli; \
     done
