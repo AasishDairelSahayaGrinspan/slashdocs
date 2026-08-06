@@ -159,6 +159,8 @@ func (s *Server) routes(deps dependencies) {
 	s.engine.GET("/commit.txt", h.commitTXT)
 	s.engine.GET("/version.json", h.versionJSON)
 	s.engine.GET("/install.sh", h.installScript)
+	s.engine.GET("/install.ps1", h.installPowerShellScript)
+	s.engine.GET("/install.bat", h.installBatScript)
 	s.engine.GET("/skills/:name/SKILL.md", h.downloadSkill)
 	s.engine.GET("/cli/:os/:arch", h.downloadCLI)
 	registerAPIDocsRoutes(s.engine)

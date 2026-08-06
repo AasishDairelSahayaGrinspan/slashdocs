@@ -37,10 +37,11 @@ type cliAsset struct {
 
 // versionResponse is the payload of GET /version.json.
 type versionResponse struct {
-	Version string     `json:"version"`
-	Commit  string     `json:"commit"`
-	Install string     `json:"install"`
-	Assets  []cliAsset `json:"assets"`
+	Version        string     `json:"version"`
+	Commit         string     `json:"commit"`
+	Install        string     `json:"install"`
+	InstallWindows string     `json:"install_windows,omitempty"`
+	Assets         []cliAsset `json:"assets"`
 }
 
 var cliPlatforms = []struct{ os, arch string }{
@@ -48,9 +49,22 @@ var cliPlatforms = []struct{ os, arch string }{
 	{"darwin", "amd64"},
 	{"linux", "arm64"},
 	{"linux", "amd64"},
+	{"windows", "amd64"},
+	{"windows", "arm64"},
 }
 
+// cliAssetName is the name used in the embedded filesystem (no extension).
 func cliAssetName(goos, goarch string) string { return "aidocs-" + goos + "-" + goarch }
+
+// cliDownloadFilename returns the filename for the Content-Disposition header.
+// Windows binaries carry an .exe extension so browsers save them correctly.
+func cliDownloadFilename(goos, goarch string) string {
+	name := cliAssetName(goos, goarch)
+	if goos == "windows" {
+		name += ".exe"
+	}
+	return name
+}
 
 func embeddedCLIAsset(goos, goarch string) ([]byte, bool) {
 	b, err := downloadDist.ReadFile(path.Join("download_dist", cliAssetName(goos, goarch)))
@@ -68,7 +82,7 @@ func (h handlers) versionJSON(c *gin.Context) {
 		}
 		assets = append(assets, asset)
 	}
-	c.JSON(http.StatusOK, versionResponse{Version: releaseVersion(), Commit: releaseCommit(), Install: "/install.sh", Assets: assets})
+	c.JSON(http.StatusOK, versionResponse{Version: releaseVersion(), Commit: releaseCommit(), Install: "/install.sh", InstallWindows: "/install.ps1", Assets: assets})
 }
 
 func (h handlers) downloadSkill(c *gin.Context) {
@@ -92,7 +106,7 @@ func (h handlers) downloadCLI(c *gin.Context) {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "cli binary is not available in this build", nil))
 		return
 	}
-	name := cliAssetName(goos, goarch)
+	name := cliDownloadFilename(goos, goarch)
 	c.Header("Content-Disposition", `attachment; filename="`+name+`"`)
 	c.Data(http.StatusOK, "application/octet-stream", b)
 }
@@ -113,6 +127,24 @@ func (h handlers) installScript(c *gin.Context) {
 		return
 	}
 	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(strings.ReplaceAll(installScriptTemplate, "__BASE_URL__", base)))
+}
+
+func (h handlers) installPowerShellScript(c *gin.Context) {
+	base, ok := h.installBase(c)
+	if !ok {
+		c.Data(http.StatusInternalServerError, "text/plain; charset=utf-8", []byte("aidocs server is missing APP_ORIGIN; cannot generate installer\n"))
+		return
+	}
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(strings.ReplaceAll(installPowerShellScriptTemplate, "__BASE_URL__", base)))
+}
+
+func (h handlers) installBatScript(c *gin.Context) {
+	base, ok := h.installBase(c)
+	if !ok {
+		c.Data(http.StatusInternalServerError, "text/plain; charset=utf-8", []byte("aidocs server is missing APP_ORIGIN; cannot generate installer\n"))
+		return
+	}
+	c.Data(http.StatusOK, "text/plain; charset=utf-8", []byte(strings.ReplaceAll(installBatScriptTemplate, "__BASE_URL__", base)))
 }
 
 func (h handlers) installBase(c *gin.Context) (string, bool) {
@@ -331,4 +363,145 @@ if [ -n "$active_path" ] && [ "$active_path" != "$BIN_PATH" ]; then
   echo "Warning: 'aidocs' currently resolves to $active_path."
   echo "Move $BIN_DIR earlier in PATH or remove the older install."
 fi
+`
+
+// installPowerShellScriptTemplate is the Windows equivalent of
+// installScriptTemplate. It is served at /install.ps1 and can be run with:
+//
+//	irm https://aidocs.example/install.ps1 | iex
+//
+// It mirrors the bash installer: downloads the CLI binary and skill, installs
+// them, seeds a default CLI context, and adds the install directory to the
+// user PATH.
+const installPowerShellScriptTemplate = `# aidocs installer for Windows (PowerShell)
+# Usage:
+#   irm __BASE_URL__/install.ps1 | iex
+#   # or download and run:
+#   powershell -ExecutionPolicy Bypass -File install.ps1
+
+$ErrorActionPreference = "Stop"
+
+$BaseUrl = $env:AIDOCS_BASE_URL
+if (-not $BaseUrl) { $BaseUrl = "__BASE_URL__" }
+
+# --- Architecture detection ---
+$arch = $env:PROCESSOR_ARCHITECTURE
+if ($arch -eq "AMD64") { $arch = "amd64" }
+elseif ($arch -eq "ARM64") { $arch = "arm64" }
+else {
+  Write-Error "Unsupported architecture: $arch (expected amd64 or arm64)"
+  exit 1
+}
+
+# --- Install directory ---
+$InstallDir = $env:AIDOCS_INSTALL_DIR
+if (-not $InstallDir) { $InstallDir = Join-Path $env:USERPROFILE ".local\bin" }
+$BinPath = Join-Path $InstallDir "aidocs.exe"
+
+# --- Download CLI binary ---
+$CliUrl = "$BaseUrl/cli/windows/$arch"
+Write-Host "Downloading aidocs from $CliUrl"
+try {
+  Invoke-WebRequest -Uri $CliUrl -OutFile $BinPath -UseBasicParsing
+} catch {
+  Write-Error "Failed to download aidocs CLI: $_"
+  exit 1
+}
+
+# --- Download skill ---
+$SkillUrl = "$BaseUrl/skills/aidocs/SKILL.md"
+Write-Host "Downloading aidocs skill from $SkillUrl"
+$SkillTemp = Join-Path $env:TEMP "aidocs_skill_$([System.IO.Path]::GetRandomFileName()).md"
+try {
+  Invoke-WebRequest -Uri $SkillUrl -OutFile $SkillTemp -UseBasicParsing
+} catch {
+  Write-Error "Failed to download aidocs skill: $_"
+  exit 1
+}
+
+# --- Install skill ---
+function Install-Skill($SkillDir) {
+  New-Item -ItemType Directory -Force -Path $SkillDir | Out-Null
+  Copy-Item $SkillTemp -Destination (Join-Path $SkillDir "SKILL.md") -Force
+}
+
+$SkillDirs = @(
+  (Join-Path $env:USERPROFILE ".agents\skills\aidocs"),
+  (Join-Path $env:USERPROFILE ".claude\skills\aidocs")
+)
+foreach ($Dir in $SkillDirs) { Install-Skill $Dir }
+Write-Host "Installed aidocs skill at:"
+foreach ($Dir in $SkillDirs) { Write-Host "  $(Join-Path $Dir 'SKILL.md')" }
+
+Remove-Item $SkillTemp -Force -ErrorAction SilentlyContinue
+
+# --- Seed default CLI context ---
+$ConfigDir = Join-Path $env:USERPROFILE ".config\aidocs"
+$ConfigPath = Join-Path $ConfigDir "config.json"
+if (Test-Path $ConfigPath) {
+  Write-Host "Keeping existing aidocs config at $ConfigPath"
+} else {
+  $Host_ = [System.Uri]::new($BaseUrl).Host
+  New-Item -ItemType Directory -Force -Path $ConfigDir | Out-Null
+  $Config = @{
+    active_context = $Host_
+    contexts = @{
+      $Host_ = @{
+        server = $BaseUrl
+        pulled = @{}
+      }
+    }
+  } | ConvertTo-Json -Depth 10
+  Set-Content -Path $ConfigPath -Value $Config -Encoding UTF8
+  Write-Host "Configured aidocs to use $BaseUrl (run 'aidocs auth login' to sign in)."
+}
+
+# --- Add install directory to user PATH ---
+$UserPath = [Environment]::GetEnvironmentVariable("Path", "User")
+if ($UserPath -notlike "*$InstallDir*") {
+  [Environment]::SetEnvironmentVariable("Path", "$InstallDir;$UserPath", "User")
+  Write-Host "Added $InstallDir to user PATH. New terminals will pick this up automatically."
+} else {
+  Write-Host "$InstallDir is already on PATH."
+}
+
+# --- Verify ---
+if (Test-Path $BinPath) {
+  Write-Host "Installed aidocs at $BinPath"
+} else {
+  Write-Error "Installation failed: $BinPath not found"
+  exit 1
+}
+`
+
+// installBatScriptTemplate is a thin batch wrapper around the PowerShell
+// installer. It is served at /install.bat and can be run by double-clicking
+// or from cmd.exe:
+//
+//	curl -fsSL __BASE_URL__/install.bat -o install.bat && install.bat
+const installBatScriptTemplate = `@echo off
+REM aidocs installer for Windows (batch wrapper)
+REM Downloads and runs the PowerShell installer.
+REM
+REM Usage:
+REM   curl -fsSL __BASE_URL__/install.bat -o install.bat && install.bat
+
+setlocal
+set "BASE_URL=__BASE_URL__"
+
+where powershell >nul 2>nul
+if errorlevel 1 (
+    echo PowerShell is required but was not found. >&2
+    exit /b 1
+)
+
+powershell -NoProfile -ExecutionPolicy Bypass -Command "irm '%BASE_URL%/install.ps1' | iex"
+if errorlevel 1 (
+    echo aidocs installation failed. >&2
+    exit /b 1
+)
+
+echo.
+echo aidocs installed successfully. Open a new terminal and run: aidocs version
+endlocal
 `

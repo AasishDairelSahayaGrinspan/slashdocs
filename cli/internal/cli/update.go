@@ -16,10 +16,11 @@ import (
 )
 
 type serverVersion struct {
-	Version string        `json:"version"`
-	Commit  string        `json:"commit"`
-	Install string        `json:"install"`
-	Assets  []serverAsset `json:"assets"`
+	Version        string        `json:"version"`
+	Commit         string        `json:"commit"`
+	Install        string        `json:"install"`
+	InstallWindows string        `json:"install_windows"`
+	Assets         []serverAsset `json:"assets"`
 }
 
 type serverAsset struct {
@@ -85,6 +86,20 @@ func updateCLI(ctx context.Context, c *Client, force bool) (serverVersion, bool,
 func printManualUpdate(c *Client, v serverVersion, err error, verbose bool) {
 	if verbose {
 		fmt.Fprintf(os.Stderr, "aidocs auto-update failed: %v\n", err)
+	}
+	if runtime.GOOS == "windows" {
+		install := strings.TrimSpace(v.InstallWindows)
+		if install == "" {
+			install = "/install.ps1"
+		}
+		if strings.HasPrefix(install, "/") {
+			install = c.Base + install
+		}
+		if v.Version != "" {
+			fmt.Fprintf(os.Stderr, "aidocs %s is available, but auto-update failed. Update with: aidocs update\n", v.Version)
+			fmt.Fprintf(os.Stderr, "Or reinstall with: powershell -NoProfile -ExecutionPolicy Bypass -Command \"irm '%s' | iex\"\n", install)
+		}
+		return
 	}
 	install := strings.TrimSpace(v.Install)
 	if install == "" {
@@ -252,6 +267,21 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 	//nolint:gosec // G302: the checksum-verified CLI follows the installer's conventional world-executable mode.
 	if err := os.Chmod(tmpName, 0o755); err != nil {
 		return err
+	}
+	// On Windows, os.Rename fails if the destination (the currently running
+	// exe) is locked. Move the old binary aside first, then rename the new
+	// one into place.
+	if runtime.GOOS == "windows" {
+		old := exe + ".old"
+		_ = os.Remove(old)
+		if err := os.Rename(exe, old); err != nil {
+			return fmt.Errorf("could not move old binary (close all aidocs instances and retry): %w", err)
+		}
+		if err := os.Rename(tmpName, exe); err != nil {
+			_ = os.Rename(old, exe) // best-effort restore
+			return err
+		}
+		return nil
 	}
 	return os.Rename(tmpName, exe)
 }

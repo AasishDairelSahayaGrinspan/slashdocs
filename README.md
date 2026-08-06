@@ -89,6 +89,29 @@ bin/aidocs-server
 bin/aidocs
 ```
 
+## Install the CLI
+
+### macOS / Linux
+
+```bash
+curl -fsSL https://aidocs.razorpay.com/install.sh | bash
+```
+
+### Windows (PowerShell)
+
+```powershell
+irm https://aidocs.razorpay.com/install.ps1 | iex
+```
+
+Or from cmd.exe:
+
+```cmd
+curl -fsSL https://aidocs.razorpay.com/install.bat -o install.bat && install.bat
+```
+
+The installer downloads the CLI binary, bundles the agent skill, seeds a
+default server context, and adds the install directory to PATH.
+
 ## Run with Docker
 
 Release images are published to Docker Hub:
@@ -184,7 +207,7 @@ startup can reject missing, stale, or corrupt embedded assets.
 
 ## Architecture
 
-Everything ships as one Go binary, `aidocs-server`. It serves the REST API, the embedded React frontend, and the embedded per-platform CLI binaries (`/install.sh` and downloads). You bring Postgres and an S3-compatible bucket. The same binary answers on two hostnames: the app hostname for the authenticated UI and API, and a separate render hostname where document HTML is served inside a sandboxed frame — the browser's same-origin policy keeps untrusted documents away from your session.
+Everything ships as one Go binary, `aidocs-server`. It serves the REST API, the embedded React frontend, and the embedded per-platform CLI binaries (`/install.sh`, `/install.ps1`, `/install.bat` and downloads). You bring Postgres and an S3-compatible bucket. The same binary answers on two hostnames: the app hostname for the authenticated UI and API, and a separate render hostname where document HTML is served inside a sandboxed frame — the browser's same-origin policy keeps untrusted documents away from your session.
 
 ```mermaid
 flowchart LR
@@ -194,7 +217,7 @@ flowchart LR
     subgraph server["aidocs-server (single Go binary)"]
         api["REST API"]
         fe["Embedded frontend"]
-        dl["Embedded CLI downloads<br/>+ install.sh"]
+        dl["Embedded CLI downloads<br/>+ install.sh / install.ps1 / install.bat"]
         render["Sandboxed document render"]
     end
 

@@ -33,10 +33,12 @@ cli:
 
 cli-assets:
 	mkdir -p api/internal/server/download_dist
-	GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-darwin-arm64 ./cli
-	GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-darwin-amd64 ./cli
-	GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-linux-arm64 ./cli
-	GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-linux-amd64 ./cli
+	GOOS=darwin   GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-darwin-arm64   ./cli
+	GOOS=darwin   GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-darwin-amd64   ./cli
+	GOOS=linux    GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-linux-arm64   ./cli
+	GOOS=linux    GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-linux-amd64   ./cli
+	GOOS=windows  GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-windows-amd64 ./cli
+	GOOS=windows  GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "$(CLI_LDFLAGS)" -o api/internal/server/download_dist/aidocs-windows-arm64 ./cli
 
 build: backend cli
 
