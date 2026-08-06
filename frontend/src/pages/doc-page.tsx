@@ -60,6 +60,11 @@ export function DocumentPage() {
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const fullscreen = searchParams.get("fullscreen") === "1";
+  // A cached list is safe to reuse as placeholder only while it still belongs to
+  // the doc on screen (queryKey is ["<kind>", <docId>]); a same-route doc→doc
+  // switch must not flash the previous doc's data as real.
+  const belongsToThisDoc = (prevQuery?: { queryKey: readonly unknown[] }) =>
+    prevQuery?.queryKey[1] === id;
   const doc = useQuery({
     queryKey: queryKeys.document(id),
     queryFn: () => api.getDocument(id),
@@ -81,7 +86,8 @@ export function DocumentPage() {
     // Suppressed: versionsUnavailable already covers a failed list, and a focus
     // error toast would double up with the "updated to a newer version" one.
     meta: { suppressGlobalError: true },
-    placeholderData: (prev) => prev,
+    placeholderData: (prev, prevQuery) =>
+      belongsToThisDoc(prevQuery) ? prev : undefined,
     ...DOC_REFRESH,
   });
   // Declared before the version hook, which reads it: an open selection holds
@@ -105,7 +111,8 @@ export function DocumentPage() {
     queryFn: () => api.listComments(id),
     enabled: !!id && !docError,
     meta: { suppressGlobalError: true },
-    placeholderData: (prev) => prev,
+    placeholderData: (prev, prevQuery) =>
+      belongsToThisDoc(prevQuery) ? prev : undefined,
     ...DOC_REFRESH,
   });
   const [activeComment, setActiveComment] = useState<string>();

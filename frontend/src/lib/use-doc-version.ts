@@ -1,12 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
-import { currentVersionID, versionID, type Document, type Version } from "@/api";
+import {
+  APIError,
+  currentVersionID,
+  versionID,
+  type Document,
+  type Version,
+} from "@/api";
 import { displayedVersion, versionAnnouncement } from "@/lib/doc-version";
 
 export const DOC_REFRESH = {
   refetchOnWindowFocus: true,
   staleTime: 30_000,
+  // 403/404 are definitive — don't burn the default 3 retries (seconds of
+  // backoff) before the error screen shows; transient errors still retry.
+  retry: (count: number, error: unknown) =>
+    count < 3 &&
+    !(error instanceof APIError && (error.status === 403 || error.status === 404)),
 } as const;
 
 export function useDocumentVersion(
