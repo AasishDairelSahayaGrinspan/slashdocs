@@ -301,14 +301,14 @@ function VersionHistoryDialog({
 function ChangeSummary({ summary, fallback }: { summary?: string; fallback: string }) {
   const items = splitChangeSummary(summary ?? "");
   return items.length > 1 ? (
-    <div className="mt-1 space-y-0.5 text-sm text-[var(--color-fg-muted)]">
+    <ul className="mt-1 space-y-0.5 text-sm text-[var(--color-fg-muted)]">
       {items.map((item, i) => (
-        <div key={`${i}-${item}`} className="flex gap-1.5">
+        <li key={`${i}-${item}`} className="flex gap-1.5">
           <span aria-hidden="true">•</span>
           <span>{item}</span>
-        </div>
+        </li>
       ))}
-    </div>
+    </ul>
   ) : (
     <div className="mt-1 text-sm text-[var(--color-fg-muted)]">
       {items[0] ?? fallback}
