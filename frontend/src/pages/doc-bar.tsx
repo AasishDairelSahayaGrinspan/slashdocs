@@ -2,6 +2,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
+import { splitChangeSummary } from "@/lib/change-summary";
 import {
   ArrowLeft,
   Check,
@@ -280,13 +281,12 @@ function VersionHistoryDialog({
                     ) : null}
                     {v.id === latest ? <Badge variant="muted">Latest</Badge> : null}
                   </div>
-                  <div className="mt-1 text-sm text-[var(--color-fg-muted)]">
-                    {v.change_summary ||
-                      (v.number === 1 ? "Initial version" : "No change summary")}
-                  </div>
+                  <ChangeSummary
+                    summary={v.change_summary}
+                    fallback={v.number === 1 ? "Initial version" : "No change summary"}
+                  />
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
                     <span>Created by {principalLabel(v.created_by)}</span>
-                    <span className="font-mono">{v.id}</span>
                   </div>
                 </div>
               </button>
@@ -295,6 +295,24 @@ function VersionHistoryDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ChangeSummary({ summary, fallback }: { summary?: string; fallback: string }) {
+  const items = splitChangeSummary(summary ?? "");
+  return items.length > 1 ? (
+    <div className="mt-1 space-y-0.5 text-sm text-[var(--color-fg-muted)]">
+      {items.map((item, i) => (
+        <div key={`${i}-${item}`} className="flex gap-1.5">
+          <span aria-hidden="true">•</span>
+          <span>{item}</span>
+        </div>
+      ))}
+    </div>
+  ) : (
+    <div className="mt-1 text-sm text-[var(--color-fg-muted)]">
+      {items[0] ?? fallback}
+    </div>
   );
 }
 
