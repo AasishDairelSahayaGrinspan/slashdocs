@@ -193,7 +193,7 @@ func TestInstallPowerShellScriptSeedsCLIConfig(t *testing.T) {
 	for _, want := range []string{
 		`config.json`,
 		`active_context`,
-		`"server"`,
+		`server = $BaseUrl`,
 		`Test-Path $ConfigPath`,
 	} {
 		if !strings.Contains(body, want) {
