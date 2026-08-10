@@ -299,8 +299,16 @@ definitions:
         type: string
       default_grant:
         $ref: '#/definitions/server.defaultGrant'
+      folder_id:
+        type: string
       id:
         type: string
+      permission_warning:
+        allOf:
+        - $ref: '#/definitions/server.permissionWarning'
+        description: |-
+          PermissionWarning is set when the document was created into a folder
+          whose grants may show it to more people than the uploader expects.
     type: object
   server.createGrantResponse:
     properties:
@@ -499,6 +507,13 @@ definitions:
           $ref: '#/definitions/server.commentMentionRequest'
         type: array
       status:
+        type: string
+    type: object
+  server.permissionWarning:
+    properties:
+      kind:
+        type: string
+      message:
         type: string
     type: object
   server.principalRef:
@@ -805,6 +820,11 @@ paths:
         name: file
         required: true
         type: file
+      - description: Destination folder ID. Requires editor role on the folder; the
+          document is created inside it.
+        in: formData
+        name: folder_id
+        type: string
       - description: 'Default sharing applied at create: viewer, commenter, editor
           or private. Overrides the server-wide default.'
         in: formData

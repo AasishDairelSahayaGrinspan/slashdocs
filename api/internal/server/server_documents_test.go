@@ -246,3 +246,143 @@ func TestCreateDocumentGrantFailureErrors(t *testing.T) {
 		t.Fatalf("failed grant must not report a default_grant: %s", rr.Body.String())
 	}
 }
+
+// TestCreateDocumentIntoFolder covers the happy path: an editor on the target
+// folder uploads and the document lands inside that folder.
+func TestCreateDocumentIntoFolder(t *testing.T) {
+	e := newTestEnv(t)
+	owner := principalHeader(fixtureOwner)
+	folderID := createFolder(t, e, `{"title":"Reports"}`, owner)
+
+	body, contentType := multipartBody(t, map[string]string{
+		"title":     "In folder",
+		"folder_id": folderID,
+	}, "file", "doc.html", "<html><body>x</body></html>")
+	rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": owner,
+	})
+
+	assertStatus(t, rr, http.StatusCreated)
+	docID := jsonField(t, rr.Body.Bytes(), "id")
+	if got := jsonField(t, rr.Body.Bytes(), "folder_id"); got != folderID {
+		t.Fatalf("response folder_id = %q, want %q", got, folderID)
+	}
+
+	// The document is listed under the folder, not at root.
+	listed := do(t, e.h, http.MethodGet, "/v1/folders?folder_id="+folderID, "", map[string]string{
+		"X-Test-Principal": owner,
+	})
+	assertStatus(t, listed, http.StatusOK)
+	if !strings.Contains(listed.Body.String(), docID) {
+		t.Fatalf("folder listing missing uploaded document %s: %s", docID, listed.Body.String())
+	}
+}
+
+// TestCreateDocumentIntoFolderRequiresEditor locks in the ordering guarantee:
+// a caller without editor on the folder is refused and NOTHING is created.
+func TestCreateDocumentIntoFolderRequiresEditor(t *testing.T) {
+	e := newTestEnv(t)
+	owner := principalHeader(fixtureOwner)
+	stranger := principalHeader(fixtureStranger)
+	folderID := createFolder(t, e, `{"title":"Private"}`, owner)
+
+	before := do(t, e.h, http.MethodGet, "/v1/documents", "", map[string]string{
+		"X-Test-Principal": stranger,
+	})
+	assertStatus(t, before, http.StatusOK)
+
+	body, contentType := multipartBody(t, map[string]string{
+		"title":     "Sneaky",
+		"folder_id": folderID,
+	}, "file", "doc.html", "<html><body>x</body></html>")
+	rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": stranger,
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+
+	after := do(t, e.h, http.MethodGet, "/v1/documents", "", map[string]string{
+		"X-Test-Principal": stranger,
+	})
+	assertStatus(t, after, http.StatusOK)
+	if after.Body.String() != before.Body.String() {
+		t.Fatalf("refused upload still created a document:\nbefore=%s\nafter=%s", before.Body.String(), after.Body.String())
+	}
+	if strings.Contains(after.Body.String(), "Sneaky") {
+		t.Fatalf("refused upload leaked a document: %s", after.Body.String())
+	}
+}
+
+// TestCreateDocumentIntoUnknownFolderIsRefused: RoleForFolder deliberately
+// folds a missing folder into RoleNone rather than an error (see
+// repo/postgres/folders.go), so an unknown id is a clean 403 — not a 500 — and
+// still creates nothing.
+func TestCreateDocumentIntoUnknownFolderIsRefused(t *testing.T) {
+	e := newTestEnv(t)
+	body, contentType := multipartBody(t, map[string]string{
+		"title":     "Nowhere",
+		"folder_id": "fld_does_not_exist",
+	}, "file", "doc.html", "<html><body>x</body></html>")
+	rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+
+	list := do(t, e.h, http.MethodGet, "/v1/documents", "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, list, http.StatusOK)
+	if strings.Contains(list.Body.String(), "Nowhere") {
+		t.Fatalf("refused upload leaked a document: %s", list.Body.String())
+	}
+}
+
+// TestCreateDocumentWithoutFolderOmitsFolderID pins the unchanged path.
+func TestCreateDocumentWithoutFolderOmitsFolderID(t *testing.T) {
+	rr := createDocumentWithFields(t, newTestEnv(t), map[string]string{})
+	assertStatus(t, rr, http.StatusCreated)
+	if strings.Contains(rr.Body.String(), "folder_id") {
+		t.Fatalf("root create response should omit folder_id: %s", rr.Body.String())
+	}
+	if strings.Contains(rr.Body.String(), "permission_warning") {
+		t.Fatalf("root create response should omit permission_warning: %s", rr.Body.String())
+	}
+}
+
+// TestCreateDocumentIntoSharedFolderWarns: uploading into a folder that has
+// grants reports the may-broaden-access warning, exactly as a drag-in does.
+func TestCreateDocumentIntoSharedFolderWarns(t *testing.T) {
+	e := newTestEnv(t)
+	owner := principalHeader(fixtureOwner)
+	folderID := createFolder(t, e, `{"title":"Shared"}`, owner)
+
+	grant := do(t, e.h, http.MethodPost, "/v1/folders/"+folderID+"/grants",
+		`{"address":"`+fixtureViewer.Email+`","role":"viewer"}`,
+		map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+	assertStatus(t, grant, http.StatusCreated)
+
+	body, contentType := multipartBody(t, map[string]string{
+		"title":     "Into shared",
+		"folder_id": folderID,
+	}, "file", "doc.html", "<html><body>x</body></html>")
+	rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": owner,
+	})
+	assertStatus(t, rr, http.StatusCreated)
+
+	var out struct {
+		PermissionWarning *struct {
+			Kind    string `json:"kind"`
+			Message string `json:"message"`
+		} `json:"permission_warning"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("bad create response: %v", err)
+	}
+	if out.PermissionWarning == nil || out.PermissionWarning.Kind != "may_broaden_access" {
+		t.Fatalf("permission_warning = %+v, want may_broaden_access", out.PermissionWarning)
+	}
+}

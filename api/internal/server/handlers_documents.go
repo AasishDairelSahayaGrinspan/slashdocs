@@ -16,7 +16,11 @@ import (
 type createDocumentResponse struct {
 	ID               string        `json:"id"`
 	CurrentVersionID string        `json:"current_version_id"`
+	FolderID         string        `json:"folder_id,omitempty"`
 	DefaultGrant     *defaultGrant `json:"default_grant,omitempty"`
+	// PermissionWarning is set when the document was created into a folder
+	// whose grants may show it to more people than the uploader expects.
+	PermissionWarning *permissionWarning `json:"permission_warning,omitempty"`
 }
 
 // defaultGrant reports the server-applied default "anyone" grant so clients
@@ -40,6 +44,7 @@ type defaultGrantPrincipal struct {
 // @Produce json
 // @Param title formData string true "Document title"
 // @Param file formData file true "Single-file HTML"
+// @Param folder_id formData string false "Destination folder ID. Requires editor role on the folder; the document is created inside it."
 // @Param default_permission formData string false "Default sharing applied at create: viewer, commenter, editor or private. Overrides the server-wide default."
 // @Success 201 {object} createDocumentResponse
 // @Router /v1/documents [post]
@@ -57,6 +62,13 @@ func (h handlers) createDocument(c *gin.Context) {
 			return
 		}
 		permission = role
+	}
+	// Placing the new document in a folder needs the same editor bar as moving
+	// an existing one there. Check it before the blob write and the row insert
+	// so a refused upload leaves nothing behind.
+	folderID := c.PostForm("folder_id")
+	if folderID != "" && !h.needFolderRole(c, folderID, repo.RoleEditor) {
+		return
 	}
 	html, err := readMultipartFile(c, "file")
 	if errors.Is(err, errPayloadTooLarge) {
@@ -79,6 +91,20 @@ func (h handlers) createDocument(c *gin.Context) {
 	}
 	incDocument("created", actorType(c))
 	incVersion("created_initial", actorType(c))
+	var folderWarning *permissionWarning
+	if folderID != "" {
+		hasGrants, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *p, folderID, d.ID)
+		if err != nil {
+			// The document already exists at root at this point. Name the
+			// orphan so an operator can find it, rather than returning a
+			// document that silently ignored the requested destination.
+			internalErr(c, fmt.Errorf("place created document %s in folder %s: %w", d.ID, folderID, err))
+			return
+		}
+		if hasGrants {
+			folderWarning = mayBroadenAccessWarning("This folder has active grants — everyone with access may see this document.")
+		}
+	}
 	var granted *defaultGrant
 	if permission != repo.RoleNone {
 		g, err := h.deps.repository.CreateGrant(c.Request.Context(), "document", d.ID, auth.Principal{Type: auth.PrincipalAnyone}, permission, *p)
@@ -94,7 +120,13 @@ func (h handlers) createDocument(c *gin.Context) {
 		incGrant("created", string(g.Role), string(g.Principal.Type), actorType(c))
 		granted = &defaultGrant{GrantID: g.ID, Principal: defaultGrantPrincipal{Type: auth.PrincipalAnyone}, Role: g.Role}
 	}
-	c.JSON(http.StatusCreated, createDocumentResponse{ID: d.ID, CurrentVersionID: d.CurrentVersionID, DefaultGrant: granted})
+	c.JSON(http.StatusCreated, createDocumentResponse{
+		ID:                d.ID,
+		CurrentVersionID:  d.CurrentVersionID,
+		FolderID:          folderID,
+		DefaultGrant:      granted,
+		PermissionWarning: folderWarning,
+	})
 }
 
 // ListDocuments godoc

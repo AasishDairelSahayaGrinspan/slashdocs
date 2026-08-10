@@ -417,6 +417,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "Destination folder ID. Requires editor role on the folder; the document is created inside it.",
+                        "name": "folder_id",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
                         "description": "Default sharing applied at create: viewer, commenter, editor or private. Overrides the server-wide default.",
                         "name": "default_permission",
                         "in": "formData"
@@ -1865,8 +1871,19 @@ const docTemplate = `{
                 "default_grant": {
                     "$ref": "#/definitions/server.defaultGrant"
                 },
+                "folder_id": {
+                    "type": "string"
+                },
                 "id": {
                     "type": "string"
+                },
+                "permission_warning": {
+                    "description": "PermissionWarning is set when the document was created into a folder\nwhose grants may show it to more people than the uploader expects.",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/server.permissionWarning"
+                        }
+                    ]
                 }
             }
         },
@@ -2175,6 +2192,17 @@ const docTemplate = `{
                     }
                 },
                 "status": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.permissionWarning": {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "type": "string"
+                },
+                "message": {
                     "type": "string"
                 }
             }
