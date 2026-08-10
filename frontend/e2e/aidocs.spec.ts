@@ -278,3 +278,54 @@ test("delivers a KV patch to a second open page through the browser SSE stream",
   await aidocs.patchKV(document.id, key, value);
   await expect(secondOutput).toHaveText(value);
 });
+
+test("uploads HTML from inside a folder and lands it in that folder", async ({
+  page,
+  aidocs,
+}) => {
+  const folderTitle = uniqueName("Upload target");
+  const documentTitle = uniqueName("Folder upload");
+
+  await page.goto("/app/documents");
+  await page.getByRole("button", { name: "New folder" }).click();
+  const newFolderDialog = page.getByRole("dialog", { name: "New folder" });
+  await newFolderDialog.getByPlaceholder("Folder name").fill(folderTitle);
+  const createFolderResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return response.request().method() === "POST" && url.pathname === "/v1/folders";
+  });
+  await newFolderDialog.getByRole("button", { name: "Create" }).click();
+  const createFolderResponse = await createFolderResponsePromise;
+  expect(createFolderResponse.ok()).toBeTruthy();
+  const folderID = ((await createFolderResponse.json()) as { id: string }).id;
+  aidocs.trackFolder(folderID);
+
+  await entryRow(page, folderTitle)
+    .getByRole("link", { name: folderTitle, exact: true })
+    .click();
+  await expect(page.getByRole("heading", { name: folderTitle })).toBeVisible();
+
+  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("menuitem", { name: "Upload HTML (backup)" }).click();
+
+  const dialog = page.getByRole("dialog", { name: "Upload HTML (backup)" });
+  await dialog.getByPlaceholder("Title").fill(documentTitle);
+  await dialog.locator('input[type="file"]').setInputFiles({
+    name: "folder-upload.html",
+    mimeType: "text/html",
+    buffer: Buffer.from(documentHTML(documentTitle)),
+  });
+  await dialog.getByRole("button", { name: "Upload", exact: true }).click();
+
+  await expect(page).toHaveURL(/\/app\/d\/doc_[^/?]+$/);
+  const documentID = new URL(page.url()).pathname.split("/").at(-1);
+  expect(documentID).toBeTruthy();
+  aidocs.trackDocument(documentID!);
+
+  // The server placed it in the folder, not at root.
+  const created = await aidocs.getDocument(documentID!);
+  expect(created.parent_folder_id).toBe(folderID);
+
+  await page.goto(`/app/folders/${folderID}`);
+  await expect(entryRow(page, documentTitle)).toBeVisible();
+});
