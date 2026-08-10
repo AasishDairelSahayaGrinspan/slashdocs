@@ -20,7 +20,7 @@ import { api } from "@/api";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function UploadBackupItem({ folderId }: { folderId?: string } = {}) {
+export function UploadBackupItem({ folderId }: { folderId?: string }) {
   return (
     <UploadBackupDialog
       folderId={folderId}
@@ -55,7 +55,8 @@ function UploadBackupDialog({
       }
       if (r.permission_warning) {
         toast.warning(r.permission_warning.message, { duration: 8000 });
-      } else if (r.default_grant) {
+      }
+      if (r.default_grant) {
         const verb =
           r.default_grant.role === "editor"
             ? "read, comment on and edit"
@@ -66,7 +67,8 @@ function UploadBackupDialog({
           `Uploaded — shared by default: everyone on this server can ${verb} this document. Manage access from the document's share menu.`,
           { duration: 8000 },
         );
-      } else {
+      }
+      if (!r.permission_warning && !r.default_grant) {
         toast.success("Document uploaded.");
       }
       setOpen(false);
