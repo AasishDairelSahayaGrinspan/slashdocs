@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -95,6 +96,16 @@ func (h handlers) createDocument(c *gin.Context) {
 	if folderID != "" {
 		hasGrants, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *p, folderID, d.ID)
 		if err != nil {
+			if errors.Is(err, repo.ErrNotFound) {
+				// The destination folder vanished between the editor check
+				// and this move (FK violation or zero rows). The document
+				// already exists at root; notFound(c) doesn't log, so name
+				// the orphan here or an operator has no way to find it.
+				requestLogger(c).Error("folder vanished mid-upload, document orphaned at root",
+					slog.String("document_id", d.ID), slog.String("folder_id", folderID))
+				notFound(c)
+				return
+			}
 			// The document already exists at root at this point. Name the
 			// orphan so an operator can find it, rather than returning a
 			// document that silently ignored the requested destination.

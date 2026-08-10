@@ -386,3 +386,80 @@ func TestCreateDocumentIntoSharedFolderWarns(t *testing.T) {
 		t.Fatalf("permission_warning = %+v, want may_broaden_access", out.PermissionWarning)
 	}
 }
+
+// TestCreateDocumentIntoFolderRequiresEditorNotViewer pins the bar at exactly
+// editor: a principal holding viewer (granted, not absent — unlike
+// TestCreateDocumentIntoFolderRequiresEditor's total stranger) is still
+// refused, and nothing leaks even to the account that would own the document
+// if the check were skipped.
+func TestCreateDocumentIntoFolderRequiresEditorNotViewer(t *testing.T) {
+	e := newTestEnv(t)
+	owner := principalHeader(fixtureOwner)
+	viewer := principalHeader(fixtureViewer)
+	folderID := createFolder(t, e, `{"title":"Viewer only"}`, owner)
+
+	grant := do(t, e.h, http.MethodPost, "/v1/folders/"+folderID+"/grants",
+		`{"address":"`+fixtureViewer.Email+`","role":"viewer"}`,
+		map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+	assertStatus(t, grant, http.StatusCreated)
+
+	body, contentType := multipartBody(t, map[string]string{
+		"title":     "Viewer sneaks in",
+		"folder_id": folderID,
+	}, "file", "doc.html", "<html><body>x</body></html>")
+	rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": viewer,
+	})
+	assertStatus(t, rr, http.StatusForbidden)
+
+	// The viewer would own the document if the create leaked, so listing as
+	// the viewer is the leak detector here.
+	list := do(t, e.h, http.MethodGet, "/v1/documents", "", map[string]string{
+		"X-Test-Principal": viewer,
+	})
+	assertStatus(t, list, http.StatusOK)
+	if strings.Contains(list.Body.String(), "Viewer sneaks in") {
+		t.Fatalf("viewer-only upload leaked a document: %s", list.Body.String())
+	}
+}
+
+// failingMoveRepo makes MoveDocumentToFolder fail so the create handler's
+// partial state (document exists at root, requested folder placement absent)
+// is observable — the twin of failingGrantRepo above.
+type failingMoveRepo struct {
+	repo.Repository
+}
+
+func (failingMoveRepo) MoveDocumentToFolder(context.Context, auth.Principal, string, string) (bool, error) {
+	return false, errors.New("forced move failure")
+}
+
+// TestCreateDocumentMoveFailureErrors locks in the same failure contract as
+// TestCreateDocumentGrantFailureErrors: when placing the created document
+// into the requested folder fails, the request 500s instead of returning a
+// 201 that silently ignored folder_id.
+func TestCreateDocumentMoveFailureErrors(t *testing.T) {
+	e := newTestEnv(t)
+	owner := principalHeader(fixtureOwner)
+	folderID := createFolder(t, e, `{"title":"Target"}`, owner)
+
+	e.h = server.New(
+		server.Config{Environment: "test"},
+		server.WithRepository(failingMoveRepo{e.store}),
+		server.WithAuthenticator(testPrincipalAuth{}),
+	).Handler()
+
+	body, contentType := multipartBody(t, map[string]string{
+		"title":     "Move fails",
+		"folder_id": folderID,
+	}, "file", "doc.html", "<html><body>x</body></html>")
+	rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": owner,
+	})
+	assertStatus(t, rr, http.StatusInternalServerError)
+	if strings.Contains(rr.Body.String(), "folder_id") {
+		t.Fatalf("failed move must not report folder_id: %s", rr.Body.String())
+	}
+}
