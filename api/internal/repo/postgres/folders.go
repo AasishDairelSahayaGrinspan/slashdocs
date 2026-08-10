@@ -410,9 +410,18 @@ func (s *Store) MoveDocumentToFolder(ctx context.Context, _ auth.Principal, fold
 	if moved == 0 {
 		return false, repo.ErrNotFound
 	}
+	// The grants lookup only decides whether the caller sees an advisory
+	// may-broaden-access warning (see the matching comment in patchFolder,
+	// handlers_folders.go); it must not veto a move that already succeeded.
+	// That matters more here than on the plain drag-and-drop path: on the
+	// create-into-folder path the document was already committed by
+	// CreateDocument, so rolling back this transaction would surface as a
+	// 500 on an otherwise-successful move, and a client retry would leave a
+	// second, orphaned document at root. Degrade to hasGrants=false and
+	// still commit instead.
 	hasGrants, err := q.FolderOrAncestorsHaveGrants(ctx, folderID)
 	if err != nil {
-		return false, err
+		hasGrants = false
 	}
 	return hasGrants, tx.Commit(ctx)
 }
