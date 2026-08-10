@@ -20,10 +20,17 @@ import { api } from "@/api";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/queryKeys";
 
-export function UploadBackupItem({ folderId }: { folderId?: string }) {
+export function UploadBackupItem({
+  folderId,
+  folderName,
+}: {
+  folderId?: string;
+  folderName?: string;
+}) {
   return (
     <UploadBackupDialog
       folderId={folderId}
+      folderName={folderName}
       trigger={
         <DropdownItem onSelect={(e) => e.preventDefault()}>
           <Upload className="h-4 w-4" /> Upload HTML (backup)
@@ -36,9 +43,11 @@ export function UploadBackupItem({ folderId }: { folderId?: string }) {
 function UploadBackupDialog({
   trigger,
   folderId,
+  folderName,
 }: {
   trigger: React.ReactNode;
   folderId?: string;
+  folderName?: string;
 }) {
   const q = useQueryClient();
   const nav = useNavigate();
@@ -99,6 +108,7 @@ function UploadBackupDialog({
           <DialogTitle>Upload HTML (backup)</DialogTitle>
           <DialogDescription>
             Agents normally publish via the CLI. Use this only as a manual fallback.
+            {folderName && ` The file will be uploaded into "${folderName}".`}
           </DialogDescription>
         </DialogHeader>
         <form

@@ -303,7 +303,9 @@ export function FolderPage() {
                 <DropdownItem onSelect={() => setNewFolderOpen(true)}>
                   <Plus className="h-4 w-4" /> New subfolder
                 </DropdownItem>
-                {canUploadHere && <UploadBackupItem folderId={id} />}
+                {canUploadHere && (
+                  <UploadBackupItem folderId={id} folderName={f.title} />
+                )}
                 <DropdownItem
                   onSelect={() => window.setTimeout(() => setDeleteOpen(true), 0)}
                   className="text-[var(--color-danger)]"

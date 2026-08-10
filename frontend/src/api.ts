@@ -223,8 +223,10 @@ export const api = {
     const fd = new FormData();
     fd.set("title", title);
     fd.set("file", file);
-    // Omitted entirely at root: the server treats a missing folder_id as
-    // "create at root", and an empty string would be a bad folder id.
+    // Omitted entirely at root: the server treats a missing folder_id and an
+    // empty one identically (handlers_documents.go checks folderID != ""),
+    // so leaving the field off keeps the request honest about intent rather
+    // than sending a value that means nothing.
     if (folderId) fd.set("folder_id", folderId);
     return request<{
       id: string;
