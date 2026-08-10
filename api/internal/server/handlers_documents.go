@@ -94,26 +94,10 @@ func (h handlers) createDocument(c *gin.Context) {
 	incVersion("created_initial", actorType(c))
 	var folderWarning *permissionWarning
 	if folderID != "" {
-		hasGrants, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *p, folderID, d.ID)
-		if err != nil {
-			if errors.Is(err, repo.ErrNotFound) {
-				// The destination folder vanished between the editor check
-				// and this move (FK violation or zero rows). The document
-				// already exists at root; notFound(c) doesn't log, so name
-				// the orphan here or an operator has no way to find it.
-				requestLogger(c).Error("folder vanished mid-upload, document orphaned at root",
-					slog.String("document_id", d.ID), slog.String("folder_id", folderID))
-				notFound(c)
-				return
-			}
-			// The document already exists at root at this point. Name the
-			// orphan so an operator can find it, rather than returning a
-			// document that silently ignored the requested destination.
-			internalErr(c, fmt.Errorf("place created document %s in folder %s: %w", d.ID, folderID, err))
+		var ok bool
+		folderWarning, ok = h.placeCreatedDocumentInFolder(c, folderID, d.ID)
+		if !ok {
 			return
-		}
-		if hasGrants {
-			folderWarning = mayBroadenAccessWarning("This folder has active grants — everyone with access may see this document.")
 		}
 	}
 	var granted *defaultGrant
@@ -138,6 +122,40 @@ func (h handlers) createDocument(c *gin.Context) {
 		DefaultGrant:      granted,
 		PermissionWarning: folderWarning,
 	})
+}
+
+// placeCreatedDocumentInFolder links a freshly created document into
+// folderID. It returns the may-broaden-access warning when the folder tree
+// has grants. On failure it writes the error response itself and reports
+// ok=false; the document already exists at root at that point, so both
+// error paths name the orphan for an operator. The uploader owns the
+// freshly created document, so the "editor role on the document" condition
+// that moveDocToFolder checks holds by construction and is not re-checked
+// here.
+func (h handlers) placeCreatedDocumentInFolder(c *gin.Context, folderID, docID string) (*permissionWarning, bool) {
+	p := current(c)
+	hasGrants, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *p, folderID, docID)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			// The destination folder vanished between the editor check
+			// and this move (FK violation or zero rows). The document
+			// already exists at root; notFound(c) doesn't log, so name
+			// the orphan here or an operator has no way to find it.
+			requestLogger(c).Error("folder vanished mid-upload, document orphaned at root",
+				slog.String("document_id", docID), slog.String("folder_id", folderID))
+			notFound(c)
+			return nil, false
+		}
+		// The document already exists at root at this point. Name the
+		// orphan so an operator can find it, rather than returning a
+		// document that silently ignored the requested destination.
+		internalErr(c, fmt.Errorf("place created document %s in folder %s: %w", docID, folderID, err))
+		return nil, false
+	}
+	if hasGrants {
+		return mayBroadenAccessWarning("This folder has active grants — everyone with access may see this document."), true
+	}
+	return nil, true
 }
 
 // ListDocuments godoc
