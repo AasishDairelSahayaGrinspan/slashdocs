@@ -51,10 +51,7 @@ import { UnifiedGrid } from "@/components/browse/unified-grid";
 import { UnifiedTable } from "@/components/browse/unified-table";
 import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
 import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
-import {
-  UploadBackupItem,
-  type CreateDocumentResult,
-} from "@/components/browse/upload-backup";
+import { UploadBackupItem } from "@/components/browse/upload-backup";
 import {
   DndContext,
   PointerSensor,
@@ -183,17 +180,6 @@ export function FolderPage() {
     onError: (e) => toast.error(errorMessage(e, "Move failed")),
   });
 
-  // Surface a folder-grant warning in the same dialog a drag-in uses; let the
-  // dialog fall back to its own toast otherwise.
-  function handleUploaded(r: CreateDocumentResult) {
-    qc.invalidateQueries({ queryKey: queryKeys.folders(id) });
-    if (r.permission_warning?.message) {
-      setAccessWarning(r.permission_warning.message);
-      return true;
-    }
-    return false;
-  }
-
   if (folder.isLoading || contents.isLoading) {
     return (
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
@@ -317,9 +303,7 @@ export function FolderPage() {
                 <DropdownItem onSelect={() => setNewFolderOpen(true)}>
                   <Plus className="h-4 w-4" /> New subfolder
                 </DropdownItem>
-                {canUploadHere && (
-                  <UploadBackupItem folderId={id} onUploaded={handleUploaded} />
-                )}
+                {canUploadHere && <UploadBackupItem folderId={id} />}
                 <DropdownItem
                   onSelect={() => window.setTimeout(() => setDeleteOpen(true), 0)}
                   className="text-[var(--color-danger)]"

@@ -20,19 +20,10 @@ import { api } from "@/api";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/queryKeys";
 
-export type CreateDocumentResult = Awaited<ReturnType<typeof api.createDocument>>;
-
-export function UploadBackupItem({
-  folderId,
-  onUploaded,
-}: {
-  folderId?: string;
-  onUploaded?: (r: CreateDocumentResult) => boolean;
-} = {}) {
+export function UploadBackupItem({ folderId }: { folderId?: string } = {}) {
   return (
     <UploadBackupDialog
       folderId={folderId}
-      onUploaded={onUploaded}
       trigger={
         <DropdownItem onSelect={(e) => e.preventDefault()}>
           <Upload className="h-4 w-4" /> Upload HTML (backup)
@@ -45,11 +36,9 @@ export function UploadBackupItem({
 function UploadBackupDialog({
   trigger,
   folderId,
-  onUploaded,
 }: {
   trigger: React.ReactNode;
   folderId?: string;
-  onUploaded?: (r: CreateDocumentResult) => boolean;
 }) {
   const q = useQueryClient();
   const nav = useNavigate();
@@ -64,24 +53,21 @@ function UploadBackupDialog({
       if (folderId) {
         q.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       }
-      // The page may own the notification (e.g. a folder-grant warning that
-      // belongs in a dialog rather than a toast).
-      const handled = onUploaded?.(r) ?? false;
-      if (!handled) {
-        if (r.default_grant) {
-          const verb =
-            r.default_grant.role === "editor"
-              ? "read, comment on and edit"
-              : r.default_grant.role === "commenter"
-                ? "read and comment on"
-                : "read";
-          toast.info(
-            `Uploaded — shared by default: everyone on this server can ${verb} this document. Manage access from the document's share menu.`,
-            { duration: 8000 },
-          );
-        } else {
-          toast.success("Document uploaded.");
-        }
+      if (r.permission_warning) {
+        toast.warning(r.permission_warning.message, { duration: 8000 });
+      } else if (r.default_grant) {
+        const verb =
+          r.default_grant.role === "editor"
+            ? "read, comment on and edit"
+            : r.default_grant.role === "commenter"
+              ? "read and comment on"
+              : "read";
+        toast.info(
+          `Uploaded — shared by default: everyone on this server can ${verb} this document. Manage access from the document's share menu.`,
+          { duration: 8000 },
+        );
+      } else {
+        toast.success("Document uploaded.");
       }
       setOpen(false);
       reset();
