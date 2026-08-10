@@ -247,8 +247,9 @@ func TestCreateDocumentGrantFailureErrors(t *testing.T) {
 	}
 }
 
-// TestCreateDocumentIntoFolder covers the happy path: an editor on the target
-// folder uploads and the document lands inside that folder.
+// TestCreateDocumentIntoFolder covers the happy path: the folder's owner
+// uploads and the document lands inside that folder. (A granted, non-owner
+// editor is covered separately by TestCreateDocumentIntoFolderAsGrantedEditor.)
 func TestCreateDocumentIntoFolder(t *testing.T) {
 	e := newTestEnv(t)
 	owner := principalHeader(fixtureOwner)
@@ -279,18 +280,57 @@ func TestCreateDocumentIntoFolder(t *testing.T) {
 	}
 }
 
+// TestCreateDocumentIntoFolderAsGrantedEditor covers the actual new
+// capability: needFolderRole admitting a granted editor who does not own the
+// folder, not just the owner (TestCreateDocumentIntoFolder) or a refusal.
+func TestCreateDocumentIntoFolderAsGrantedEditor(t *testing.T) {
+	e := newTestEnv(t)
+	owner := principalHeader(fixtureOwner)
+	editor := principalHeader(fixtureEditor)
+	folderID := createFolder(t, e, `{"title":"Team reports"}`, owner)
+
+	grant := do(t, e.h, http.MethodPost, "/v1/folders/"+folderID+"/grants",
+		`{"address":"`+fixtureEditor.Email+`","role":"editor"}`,
+		map[string]string{"X-Test-Principal": owner, "Content-Type": "application/json"})
+	assertStatus(t, grant, http.StatusCreated)
+
+	body, contentType := multipartBody(t, map[string]string{
+		"title":     "Granted editor upload",
+		"folder_id": folderID,
+	}, "file", "doc.html", "<html><body>x</body></html>")
+	rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+		"Content-Type":     contentType,
+		"X-Test-Principal": editor,
+	})
+
+	assertStatus(t, rr, http.StatusCreated)
+	docID := jsonField(t, rr.Body.Bytes(), "id")
+	if got := jsonField(t, rr.Body.Bytes(), "folder_id"); got != folderID {
+		t.Fatalf("response folder_id = %q, want %q", got, folderID)
+	}
+
+	listed := do(t, e.h, http.MethodGet, "/v1/folders?folder_id="+folderID, "", map[string]string{
+		"X-Test-Principal": owner,
+	})
+	assertStatus(t, listed, http.StatusOK)
+	if !strings.Contains(listed.Body.String(), docID) {
+		t.Fatalf("folder listing missing uploaded document %s: %s", docID, listed.Body.String())
+	}
+}
+
 // TestCreateDocumentIntoFolderRequiresEditor locks in the ordering guarantee:
 // a caller without editor on the folder is refused and NOTHING is created.
+//
+// ListDocuments is root-only (WHERE d.parent_folder_id IS NULL), so it can
+// never see a document that was actually created and successfully placed in
+// the folder — that check would pass even if the permission check ran after
+// create-and-place. The leak detector that can actually see into the folder
+// is listing the folder itself, as its owner.
 func TestCreateDocumentIntoFolderRequiresEditor(t *testing.T) {
 	e := newTestEnv(t)
 	owner := principalHeader(fixtureOwner)
 	stranger := principalHeader(fixtureStranger)
 	folderID := createFolder(t, e, `{"title":"Private"}`, owner)
-
-	before := do(t, e.h, http.MethodGet, "/v1/documents", "", map[string]string{
-		"X-Test-Principal": stranger,
-	})
-	assertStatus(t, before, http.StatusOK)
 
 	body, contentType := multipartBody(t, map[string]string{
 		"title":     "Sneaky",
@@ -302,22 +342,35 @@ func TestCreateDocumentIntoFolderRequiresEditor(t *testing.T) {
 	})
 	assertStatus(t, rr, http.StatusForbidden)
 
+	// The document is not listed inside the folder, as seen by the folder's
+	// owner — the only listing that could actually reveal a leaked document.
+	listed := do(t, e.h, http.MethodGet, "/v1/folders?folder_id="+folderID, "", map[string]string{
+		"X-Test-Principal": owner,
+	})
+	assertStatus(t, listed, http.StatusOK)
+	if strings.Contains(listed.Body.String(), "Sneaky") {
+		t.Fatalf("refused upload leaked a document into the folder: %s", listed.Body.String())
+	}
+
+	// Root listing too, for completeness, though it cannot see folder
+	// contents and so cannot catch a leak into the folder on its own.
 	after := do(t, e.h, http.MethodGet, "/v1/documents", "", map[string]string{
 		"X-Test-Principal": stranger,
 	})
 	assertStatus(t, after, http.StatusOK)
-	if after.Body.String() != before.Body.String() {
-		t.Fatalf("refused upload still created a document:\nbefore=%s\nafter=%s", before.Body.String(), after.Body.String())
-	}
 	if strings.Contains(after.Body.String(), "Sneaky") {
-		t.Fatalf("refused upload leaked a document: %s", after.Body.String())
+		t.Fatalf("refused upload leaked a document at root: %s", after.Body.String())
 	}
 }
 
 // TestCreateDocumentIntoUnknownFolderIsRefused: RoleForFolder deliberately
 // folds a missing folder into RoleNone rather than an error (see
-// repo/postgres/folders.go), so an unknown id is a clean 403 — not a 500 — and
-// still creates nothing.
+// repo/postgres/folders.go), so an unknown id is a clean 403 — not a 500. The
+// root listing below is a valid leak detector in this specific case (unlike
+// the folder-exists refusal tests above): a document created against a
+// nonexistent folder_id would fail the subsequent MoveDocumentToFolder call
+// with an FK violation and stay at root, where the root-only ListDocuments
+// query can see it.
 func TestCreateDocumentIntoUnknownFolderIsRefused(t *testing.T) {
 	e := newTestEnv(t)
 	body, contentType := multipartBody(t, map[string]string{
@@ -390,8 +443,9 @@ func TestCreateDocumentIntoSharedFolderWarns(t *testing.T) {
 // TestCreateDocumentIntoFolderRequiresEditorNotViewer pins the bar at exactly
 // editor: a principal holding viewer (granted, not absent — unlike
 // TestCreateDocumentIntoFolderRequiresEditor's total stranger) is still
-// refused, and nothing leaks even to the account that would own the document
-// if the check were skipped.
+// refused. As above, ListDocuments is root-only and cannot see a document
+// that was actually placed in the folder, so listing the folder itself, as
+// its owner, is the leak detector that can actually fire.
 func TestCreateDocumentIntoFolderRequiresEditorNotViewer(t *testing.T) {
 	e := newTestEnv(t)
 	owner := principalHeader(fixtureOwner)
@@ -413,14 +467,25 @@ func TestCreateDocumentIntoFolderRequiresEditorNotViewer(t *testing.T) {
 	})
 	assertStatus(t, rr, http.StatusForbidden)
 
-	// The viewer would own the document if the create leaked, so listing as
-	// the viewer is the leak detector here.
+	// The document is not listed inside the folder, as seen by the folder's
+	// owner.
+	listed := do(t, e.h, http.MethodGet, "/v1/folders?folder_id="+folderID, "", map[string]string{
+		"X-Test-Principal": owner,
+	})
+	assertStatus(t, listed, http.StatusOK)
+	if strings.Contains(listed.Body.String(), "Viewer sneaks in") {
+		t.Fatalf("viewer-only upload leaked a document into the folder: %s", listed.Body.String())
+	}
+
+	// Root listing too, though the viewer would own the document if the
+	// create leaked (unlike a leak that lands inside the folder), so it
+	// cannot see a leak that landed in the folder either.
 	list := do(t, e.h, http.MethodGet, "/v1/documents", "", map[string]string{
 		"X-Test-Principal": viewer,
 	})
 	assertStatus(t, list, http.StatusOK)
 	if strings.Contains(list.Body.String(), "Viewer sneaks in") {
-		t.Fatalf("viewer-only upload leaked a document: %s", list.Body.String())
+		t.Fatalf("viewer-only upload leaked a document at root: %s", list.Body.String())
 	}
 }
 
