@@ -53,6 +53,20 @@ function UploadBackupDialog({
       if (folderId) {
         q.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       }
+      // Both notices are toasts, and both can fire for one upload.
+      //
+      // Toasts, not the folder page's AccessWarningDialog: nav() below moves
+      // to /app/d/:id, and d/:id and folders/:id are sibling routes, so
+      // FolderPage — and any dialog living inside it — unmounts before a
+      // dialog could be read. <Toaster> is mounted at app level, so a toast
+      // survives the navigation. (The drag-and-drop move flow does still use
+      // that dialog; it never navigates away.)
+      //
+      // Independent, not exclusive: the folder warning is scoped to one
+      // folder's grants, while default_grant means the whole server can now
+      // read the document — strictly broader. Letting the narrower notice
+      // suppress the broader one would hide the bigger exposure, and the
+      // root-level upload discloses it.
       if (r.permission_warning) {
         toast.warning(r.permission_warning.message, { duration: 8000 });
       }

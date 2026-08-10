@@ -66,7 +66,15 @@ func (h handlers) createDocument(c *gin.Context) {
 	}
 	// Placing the new document in a folder needs the same editor bar as moving
 	// an existing one there. Check it before the blob write and the row insert
-	// so a refused upload leaves nothing behind.
+	// so a refused upload leaves nothing behind. (Gin has already parsed the
+	// body by now — c.PostForm("title") above triggers it — so this cannot
+	// avoid reading the request, only the persistent writes.)
+	//
+	// A folder that does not exist yields 403 here, not 404, and that is
+	// deliberate: RoleForFolder folds a missing folder into RoleNone, so
+	// unknown, invisible and under-privileged folders are indistinguishable
+	// to the caller. Answering 404 for one and 403 for the others would hand
+	// a non-editor an existence oracle for the whole folder tree.
 	folderID := c.PostForm("folder_id")
 	if folderID != "" && !h.needFolderRole(c, folderID, repo.RoleEditor) {
 		return
