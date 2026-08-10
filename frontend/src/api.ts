@@ -219,16 +219,24 @@ export const api = {
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>
     request<{ items: UserPrincipal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
-  createDocument: (title: string, file: File) => {
+  createDocument: (title: string, file: File, folderId?: string) => {
     const fd = new FormData();
     fd.set("title", title);
     fd.set("file", file);
+    // Omitted entirely at root: the server treats a missing folder_id as
+    // "create at root", and an empty string would be a bad folder id.
+    if (folderId) fd.set("folder_id", folderId);
     return request<{
       id: string;
       current_version_id: string;
+      // Set when the document was created inside a folder.
+      folder_id?: string;
       // Present when the server applied its configured default sharing
       // grant to the new document.
       default_grant?: { grant_id: string; role: string };
+      // Present when the destination folder's grants may show the new
+      // document to more people than the uploader expects.
+      permission_warning?: { kind: string; message: string };
     }>("/v1/documents", {
       method: "POST",
       body: fd,

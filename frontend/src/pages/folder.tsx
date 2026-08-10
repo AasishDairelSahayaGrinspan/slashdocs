@@ -39,7 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { api, docID, type FolderEntry } from "@/api";
-import { canManageSharing } from "@/lib/constants";
+import { canEdit, canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { viewModeStore } from "@/lib/view-mode";
@@ -51,6 +51,10 @@ import { UnifiedGrid } from "@/components/browse/unified-grid";
 import { UnifiedTable } from "@/components/browse/unified-table";
 import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
 import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
+import {
+  UploadBackupItem,
+  type CreateDocumentResult,
+} from "@/components/browse/upload-backup";
 import {
   DndContext,
   PointerSensor,
@@ -92,6 +96,9 @@ export function FolderPage() {
     samePrincipal(item.principal, me.data?.principal),
   )?.effective_role;
   const canManageAccess = isOwner || canManageSharing(currentAccessRole);
+  // Uploading into this folder is a write to the folder; the server requires
+  // editor, so don't offer the action to viewers and commenters.
+  const canUploadHere = isOwner || canEdit(currentAccessRole);
 
   const viewMode = viewModeStore.useStore();
   useTitle(folder.data?.title || "Folder");
@@ -175,6 +182,17 @@ export function FolderPage() {
     },
     onError: (e) => toast.error(errorMessage(e, "Move failed")),
   });
+
+  // Surface a folder-grant warning in the same dialog a drag-in uses; let the
+  // dialog fall back to its own toast otherwise.
+  function handleUploaded(r: CreateDocumentResult) {
+    qc.invalidateQueries({ queryKey: queryKeys.folders(id) });
+    if (r.permission_warning?.message) {
+      setAccessWarning(r.permission_warning.message);
+      return true;
+    }
+    return false;
+  }
 
   if (folder.isLoading || contents.isLoading) {
     return (
@@ -283,7 +301,7 @@ export function FolderPage() {
             </Sheet>
             <Dropdown>
               <DropdownTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" aria-label="More">
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownTrigger>
@@ -299,6 +317,9 @@ export function FolderPage() {
                 <DropdownItem onSelect={() => setNewFolderOpen(true)}>
                   <Plus className="h-4 w-4" /> New subfolder
                 </DropdownItem>
+                {canUploadHere && (
+                  <UploadBackupItem folderId={id} onUploaded={handleUploaded} />
+                )}
                 <DropdownItem
                   onSelect={() => window.setTimeout(() => setDeleteOpen(true), 0)}
                   className="text-[var(--color-danger)]"
