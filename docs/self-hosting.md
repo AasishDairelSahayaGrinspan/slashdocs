@@ -177,7 +177,7 @@ aidocs runs in one of two modes, set by `AIDOCS_DEPLOYMENT`:
   (`AIDOCS_ORG_DOMAINS`, a comma-separated list that supports multiple domains
   for acquisitions). Sharing with "everyone" then means _anyone in the org_,
   because only org members can authenticate. Set `AIDOCS_ORG_NAME` to label the
-  org in the UI (e.g. "Anyone in Acme").
+  org in the UI (e.g. "Anyone in Razorpay").
 
 On an org deployment the org domains are the login gate, so you do not also
 need `ALLOWED_OAUTH_DOMAINS`. The document permission model is identical in both
@@ -196,31 +196,24 @@ AIDOCS_ORG_NAME=Acme
 
 Org deployments can also set a server-wide sharing default applied to every
 created document (`AIDOCS_DEFAULT_DOC_PERMISSION`: `viewer`, `commenter`,
-`editor`, or `private`, the default). Creators can override per document via
-the `default_permission` field on create, and every applied default is
-reported back with its grant id so it can be revoked. Non-private values
-require org mode - on a public server they would share every new document
-with anyone holding the link, so the server refuses to start instead.
+`editor`, or `private`, the default). Users can set a different preference on the CLI by
+setting the same env variable on their system while using the CLI.
 
-### Remote MCP clients
+### MCP Server
 
-Every deployment serves a remote Streamable HTTP MCP endpoint at
-`$AIDOCS_APP_ORIGIN/mcp`. No separate MCP process, port, or CLI installation is
-needed. The server publishes OAuth protected-resource and authorization-server
+Although the preferred usage method is via the CLI, every deployment serves
+a remote Streamable HTTP MCP endpoint at `$AIDOCS_APP_ORIGIN/mcp`. 
+The idea is to allow agents that might not have access to a shell environment
+to still use AIDocs. It can also be used for operating systems with weird installation processes like windows.
+The server publishes OAuth protected-resource and authorization-server
 metadata under `/.well-known/`, so compatible clients can register, open the
 normal aidocs OIDC sign-in, show an explicit consent page, and complete an
 authorization-code flow with S256 PKCE.
 
-The reverse proxy must forward `/mcp`, `/oauth/*`, and `/.well-known/*` to the
-application listener. MCP requests are bearer-only; browser session cookies are
-not accepted on `/mcp`. Native clients normally omit `Origin`; when it is
-present, aidocs accepts only `AIDOCS_APP_ORIGIN`. The authenticated transport
-limits request bodies to 64 MiB. This preserves the existing 10 MiB HTML limit
-even when a client's JSON encoder expands characters while escaping the MCP envelope.
 For unattended automation, an aidocs service-account key can be supplied as the
 Bearer token instead of using browser OAuth.
 
-## Local dev/eval stack (docker compose)
+## Local dev stack (docker compose)
 
 The repository ships a ready-made compose stack —
 [`docker-compose.yml`](../docker-compose.yml) — that runs the server together
@@ -241,7 +234,7 @@ and fixed secrets. Production deployments configure a real identity provider
 (above) and bring their own Postgres and S3.
 
 `make e2e` (a wrapper around [`scripts/e2e.sh`](../scripts/e2e.sh)) boots the
-stack and runs a non-interactive end-to-end smoke test: OIDC login, service
+stack and runs a non-interactive end-to-end test: OIDC login, service
 accounts, CLI push/pull, comments, sharing, folders, sandboxed rendering, and
 the KV events stream. `scripts/e2e.sh down` removes the stack and its volumes.
 
@@ -363,25 +356,7 @@ ingress:
       hosts:
         - aidocs.example.com
         - render.aidocs.example.com
-
-# Optional in public mode: restrict logins to specific email domains.
-# Empty (the default) accepts any account the provider allows.
-# allowedOAuthDomains: "acme.com"
 ```
-
-### Upgrading from pre-OSS internal deployments
-
-Two chart defaults changed when the chart was prepared for open sourcing;
-existing internal deployments must pin them in their values instead of
-relying on defaults:
-
-- `image.repository` now defaults to `razorpay/aidocs` (Docker Hub) rather
-  than an internal Harbor registry path. Set it explicitly to your registry.
-- `deployment.mode` now defaults to `public` with empty `orgDomains` /
-  `orgName`, and `allowedOAuthDomains` defaults to empty. Deployments that
-  depended on the old org-gated defaults must set
-  `deployment.mode: org` and their own `orgDomains` (and `orgName`)
-  explicitly, or every login will be accepted per the provider's rules.
 
 ### Using existing Secrets
 
@@ -539,8 +514,7 @@ both. The redirect URI to register is
 
 `AIDOCS_KV_EVENTS_MODE=auto` attempts `LISTEN/NOTIFY` only when
 `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` is explicitly set. Without that URL it
-uses coalesced polling, so an unknown `DATABASE_URL` is never probed for
-session-level behavior. The listener URL must reach the same database directly
+uses coalesced polling. The listener URL must reach the same database directly
 or through session pooling; the normal `DATABASE_URL` may still use a separate
 route for queries and notification sends.
 
@@ -564,7 +538,7 @@ shared config, etc.).
 ```text
 GET /openapi.json              OpenAPI 2.0 (Swagger 2.0) spec
 GET /api-docs                  Swagger UI
-GET /commit.txt                Build revision (controlled by AIDOCS_COMMIT_SHA)
+GET /commit.txt                Build revision (controlled by AIDOCS_COMMIT_SHA) (Can be used for canary deployments)
 GET /livez                     Liveness JSON: {"status":"ok"}
 GET /readyz                    Readiness JSON with dependency checks
 GET /.well-known/aidocs.json   Deployment discovery
@@ -606,50 +580,6 @@ Postgres migrations are applied automatically at startup unless
 roll back, deploy the previous image tag and pre-apply any matching
 down-migration manually if needed; the binary does not auto-rollback.
 
-The structured comment-mentions upgrade (`00018` and `00019`) cannot use a
-normal rolling deployment. Old servers and browser bundles write identity as
-in-band U+2063 markers; new versions store explicit principal IDs. Use this
-coordinated cutover:
-
-1. Pause comment writes.
-2. Stop every old application replica before a new replica starts and applies
-   migrations. With the bundled chart, perform this release with
-   `--set updateStrategy.type=Recreate`; non-Helm deployments must provide the
-   same no-overlap guarantee.
-3. Migration `00018` installs the structured table and a database invariant
-   that strips U+2063 from every insert or body update, including old-server and
-   direct-SQL writes. It also clears structured ranges on body changes.
-   Migration `00019` then removes historical markers and is irreversible.
-4. Purge any cached `index.html` and force open browser sessions to reload the
-   new frontend. The new API rejects marker-bearing requests from stale clients
-   instead of silently losing mention identity.
-5. Resume comment writes only after every pod and browser client is on the new
-   version. Helm users can then restore
-   `--set updateStrategy.type=RollingUpdate`.
-
-New comment create/reply requests with non-empty `mentions`, and any comment
-`PATCH` that includes the `mentions` key (including `[]`), use
-`Content-Type: application/vnd.aidocs.comment-mentions+json`. This makes the
-other mixed-version direction fail closed: older servers reject the media type
-instead of silently discarding structured metadata.
-
-If you roll back to an image from before structured mentions, stop comment
-writes and use Goose to migrate down to version 17 before allowing the old
-application to serve writes:
-
-```bash
-export GOOSE_DRIVER=postgres
-export GOOSE_DBSTRING="$DATABASE_URL"
-export GOOSE_MIGRATION_DIR=api/internal/db/migrations
-goose down-to 17
-```
-
-Run that command from a checkout containing these migrations, using Goose
-v3.24.1 (the version pinned in `go.mod`). Migration `00019` has a no-op Down;
-reversing `00018` then drops the trigger, table, and all structured mention
-metadata. It cannot restore markers already removed by `00019`, so historical
-mention highlighting remains unrecoverable after rollback.
-
 ## Production checklist
 
 - [ ] `AIDOCS_APP_ORIGIN` and `AIDOCS_RENDER_ORIGIN` on different hostnames
@@ -682,8 +612,7 @@ aidocs auth login https://aidocs.example.com
 The installer defaults to a user-local install under `~/.local/bin`. For a
 system install, run `curl -fsSL https://aidocs.example.com/install.sh | bash -s -- --system`.
 If the selected install directory is not already on `PATH`, the installer adds
-it to the current user's shell profile for future terminals. The `export` line
-above makes `aidocs` available in the current terminal immediately.
+it to the current user's shell profile for future terminals.
 
 For self-hosted instances, pass the URL to `aidocs auth login` so the
 CLI knows which server to authenticate against.
