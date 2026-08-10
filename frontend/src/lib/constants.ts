@@ -27,6 +27,12 @@ export function canManageSharing(role?: string) {
   return (ROLE_RANK[role || ""] || 0) >= ROLE_RANK.commenter;
 }
 
+// Editing a resource — including placing a document into a folder — needs at
+// least the editor role. The server enforces the same bar.
+export function canEdit(role?: string) {
+  return (ROLE_RANK[role || ""] || 0) >= ROLE_RANK.editor;
+}
+
 // GENERAL_ACCESS_NONE is the sentinel role for "no general access" (the
 // "anyone" grant is absent). The visible label comes from the server's
 // everyone_label.
