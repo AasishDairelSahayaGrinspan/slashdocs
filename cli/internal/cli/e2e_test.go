@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -644,5 +645,62 @@ func requireMultipart(t *testing.T, r *http.Request) {
 	t.Helper()
 	if err := r.ParseMultipartForm(32 << 20); err != nil { //nolint:gosec // The in-process fixture body is fixed and bounded by the test.
 		t.Fatalf("multipart: %v", err)
+	}
+}
+
+// TestCreateFromMarkdown locks in that a .md source is converted client-side
+// to HTML before upload: the server must receive rendered HTML (with the
+// heading, bold, etc. as tags), the uploaded filename must end in .html, and
+// the user must be told a conversion happened.
+func TestCreateFromMarkdown(t *testing.T) {
+	var gotFile []byte
+	var gotFilename, gotTitle string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/documents":
+			requireMultipart(t, r)
+			f, hdr, err := r.FormFile("file")
+			if err != nil {
+				t.Fatalf("FormFile: %v", err)
+			}
+			defer func() { _ = f.Close() }()
+			gotFile, _ = io.ReadAll(f)
+			gotFilename = hdr.Filename
+			gotTitle = r.FormValue("title")
+			writeTestJSON(t, w, map[string]any{"id": "doc_md", "current_version_id": "ver_md"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/documents/doc_md/access":
+			writeTestJSON(t, w, map[string]any{"items": []any{}})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/config":
+			writeTestJSON(t, w, map[string]any{"deployment": "org", "org_name": "Acme", "everyone_label": "Acme"})
+		default:
+			t.Fatalf("unexpected request %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+	t.Setenv("AIDOCS_TOKEN", "tok")
+	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	mdPath := filepath.Join(t.TempDir(), "notes.md")
+	writeTestFile(t, mdPath, []byte("# Hello\n\nSome **bold** text.\n"))
+
+	got, err := Execute([]string{"docs", "create", mdPath})
+	if err != nil {
+		t.Fatalf("%v", err)
+	}
+	if !strings.Contains(got, "Converted notes.md to HTML") {
+		t.Errorf("expected conversion notice, got %q", got)
+	}
+	if gotFilename != "notes.html" {
+		t.Errorf("uploaded filename = %q, want notes.html", gotFilename)
+	}
+	if gotTitle != "notes" {
+		t.Errorf("default title = %q, want notes", gotTitle)
+	}
+	body := string(gotFile)
+	for _, want := range []string{"<!DOCTYPE html>", "<h1>Hello</h1>", "<strong>bold</strong>"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("uploaded HTML missing %q\n---\n%s", want, body)
+		}
 	}
 }

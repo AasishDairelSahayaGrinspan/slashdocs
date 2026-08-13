@@ -7,6 +7,8 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -37,17 +39,20 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 
 func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 	var title string
-	cmd := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML file", Long: "Create a document from a single self-contained HTML file.\n\nThe sharing default for new documents is controlled by the server. Set AIDOCS_DEFAULT_DOC_PERMISSION to viewer, commenter, editor, or private to override it per-user; private keeps new documents private.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "create <file>", Short: "Create a document from an HTML or Markdown file", Long: "Create a document from a single self-contained HTML file, or from a Markdown file (.md/.markdown) which the CLI converts to HTML before upload.\n\nThe sharing default for new documents is controlled by the server. Set AIDOCS_DEFAULT_DOC_PERMISSION to viewer, commenter, editor, or private to override it per-user; private keeps new documents private.\n\nRun 'aidocs guidelines' for authoring rules (single-file, base64 images, reader theme).", Example: "  aidocs docs create report.html --title 'Report'\n  aidocs docs create notes.md --title 'Notes'", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		perm, err := defaultDocPermission()
 		if err != nil {
 			return err
 		}
-		data, fn, err := readFileArg(args[0])
+		up, err := readFileArg(args[0])
 		if err != nil {
 			return err
 		}
 		if title == "" {
-			title = fn
+			title = strings.TrimSuffix(strings.TrimSuffix(up.Filename, filepath.Ext(up.Filename)), filepath.Ext(up.Filename))
+		}
+		if up.Converted && !g.quiet {
+			_, _ = fmt.Fprintf(out, "Converted %s to HTML for upload.\n", filepath.Base(args[0]))
 		}
 		cl, err := client(g)
 		if err != nil {
@@ -57,7 +62,7 @@ func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 		if perm != "" {
 			fields["default_permission"] = perm
 		}
-		b, err := cl.multipart("/v1/documents", fields, "file", fn, data)
+		b, err := cl.multipart("/v1/documents", fields, "file", up.Filename, up.Data)
 		if err != nil {
 			return err
 		}
@@ -353,11 +358,14 @@ func pullCmd(g *globals, out io.Writer) *cobra.Command {
 
 func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 	var base, summary string
-	cmd := &cobra.Command{Use: "push <doc_id> <file>", Short: "Upload a new document version", Example: "  aidocs docs push doc_123 report.html --base-version ver_123\n  aidocs docs push doc_123 report.html --summary 'Address comments'", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+	cmd := &cobra.Command{Use: "push <doc_id> <file>", Short: "Upload a new document version", Long: "Upload a new document version from an HTML file, or from a Markdown file (.md/.markdown) which the CLI converts to HTML before upload.", Example: "  aidocs docs push doc_123 report.html --base-version ver_123\n  aidocs docs push doc_123 report.md --summary 'Address comments'", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		doc, file := args[0], args[1]
-		data, fn, err := readFileArg(file)
+		up, err := readFileArg(file)
 		if err != nil {
 			return err
+		}
+		if up.Converted && !g.quiet {
+			_, _ = fmt.Fprintf(out, "Converted %s to HTML for upload.\n", filepath.Base(file))
 		}
 		if base == "" {
 			_, cx, _ := currentContext(g)
@@ -370,7 +378,7 @@ func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		b, err := cl.multipart(apiPath("/v1/documents/%s/versions", doc), map[string]string{"base_version_id": base, "change_summary": summary}, "file", fn, data)
+		b, err := cl.multipart(apiPath("/v1/documents/%s/versions", doc), map[string]string{"base_version_id": base, "change_summary": summary}, "file", up.Filename, up.Data)
 		if err != nil {
 			return err
 		}

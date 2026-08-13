@@ -68,6 +68,9 @@ aidocs stores your HTML, not a directory of supporting files.
 Publish a new document:
   aidocs docs create report.html --title 'Report'
 
+Markdown files work too; the CLI converts .md/.markdown to HTML before upload:
+  aidocs docs create notes.md --title 'Notes'
+
 Push an update to an existing document:
   aidocs docs push <doc_id> report.html --base-version <version_id> --summary 'Address comments'
 

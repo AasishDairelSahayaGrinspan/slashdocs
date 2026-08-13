@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/razorpay/aidocs/cli/internal/markdown"
 	"github.com/spf13/cobra"
 )
 
@@ -234,14 +235,40 @@ func isLoopbackHost(host string) bool {
 	return false
 }
 
-func readFileArg(p string) ([]byte, string, error) {
+// uploadPayload carries the bytes and filename actually sent to the server.
+// Converted is true when a markdown source was rendered to HTML client-side;
+// callers use it to tell the user a conversion happened.
+type uploadPayload struct {
+	Data      []byte
+	Filename  string
+	Converted bool
+}
+
+// readFileArg reads the document source for create/push. Markdown files
+// (.md/.markdown) are converted to single-file HTML before upload; the
+// returned Filename always ends in .html so the server receives a consistent
+// upload. Stdin is assumed to be HTML (aidocs docs create - < report.html).
+func readFileArg(p string) (uploadPayload, error) {
 	if p == "-" {
 		b, err := io.ReadAll(os.Stdin)
-		return b, "stdin.html", err
+		return uploadPayload{Data: b, Filename: "stdin.html"}, err
 	}
 	//nolint:gosec // G304: p is the explicit document path supplied by the CLI user.
 	b, err := os.ReadFile(p)
-	return b, filepath.Base(p), err
+	if err != nil {
+		return uploadPayload{}, err
+	}
+	fn := filepath.Base(p)
+	if !markdown.IsMarkdownFile(fn) {
+		return uploadPayload{Data: b, Filename: fn}, nil
+	}
+	title := strings.TrimSuffix(strings.TrimSuffix(fn, filepath.Ext(fn)), filepath.Ext(fn))
+	htmlBytes, err := markdown.ToHTML(b, title)
+	if err != nil {
+		return uploadPayload{}, fmt.Errorf("converting %s to HTML: %w", fn, err)
+	}
+	htmlName := strings.TrimSuffix(fn, filepath.Ext(fn)) + ".html"
+	return uploadPayload{Data: htmlBytes, Filename: htmlName, Converted: true}, nil
 }
 
 func randomToken(n int) string {
