@@ -85,6 +85,15 @@ export function DocumentPage() {
     new Set(),
   );
   const [selectedVersion, setSelectedVersion] = useState<string>();
+  // The route swaps :id without remounting, so a selection left pending on the
+  // previous document would let the next one quote its text. Reset in render,
+  // not an effect: Comments consumes `selection` in a mount effect that runs
+  // before any effect here could clear it.
+  const [selectionDocId, setSelectionDocId] = useState(id);
+  if (selectionDocId !== id) {
+    setSelectionDocId(id);
+    setSelection(null);
+  }
   const isMobile = useIsMobile();
   const [panelOpen, setPanelOpen] = useState(true);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);

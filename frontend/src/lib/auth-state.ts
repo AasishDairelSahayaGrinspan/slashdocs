@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { clearCommentDrafts } from "./comment-drafts";
 
 const SIGNED_OUT_KEY = "aidocs.frontend_signed_out";
 const AUTH_STATE_EVENT = "aidocs:auth-state";
@@ -12,6 +13,9 @@ export function isFrontendSignedOut() {
 }
 
 export function setFrontendSignedOut(signedOut: boolean) {
+  // localStorage is scoped to the origin, not to the user: pending comment
+  // drafts must not survive into the next account's session on this browser.
+  if (signedOut) clearCommentDrafts();
   try {
     if (signedOut) {
       localStorage.setItem(SIGNED_OUT_KEY, "true");

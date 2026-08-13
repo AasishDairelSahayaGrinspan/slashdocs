@@ -33,6 +33,7 @@ export async function installAppStorage(page: Page) {
       if (window.location.origin !== appOrigin) return;
       window.localStorage.setItem("aidocs.onboarding", JSON.stringify(onboarding));
       window.localStorage.removeItem("aidocs.frontend_signed_out");
+      window.localStorage.removeItem("aidocs.comment-drafts");
       window.localStorage.setItem("aidocs:view-mode", JSON.stringify("list"));
     },
     { appOrigin: APP_ORIGIN, onboarding: ONBOARDING_STATE },

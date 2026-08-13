@@ -24,7 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
-import { api, type Anchor, type Comment, type UserPrincipal } from "@/api";
+import { api, type Comment, type UserPrincipal } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import {
@@ -45,6 +45,7 @@ import {
   DEFAULT_COMMENT_FILTER,
   type CommentFilter,
 } from "@/lib/constants";
+import { useCommentDraft } from "@/lib/comment-drafts";
 import { useDoc } from "./doc-context";
 
 type MentionTarget = {
@@ -316,44 +317,26 @@ export function Comments() {
   } = useDoc();
   const q = useQueryClient();
   const [filter, setFilter] = useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
-  const [quote, setQuote] = useState("");
-  const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
-  const anchorRef = useRef<Partial<Anchor> | undefined>(undefined);
+  const { quote, anchor, draft, restored, setDraft, clearDraft } = useCommentDraft(
+    docId,
+    selection,
+  );
 
-  useEffect(() => {
-    if (selection?.quote) {
-      setQuote(selection.quote);
-      anchorRef.current = selection.anchor;
-    }
-  }, [selection]);
+  const clear = () => {
+    clearDraft();
+    setSelection(null);
+  };
 
   const create = useMutation({
     mutationFn: () =>
-      api.createComment(
-        docId,
-        version,
-        draft.body,
-        quote,
-        anchorRef.current,
-        draft.mentions,
-      ),
+      api.createComment(docId, version, draft.body, quote, anchor, draft.mentions),
     onSuccess: () => {
-      setDraft(emptyMentionDraft());
-      setQuote("");
-      anchorRef.current = undefined;
-      setSelection(null);
+      clear();
       toast.success("Comment added.");
       q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
     },
     onError: (e) => toast.error(errorMessage(e, "Could not add comment")),
   });
-
-  const clear = () => {
-    setQuote("");
-    setDraft(emptyMentionDraft());
-    anchorRef.current = undefined;
-    setSelection(null);
-  };
 
   const items = comments.filter((c) => {
     if (filter === COMMENT_FILTER_ALL) return true;
@@ -393,7 +376,7 @@ export function Comments() {
               “{quote.length > 80 ? quote.slice(0, 80) + "…" : quote}”
             </div>
             <MentionTextarea
-              autoFocus
+              autoFocus={!restored}
               rows={3}
               draft={draft}
               onChange={setDraft}

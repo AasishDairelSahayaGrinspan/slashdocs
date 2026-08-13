@@ -20,6 +20,14 @@ function renderedDocument(page: Page): FrameLocator {
     .frameLocator("iframe#aidocs-doc");
 }
 
+// The composer mirrors to storage in a passive effect after paint, so wait for
+// the write to land rather than racing the next reload or unmount.
+function storedDrafts(page: Page) {
+  return expect.poll(() =>
+    page.evaluate(() => window.localStorage.getItem("aidocs.comment-drafts")),
+  );
+}
+
 function entryRow(page: Page, title: string): Locator {
   return page
     .locator("tbody tr")
@@ -151,6 +159,169 @@ test("creates a structured mention with a clean API body", async ({ page, aidocs
   const renderedMention = commentCard.getByText("@admin", { exact: true });
   await expect(renderedMention).toBeVisible();
   await expect(renderedMention).toHaveClass(/bg-\[var\(--color-accent-muted\)\]/);
+});
+
+test("keeps an unsent comment draft across a reload", async ({ page, aidocs }) => {
+  const title = uniqueName("Draft survives reload");
+  const document = await aidocs.createDocument(title, documentHTML(title));
+
+  await page.goto(`/app/d/${document.id}`);
+  const selectedText = renderedDocument(page).locator("#comment-target");
+  await expect(selectedText).toBeVisible();
+  await selectedText.selectText();
+
+  const composer = page.getByPlaceholder("Add a comment…");
+  await expect(composer).toBeVisible();
+  // A composer opened by a live selection takes focus, so typing lands in it.
+  await expect(composer).toBeFocused();
+  await composer.fill("half-written thought");
+  await storedDrafts(page).toContain("half-written thought");
+
+  await page.reload();
+  const restored = page.getByPlaceholder("Add a comment…");
+  await expect(restored).toBeVisible();
+  await expect(restored).toHaveValue("half-written thought");
+  // A restored draft must not, or scroll keys would go to the textarea instead
+  // of the document the reader came back to read.
+  await expect(restored).not.toBeFocused();
+  await expect(page.getByText("Select this sentence for review.")).toBeVisible();
+
+  // Cancelling has to drop the stored copy too, not just close the composer.
+  await page.getByRole("button", { name: "Cancel" }).click();
+  await expect(restored).toBeHidden();
+  await storedDrafts(page).toBe("{}");
+  await page.reload();
+  await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
+});
+
+test("keeps an unsent comment draft while the panel is closed", async ({
+  page,
+  aidocs,
+}) => {
+  const title = uniqueName("Draft survives panel");
+  const document = await aidocs.createDocument(title, documentHTML(title));
+
+  await page.goto(`/app/d/${document.id}`);
+  const selectedText = renderedDocument(page).locator("#comment-target");
+  await expect(selectedText).toBeVisible();
+  await selectedText.selectText();
+
+  const composer = page.getByPlaceholder("Add a comment…");
+  await expect(composer).toBeVisible();
+  await composer.fill("thought parked mid-sentence");
+  await storedDrafts(page).toContain("thought parked mid-sentence");
+
+  // Closing the panel unmounts Comments entirely, which is a different loss
+  // path from a reload.
+  await page.getByRole("button", { name: "Hide comments" }).click();
+  await expect(composer).toBeHidden();
+  await page.getByRole("button", { name: "Show comments" }).click();
+
+  const restored = page.getByPlaceholder("Add a comment…");
+  await expect(restored).toBeVisible();
+  await expect(restored).toHaveValue("thought parked mid-sentence");
+});
+
+test("clears the stored draft once the comment is posted", async ({ page, aidocs }) => {
+  const title = uniqueName("Draft cleared on post");
+  const document = await aidocs.createDocument(title, documentHTML(title));
+
+  await page.goto(`/app/d/${document.id}`);
+  const selectedText = renderedDocument(page).locator("#comment-target");
+  await expect(selectedText).toBeVisible();
+  await selectedText.selectText();
+
+  const composer = page.getByPlaceholder("Add a comment…");
+  await expect(composer).toBeVisible();
+  await composer.fill("posted for real");
+  await storedDrafts(page).toContain("posted for real");
+
+  const commentResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === "POST" &&
+      url.pathname === `/v1/documents/${document.id}/comments`
+    );
+  });
+  await page.getByRole("button", { name: "Comment ⌘↵" }).click();
+  expect((await commentResponsePromise).ok()).toBeTruthy();
+  await storedDrafts(page).toBe("{}");
+
+  await page.reload();
+  await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
+  await expect(
+    page.getByRole("button").filter({ hasText: "posted for real" }),
+  ).toBeVisible();
+});
+
+test("clears the stored draft on sign out", async ({ page, aidocs }) => {
+  const title = uniqueName("Draft cleared on sign out");
+  const document = await aidocs.createDocument(title, documentHTML(title));
+
+  await page.goto(`/app/d/${document.id}`);
+  const selectedText = renderedDocument(page).locator("#comment-target");
+  await expect(selectedText).toBeVisible();
+  await selectedText.selectText();
+
+  const composer = page.getByPlaceholder("Add a comment…");
+  await expect(composer).toBeVisible();
+  await composer.fill("should not outlive this session");
+  await storedDrafts(page).toContain("should not outlive this session");
+
+  // localStorage is scoped to the origin, not the account, so signing out has
+  // to erase the draft before the next person signs in on this browser.
+  await page.getByRole("button", { name: "Account menu" }).click();
+  await page.getByRole("menuitem", { name: "Sign out" }).click();
+  await storedDrafts(page).toBe("{}");
+});
+
+test("restores a draft mention that still posts a valid offset", async ({
+  page,
+  aidocs,
+}) => {
+  const title = uniqueName("Draft mention survives reload");
+  const document = await aidocs.createDocument(title, documentHTML(title));
+
+  await page.goto(`/app/d/${document.id}`);
+  const selectedText = renderedDocument(page).locator("#comment-target");
+  await expect(selectedText).toBeVisible();
+  await selectedText.selectText();
+
+  const composer = page.getByPlaceholder("Add a comment…");
+  await expect(composer).toBeVisible();
+  await composer.fill("Please review @ad");
+  await page.getByRole("button", { name: /admin@example\.com/ }).click();
+  await expect(composer).toHaveValue("Please review @admin ");
+  await storedDrafts(page).toContain("@admin");
+
+  await page.reload();
+  const restored = page.getByPlaceholder("Add a comment…");
+  await expect(restored).toBeVisible();
+  await expect(restored).toHaveValue("Please review @admin ");
+
+  // The mention offsets are stored separately from the body, so the round trip
+  // has to keep them pointing at the same span of text.
+  const commentResponsePromise = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      response.request().method() === "POST" &&
+      url.pathname === `/v1/documents/${document.id}/comments`
+    );
+  });
+  await page.getByRole("button", { name: "Comment ⌘↵" }).click();
+  const commentResponse = await commentResponsePromise;
+  expect(commentResponse.ok()).toBeTruthy();
+  const comment = (await commentResponse.json()) as {
+    body: string;
+    mentions: Array<{ offset: number; length: number }>;
+  };
+  expect(comment.mentions).toHaveLength(1);
+  expect(
+    comment.body.slice(
+      comment.mentions[0].offset,
+      comment.mentions[0].offset + comment.mentions[0].length,
+    ),
+  ).toBe("@admin");
 });
 
 test("shares a document through its general access role", async ({ page, aidocs }) => {
