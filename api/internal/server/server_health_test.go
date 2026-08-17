@@ -162,7 +162,8 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "org_name": "",
 	  "everyone_label": "Anyone with the link",
 	  "provider_name": "SSO",
-	  "default_doc_permission": "private"
+	  "default_doc_permission": "private",
+	  "google_groups_enabled": false
 	}`)
 
 	org := newConfiguredTestEnv(t, server.Config{Environment: "test", Deployment: "org", OrgName: "Acme", OIDCProviderName: "Google", DefaultDocPermission: repo.RoleCommenter})
@@ -173,7 +174,8 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "org_name": "Acme",
 	  "everyone_label": "Anyone in Acme",
 	  "provider_name": "Google",
-	  "default_doc_permission": "commenter"
+	  "default_doc_permission": "commenter",
+	  "google_groups_enabled": false
 	}`)
 }
 
