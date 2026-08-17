@@ -102,6 +102,7 @@ func (h handlers) githubOAuthCallback(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	// nosemgrep: go.gin.ssrf.gin-tainted-url-host.gin-tainted-url-host - Redirect was validated by safeWebRedirect before this server-side OAuth state was stored.
 	c.Redirect(http.StatusFound, state.Redirect)
 }
 

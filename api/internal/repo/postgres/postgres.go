@@ -921,10 +921,10 @@ func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.
 		       COALESCE(gu.email,''),COALESCE(gu.name,gsa.name,'')
 		FROM resource_grants g
 		LEFT JOIN users u ON g.principal_type='user' AND g.principal_id=u.id
-		LEFT JOIN service_accounts sa ON g.principal_type='service_account' AND g.principal_id=sa.id
+		LEFT JOIN service_accounts sa ON g.principal_type='service_account' AND g.principal_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 		LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
 		LEFT JOIN users gu ON g.granted_by_type='user' AND g.granted_by_user_id=gu.id
-		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id
+		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`, grantID, resourceID)
 	var g repo.Grant
 	var principalType, grantedByType string
