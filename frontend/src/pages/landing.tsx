@@ -196,7 +196,7 @@ function Install() {
   // instance instead of a hard-coded host.
   const installSnippet = `curl -fsSL ${publicURL()}/install.sh | bash
 
-aidocs auth login
+aidocs auth login ${publicURL()}
 aidocs docs create report.html`;
   return (
     <motion.section
