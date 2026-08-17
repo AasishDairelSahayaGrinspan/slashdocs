@@ -444,6 +444,7 @@ test("existing user and service-account sharing remains available", async ({
   await page.getByRole("button", { name: /Alice/ }).click();
   await page.getByRole("button", { name: "Share", exact: true }).click();
   await expect.poll(() => state.directShares).toContain("alice@example.com");
+  await expect(input).toHaveValue("");
 
   await input.fill("report-creator@brave.otter.bot");
   await page.getByRole("button", { name: "Share", exact: true }).click();
