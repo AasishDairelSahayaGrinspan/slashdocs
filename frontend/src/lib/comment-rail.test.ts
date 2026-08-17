@@ -2,11 +2,11 @@ import { describe, expect, it } from "vitest";
 import { layoutCommentRail } from "./comment-rail";
 
 describe("layoutCommentRail", () => {
-  it("pins unanchored cards at the top before anchored cards", () => {
+  it("places unanchored cards at the start before anchored cards", () => {
     const result = layoutCommentRail(
       [
         { id: "anchored", anchorTop: 20, height: 80 },
-        { id: "lost", anchorTop: 0, height: 60, pinned: true },
+        { id: "lost", anchorTop: 0, height: 60, atStart: true },
       ],
       600,
     );

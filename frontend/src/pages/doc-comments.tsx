@@ -8,7 +8,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { motion } from "framer-motion";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
@@ -488,8 +488,12 @@ export function CommentRail() {
     selection,
     unanchoredComments,
     commentPositions,
+    commentViewport,
+    scrollDocumentTo,
   } = useDoc();
   const railRef = useRef<HTMLDivElement>(null);
+  const applyingDocumentScroll = useRef(false);
+  const scrollSyncFrame = useRef(0);
   const [railHeight, setRailHeight] = useState(0);
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(new Map());
 
@@ -503,43 +507,47 @@ export function CommentRail() {
     return () => observer.disconnect();
   }, []);
 
-  const visibleComments = useMemo(
+  const timelineComments = useMemo(
     () =>
       comments.filter((comment) => {
         if (comment.status === COMMENT_STATUS.resolved) return false;
         if (unanchoredComments.has(comment.id)) return true;
-        const position = commentPositions.get(comment.id);
-        if (!position || !railHeight) return false;
-        return position.bottom >= -80 && position.top <= railHeight + 80;
+        return commentPositions.has(comment.id);
       }),
-    [comments, commentPositions, railHeight, unanchoredComments],
+    [comments, commentPositions, unanchoredComments],
   );
 
   const layoutItems = useMemo(() => {
-    const items = visibleComments.map((comment) => ({
+    const items = timelineComments.map((comment) => ({
       id: comment.id,
       anchorTop: commentPositions.get(comment.id)?.top ?? 0,
       height: heights.get(comment.id) ?? RAIL_CARD_ESTIMATE,
-      pinned: unanchoredComments.has(comment.id),
+      atStart: unanchoredComments.has(comment.id),
     }));
     if (selection?.quote) {
       items.push({
         id: "__composer",
         anchorTop: selection.top ?? 0,
         height: heights.get("__composer") ?? RAIL_COMPOSER_ESTIMATE,
-        pinned: selection.top === undefined,
+        atStart: selection.top === undefined,
       });
     }
     return items;
-  }, [commentPositions, heights, selection, unanchoredComments, visibleComments]);
+  }, [commentPositions, heights, selection, timelineComments, unanchoredComments]);
+
+  const timelineHeight = Math.max(commentViewport.scrollHeight, railHeight, 1);
 
   const placements = useMemo(
-    () => layoutCommentRail(layoutItems, railHeight || 1),
-    [layoutItems, railHeight],
+    () => layoutCommentRail(layoutItems, timelineHeight),
+    [layoutItems, timelineHeight],
+  );
+  const contentHeight = Math.max(
+    timelineHeight,
+    ...placements.map((placement) => placement.y + placement.height + 12),
   );
   const commentByID = useMemo(
-    () => new Map(visibleComments.map((comment) => [comment.id, comment])),
-    [visibleComments],
+    () => new Map(timelineComments.map((comment) => [comment.id, comment])),
+    [timelineComments],
   );
   const onHeight = useCallback((id: string, height: number) => {
     setHeights((current) => {
@@ -550,19 +558,52 @@ export function CommentRail() {
     });
   }, []);
 
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const target = Math.max(
+      0,
+      Math.min(commentViewport.scrollTop, contentHeight - rail.clientHeight),
+    );
+    if (Math.abs(rail.scrollTop - target) < 1) return;
+    if (scrollSyncFrame.current) cancelAnimationFrame(scrollSyncFrame.current);
+    applyingDocumentScroll.current = true;
+    rail.scrollTop = target;
+    scrollSyncFrame.current = requestAnimationFrame(() => {
+      applyingDocumentScroll.current = false;
+      scrollSyncFrame.current = 0;
+    });
+  }, [commentViewport.scrollTop, contentHeight]);
+
+  useEffect(
+    () => () => {
+      if (scrollSyncFrame.current) cancelAnimationFrame(scrollSyncFrame.current);
+    },
+    [],
+  );
+
   return (
-    <div ref={railRef} className="relative h-full overflow-hidden px-3 py-3">
+    <div
+      ref={railRef}
+      className="relative h-full overflow-x-hidden overflow-y-auto overscroll-contain"
+      onScroll={(event) => {
+        if (applyingDocumentScroll.current) return;
+        scrollDocumentTo(event.currentTarget.scrollTop);
+      }}
+    >
       {commentsLoading ? (
-        <div className="space-y-3">
+        <div className="sticky top-0 space-y-3 px-3 py-3">
           <Skeleton className="h-28 w-full rounded-[14px]" />
           <Skeleton className="h-28 w-full rounded-[14px]" />
         </div>
       ) : commentsError ? (
-        <div className="rounded-[14px] bg-[var(--color-surface)] p-3 text-sm text-[var(--color-fg-muted)] shadow-lg ring-1 ring-[var(--color-border)]">
-          Could not load comments.
+        <div className="sticky top-0 px-3 py-3">
+          <div className="rounded-[14px] bg-[var(--color-surface)] p-3 text-sm text-[var(--color-fg-muted)] shadow-lg ring-1 ring-[var(--color-border)]">
+            Could not load comments.
+          </div>
         </div>
       ) : (
-        <AnimatePresence initial={false}>
+        <div className="relative min-h-full" style={{ height: contentHeight }}>
           {placements.map((placement) => {
             const comment = commentByID.get(placement.id);
             if (placement.id !== "__composer" && !comment) return null;
@@ -571,7 +612,7 @@ export function CommentRail() {
                 key={placement.id}
                 id={placement.id}
                 y={placement.y}
-                connected={!placement.pinned}
+                connected={!placement.atStart}
                 onHeight={onHeight}
               >
                 {placement.id === "__composer" ? (
@@ -582,7 +623,7 @@ export function CommentRail() {
               </MeasuredRailItem>
             );
           })}
-        </AnimatePresence>
+        </div>
       )}
     </div>
   );
@@ -612,13 +653,7 @@ function MeasuredRailItem({
     return () => observer.disconnect();
   }, [id, onHeight]);
   return (
-    <motion.div
-      ref={ref}
-      className="absolute inset-x-3 top-0"
-      animate={{ y }}
-      exit={{ opacity: 0, y: y - 12, filter: "blur(4px)" }}
-      transition={{ type: "spring", duration: 0.3, bounce: 0 }}
-    >
+    <div ref={ref} className="absolute inset-x-3 top-0" style={{ top: y }}>
       {connected ? (
         <span
           aria-hidden="true"
@@ -626,7 +661,7 @@ function MeasuredRailItem({
         />
       ) : null}
       {children}
-    </motion.div>
+    </div>
   );
 }
 

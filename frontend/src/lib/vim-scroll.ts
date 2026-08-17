@@ -13,6 +13,10 @@ export interface VimScrollInput {
   altKey?: boolean;
 }
 
+export function vimLineScrollDistance(repeat: boolean): number {
+  return repeat ? 180 : 72;
+}
+
 export function reduceVimScroll(
   input: VimScrollInput,
   gArmed: boolean,

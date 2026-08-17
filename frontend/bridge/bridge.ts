@@ -9,7 +9,11 @@ import {
   highlightRange,
   refreshSVGRects,
 } from "./highlight.ts";
-import { reduceVimScroll, type VimScrollAction } from "../src/lib/vim-scroll.ts";
+import {
+  reduceVimScroll,
+  vimLineScrollDistance,
+  type VimScrollAction,
+} from "../src/lib/vim-scroll.ts";
 
 type KVItems = Record<string, unknown>;
 
@@ -692,6 +696,12 @@ type Theme = "dark" | "light";
   function postCommentPositions(): void {
     const d = doc();
     if (!d || !lastPaint) return;
+    const view = d.defaultView;
+    const scrollTop = view?.scrollY || d.documentElement.scrollTop || 0;
+    const scrollHeight = Math.max(
+      d.documentElement.scrollHeight,
+      d.body?.scrollHeight || 0,
+    );
     const positions: Array<{ id: string; top: number; bottom: number }> = [];
     const seen = new Set<string>();
     for (const item of lastPaint.items) {
@@ -713,10 +723,18 @@ type Theme = "dark" | "light";
         bottom = Math.max(bottom, rect.bottom);
       }
       if (Number.isFinite(top) && Number.isFinite(bottom)) {
-        positions.push({ id, top, bottom });
+        positions.push({ id, top: top + scrollTop, bottom: bottom + scrollTop });
       }
     }
-    parent.postMessage({ type: "aidocs:comment-positions", positions }, targetOrigin());
+    parent.postMessage(
+      {
+        type: "aidocs:comment-positions",
+        positions,
+        scrollTop,
+        scrollHeight,
+      },
+      targetOrigin(),
+    );
   }
 
   function scheduleCommentPositions(): void {
@@ -1107,11 +1125,12 @@ type Theme = "dark" | "light";
     const anchor = describeAnchor(d.body, range);
     if (!anchor) return;
     const rect = range.getBoundingClientRect();
+    const scrollTop = d.defaultView?.scrollY || d.documentElement.scrollTop || 0;
     parent.postMessage(
       {
         type: "aidocs:selection",
         anchor,
-        top: Number.isFinite(rect.top) ? rect.top : undefined,
+        top: Number.isFinite(rect.top) ? rect.top + scrollTop : undefined,
       },
       targetOrigin(),
     );
@@ -1274,11 +1293,19 @@ type Theme = "dark" | "light";
     let chordArmedAt = 0;
     let vimGArmed = false;
     let vimGTimer = 0;
-    const runVimScroll = (action: VimScrollAction) => {
+    const runVimScroll = (action: VimScrollAction, repeat = false) => {
       const view = d.defaultView;
       if (!view) return;
-      if (action === "line-down") view.scrollBy({ top: 72, behavior: "auto" });
-      else if (action === "line-up") view.scrollBy({ top: -72, behavior: "auto" });
+      if (action === "line-down")
+        view.scrollBy({
+          top: vimLineScrollDistance(repeat),
+          behavior: repeat ? "instant" : "auto",
+        });
+      else if (action === "line-up")
+        view.scrollBy({
+          top: -vimLineScrollDistance(repeat),
+          behavior: repeat ? "instant" : "auto",
+        });
       else if (action === "half-page-down")
         view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior: "auto" });
       else if (action === "half-page-up")
@@ -1337,7 +1364,7 @@ type Theme = "dark" | "light";
       }
       if (vim.action) {
         ev.preventDefault();
-        runVimScroll(vim.action);
+        runVimScroll(vim.action, ev.repeat);
       }
       handleKVUndoRedoShortcut(ev);
     });
@@ -1405,6 +1432,15 @@ type Theme = "dark" | "light";
       navigateHeading(String(e.data.id || ""));
     } else if (e.data.type === "aidocs:request-comment-positions") {
       scheduleCommentPositions();
+    } else if (
+      e.data.type === "aidocs:scroll-to" &&
+      typeof e.data.top === "number" &&
+      Number.isFinite(e.data.top)
+    ) {
+      doc()?.defaultView?.scrollTo({
+        top: Math.max(0, e.data.top),
+        behavior: "instant",
+      });
     } else if (e.data.type === "aidocs:vim-key") {
       const d = doc();
       const KeyboardEventCtor = d?.defaultView?.KeyboardEvent;
@@ -1415,6 +1451,7 @@ type Theme = "dark" | "light";
           ctrlKey: e.data.ctrlKey === true,
           metaKey: e.data.metaKey === true,
           altKey: e.data.altKey === true,
+          repeat: e.data.repeat === true,
         }),
       );
     } else if (e.data.type === "aidocs:kv-event") {

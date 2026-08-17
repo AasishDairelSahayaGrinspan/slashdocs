@@ -14,6 +14,7 @@ import type { ChordKey } from "@/lib/esc-chord";
 import {
   DocProvider,
   type CommentPosition,
+  type CommentViewport,
   type PendingSelection,
 } from "./doc-context";
 import { DocBar } from "./doc-bar";
@@ -93,6 +94,20 @@ export function DocumentPage() {
   const [commentPositions, setCommentPositions] = useState<
     ReadonlyMap<string, CommentPosition>
   >(new Map());
+  const [commentViewport, setCommentViewport] = useState<CommentViewport>({
+    scrollTop: 0,
+    scrollHeight: 1,
+  });
+  const documentScrollerRef = useRef<((top: number) => void) | null>(null);
+  const registerDocumentScroller = useCallback(
+    (scroller: ((top: number) => void) | null) => {
+      documentScrollerRef.current = scroller;
+    },
+    [],
+  );
+  const scrollDocumentTo = useCallback((top: number) => {
+    documentScrollerRef.current?.(top);
+  }, []);
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
   const [commentsOpen, setCommentsOpen] = useState(true);
@@ -179,6 +194,7 @@ export function DocumentPage() {
 
   useEffect(() => {
     setCommentPositions(new Map());
+    setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
   }, [current]);
 
   const exitFullscreen = useCallback(() => {
@@ -280,6 +296,10 @@ export function DocumentPage() {
       setUnanchoredComments,
       commentPositions,
       setCommentPositions,
+      commentViewport,
+      setCommentViewport,
+      registerDocumentScroller,
+      scrollDocumentTo,
       handleDocCommentClick,
     }),
     [
@@ -293,7 +313,10 @@ export function DocumentPage() {
       activeComment,
       unanchoredComments,
       commentPositions,
+      commentViewport,
       setActiveComment,
+      registerDocumentScroller,
+      scrollDocumentTo,
       handleDocCommentClick,
     ],
   );

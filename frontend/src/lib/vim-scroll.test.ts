@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { reduceVimScroll } from "./vim-scroll";
+import { reduceVimScroll, vimLineScrollDistance } from "./vim-scroll";
 
 describe("reduceVimScroll", () => {
   it.each([
@@ -28,6 +28,11 @@ describe("reduceVimScroll", () => {
     expect(reduceVimScroll({ key: "u", ctrlKey: true }, false).action).toBe(
       "half-page-up",
     );
+  });
+
+  it("accelerates a held line-scroll key without changing a tap", () => {
+    expect(vimLineScrollDistance(false)).toBe(72);
+    expect(vimLineScrollDistance(true)).toBe(180);
   });
 
   it("ignores modified and unrelated keys and clears a pending g", () => {

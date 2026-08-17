@@ -14,6 +14,11 @@ export type CommentPosition = {
   bottom: number;
 };
 
+export type CommentViewport = {
+  scrollTop: number;
+  scrollHeight: number;
+};
+
 export type DocContextValue = {
   docId: string;
   version: string;
@@ -31,6 +36,10 @@ export type DocContextValue = {
   setUnanchoredComments: (ids: ReadonlySet<string>) => void;
   commentPositions: ReadonlyMap<string, CommentPosition>;
   setCommentPositions: (positions: ReadonlyMap<string, CommentPosition>) => void;
+  commentViewport: CommentViewport;
+  setCommentViewport: (viewport: CommentViewport) => void;
+  registerDocumentScroller: (scroller: ((top: number) => void) | null) => void;
+  scrollDocumentTo: (top: number) => void;
   handleDocCommentClick: (id: string) => void;
 };
 

@@ -28,6 +28,8 @@ export function RenderFrame() {
     handleDocCommentClick,
     setUnanchoredComments,
     setCommentPositions,
+    setCommentViewport,
+    registerDocumentScroller,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -98,7 +100,14 @@ export function RenderFrame() {
     // "highlight not found" badges never linger across version switches.
     setUnanchoredComments(new Set());
     setCommentPositions(new Map());
-  }, [frameOrigin, token.data?.url, setUnanchoredComments, setCommentPositions]);
+    setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
+  }, [
+    frameOrigin,
+    token.data?.url,
+    setUnanchoredComments,
+    setCommentPositions,
+    setCommentViewport,
+  ]);
 
   // The resolved theme is baked into the iframe URL so the bridge can apply
   // it before the document's first paint (no flash); live toggles are pushed
@@ -165,6 +174,7 @@ export function RenderFrame() {
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
         altKey: event.altKey,
+        repeat: event.repeat,
       });
     };
     window.addEventListener("keydown", onKeyDown);
@@ -182,6 +192,22 @@ export function RenderFrame() {
   const [scale, setScale] = useState(1);
   const scaleRef = useRef(1);
   const cursorRef = useRef({ x: 0, y: 0 });
+
+  const scrollDocumentTo = useCallback(
+    (top: number) => {
+      const wrapperScrollTop = wrapperRef.current?.scrollTop || 0;
+      postToCurrentFrame({
+        type: "aidocs:scroll-to",
+        top: Math.max(0, (top - wrapperScrollTop) / scaleRef.current),
+      });
+    },
+    [postToCurrentFrame],
+  );
+
+  useEffect(() => {
+    registerDocumentScroller(scrollDocumentTo);
+    return () => registerDocumentScroller(null);
+  }, [registerDocumentScroller, scrollDocumentTo]);
 
   const applyZoom = useCallback(
     (deltaY: number, cursor?: { x: number; y: number }) => {
@@ -356,9 +382,7 @@ export function RenderFrame() {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
         const top =
-          typeof e.data.top === "number"
-            ? e.data.top * scaleRef.current - (wrapperRef.current?.scrollTop || 0)
-            : undefined;
+          typeof e.data.top === "number" ? e.data.top * scaleRef.current : undefined;
         if (quote) setSelection({ quote, anchor, top });
       }
       if (e.data?.type === "aidocs:kv-request") {
@@ -418,13 +442,25 @@ export function RenderFrame() {
           ) {
             continue;
           }
-          const scrollTop = wrapperRef.current?.scrollTop || 0;
           positions.set(item.id, {
-            top: item.top * scaleRef.current - scrollTop,
-            bottom: item.bottom * scaleRef.current - scrollTop,
+            top: item.top * scaleRef.current,
+            bottom: item.bottom * scaleRef.current,
           });
         }
         setCommentPositions(positions);
+        if (
+          typeof e.data.scrollTop === "number" &&
+          typeof e.data.scrollHeight === "number" &&
+          Number.isFinite(e.data.scrollTop) &&
+          Number.isFinite(e.data.scrollHeight)
+        ) {
+          setCommentViewport({
+            scrollTop:
+              e.data.scrollTop * scaleRef.current +
+              (wrapperRef.current?.scrollTop || 0),
+            scrollHeight: Math.max(1, e.data.scrollHeight * scaleRef.current),
+          });
+        }
       }
       if (
         e.data?.type === "aidocs:keydown" &&
@@ -470,6 +506,7 @@ export function RenderFrame() {
     handleDocCommentClick,
     setUnanchoredComments,
     setCommentPositions,
+    setCommentViewport,
     applyZoom,
     rememberKVRevision,
   ]);
