@@ -112,7 +112,9 @@ WHERE COALESCE(f.parent_folder_id,'')=''
       SELECT 1 FROM resource_grants g
       WHERE g.resource_type='folder' AND g.resource_id=f.id
         AND g.revoked_at IS NULL
-        AND ((g.principal_type= @principal_type AND g.principal_id= @principal_id) OR g.principal_type='anyone')
+        AND ((g.principal_type= @principal_type AND g.principal_id= @principal_id)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY(@google_group_ids::text[]))
+          OR g.principal_type='anyone')
     )
   )
 ORDER BY CASE WHEN f.owner_type= @principal_type AND f.owner_id= @principal_id THEN 0 ELSE 1 END;
@@ -151,7 +153,8 @@ WHERE (
       SELECT 1 FROM resource_grants g
       WHERE g.resource_type='folder' AND g.resource_id=f.id
         AND g.revoked_at IS NULL
-        AND g.principal_type= @principal_type AND g.principal_id= @principal_id
+        AND ((g.principal_type= @principal_type AND g.principal_id= @principal_id)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY(@google_group_ids::text[])))
     )
     OR (
       EXISTS (
@@ -194,6 +197,7 @@ OR (
         )
         AND (
           (g.principal_type= @principal_type AND g.principal_id= @principal_id)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY(@google_group_ids::text[]))
           OR g.principal_type='anyone'
         )
     )
@@ -228,7 +232,9 @@ WITH RECURSIVE accessible(id, depth) AS (
   UNION
   SELECT g.resource_id, 1 FROM resource_grants g
   WHERE g.resource_type='folder' AND g.revoked_at IS NULL
-    AND ((g.principal_type= @principal_type AND g.principal_id= @principal_id) OR (@include_org_wide::boolean AND g.principal_type='anyone'))
+    AND ((g.principal_type= @principal_type AND g.principal_id= @principal_id)
+      OR (g.principal_type='google_group' AND g.principal_id=ANY(@google_group_ids::text[]))
+      OR (@include_org_wide::boolean AND g.principal_type='anyone'))
   UNION ALL
   SELECT c.id, a.depth+1 FROM folders c JOIN accessible a ON c.parent_folder_id = a.id WHERE a.depth < 20
 )
@@ -288,7 +294,9 @@ SELECT c.id, c.title,
          JOIN chain gc ON g.resource_id=gc.id
          WHERE gc.depth >= c.depth
            AND g.resource_type='folder' AND g.revoked_at IS NULL
-           AND ((g.principal_type= @principal_type::text AND g.principal_id= @principal_id::text) OR g.principal_type='anyone')
+           AND ((g.principal_type= @principal_type::text AND g.principal_id= @principal_id::text)
+             OR (g.principal_type='google_group' AND g.principal_id=ANY(@google_group_ids::text[]))
+             OR g.principal_type='anyone')
        ), 0)::int AS grant_rank
 FROM chain c
 ORDER BY c.depth DESC;

@@ -42,7 +42,10 @@ export function DocumentsPage() {
   const docs = useQuery({
     queryKey: [...queryKeys.documents(), debouncedQ, label.trim().toLowerCase()],
     queryFn: () =>
-      api.listDocuments(debouncedQ || undefined, label.trim().toLowerCase() || undefined),
+      api.listDocuments(
+        debouncedQ || undefined,
+        label.trim().toLowerCase() || undefined,
+      ),
     placeholderData: (prev) => prev,
   });
   const pins = useQuery({

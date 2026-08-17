@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 )
@@ -167,6 +168,21 @@ type Grant struct {
 	GrantedBy    auth.Principal `json:"granted_by"`
 }
 
+type GoogleGroup struct {
+	ID             string    `json:"id"`
+	CustomerID     string    `json:"-"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name"`
+	LastVerifiedAt time.Time `json:"-"`
+}
+
+type GoogleGroupMembershipSnapshot struct {
+	GroupIDs      []string
+	LastAttemptAt time.Time
+	LastSuccessAt time.Time
+	LastErrorCode string
+}
+
 type Version struct {
 	ID            string         `json:"id"`
 	Number        int            `json:"number"`
@@ -319,8 +335,13 @@ type Repository interface {
 	UserByEmail(ctx context.Context, email string) (auth.Principal, error)
 	SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error)
 	EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error)
+	GoogleGroupMembershipSnapshot(ctx context.Context, userID string) (GoogleGroupMembershipSnapshot, error)
+	ReplaceGoogleGroupMemberships(ctx context.Context, userID string, groups []GoogleGroup, syncedAt time.Time) error
+	RecordGoogleGroupMembershipFailure(ctx context.Context, userID, errorCode string, attemptedAt time.Time) error
+	UpsertGoogleGroup(ctx context.Context, group GoogleGroup) error
 	CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
 	ListGrants(ctx context.Context, documentID string) ([]Grant, error)
+	GetGrant(ctx context.Context, resourceID, grantID string) (Grant, error)
 	UpdateGrant(ctx context.Context, documentID, grantID string, role Role) (Grant, error)
 	DeleteGrant(ctx context.Context, documentID, grantID string) error
 	CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal) (Version, error)

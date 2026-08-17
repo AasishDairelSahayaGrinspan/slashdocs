@@ -365,6 +365,10 @@ func (h handlers) canMutateComment(c *gin.Context, docID, commentID string) bool
 	if role == repo.RoleOwner || role == repo.RoleEditor {
 		return true
 	}
+	if groupMembershipUnavailable(p) {
+		groupMembershipUnavailableResponse(c)
+		return false
+	}
 	forbidden(c, "comment access required")
 	return false
 }

@@ -136,7 +136,8 @@ WHERE d.parent_folder_id IS NULL
        WHERE g.resource_type='document'
          AND g.resource_id=d.id
          AND g.revoked_at IS NULL
-         AND g.principal_type=$2 AND g.principal_id=$1
+	 AND ((g.principal_type=$2 AND g.principal_id=$1)
+	      OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[])))
    )
    OR (
        EXISTS (
@@ -160,6 +161,7 @@ LIMIT 25
 type ListDocumentsParams struct {
 	OwnerID   string
 	OwnerType string
+	Column3   []string
 }
 
 type ListDocumentsRow struct {
@@ -184,7 +186,7 @@ type ListDocumentsRow struct {
 // workspace until they open it.
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]ListDocumentsRow, error) {
-	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.OwnerType)
+	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.OwnerType, arg.Column3)
 	if err != nil {
 		return nil, err
 	}
@@ -331,7 +333,9 @@ docs_via_folder AS (
   SELECT DISTINCT fa.doc_id
   FROM folder_ancestors fa
   JOIN resource_grants g ON g.resource_type='folder' AND g.resource_id=fa.fid AND g.revoked_at IS NULL
-  WHERE (g.principal_type= $2 AND g.principal_id= $3) OR ($4::boolean AND g.principal_type='anyone')
+  WHERE (g.principal_type= $2 AND g.principal_id= $3)
+     OR (g.principal_type='google_group' AND g.principal_id=ANY($4::text[]))
+     OR ($5::boolean AND g.principal_type='anyone')
 )
 SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(u.email,'') AS owner_email,
@@ -348,18 +352,21 @@ WHERE d.title ILIKE '%' || $1::text || '%'
       WHERE g.resource_type='document'
         AND g.resource_id=d.id
         AND g.revoked_at IS NULL
-        AND ((g.principal_type= $2 AND g.principal_id= $3) OR ($4::boolean AND g.principal_type='anyone'))
+        AND ((g.principal_type= $2 AND g.principal_id= $3)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY($4::text[]))
+          OR ($5::boolean AND g.principal_type='anyone'))
     )
     OR d.id IN (SELECT doc_id FROM docs_via_folder)
   )
 ORDER BY d.title
-LIMIT $5
+LIMIT $6
 `
 
 type SearchDocumentsByTitleParams struct {
 	Query          string
 	OwnerType      string
 	OwnerID        string
+	GoogleGroupIds []string
 	IncludeOrgWide bool
 	RowLimit       int32
 }
@@ -379,6 +386,7 @@ func (q *Queries) SearchDocumentsByTitle(ctx context.Context, arg SearchDocument
 		arg.Query,
 		arg.OwnerType,
 		arg.OwnerID,
+		arg.GoogleGroupIds,
 		arg.IncludeOrgWide,
 		arg.RowLimit,
 	)

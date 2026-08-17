@@ -138,6 +138,29 @@ type GithubConnection struct {
 	UpdatedAt             pgtype.Timestamptz
 }
 
+type GoogleGroup struct {
+	ID             string
+	CustomerID     string
+	Email          string
+	DisplayName    string
+	LastVerifiedAt pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type GoogleGroupMembership struct {
+	UserID   string
+	GroupID  string
+	SyncedAt pgtype.Timestamptz
+}
+
+type GoogleGroupSyncState struct {
+	UserID        string
+	LastAttemptAt pgtype.Timestamptz
+	LastSuccessAt pgtype.Timestamptz
+	LastErrorCode string
+}
+
 type OauthState struct {
 	ID        string
 	Kind      string

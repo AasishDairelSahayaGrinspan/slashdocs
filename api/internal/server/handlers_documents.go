@@ -108,6 +108,9 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Success 200 {object} listResponse[repo.Document]
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
+	if !requireResolvedGroupsForAggregate(c) {
+		return
+	}
 	if label := c.Query("label"); label != "" {
 		label = strings.ToLower(strings.TrimSpace(label))
 		if !labelPattern.MatchString(label) {
@@ -168,6 +171,10 @@ func (h handlers) getDocument(c *gin.Context) {
 		return
 	}
 	if !atLeast(role, repo.RoleViewer) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return
+		}
 		forbidden(c, "viewer role required")
 		return
 	}

@@ -73,7 +73,9 @@ export function ProfilePage() {
                 ? "Checking connection…"
                 : github.data?.connected
                   ? `Connected as ${github.data.login}`
-                  : "Not connected"}
+                  : github.data?.configured === false
+                    ? "Not configured for this deployment"
+                    : "Not connected"}
             </div>
             {github.data?.connected ? (
               <Button
@@ -87,7 +89,11 @@ export function ProfilePage() {
               <Button
                 variant="outline"
                 onClick={() => window.location.assign(api.githubConnectURL())}
-                disabled={github.isLoading || !!github.error}
+                disabled={
+                  github.isLoading ||
+                  !!github.error ||
+                  github.data?.configured === false
+                }
               >
                 Connect GitHub
               </Button>

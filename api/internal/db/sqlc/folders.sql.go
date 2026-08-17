@@ -75,16 +75,19 @@ WHERE COALESCE(f.parent_folder_id,'')=''
       SELECT 1 FROM resource_grants g
       WHERE g.resource_type='folder' AND g.resource_id=f.id
         AND g.revoked_at IS NULL
-        AND ((g.principal_type= $2 AND g.principal_id= $3) OR g.principal_type='anyone')
+        AND ((g.principal_type= $2 AND g.principal_id= $3)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY($4::text[]))
+          OR g.principal_type='anyone')
     )
   )
 ORDER BY CASE WHEN f.owner_type= $2 AND f.owner_id= $3 THEN 0 ELSE 1 END
 `
 
 type FindRootFoldersByTitleParams struct {
-	Title         string
-	PrincipalType string
-	PrincipalID   string
+	Title          string
+	PrincipalType  string
+	PrincipalID    string
+	GoogleGroupIds []string
 }
 
 type FindRootFoldersByTitleRow struct {
@@ -101,7 +104,12 @@ type FindRootFoldersByTitleRow struct {
 // sort first so an owned folder wins over a same-named shared one.
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) FindRootFoldersByTitle(ctx context.Context, arg FindRootFoldersByTitleParams) ([]FindRootFoldersByTitleRow, error) {
-	rows, err := q.db.Query(ctx, findRootFoldersByTitle, arg.Title, arg.PrincipalType, arg.PrincipalID)
+	rows, err := q.db.Query(ctx, findRootFoldersByTitle,
+		arg.Title,
+		arg.PrincipalType,
+		arg.PrincipalID,
+		arg.GoogleGroupIds,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -354,7 +362,7 @@ func (q *Queries) ListChildFolders(ctx context.Context, parentFolderID string) (
 const listFolderAccessChain = `-- name: ListFolderAccessChain :many
 WITH RECURSIVE chain(id, title, parent_folder_id, owner_type, owner_id, depth) AS (
   SELECT f.id, f.title, f.parent_folder_id, f.owner_type, f.owner_id, 0
-  FROM folders f WHERE f.id= $3
+  FROM folders f WHERE f.id= $4
   UNION ALL
   SELECT f.id, f.title, f.parent_folder_id, f.owner_type, f.owner_id, c.depth+1
   FROM folders f JOIN chain c ON f.id=c.parent_folder_id
@@ -368,16 +376,19 @@ SELECT c.id, c.title,
          JOIN chain gc ON g.resource_id=gc.id
          WHERE gc.depth >= c.depth
            AND g.resource_type='folder' AND g.revoked_at IS NULL
-           AND ((g.principal_type= $1::text AND g.principal_id= $2::text) OR g.principal_type='anyone')
+           AND ((g.principal_type= $1::text AND g.principal_id= $2::text)
+             OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[]))
+             OR g.principal_type='anyone')
        ), 0)::int AS grant_rank
 FROM chain c
 ORDER BY c.depth DESC
 `
 
 type ListFolderAccessChainParams struct {
-	PrincipalType string
-	PrincipalID   string
-	FolderID      string
+	PrincipalType  string
+	PrincipalID    string
+	GoogleGroupIds []string
+	FolderID       string
 }
 
 type ListFolderAccessChainRow struct {
@@ -394,7 +405,12 @@ type ListFolderAccessChainRow struct {
 // (chain elements with depth >= X's). Rank order mirrors repo.MaxRole:
 // owner=4, editor=3, commenter=2, viewer=1.
 func (q *Queries) ListFolderAccessChain(ctx context.Context, arg ListFolderAccessChainParams) ([]ListFolderAccessChainRow, error) {
-	rows, err := q.db.Query(ctx, listFolderAccessChain, arg.PrincipalType, arg.PrincipalID, arg.FolderID)
+	rows, err := q.db.Query(ctx, listFolderAccessChain,
+		arg.PrincipalType,
+		arg.PrincipalID,
+		arg.GoogleGroupIds,
+		arg.FolderID,
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -483,7 +499,8 @@ WHERE (
       SELECT 1 FROM resource_grants g
       WHERE g.resource_type='folder' AND g.resource_id=f.id
         AND g.revoked_at IS NULL
-        AND g.principal_type= $1 AND g.principal_id= $2
+        AND ((g.principal_type= $1 AND g.principal_id= $2)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[])))
     )
     OR (
       EXISTS (
@@ -526,6 +543,7 @@ OR (
         )
         AND (
           (g.principal_type= $1 AND g.principal_id= $2)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[]))
           OR g.principal_type='anyone'
         )
     )
@@ -542,8 +560,9 @@ LIMIT 51
 `
 
 type ListRootFolderEntriesParams struct {
-	PrincipalType string
-	PrincipalID   string
+	PrincipalType  string
+	PrincipalID    string
+	GoogleGroupIds []string
 }
 
 type ListRootFolderEntriesRow struct {
@@ -563,7 +582,7 @@ type ListRootFolderEntriesRow struct {
 // for (so a folder deep in someone else's tree surfaces at the top level).
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) ListRootFolderEntries(ctx context.Context, arg ListRootFolderEntriesParams) ([]ListRootFolderEntriesRow, error) {
-	rows, err := q.db.Query(ctx, listRootFolderEntries, arg.PrincipalType, arg.PrincipalID)
+	rows, err := q.db.Query(ctx, listRootFolderEntries, arg.PrincipalType, arg.PrincipalID, arg.GoogleGroupIds)
 	if err != nil {
 		return nil, err
 	}
@@ -614,7 +633,9 @@ WITH RECURSIVE accessible(id, depth) AS (
   UNION
   SELECT g.resource_id, 1 FROM resource_grants g
   WHERE g.resource_type='folder' AND g.revoked_at IS NULL
-    AND ((g.principal_type= $3 AND g.principal_id= $4) OR ($5::boolean AND g.principal_type='anyone'))
+    AND ((g.principal_type= $3 AND g.principal_id= $4)
+      OR (g.principal_type='google_group' AND g.principal_id=ANY($5::text[]))
+      OR ($6::boolean AND g.principal_type='anyone'))
   UNION ALL
   SELECT c.id, a.depth+1 FROM folders c JOIN accessible a ON c.parent_folder_id = a.id WHERE a.depth < 20
 )
@@ -637,6 +658,7 @@ type SearchFoldersByTitleParams struct {
 	RowLimit       int32
 	PrincipalType  string
 	PrincipalID    string
+	GoogleGroupIds []string
 	IncludeOrgWide bool
 }
 
@@ -657,6 +679,7 @@ func (q *Queries) SearchFoldersByTitle(ctx context.Context, arg SearchFoldersByT
 		arg.RowLimit,
 		arg.PrincipalType,
 		arg.PrincipalID,
+		arg.GoogleGroupIds,
 		arg.IncludeOrgWide,
 	)
 	if err != nil {

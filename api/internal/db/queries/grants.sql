@@ -14,8 +14,8 @@ SELECT
   g.resource_id,
   g.principal_type,
   g.principal_id,
-  COALESCE(u.email, '') AS principal_email,
-  COALESCE(u.name, sa.name, '') AS principal_name,
+  COALESCE(u.email, gg.email, '') AS principal_email,
+  COALESCE(u.name, sa.name, gg.display_name, '') AS principal_name,
   COALESCE(u.picture_url, '') AS principal_picture_url,
   g.role,
   g.granted_by_type,
@@ -29,6 +29,8 @@ LEFT JOIN users u
 LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type = 'service_account' AND g.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN google_groups gg
+  ON g.principal_type = 'google_group' AND g.principal_id = gg.id
 LEFT JOIN users gu
   ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
 -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
@@ -87,11 +89,13 @@ WHERE a.rid IS NOT NULL;
 
 -- name: ListGrantsForResources :many
 SELECT g.id, g.resource_id, g.resource_type, g.principal_type, g.principal_id,
-       COALESCE(u.email,'') AS principal_email, COALESCE(u.name,sa.name,'') AS principal_name, g.role
+       COALESCE(u.email,gg.email,'') AS principal_email,
+       COALESCE(u.name,sa.name,gg.display_name,'') AS principal_name, g.role
 FROM resource_grants g
 LEFT JOIN users u ON g.principal_type='user' AND g.principal_id=u.id
 -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type='service_account' AND g.principal_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
 WHERE g.revoked_at IS NULL AND g.resource_id = ANY(@resource_ids::text[]);

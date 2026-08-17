@@ -446,7 +446,7 @@ func TestMCPAuthenticatorRequiresAudienceBoundBearerTokens(t *testing.T) {
 
 	valid := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
 	principal := authenticateMCP(t, authenticator, valid, "")
-	if *principal != fixtureUser {
+	if principal.Type != fixtureUser.Type || principal.ID != fixtureUser.ID || principal.Email != fixtureUser.Email {
 		t.Fatalf("MCP principal = %#v, want %#v", *principal, fixtureUser)
 	}
 

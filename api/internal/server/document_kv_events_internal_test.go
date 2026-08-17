@@ -134,7 +134,7 @@ func TestDocumentKVStreamReauthorizesOnKeepalive(t *testing.T) {
 			if tc.checksRole {
 				select {
 				case check := <-repository.calls:
-					if check.principal != principal || check.documentID != stream.documentID {
+					if check.principal.Type != principal.Type || check.principal.ID != principal.ID || check.documentID != stream.documentID {
 						t.Fatalf("authorization check = %#v, want principal %#v document %q", check, principal, stream.documentID)
 					}
 				case <-time.After(time.Second):

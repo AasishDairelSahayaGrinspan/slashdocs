@@ -7,11 +7,13 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -31,9 +33,12 @@ type Config struct {
 	// DefaultDocPermission is the role granted to the "anyone" principal on
 	// newly created documents when the request does not override it via the
 	// default_permission form field. repo.RoleNone means private: no grant.
-	DefaultDocPermission repo.Role
-	GitHubClientID       string
-	GitHubClientSecret   string
+	DefaultDocPermission      repo.Role
+	GitHubClientID            string
+	GitHubClientSecret        string
+	GoogleGroupsEnabled       bool
+	GoogleGroupsMembershipTTL time.Duration
+	GoogleGroupsRetryCooldown time.Duration
 }
 
 // Server wraps the gin engine.
@@ -61,6 +66,9 @@ type dependencies struct {
 	documentKVEvents     kvevents.Subscriber
 	githubOAuth          *oauth2.Config
 	githubHTTPClient     *http.Client
+	googleGroupsEnabled  bool
+	googleGroupDirectory googlegroups.GoogleGroupDirectory
+	googleGroupResolver  *googlegroups.Resolver
 }
 
 // Option configures the Server.
@@ -71,6 +79,10 @@ func WithAuthenticator(a auth.Authenticator) Option {
 }
 
 func WithRepository(r repo.Repository) Option { return func(d *dependencies) { d.repository = r } }
+
+func WithGoogleGroupDirectory(directory googlegroups.GoogleGroupDirectory) Option {
+	return func(d *dependencies) { d.googleGroupDirectory = directory }
+}
 
 // WithDocumentKVEvents supplies the process-wide persisted-event broker used
 // by document KV SSE streams.
@@ -117,6 +129,7 @@ func New(cfg Config, opts ...Option) *Server {
 		orgName:              cfg.OrgName,
 		defaultDocPermission: cfg.DefaultDocPermission,
 		githubHTTPClient:     http.DefaultClient,
+		googleGroupsEnabled:  cfg.GoogleGroupsEnabled,
 	}
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
 		deps.githubOAuth = &oauth2.Config{
@@ -136,6 +149,13 @@ func New(cfg Config, opts ...Option) *Server {
 	if deps.documentKVEvents == nil {
 		// Do not create an unowned background broker for programmatic callers.
 		deps.documentKVEvents = unavailableDocumentKVEvents{}
+	}
+	if deps.googleGroupsEnabled && deps.googleGroupDirectory != nil {
+		deps.googleGroupResolver = googlegroups.NewResolver(googlegroups.ResolverConfig{
+			Store: deps.repository, Directory: deps.googleGroupDirectory,
+			TTL: cfg.GoogleGroupsMembershipTTL, RetryCooldown: cfg.GoogleGroupsRetryCooldown,
+			Observer: observeGoogleGroupMembership,
+		})
 	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
@@ -166,7 +186,7 @@ func (s *Server) routes(deps dependencies) {
 	s.engine.GET("/.well-known/oauth-authorization-server", h.mcpAuthorizationServerMetadata)
 	s.engine.POST("/oauth/register", h.mcpRegisterClient)
 	s.engine.POST("/oauth/token", h.mcpToken)
-	mcpOAuth := s.engine.Group("/oauth", requireAuth(deps.authenticator, deps.appOrigin))
+	mcpOAuth := s.engine.Group("/oauth", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))
 	mcpOAuth.GET("/authorize", h.mcpAuthorize)
 	mcpOAuth.POST("/authorize", h.mcpAuthorize)
 	registerMCPRoutes(s.engine, deps)
@@ -195,9 +215,10 @@ func (s *Server) routes(deps dependencies) {
 	v1.POST("/auth/cli/exchange", h.cliExchange)
 
 	// Every route below requires authentication.
-	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin))
+	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))
 	authed.GET("/me", h.me)
 	authed.GET("/users", h.searchUsers)
+	authed.GET("/google-groups", h.searchGoogleGroups)
 	authed.GET("/auth/cli/credentials", h.listCLICredentials)
 	authed.DELETE("/auth/cli/credentials/:id", h.revokeCLICredential)
 	authed.POST("/service-accounts", h.createServiceAccount)
@@ -227,7 +248,7 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/versions/:version_id/print-token", h.createPrintToken)
 	authed.GET("/documents/:id/labels", h.listDocumentLabels)
 	authed.PUT("/documents/:id/labels", h.replaceDocumentLabels)
-	authed.POST("/documents/:id/integrations/github/raw", h.githubRawContent)
+	authed.POST("/documents/:id/github/raw", h.githubRawContent)
 	authed.POST("/documents/:id/comments", h.createComment)
 	authed.GET("/documents/:id/comments", h.listComments)
 	authed.GET("/documents/:id/kv", h.listDocumentKV)
@@ -269,13 +290,17 @@ func (h handlers) needDocRole(c *gin.Context, docID string, need repo.Role) bool
 		return false
 	}
 	if !atLeast(role, need) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return false
+		}
 		forbidden(c, string(need)+" role required")
 		return false
 	}
 	return true
 }
 
-func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
+func requireAuth(a auth.Authenticator, appOrigin string, groups *googlegroups.Resolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p, err := a.Authenticate(c.Request)
 		if err != nil {
@@ -298,10 +323,34 @@ func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
 			forbidden(c, "csrf check failed")
 			return
 		}
+		if groups != nil {
+			p = groups.Resolve(c.Request.Context(), p)
+		}
 		incAuth("request", "success")
 		c.Set(principalContextKey, p)
 		c.Next()
 	}
+}
+
+func groupMembershipUnavailable(p *auth.Principal) bool {
+	return p != nil && p.Type == auth.PrincipalUser && p.GoogleGroupMembershipState == auth.GoogleGroupMembershipUnavailable
+}
+
+func groupMembershipUnavailableResponse(c *gin.Context) {
+	incGoogleGroupAuthorizationFailure()
+	c.JSON(http.StatusServiceUnavailable, errorResponse(
+		"group_membership_unavailable",
+		"Google Group membership could not be refreshed; try again shortly",
+		nil,
+	))
+}
+
+func requireResolvedGroupsForAggregate(c *gin.Context) bool {
+	if groupMembershipUnavailable(current(c)) {
+		groupMembershipUnavailableResponse(c)
+		return false
+	}
+	return true
 }
 
 func allowCookieUnsafeRequest(c *gin.Context, appOrigin string) bool {

@@ -84,11 +84,10 @@ export function DocBar({
     enabled: !!docId && !!principal && !canManage,
     staleTime: 30_000,
   });
-  const currentAccessRole = access.data?.items.find((item) =>
-    samePrincipal(item.principal, principal),
-  )?.effective_role;
+  const currentAccessRole = access.data?.current_role;
   const canManageAccess = canManage || canManageSharing(currentAccessRole);
-  const canEdit = canManage || (ROLE_RANK[currentAccessRole || ""] || 0) >= ROLE_RANK.editor;
+  const canEdit =
+    canManage || (ROLE_RANK[currentAccessRole || ""] || 0) >= ROLE_RANK.editor;
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -175,7 +174,11 @@ export function DocBar({
             <span className="hidden sm:inline">Share</span>
           </Button>
         </SheetTrigger>
-        <ShareSheet docId={docId} canManageAccess={canManageAccess} />
+        <ShareSheet
+          docId={docId}
+          canManageAccess={canManageAccess}
+          isCanonicalOwner={canManage}
+        />
       </Sheet>
       <Button
         variant="ghost"

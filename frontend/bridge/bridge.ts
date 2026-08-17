@@ -23,7 +23,12 @@ interface KVHistoryEntry {
 }
 
 interface KVPendingRequest {
-  resolve(value: any): void;
+  resolve(value: KVItems): void;
+  reject(error: unknown): void;
+}
+
+interface GitHubPendingRequest {
+  resolve(value: unknown): void;
   reject(error: unknown): void;
 }
 
@@ -86,7 +91,7 @@ type Theme = "dark" | "light";
   let kvRequestID = 0;
   const kvPending: Record<string, KVPendingRequest> = {};
   let githubRequestID = 0;
-  const githubPending: Record<string, KVPendingRequest> = {};
+  const githubPending: Record<string, GitHubPendingRequest> = {};
   const kvRequestTimeoutMS = 10000;
   const kvHistoryLimit = 100;
   let kvUndoStack: KVHistoryEntry[] = [];
@@ -384,7 +389,9 @@ type Theme = "dark" | "light";
 
   function githubRawContent(input: Parameters<GitHubFunction>[0]): Promise<unknown> {
     if (!input || typeof input !== "object") {
-      return Promise.reject(new TypeError("aidocs.github.getRawContent requires an input object"));
+      return Promise.reject(
+        new TypeError("aidocs.github.getRawContent requires an input object"),
+      );
     }
     const payload = {
       owner: String(input.owner || ""),
@@ -1194,15 +1201,26 @@ type Theme = "dark" | "light";
     let vimGTimer = 0;
     d.addEventListener("keydown", (ev) => {
       const target = ev.target as Element | null;
-      const typing = !!target?.closest?.('input,textarea,select,[contenteditable="true"]');
+      const typing = !!target?.closest?.(
+        'input,textarea,select,[contenteditable="true"]',
+      );
       if (!typing && ["Escape", "t", "f", "c", "h"].includes(ev.key.toLowerCase())) {
         parent.postMessage({ type: "aidocs:keydown", key: ev.key }, targetOrigin());
       }
       if (!typing && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
         const view = d.defaultView;
-        if (ev.key === "j") view?.scrollBy({ top: Math.max(160, view.innerHeight * 0.45), behavior: "smooth" });
-        if (ev.key === "k") view?.scrollBy({ top: -Math.max(160, view.innerHeight * 0.45), behavior: "smooth" });
-        if (ev.key === "G") view?.scrollTo({ top: d.documentElement.scrollHeight, behavior: "smooth" });
+        if (ev.key === "j")
+          view?.scrollBy({
+            top: Math.max(160, view.innerHeight * 0.45),
+            behavior: "smooth",
+          });
+        if (ev.key === "k")
+          view?.scrollBy({
+            top: -Math.max(160, view.innerHeight * 0.45),
+            behavior: "smooth",
+          });
+        if (ev.key === "G")
+          view?.scrollTo({ top: d.documentElement.scrollHeight, behavior: "smooth" });
         if (ev.key === "g") {
           if (vimGArmed) {
             view?.scrollTo({ top: 0, behavior: "smooth" });
@@ -1271,7 +1289,10 @@ type Theme = "dark" | "light";
       if (!pending) return;
       delete githubPending[requestId];
       if (e.data.ok) pending.resolve(e.data.result || {});
-      else pending.reject(new Error((e.data.error && e.data.error.message) || "GitHub request failed"));
+      else
+        pending.reject(
+          new Error((e.data.error && e.data.error.message) || "GitHub request failed"),
+        );
     } else if (e.data.type === "aidocs:navigate-heading") {
       navigateHeading(String(e.data.id || ""));
     } else if (e.data.type === "aidocs:kv-event") {

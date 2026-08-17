@@ -38,7 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { api, docID, type FolderEntry } from "@/api";
+import { api, APIError, docID, type FolderEntry } from "@/api";
 import { canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
@@ -88,9 +88,7 @@ export function FolderPage() {
     enabled: !!id && !!me.data?.principal && !isOwner,
     staleTime: 30_000,
   });
-  const currentAccessRole = access.data?.items.find((item) =>
-    samePrincipal(item.principal, me.data?.principal),
-  )?.effective_role;
+  const currentAccessRole = access.data?.current_role;
   const canManageAccess = isOwner || canManageSharing(currentAccessRole);
 
   const viewMode = viewModeStore.useStore();
@@ -184,7 +182,19 @@ export function FolderPage() {
       </div>
     );
   }
-  if (folder.error || contents.error) return <Center>Could not load folder.</Center>;
+  if (folder.error || contents.error) {
+    const dependencyError = [folder.error, contents.error].some(
+      (error) =>
+        error instanceof APIError && error.code === "group_membership_unavailable",
+    );
+    return (
+      <Center>
+        {dependencyError
+          ? "Google Group access is temporarily unavailable. Try again shortly; stale group content has not been shown."
+          : "Could not load folder."}
+      </Center>
+    );
+  }
 
   const f = folder.data!;
   const items = contents.data?.items || [];
@@ -285,6 +295,7 @@ export function FolderPage() {
                 resourceType="folder"
                 resourceId={id}
                 canManageAccess={canManageAccess}
+                isCanonicalOwner={isOwner}
               />
             </Sheet>
             <Dropdown>
@@ -402,7 +413,11 @@ export function FolderPage() {
   );
 }
 
-function FolderReadme({ document }: { document: NonNullable<FolderEntry["document"]> }) {
+function FolderReadme({
+  document,
+}: {
+  document: NonNullable<FolderEntry["document"]>;
+}) {
   const token = useQuery({
     queryKey: ["folder-readme-render", document.id, document.current_version_id],
     queryFn: () => api.renderToken(document.id, document.current_version_id || ""),

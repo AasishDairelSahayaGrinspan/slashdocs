@@ -206,7 +206,9 @@ export function DocumentPage() {
       const el = event.target instanceof Element ? event.target : null;
       if (
         el?.closest('input,textarea,[contenteditable="true"]') ||
-        document.querySelector('[role="dialog"][data-state="open"],[role="menu"][data-state="open"]')
+        document.querySelector(
+          '[role="dialog"][data-state="open"],[role="menu"][data-state="open"]',
+        )
       ) {
         clear();
         return;
@@ -331,6 +333,14 @@ export function DocumentPage() {
           <DocumentErrorState
             title="Document not found"
             description="This document may have been deleted, or the link may be incorrect."
+          />
+        );
+      }
+      if (doc.error.code === "group_membership_unavailable") {
+        return (
+          <DocumentErrorState
+            title="Group access is temporarily unavailable"
+            description="Google Group membership could not be refreshed. Try again shortly; stale group access has not been used."
           />
         );
       }

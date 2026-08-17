@@ -142,6 +142,97 @@ func (s *Store) EnsureUserByEmail(ctx context.Context, email string) (auth.Princ
 	}
 	return auth.Principal{Type: auth.PrincipalUser, ID: id, Email: email}, nil
 }
+
+func (s *Store) GoogleGroupMembershipSnapshot(ctx context.Context, userID string) (repo.GoogleGroupMembershipSnapshot, error) {
+	var snapshot repo.GoogleGroupMembershipSnapshot
+	var lastSuccess pgtype.Timestamptz
+	err := s.db.QueryRow(ctx, `
+		SELECT last_attempt_at, last_success_at, last_error_code
+		FROM google_group_sync_state WHERE user_id=$1`, userID).
+		Scan(&snapshot.LastAttemptAt, &lastSuccess, &snapshot.LastErrorCode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return snapshot, nil
+	}
+	if err != nil {
+		return snapshot, err
+	}
+	if lastSuccess.Valid {
+		snapshot.LastSuccessAt = lastSuccess.Time
+	}
+	rows, err := s.db.Query(ctx, `SELECT group_id FROM google_group_memberships WHERE user_id=$1 ORDER BY group_id`, userID)
+	if err != nil {
+		return snapshot, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var groupID string
+		if err := rows.Scan(&groupID); err != nil {
+			return snapshot, err
+		}
+		snapshot.GroupIDs = append(snapshot.GroupIDs, groupID)
+	}
+	return snapshot, rows.Err()
+}
+
+func (s *Store) ReplaceGoogleGroupMemberships(ctx context.Context, userID string, groups []repo.GoogleGroup, syncedAt time.Time) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	for _, group := range groups {
+		// ACL rows reference the immutable groups/{id}; mutable addresses and
+		// display names are refreshed metadata only.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO google_groups(id,customer_id,email,display_name,last_verified_at)
+			VALUES($1,$2,$3,$4,$5)
+			ON CONFLICT(id) DO UPDATE SET customer_id=EXCLUDED.customer_id,
+			  email=EXCLUDED.email, display_name=EXCLUDED.display_name,
+			  last_verified_at=EXCLUDED.last_verified_at, updated_at=now()`,
+			group.ID, group.CustomerID, group.Email, group.Name, syncedAt); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM google_group_memberships WHERE user_id=$1`, userID); err != nil {
+		return err
+	}
+	for _, group := range groups {
+		if _, err := tx.Exec(ctx, `INSERT INTO google_group_memberships(user_id,group_id,synced_at) VALUES($1,$2,$3)`, userID, group.ID, syncedAt); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO google_group_sync_state(user_id,last_attempt_at,last_success_at,last_error_code)
+		VALUES($1,$2,$2,'')
+		ON CONFLICT(user_id) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,
+		  last_success_at=EXCLUDED.last_success_at, last_error_code=''`, userID, syncedAt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) RecordGoogleGroupMembershipFailure(ctx context.Context, userID, errorCode string, attemptedAt time.Time) error {
+	// Failed refreshes deliberately retain the old membership rows for
+	// diagnostics. Authorization separately ignores them once last_success_at
+	// is outside the configured freshness window.
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO google_group_sync_state(user_id,last_attempt_at,last_error_code)
+		VALUES($1,$2,$3)
+		ON CONFLICT(user_id) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,
+		  last_error_code=EXCLUDED.last_error_code`, userID, attemptedAt, errorCode)
+	return err
+}
+
+func (s *Store) UpsertGoogleGroup(ctx context.Context, group repo.GoogleGroup) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO google_groups(id,customer_id,email,display_name,last_verified_at)
+		VALUES($1,$2,$3,$4,$5)
+		ON CONFLICT(id) DO UPDATE SET customer_id=EXCLUDED.customer_id,
+		  email=EXCLUDED.email, display_name=EXCLUDED.display_name,
+		  last_verified_at=EXCLUDED.last_verified_at, updated_at=now()`,
+		group.ID, group.CustomerID, group.Email, group.Name, group.LastVerifiedAt)
+	return err
+}
 func (s *Store) CreateCLICredential(ctx context.Context, userID, name, tokenHash string) (string, error) {
 	id := newID("cred")
 	err := s.q.CreateCLICredential(ctx, dbsqlc.CreateCLICredentialParams{ID: id, UserID: userID, Name: name, TokenHash: tokenHash})
@@ -182,11 +273,26 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 		return "", err
 	}
 	for _, g := range grants {
-		if (g.PrincipalType == string(p.Type) && g.PrincipalID == p.ID) || g.PrincipalType == string(auth.PrincipalAnyone) {
+		if principalHasGrant(p, g.PrincipalType, g.PrincipalID) {
 			best = repo.MaxRole(best, repo.Role(g.Role))
 		}
 	}
 	return best, nil
+}
+
+func principalHasGrant(p auth.Principal, principalType, principalID string) bool {
+	if principalType == string(auth.PrincipalAnyone) || (principalType == string(p.Type) && principalID == p.ID) {
+		return true
+	}
+	if p.Type != auth.PrincipalUser || principalType != string(auth.PrincipalGoogleGroup) {
+		return false
+	}
+	for _, groupID := range p.GoogleGroupIDs {
+		if groupID == principalID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (repo.Document, repo.Version, error) {
@@ -291,6 +397,10 @@ func (s *Store) PrincipalExists(ctx context.Context, p auth.Principal) (bool, er
 		return s.q.UserExists(ctx, p.ID)
 	case auth.PrincipalServiceAccount:
 		return s.q.ServiceAccountExists(ctx, p.ID)
+	case auth.PrincipalGoogleGroup:
+		var exists bool
+		err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM google_groups WHERE id=$1)`, p.ID).Scan(&exists)
+		return exists, err
 	default:
 		return false, nil
 	}
@@ -606,7 +716,7 @@ func pgTimeRFC3339(ts pgtype.Timestamptz) string {
 }
 
 func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Document, error) {
-	rows, err := s.q.ListDocuments(ctx, dbsqlc.ListDocumentsParams{OwnerID: p.ID, OwnerType: string(p.Type)})
+	rows, err := s.q.ListDocuments(ctx, dbsqlc.ListDocumentsParams{OwnerID: p.ID, OwnerType: string(p.Type), Column3: p.GoogleGroupIDs})
 	if err != nil {
 		return nil, err
 	}
@@ -617,7 +727,7 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 	return out, nil
 }
 func (s *Store) SearchDocumentsByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Document, error) {
-	rows, err := s.q.SearchDocumentsByTitle(ctx, dbsqlc.SearchDocumentsByTitleParams{Query: query, OwnerID: p.ID, OwnerType: string(p.Type), IncludeOrgWide: includeOrgWide, RowLimit: limit})
+	rows, err := s.q.SearchDocumentsByTitle(ctx, dbsqlc.SearchDocumentsByTitleParams{Query: query, OwnerID: p.ID, OwnerType: string(p.Type), GoogleGroupIds: p.GoogleGroupIDs, IncludeOrgWide: includeOrgWide, RowLimit: limit})
 	if err != nil {
 		return nil, err
 	}
@@ -665,7 +775,7 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 
 func (s *Store) ListDocumentsByLabel(ctx context.Context, p auth.Principal, label string) ([]repo.Document, error) {
 	rows, err := s.q.ListAccessibleDocumentsByLabel(ctx, dbsqlc.ListAccessibleDocumentsByLabelParams{
-		OwnerID: p.ID, OwnerType: string(p.Type), Label: label,
+		OwnerID: p.ID, OwnerType: string(p.Type), Label: label, GoogleGroupIds: p.GoogleGroupIDs,
 	})
 	if err != nil {
 		return nil, err
@@ -803,23 +913,43 @@ func (s *Store) ListGrants(ctx context.Context, resourceID string) ([]repo.Grant
 	}
 	return out, nil
 }
-func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role) (repo.Grant, error) {
-	r, err := s.q.UpdateResourceGrantRole(ctx, dbsqlc.UpdateResourceGrantRoleParams{Role: string(role), GrantID: grantID, ResourceID: resourceID})
+func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.Grant, error) {
+	row := s.db.QueryRow(ctx, `
+		SELECT g.id,g.resource_type,g.resource_id,g.principal_type,g.principal_id,
+		       COALESCE(u.email,gg.email,''),COALESCE(u.name,sa.name,gg.display_name,''),
+		       g.role,g.granted_by_type,g.granted_by_user_id,
+		       COALESCE(gu.email,''),COALESCE(gu.name,gsa.name,'')
+		FROM resource_grants g
+		LEFT JOIN users u ON g.principal_type='user' AND g.principal_id=u.id
+		LEFT JOIN service_accounts sa ON g.principal_type='service_account' AND g.principal_id=sa.id
+		LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
+		LEFT JOIN users gu ON g.granted_by_type='user' AND g.granted_by_user_id=gu.id
+		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id
+		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`, grantID, resourceID)
+	var g repo.Grant
+	var principalType, grantedByType string
+	err := row.Scan(&g.ID, &g.ResourceType, &g.ResourceID, &principalType, &g.Principal.ID,
+		&g.Principal.Email, &g.Principal.Name, &g.Role, &grantedByType, &g.GrantedBy.ID,
+		&g.GrantedBy.Email, &g.GrantedBy.Name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repo.Grant{}, repo.ErrNotFound
 	}
 	if err != nil {
 		return repo.Grant{}, err
 	}
-	return repo.Grant{
-		ID:           r.ID,
-		DocumentID:   resourceID,
-		ResourceType: r.ResourceType,
-		ResourceID:   r.ResourceID,
-		Principal:    auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID},
-		Role:         repo.Role(r.Role),
-		GrantedBy:    auth.Principal{Type: auth.PrincipalType(r.GrantedByType), ID: r.GrantedByUserID},
-	}, nil
+	g.DocumentID = g.ResourceID
+	g.Principal.Type = auth.PrincipalType(principalType)
+	g.GrantedBy.Type = auth.PrincipalType(grantedByType)
+	return g, nil
+}
+
+func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role) (repo.Grant, error) {
+	if _, err := s.q.UpdateResourceGrantRole(ctx, dbsqlc.UpdateResourceGrantRoleParams{Role: string(role), GrantID: grantID, ResourceID: resourceID}); errors.Is(err, pgx.ErrNoRows) {
+		return repo.Grant{}, repo.ErrNotFound
+	} else if err != nil {
+		return repo.Grant{}, err
+	}
+	return s.GetGrant(ctx, resourceID, grantID)
 }
 func (s *Store) DeleteGrant(ctx context.Context, resourceID, grantID string) error {
 	revoked, err := s.q.RevokeResourceGrant(ctx, dbsqlc.RevokeResourceGrantParams{GrantID: grantID, ResourceID: resourceID})

@@ -1,3 +1,9 @@
+{{- if and .Values.googleGroups.enabled (ne .Values.deployment.mode "org") }}
+{{- fail "googleGroups.enabled requires deployment.mode=org" }}
+{{- end }}
+{{- if and .Values.googleGroups.enabled (not .Values.googleGroups.existingSecret) }}
+{{- fail "googleGroups.existingSecret is required when googleGroups.enabled=true" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -58,6 +64,20 @@ spec:
               value: {{ required "origins.render is required" .Values.origins.render | quote }}
             - name: AIDOCS_DEPLOYMENT
               value: {{ .Values.deployment.mode | quote }}
+            - name: AIDOCS_GOOGLE_GROUPS_ENABLED
+              value: {{ ternary "true" "false" .Values.googleGroups.enabled | quote }}
+            {{- if .Values.googleGroups.enabled }}
+            - name: GOOGLE_GROUPS_CUSTOMER_ID
+              value: {{ required "googleGroups.customerID is required" .Values.googleGroups.customerID | quote }}
+            - name: GOOGLE_GROUPS_ADMIN_EMAIL
+              value: {{ required "googleGroups.adminEmail is required" .Values.googleGroups.adminEmail | quote }}
+            - name: GOOGLE_GROUPS_CREDENTIALS_FILE
+              value: /var/run/secrets/aidocs-google-groups/credentials.json
+            - name: GOOGLE_GROUPS_MEMBERSHIP_TTL
+              value: {{ .Values.googleGroups.membershipTTL | quote }}
+            - name: GOOGLE_GROUPS_REQUEST_TIMEOUT
+              value: {{ .Values.googleGroups.requestTimeout | quote }}
+            {{- end }}
             {{- if eq .Values.deployment.mode "org" }}
             - name: AIDOCS_ORG_DOMAINS
               value: {{ required "deployment.orgDomains is required when deployment.mode=org" .Values.deployment.orgDomains | quote }}
@@ -159,6 +179,18 @@ spec:
                   name: {{ default (include "aidocs.secretName" .) .Values.googleOAuth.existingSecret }}
                   key: {{ .Values.googleOAuth.clientSecretKey }}
             {{- end }}
+            {{- if .Values.githubOAuth.enabled }}
+            - name: AIDOCS_GITHUB_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.githubOAuth.existingSecret }}
+                  key: {{ .Values.githubOAuth.clientIDKey }}
+            - name: AIDOCS_GITHUB_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ default (include "aidocs.secretName" .) .Values.githubOAuth.existingSecret }}
+                  key: {{ .Values.githubOAuth.clientSecretKey }}
+            {{- end }}
             - name: SESSION_SECRET
               valueFrom:
                 secretKeyRef:
@@ -191,6 +223,21 @@ spec:
             {{- toYaml .Values.readinessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if .Values.googleGroups.enabled }}
+          volumeMounts:
+            - name: google-groups-credentials
+              mountPath: /var/run/secrets/aidocs-google-groups
+              readOnly: true
+          {{- end }}
+      {{- if .Values.googleGroups.enabled }}
+      volumes:
+        - name: google-groups-credentials
+          secret:
+            secretName: {{ .Values.googleGroups.existingSecret }}
+            items:
+              - key: {{ .Values.googleGroups.credentialsKey }}
+                path: credentials.json
+      {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

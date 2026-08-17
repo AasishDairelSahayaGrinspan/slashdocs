@@ -17,12 +17,14 @@ definitions:
     enum:
     - user
     - service_account
+    - google_group
     - anyone
     - anonymous
     type: string
     x-enum-varnames:
     - PrincipalUser
     - PrincipalServiceAccount
+    - PrincipalGoogleGroup
     - PrincipalAnyone
     - PrincipalAnonymous
   repo.Anchor:
@@ -53,6 +55,10 @@ definitions:
         type: string
       id:
         type: string
+      labels:
+        items:
+          type: string
+        type: array
       owner:
         $ref: '#/definitions/auth.Principal'
       parent_folder:
@@ -136,6 +142,8 @@ definitions:
   repo.Version:
     properties:
       change_summary:
+        type: string
+      created_at:
         type: string
       created_by:
         $ref: '#/definitions/auth.Principal'
@@ -266,6 +274,8 @@ definitions:
         type: string
       everyone_label:
         type: string
+      google_groups_enabled:
+        type: boolean
       org_name:
         type: string
       provider_name:
@@ -387,12 +397,43 @@ definitions:
       error:
         $ref: '#/definitions/server.errorBody'
     type: object
+  server.googleGroupSearchItem:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+    type: object
+  server.googleGroupSearchResponse:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/server.googleGroupSearchItem'
+        type: array
+    type: object
   server.grantGrantedBy:
     properties:
       email:
         type: string
       id:
         type: string
+    type: object
+  server.grantInput:
+    properties:
+      address:
+        type: string
+      principal:
+        $ref: '#/definitions/server.grantPrincipalInput'
+      role:
+        allOf:
+        - $ref: '#/definitions/repo.Role'
+        enum:
+        - viewer
+        - commenter
+        - editor
+        - owner
     type: object
   server.grantPrincipal:
     properties:
@@ -404,6 +445,23 @@ definitions:
         type: string
       type:
         $ref: '#/definitions/auth.PrincipalType'
+    type: object
+  server.grantPrincipalInput:
+    properties:
+      email:
+        type: string
+      id:
+        type: string
+      name:
+        type: string
+      type:
+        allOf:
+        - $ref: '#/definitions/auth.PrincipalType'
+        enum:
+        - user
+        - service_account
+        - google_group
+        - anyone
     type: object
   server.grantResource:
     properties:
@@ -1216,6 +1274,63 @@ paths:
       summary: Create render token
       tags:
       - versions
+  /v1/folders/{id}/grants:
+    post:
+      parameters:
+      - description: Folder ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: Grant target and role; google_group principals are resolved from
+          principal.email
+        in: body
+        name: grant
+        required: true
+        schema:
+          $ref: '#/definitions/server.grantInput'
+      responses:
+        "201":
+          description: Created
+          schema:
+            $ref: '#/definitions/repo.Grant'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Create folder grant
+      tags:
+      - grants
+  /v1/google-groups:
+    get:
+      parameters:
+      - description: Email or display-name query (minimum 2 characters)
+        in: query
+        name: q
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/server.googleGroupSearchResponse'
+        "400":
+          description: Bad Request
+          schema:
+            additionalProperties: true
+            type: object
+        "503":
+          description: Service Unavailable
+          schema:
+            additionalProperties: true
+            type: object
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Search verified organization Google Groups
+      tags:
+      - google-groups
   /v1/me:
     get:
       produces:
