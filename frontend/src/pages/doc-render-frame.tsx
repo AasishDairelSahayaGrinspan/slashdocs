@@ -30,6 +30,7 @@ export function RenderFrame() {
     setCommentPositions,
     setCommentViewport,
     registerDocumentScroller,
+    syncCommentRail,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -426,6 +427,16 @@ export function RenderFrame() {
         );
       }
       if (
+        e.data?.type === "aidocs:comment-scroll" &&
+        typeof e.data.scrollTop === "number" &&
+        Number.isFinite(e.data.scrollTop) &&
+        readyRef.current
+      ) {
+        syncCommentRail(
+          e.data.scrollTop * scaleRef.current + (wrapperRef.current?.scrollTop || 0),
+        );
+      }
+      if (
         e.data?.type === "aidocs:comment-positions" &&
         Array.isArray(e.data.positions) &&
         readyRef.current
@@ -454,10 +465,11 @@ export function RenderFrame() {
           Number.isFinite(e.data.scrollTop) &&
           Number.isFinite(e.data.scrollHeight)
         ) {
+          const scrollTop =
+            e.data.scrollTop * scaleRef.current + (wrapperRef.current?.scrollTop || 0);
+          syncCommentRail(scrollTop);
           setCommentViewport({
-            scrollTop:
-              e.data.scrollTop * scaleRef.current +
-              (wrapperRef.current?.scrollTop || 0),
+            scrollTop,
             scrollHeight: Math.max(1, e.data.scrollHeight * scaleRef.current),
           });
         }
@@ -507,6 +519,7 @@ export function RenderFrame() {
     setUnanchoredComments,
     setCommentPositions,
     setCommentViewport,
+    syncCommentRail,
     applyZoom,
     rememberKVRevision,
   ]);

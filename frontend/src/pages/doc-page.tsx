@@ -108,6 +108,16 @@ export function DocumentPage() {
   const scrollDocumentTo = useCallback((top: number) => {
     documentScrollerRef.current?.(top);
   }, []);
+  const commentRailSyncRef = useRef<((top: number) => void) | null>(null);
+  const registerCommentRailSync = useCallback(
+    (sync: ((top: number) => void) | null) => {
+      commentRailSyncRef.current = sync;
+    },
+    [],
+  );
+  const syncCommentRail = useCallback((top: number) => {
+    commentRailSyncRef.current?.(top);
+  }, []);
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
   const [commentsOpen, setCommentsOpen] = useState(true);
@@ -300,6 +310,8 @@ export function DocumentPage() {
       setCommentViewport,
       registerDocumentScroller,
       scrollDocumentTo,
+      registerCommentRailSync,
+      syncCommentRail,
       handleDocCommentClick,
     }),
     [
@@ -317,6 +329,8 @@ export function DocumentPage() {
       setActiveComment,
       registerDocumentScroller,
       scrollDocumentTo,
+      registerCommentRailSync,
+      syncCommentRail,
       handleDocCommentClick,
     ],
   );

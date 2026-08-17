@@ -40,6 +40,8 @@ export type DocContextValue = {
   setCommentViewport: (viewport: CommentViewport) => void;
   registerDocumentScroller: (scroller: ((top: number) => void) | null) => void;
   scrollDocumentTo: (top: number) => void;
+  registerCommentRailSync: (sync: ((top: number) => void) | null) => void;
+  syncCommentRail: (top: number) => void;
   handleDocCommentClick: (id: string) => void;
 };
 

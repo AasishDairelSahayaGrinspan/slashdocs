@@ -693,6 +693,18 @@ type Theme = "dark" | "light";
   // whether a highlight survived a document mutation intact.
   const paintedQuotes = new Map<string, string>();
 
+  function postCommentScroll(): void {
+    const d = doc();
+    if (!d) return;
+    parent.postMessage(
+      {
+        type: "aidocs:comment-scroll",
+        scrollTop: d.defaultView?.scrollY || d.documentElement.scrollTop || 0,
+      },
+      targetOrigin(),
+    );
+  }
+
   function postCommentPositions(): void {
     const d = doc();
     if (!d || !lastPaint) return;
@@ -1389,7 +1401,7 @@ type Theme = "dark" | "light";
     );
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
-    d.defaultView?.addEventListener("scroll", scheduleCommentPositions, {
+    d.defaultView?.addEventListener("scroll", postCommentScroll, {
       passive: true,
     });
     d.defaultView?.addEventListener("resize", scheduleCommentPositions);

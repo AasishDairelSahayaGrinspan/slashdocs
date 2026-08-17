@@ -490,6 +490,7 @@ export function CommentRail() {
     commentPositions,
     commentViewport,
     scrollDocumentTo,
+    registerCommentRailSync,
   } = useDoc();
   const railRef = useRef<HTMLDivElement>(null);
   const applyingDocumentScroll = useRef(false);
@@ -558,14 +559,11 @@ export function CommentRail() {
     });
   }, []);
 
-  useLayoutEffect(() => {
+  const applyDocumentScroll = useCallback((top: number) => {
     const rail = railRef.current;
     if (!rail) return;
-    const target = Math.max(
-      0,
-      Math.min(commentViewport.scrollTop, contentHeight - rail.clientHeight),
-    );
-    if (Math.abs(rail.scrollTop - target) < 1) return;
+    const target = Math.max(0, Math.min(top, rail.scrollHeight - rail.clientHeight));
+    if (Math.abs(rail.scrollTop - target) < 0.5) return;
     if (scrollSyncFrame.current) cancelAnimationFrame(scrollSyncFrame.current);
     applyingDocumentScroll.current = true;
     rail.scrollTop = target;
@@ -573,7 +571,16 @@ export function CommentRail() {
       applyingDocumentScroll.current = false;
       scrollSyncFrame.current = 0;
     });
-  }, [commentViewport.scrollTop, contentHeight]);
+  }, []);
+
+  useLayoutEffect(() => {
+    applyDocumentScroll(commentViewport.scrollTop);
+  }, [applyDocumentScroll, commentViewport.scrollTop, contentHeight]);
+
+  useEffect(() => {
+    registerCommentRailSync(applyDocumentScroll);
+    return () => registerCommentRailSync(null);
+  }, [applyDocumentScroll, registerCommentRailSync]);
 
   useEffect(
     () => () => {
