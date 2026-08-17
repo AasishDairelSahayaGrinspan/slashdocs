@@ -22,7 +22,8 @@ SELECT
   COALESCE(u.name, sa.name, '') AS created_by_name,
   COALESCE(u.picture_url, '') AS created_by_picture_url,
   v.change_summary,
-  v.sha256
+  v.sha256,
+  v.created_at
 FROM versions v
 LEFT JOIN users u
   ON v.created_by_type = 'user' AND v.created_by_id = u.id
@@ -43,6 +44,7 @@ type GetVersionRow struct {
 	CreatedByPictureUrl string
 	ChangeSummary       string
 	Sha256              string
+	CreatedAt           pgtype.Timestamptz
 }
 
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
@@ -60,6 +62,7 @@ func (q *Queries) GetVersion(ctx context.Context, id string) (GetVersionRow, err
 		&i.CreatedByPictureUrl,
 		&i.ChangeSummary,
 		&i.Sha256,
+		&i.CreatedAt,
 	)
 	return i, err
 }
@@ -144,7 +147,8 @@ SELECT
   COALESCE(u.name, sa.name, '') AS created_by_name,
   COALESCE(u.picture_url, '') AS created_by_picture_url,
   v.change_summary,
-  v.sha256
+  v.sha256,
+  v.created_at
 FROM versions v
 LEFT JOIN users u
   ON v.created_by_type = 'user' AND v.created_by_id = u.id
@@ -166,6 +170,7 @@ type ListVersionsRow struct {
 	CreatedByPictureUrl string
 	ChangeSummary       string
 	Sha256              string
+	CreatedAt           pgtype.Timestamptz
 }
 
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
@@ -189,6 +194,7 @@ func (q *Queries) ListVersions(ctx context.Context, documentID string) ([]ListVe
 			&i.CreatedByPictureUrl,
 			&i.ChangeSummary,
 			&i.Sha256,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}

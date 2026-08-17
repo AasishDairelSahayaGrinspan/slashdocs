@@ -662,6 +662,79 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 	}
 	return tx.Commit(ctx)
 }
+
+func (s *Store) ListDocumentsByLabel(ctx context.Context, p auth.Principal, label string) ([]repo.Document, error) {
+	rows, err := s.q.ListAccessibleDocumentsByLabel(ctx, dbsqlc.ListAccessibleDocumentsByLabelParams{
+		OwnerID: p.ID, OwnerType: string(p.Type), Label: label,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Document, 0, len(rows))
+	for _, r := range rows {
+		d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+		if r.UpdatedAt.Valid {
+			d.UpdatedAt = r.UpdatedAt.Time.UTC().Format(time.RFC3339Nano)
+		}
+		d.Labels, err = s.q.ListDocumentLabels(ctx, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (s *Store) ListDocumentLabels(ctx context.Context, documentID string) ([]string, error) {
+	return s.q.ListDocumentLabels(ctx, documentID)
+}
+
+func (s *Store) ReplaceDocumentLabels(ctx context.Context, documentID string, labels []string, actor auth.Principal) ([]string, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rollback(ctx, tx)
+	q := s.q.WithTx(tx)
+	if err := q.DeleteDocumentLabels(ctx, documentID); err != nil {
+		return nil, err
+	}
+	for _, label := range labels {
+		if err := q.InsertDocumentLabel(ctx, dbsqlc.InsertDocumentLabelParams{DocumentID: documentID, Label: label, CreatedByType: string(actor.Type), CreatedByID: actor.ID}); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return append([]string(nil), labels...), nil
+}
+
+func (s *Store) UpsertGitHubConnection(ctx context.Context, c repo.GitHubConnection) error {
+	return s.q.UpsertGitHubConnection(ctx, dbsqlc.UpsertGitHubConnectionParams{UserID: c.UserID, GithubUserID: c.GitHubUserID, Login: c.Login, AvatarUrl: c.AvatarURL, AccessTokenCiphertext: c.AccessTokenCiphertext})
+}
+
+func (s *Store) GetGitHubConnection(ctx context.Context, userID string) (repo.GitHubConnection, error) {
+	r, err := s.q.GetGitHubConnection(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.GitHubConnection{}, repo.ErrNotFound
+	}
+	if err != nil {
+		return repo.GitHubConnection{}, err
+	}
+	return repo.GitHubConnection{UserID: r.UserID, GitHubUserID: r.GithubUserID, Login: r.Login, AvatarURL: r.AvatarUrl, AccessTokenCiphertext: r.AccessTokenCiphertext, UpdatedAt: pgTimeRFC3339(r.UpdatedAt)}, nil
+}
+
+func (s *Store) DeleteGitHubConnection(ctx context.Context, userID string) error {
+	n, err := s.q.DeleteGitHubConnection(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
+}
 func (s *Store) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]repo.ServiceAccount, error) {
 	rows, err := s.q.ListServiceAccounts(ctx, owner.ID)
 	if err != nil {
@@ -765,7 +838,7 @@ func (s *Store) ListVersions(ctx context.Context, documentID string) ([]repo.Ver
 	}
 	out := make([]repo.Version, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256})
+		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256, CreatedAt: pgTimeRFC3339(r.CreatedAt)})
 	}
 	return out, nil
 }
@@ -777,7 +850,7 @@ func (s *Store) GetVersion(ctx context.Context, id string) (repo.Version, error)
 	if err != nil {
 		return repo.Version{}, err
 	}
-	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}, nil
+	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256, CreatedAt: pgTimeRFC3339(r.CreatedAt)}, nil
 }
 func (s *Store) GetVersionHTML(ctx context.Context, id string) ([]byte, error) {
 	key, err := s.q.GetVersionBlobKey(ctx, id)

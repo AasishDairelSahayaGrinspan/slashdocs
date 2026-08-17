@@ -87,6 +87,7 @@ type Document struct {
 	ParentFolderID   string            `json:"parent_folder_id,omitempty"`
 	ParentFolder     *FolderBreadcrumb `json:"parent_folder,omitempty"`
 	UpdatedAt        string            `json:"updated_at,omitempty"`
+	Labels           []string          `json:"labels,omitempty"`
 }
 
 type FolderBreadcrumb struct {
@@ -173,6 +174,16 @@ type Version struct {
 	CreatedBy     auth.Principal `json:"created_by"`
 	ChangeSummary string         `json:"change_summary"`
 	SHA256        string         `json:"sha256"`
+	CreatedAt     string         `json:"created_at"`
+}
+
+type GitHubConnection struct {
+	UserID                string `json:"-"`
+	GitHubUserID          int64  `json:"github_user_id"`
+	Login                 string `json:"login"`
+	AvatarURL             string `json:"avatar_url,omitempty"`
+	AccessTokenCiphertext []byte `json:"-"`
+	UpdatedAt             string `json:"updated_at,omitempty"`
 }
 
 type Anchor struct {
@@ -286,6 +297,12 @@ type Repository interface {
 	GetDocument(ctx context.Context, id string) (Document, error)
 	UpdateDocument(ctx context.Context, id, title string) (Document, error)
 	DeleteDocument(ctx context.Context, id string) error
+	ListDocumentsByLabel(ctx context.Context, principal auth.Principal, label string) ([]Document, error)
+	ListDocumentLabels(ctx context.Context, documentID string) ([]string, error)
+	ReplaceDocumentLabels(ctx context.Context, documentID string, labels []string, actor auth.Principal) ([]string, error)
+	UpsertGitHubConnection(ctx context.Context, connection GitHubConnection) error
+	GetGitHubConnection(ctx context.Context, userID string) (GitHubConnection, error)
+	DeleteGitHubConnection(ctx context.Context, userID string) error
 	CreateServiceAccount(ctx context.Context, owner auth.Principal, name string) (ServiceAccount, error)
 	ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error)
 	GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error)

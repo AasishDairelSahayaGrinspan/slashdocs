@@ -283,6 +283,8 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		Deployment:           deployment.name,
 		OrgName:              deployment.orgName,
 		DefaultDocPermission: deployment.defaultDocPermission,
+		GitHubClientID:       os.Getenv("AIDOCS_GITHUB_CLIENT_ID"),
+		GitHubClientSecret:   os.Getenv("AIDOCS_GITHUB_CLIENT_SECRET"),
 	}, options...), nil
 }
 

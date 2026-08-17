@@ -1,6 +1,8 @@
 import { useNavigate } from "react-router-dom";
 import { useTitle } from "@/lib/use-title";
-import { LogOut, Monitor, Moon, Sun } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { toast } from "sonner";
+import { GitBranch, LogOut, Monitor, Moon, Sun } from "lucide-react";
 import { Avatar, Center, Skeleton } from "@/components/ui/misc";
 import { Button } from "@/components/ui/button";
 import {
@@ -14,6 +16,8 @@ import { useMe } from "@/lib/hooks";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
 import { setFrontendSignedOut } from "@/lib/auth-state";
+import { api } from "@/api";
+import { errorMessage } from "@/lib/errors";
 
 export function ProfilePage() {
   useTitle("Profile");
@@ -21,6 +25,20 @@ export function ProfilePage() {
   const nav = useNavigate();
   const { theme, setTheme } = useTheme();
   const user = me.data?.user || me.data?.principal;
+  const qc = useQueryClient();
+  const github = useQuery({
+    queryKey: ["github-connection"],
+    queryFn: api.githubStatus,
+    retry: false,
+  });
+  const disconnectGitHub = useMutation({
+    mutationFn: api.githubDisconnect,
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["github-connection"] });
+      toast.success("GitHub disconnected.");
+    },
+    onError: (e) => toast.error(errorMessage(e, "Could not disconnect GitHub")),
+  });
 
   if (me.isLoading) {
     return (
@@ -39,6 +57,43 @@ export function ProfilePage() {
         <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
       </div>
       <div className="space-y-4">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-sm">
+              <GitBranch className="h-4 w-4" /> GitHub
+            </CardTitle>
+            <CardDescription>
+              Let documents fetch repository files through your GitHub account. Your
+              OAuth token stays on the server and is never exposed to document code.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex items-center justify-between gap-4">
+            <div className="min-w-0 text-sm">
+              {github.isLoading
+                ? "Checking connection…"
+                : github.data?.connected
+                  ? `Connected as ${github.data.login}`
+                  : "Not connected"}
+            </div>
+            {github.data?.connected ? (
+              <Button
+                variant="outline"
+                onClick={() => disconnectGitHub.mutate()}
+                disabled={disconnectGitHub.isPending}
+              >
+                Disconnect
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                onClick={() => window.location.assign(api.githubConnectURL())}
+                disabled={github.isLoading || !!github.error}
+              >
+                Connect GitHub
+              </Button>
+            )}
+          </CardContent>
+        </Card>
         <Card>
           <CardContent className="flex items-center gap-4 pt-5">
             <Avatar size={56} src={user.picture_url} name={user.name || user.email} />

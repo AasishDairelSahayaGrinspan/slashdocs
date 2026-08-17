@@ -1,5 +1,5 @@
 export type Principal = {
-  type: "user" | "service_account" | "anyone";
+  type: "user" | "service_account" | "google_group" | "anyone";
   id: string;
   email?: string;
   name?: string;
@@ -23,6 +23,7 @@ export type Document = {
   parent_folder_id?: string;
   parent_folder?: { id: string; title: string };
   updated_at?: string;
+  labels?: string[];
 };
 export type ServerConfig = {
   deployment: "public" | "org";
@@ -37,7 +38,20 @@ export type Version = {
   created_by?: Principal;
   change_summary?: string;
   sha256?: string;
+  created_at?: string;
 };
+export type GitHubStatus = {
+  connected: boolean;
+  login?: string;
+  avatar_url?: string;
+};
+export type GitHubRawRequest = {
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string;
+};
+export type GitHubRawResponse = GitHubRawRequest & { content: string };
 export type Anchor = {
   quote: string;
   prefix?: string;
@@ -211,10 +225,13 @@ export const api = {
     }>("/v1/me"),
   loginURL: (redirect: string = location.pathname + location.search) =>
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
-  listDocuments: (q?: string) =>
-    request<{ items: Document[] }>(
-      `/v1/documents${q ? `?q=${encodeURIComponent(q)}` : ""}`,
-    ),
+  listDocuments: (q?: string, label?: string) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (label) params.set("label", label);
+    const qs = params.toString();
+    return request<{ items: Document[] }>(`/v1/documents${qs ? `?${qs}` : ""}`);
+  },
   getDocument: (id: string) => request<Document>(`/v1/documents/${id}`),
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>
@@ -251,6 +268,28 @@ export const api = {
       `/v1/documents/${doc}/versions/${version}/render-token`,
       { method: "POST" },
     ),
+  printToken: (doc: string, version: string) =>
+    request<{ token: string; url: string }>(
+      `/v1/documents/${doc}/versions/${version}/print-token`,
+      { method: "POST" },
+    ),
+  getDocumentLabels: (doc: string) =>
+    request<{ items: string[] }>(`/v1/documents/${doc}/labels`),
+  replaceDocumentLabels: (doc: string, labels: string[]) =>
+    request<{ items: string[] }>(`/v1/documents/${doc}/labels`, {
+      method: "PUT",
+      body: JSON.stringify({ labels }),
+    }),
+  githubStatus: () => request<GitHubStatus>("/v1/integrations/github"),
+  githubConnectURL: (redirect = location.pathname + location.search) =>
+    `/v1/integrations/github/start?redirect=${encodeURIComponent(redirect)}`,
+  githubDisconnect: () =>
+    request<void>("/v1/integrations/github", { method: "DELETE" }),
+  githubRawContent: (doc: string, input: GitHubRawRequest) =>
+    request<GitHubRawResponse>(`/v1/documents/${doc}/github/raw`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   listDocumentKV: (doc: string) =>
     request<DocumentKVSnapshot>(`/v1/documents/${doc}/kv`),
   patchDocumentKV: (doc: string, patch: DocumentKVPatch) =>

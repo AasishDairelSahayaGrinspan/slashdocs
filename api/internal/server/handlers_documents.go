@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -107,6 +108,20 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Success 200 {object} listResponse[repo.Document]
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
+	if label := c.Query("label"); label != "" {
+		label = strings.ToLower(strings.TrimSpace(label))
+		if !labelPattern.MatchString(label) {
+			badRequest(c, "invalid label")
+			return
+		}
+		items, err := h.deps.repository.ListDocumentsByLabel(c.Request.Context(), *current(c), label)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
+		return
+	}
 	q := c.Query("q")
 	if q != "" {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
@@ -122,6 +137,9 @@ func (h handlers) listDocuments(c *gin.Context) {
 	if err != nil {
 		internalErr(c, err)
 		return
+	}
+	for i := range items {
+		items[i].Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), items[i].ID)
 	}
 	c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
 }
@@ -168,6 +186,7 @@ func (h handlers) getDocument(c *gin.Context) {
 			}
 		}
 	}
+	d.Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), d.ID)
 	c.JSON(http.StatusOK, d)
 }
 

@@ -95,6 +95,14 @@ type DocumentKvEvent struct {
 	UpdatedByName  string
 }
 
+type DocumentLabel struct {
+	DocumentID    string
+	Label         string
+	CreatedByType string
+	CreatedByID   string
+	CreatedAt     pgtype.Timestamptz
+}
+
 type DocumentWorkspaceEntry struct {
 	DocumentID    string
 	PrincipalType string
@@ -118,6 +126,16 @@ type FolderWorkspaceEntry struct {
 	PrincipalID   string
 	AddedAt       pgtype.Timestamptz
 	LastOpenedAt  pgtype.Timestamptz
+}
+
+type GithubConnection struct {
+	UserID                string
+	GithubUserID          int64
+	Login                 string
+	AvatarUrl             string
+	AccessTokenCiphertext []byte
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
 }
 
 type OauthState struct {

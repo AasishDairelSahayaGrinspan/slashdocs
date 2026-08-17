@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { COMMENT_STATUS } from "@/lib/constants";
@@ -274,6 +273,29 @@ export function RenderFrame() {
           sendError(err);
         }
       };
+      const handleGitHubRequest = async (data: Record<string, unknown>) => {
+        const requestId = String(data.requestId || "");
+        try {
+          if (data.operation !== "raw") throw new Error("unknown GitHub operation");
+          const result = await api.githubRawContent(docId, {
+            owner: String(data.owner || ""),
+            repo: String(data.repo || ""),
+            path: String(data.path || ""),
+            ref: String(data.ref || ""),
+          });
+          postToFrame({ type: "aidocs:github-response", requestId, ok: true, result });
+        } catch (err) {
+          postToFrame({
+            type: "aidocs:github-response",
+            requestId,
+            ok: false,
+            error:
+              err instanceof APIError
+                ? { message: err.message, code: err.code, status: err.status }
+                : { message: errorMessage(err, "GitHub request failed") },
+          });
+        }
+      };
       if (e.data?.type === "aidocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
@@ -281,6 +303,14 @@ export function RenderFrame() {
       }
       if (e.data?.type === "aidocs:kv-request") {
         void handleKVRequest(e.data as Record<string, unknown>);
+      }
+      if (e.data?.type === "aidocs:github-request") {
+        void handleGitHubRequest(e.data as Record<string, unknown>);
+      }
+      if (e.data?.type === "aidocs:heading" && typeof e.data.id === "string") {
+        const url = new URL(window.location.href);
+        url.hash = e.data.id;
+        window.history.replaceState(window.history.state, "", url);
       }
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
@@ -304,8 +334,8 @@ export function RenderFrame() {
           ),
         );
       }
-      if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      if (e.data?.type === "aidocs:keydown" && typeof e.data.key === "string") {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: e.data.key }));
       }
       if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
         const frameRect = ref.current?.getBoundingClientRect();
@@ -326,6 +356,13 @@ export function RenderFrame() {
           { type: "aidocs:theme", theme: themeRef.current },
           frameOrigin,
         );
+        const heading = decodeURIComponent(window.location.hash.slice(1));
+        if (heading) {
+          ref.current?.contentWindow?.postMessage(
+            { type: "aidocs:navigate-heading", id: heading },
+            frameOrigin,
+          );
+        }
       }
     };
     window.addEventListener("message", onMsg);
@@ -372,22 +409,6 @@ export function RenderFrame() {
   useEffect(() => {
     paint();
   }, [paint]);
-
-  // Forward print requests from the DocBar dropdown to the bridge, which
-  // calls print() on the inner document iframe — preserving the bridge
-  // script, KV store, and all other integrations in the printed output.
-  useEffect(() => {
-    const onPrint = () => {
-      if (!ready || !frameOrigin) {
-        toast.error("Document is still loading. Please try again in a moment.");
-        return;
-      }
-      ref.current?.contentWindow?.postMessage({ type: "aidocs:print" }, frameOrigin);
-      toast.success('Print dialog opened — choose "Save as PDF" to export.');
-    };
-    window.addEventListener("aidocs:print", onPrint);
-    return () => window.removeEventListener("aidocs:print", onPrint);
-  }, [ready, frameOrigin]);
 
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.

@@ -5,7 +5,7 @@ import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import { MoreHorizontal, Plus, Search, Sparkles } from "lucide-react";
+import { MoreHorizontal, Plus, Search, Sparkles, Tag } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Center, Skeleton, EmptyState } from "@/components/ui/misc";
@@ -32,6 +32,7 @@ import {
 export function DocumentsPage() {
   useTitle("Documents");
   const [q, setQ] = useState("");
+  const [label, setLabel] = useState("");
   const [debouncedQ, setDebouncedQ] = useState("");
   useEffect(() => {
     const t = window.setTimeout(() => setDebouncedQ(q.trim()), 250);
@@ -39,8 +40,9 @@ export function DocumentsPage() {
   }, [q]);
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const docs = useQuery({
-    queryKey: [...queryKeys.documents(), debouncedQ],
-    queryFn: () => api.listDocuments(debouncedQ || undefined),
+    queryKey: [...queryKeys.documents(), debouncedQ, label.trim().toLowerCase()],
+    queryFn: () =>
+      api.listDocuments(debouncedQ || undefined, label.trim().toLowerCase() || undefined),
     placeholderData: (prev) => prev,
   });
   const pins = useQuery({
@@ -178,7 +180,7 @@ export function DocumentsPage() {
   }
   if (docs.error) return <Center>Could not load documents.</Center>;
 
-  const searching = debouncedQ.length > 0;
+  const searching = debouncedQ.length > 0 || label.trim().length > 0;
   const empty = !searching && documents.length === 0 && folders.length === 0;
 
   return (
@@ -198,6 +200,16 @@ export function DocumentsPage() {
               onChange={(e) => setQ(e.target.value)}
               placeholder="Search…"
               className="w-full pl-8 sm:w-56"
+            />
+          </div>
+          <div className="relative hidden sm:block">
+            <Tag className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-muted)]" />
+            <Input
+              value={label}
+              onChange={(e) => setLabel(e.target.value)}
+              placeholder="Filter label…"
+              className="w-40 pl-8"
+              aria-label="Filter by label"
             />
           </div>
           <ViewModeToggle />
@@ -232,7 +244,14 @@ export function DocumentsPage() {
         <EmptyDocs />
       ) : searching ? (
         documents.length === 0 && folders.length === 0 ? (
-          <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
+          <EmptyState
+            title="No matches"
+            description={
+              label.trim()
+                ? `No documents have the label "${label.trim()}".`
+                : `Nothing matches "${q}".`
+            }
+          />
         ) : viewMode === "list" ? (
           <UnifiedTable entries={merged} principal={me.data?.principal} />
         ) : (

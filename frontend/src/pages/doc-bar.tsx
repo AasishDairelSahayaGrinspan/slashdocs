@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -14,6 +15,7 @@ import {
   PanelRightClose,
   PanelRightOpen,
   Share2,
+  Tag,
   Trash2,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -29,14 +31,16 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
+  DialogFooter,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
-import { canManageSharing } from "@/lib/constants";
+import { canManageSharing, ROLE_RANK } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
@@ -51,6 +55,7 @@ export function DocBar({
   current,
   latest,
   versions,
+  labels,
   onSelectVersion,
   commentsOpen,
   onToggleComments,
@@ -63,6 +68,7 @@ export function DocBar({
   current: string;
   latest: string;
   versions: Version[];
+  labels: string[];
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
@@ -82,6 +88,7 @@ export function DocBar({
     samePrincipal(item.principal, principal),
   )?.effective_role;
   const canManageAccess = canManage || canManageSharing(currentAccessRole);
+  const canEdit = canManage || (ROLE_RANK[currentAccessRole || ""] || 0) >= ROLE_RANK.editor;
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -91,8 +98,21 @@ export function DocBar({
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
-  const exportPDF = () => {
-    window.dispatchEvent(new CustomEvent("aidocs:print"));
+  const exportPDF = async () => {
+    const popup = window.open("about:blank", "_blank");
+    if (!popup) {
+      toast.error("Allow popups to export this document as PDF.");
+      return;
+    }
+    popup.opener = null;
+    try {
+      const result = await api.printToken(docId, current);
+      popup.location.replace(result.url);
+      toast.success('Print dialog opened — choose "Save as PDF" to export.');
+    } catch (e) {
+      popup.close();
+      toast.error(errorMessage(e, "Could not prepare PDF export"));
+    }
   };
   return (
     <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
@@ -137,6 +157,7 @@ export function DocBar({
         versions={versions}
         onSelectVersion={onSelectVersion}
       />
+      <LabelsDialog docId={docId} labels={labels} canEdit={canEdit} />
       <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
         <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
           <Maximize2 className="h-4 w-4" /> Full screen
@@ -193,7 +214,7 @@ export function DocBar({
           >
             <ExternalLink className="h-4 w-4" /> Open raw HTML
           </DropdownItem>
-          <DropdownItem onSelect={exportPDF}>
+          <DropdownItem onSelect={() => void exportPDF()}>
             <FileDown className="h-4 w-4" /> Export as PDF
           </DropdownItem>
           {canManage ? (
@@ -217,6 +238,75 @@ export function DocBar({
         </DropdownContent>
       </Dropdown>
     </div>
+  );
+}
+
+function LabelsDialog({
+  docId,
+  labels,
+  canEdit,
+}: {
+  docId: string;
+  labels: string[];
+  canEdit: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const [draft, setDraft] = useState(labels.join(", "));
+  const qc = useQueryClient();
+  const save = useMutation({
+    mutationFn: () =>
+      api.replaceDocumentLabels(
+        docId,
+        draft
+          .split(",")
+          .map((label) => label.trim())
+          .filter(Boolean),
+      ),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.document(docId) });
+      qc.invalidateQueries({ queryKey: queryKeys.documents() });
+      setOpen(false);
+      toast.success("Labels updated.");
+    },
+    onError: (e) => toast.error(errorMessage(e, "Could not update labels")),
+  });
+  return (
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (next) setDraft(labels.join(", "));
+      }}
+    >
+      <DialogTrigger asChild>
+        <Button variant="outline" size="sm" className="hidden lg:inline-flex">
+          <Tag className="h-4 w-4" />
+          {labels.length ? labels.join(", ") : "Labels"}
+        </Button>
+      </DialogTrigger>
+      <DialogContent className="max-w-md">
+        <DialogHeader>
+          <DialogTitle>Document labels</DialogTitle>
+          <DialogDescription>
+            Add comma-separated labels. Labels are normalized to lowercase and can be
+            used from the documents search page.
+          </DialogDescription>
+        </DialogHeader>
+        <Input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="runbook, payments, onboarding"
+          disabled={!canEdit}
+        />
+        <DialogFooter>
+          {canEdit ? (
+            <Button onClick={() => save.mutate()} disabled={save.isPending}>
+              Save labels
+            </Button>
+          ) : null}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -286,6 +376,9 @@ function VersionHistoryDialog({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
                     <span>Created by {principalLabel(v.created_by)}</span>
+                    {v.created_at ? (
+                      <span>{new Date(v.created_at).toLocaleString()}</span>
+                    ) : null}
                     <span className="font-mono">{v.id}</span>
                   </div>
                 </div>

@@ -23,7 +23,7 @@ interface KVHistoryEntry {
 }
 
 interface KVPendingRequest {
-  resolve(value: KVItems): void;
+  resolve(value: any): void;
   reject(error: unknown): void;
 }
 
@@ -41,9 +41,16 @@ interface QueuedKVOperation {
 }
 
 type KVFunction = (...args: never[]) => Promise<unknown>;
+type GitHubFunction = (input: {
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string;
+}) => Promise<unknown>;
 
 interface AidocsPublicAPI {
   kv?: Record<string, KVFunction>;
+  github?: { getRawContent: GitHubFunction };
   on?: (event: string, handler: KVChangeHandler) => (() => void) | undefined;
   off?: (event: string, handler: KVChangeHandler) => void;
   [key: string]: unknown;
@@ -54,6 +61,11 @@ declare global {
     __AIDOCS_APP_ORIGIN__?: string;
     __aidocsKVHandlers?: KVHandlers;
     __aidocsKVQueue?: QueuedKVOperation[];
+    __aidocsGitHubQueue?: Array<{
+      input: Parameters<GitHubFunction>[0];
+      resolve(value: unknown): void;
+      reject(error: unknown): void;
+    }>;
     aidocs?: AidocsPublicAPI;
     CustomEvent: typeof CustomEvent;
   }
@@ -73,6 +85,8 @@ type Theme = "dark" | "light";
   const frame = document.getElementById("aidocs-doc") as HTMLIFrameElement;
   let kvRequestID = 0;
   const kvPending: Record<string, KVPendingRequest> = {};
+  let githubRequestID = 0;
+  const githubPending: Record<string, KVPendingRequest> = {};
   const kvRequestTimeoutMS = 10000;
   const kvHistoryLimit = 100;
   let kvUndoStack: KVHistoryEntry[] = [];
@@ -368,6 +382,42 @@ type Theme = "dark" | "light";
     });
   }
 
+  function githubRawContent(input: Parameters<GitHubFunction>[0]): Promise<unknown> {
+    if (!input || typeof input !== "object") {
+      return Promise.reject(new TypeError("aidocs.github.getRawContent requires an input object"));
+    }
+    const payload = {
+      owner: String(input.owner || ""),
+      repo: String(input.repo || ""),
+      path: String(input.path || ""),
+      ref: String(input.ref || ""),
+    };
+    if (!payload.owner || !payload.repo || !payload.path || !payload.ref) {
+      return Promise.reject(new TypeError("owner, repo, path, and ref are required"));
+    }
+    const requestId = "github_" + ++githubRequestID + "_" + Date.now();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        delete githubPending[requestId];
+        reject(new Error("GitHub request timed out"));
+      }, 30000);
+      githubPending[requestId] = {
+        resolve(value) {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject(error) {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      parent.postMessage(
+        { type: "aidocs:github-request", requestId, operation: "raw", ...payload },
+        targetOrigin(),
+      );
+    });
+  }
+
   function emitKVChange(detail: unknown): void {
     const w = innerWindow();
     if (!w) return;
@@ -433,11 +483,18 @@ type Theme = "dark" | "light";
       },
     };
     existing.kv = kv;
+    existing.github = { getRawContent: githubRawContent };
     existing.on = on;
     existing.off = off;
     try {
       w.aidocs = existing;
     } catch (e) {}
+
+    const githubQueued = w.__aidocsGitHubQueue || [];
+    w.__aidocsGitHubQueue = [];
+    githubQueued.forEach((entry) => {
+      githubRawContent(entry.input).then(entry.resolve, entry.reject);
+    });
 
     const queued = w.__aidocsKVQueue || [];
     w.__aidocsKVQueue = [];
@@ -736,7 +793,10 @@ type Theme = "dark" | "light";
 
   function observeMutations(d: Document): void {
     if (mutationObserver) mutationObserver.disconnect();
-    mutationObserver = new MutationObserver(scheduleMutationScan);
+    mutationObserver = new MutationObserver(() => {
+      prepareHeadings(d);
+      scheduleMutationScan();
+    });
     // Observe the root element rather than body so a script replacing
     // document.body entirely is still seen.
     observedRoot = d.documentElement;
@@ -877,6 +937,10 @@ type Theme = "dark" | "light";
         try {
           d.defaultView!.history.replaceState(null, "", href);
         } catch (err) {}
+        parent.postMessage(
+          { type: "aidocs:heading", id: decodeURIComponent(href.slice(1)) },
+          targetOrigin(),
+        );
       }
       return;
     }
@@ -1024,6 +1088,30 @@ type Theme = "dark" | "light";
 
   curTheme = initialTheme();
   let setupDoc: Document | null = null;
+
+  function prepareHeadings(d: Document): void {
+    const used: Record<string, number> = {};
+    Array.from(d.querySelectorAll("h1,h2,h3,h4,h5,h6")).forEach((heading) => {
+      const base =
+        heading.id ||
+        (heading.textContent || "section")
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") ||
+        "section";
+      const count = used[base] || 0;
+      used[base] = count + 1;
+      if (!heading.id) heading.id = count ? `${base}-${count + 1}` : base;
+    });
+  }
+
+  function navigateHeading(id: string): void {
+    const d = doc();
+    if (!d || !id) return;
+    const target = d.getElementById(id);
+    if (target) target.scrollIntoView({ block: "start" });
+  }
   function setupFrame(): void {
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
@@ -1045,6 +1133,7 @@ type Theme = "dark" | "light";
     resetKVHistory();
     injectStyles();
     installAidocsAPI();
+    prepareHeadings(d);
     prepareLinks();
     applyTheme(curTheme);
     // Track the selection gesture so mutation repairs never run mid-drag
@@ -1101,9 +1190,32 @@ type Theme = "dark" | "light";
       if (selTimer) clearTimeout(selTimer);
       selTimer = setTimeout(selection, 350);
     });
+    let vimGArmed = false;
+    let vimGTimer = 0;
     d.addEventListener("keydown", (ev) => {
-      if (ev.key === "Escape") {
-        parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
+      const target = ev.target as Element | null;
+      const typing = !!target?.closest?.('input,textarea,select,[contenteditable="true"]');
+      if (!typing && ["Escape", "t", "f", "c", "h"].includes(ev.key.toLowerCase())) {
+        parent.postMessage({ type: "aidocs:keydown", key: ev.key }, targetOrigin());
+      }
+      if (!typing && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
+        const view = d.defaultView;
+        if (ev.key === "j") view?.scrollBy({ top: Math.max(160, view.innerHeight * 0.45), behavior: "smooth" });
+        if (ev.key === "k") view?.scrollBy({ top: -Math.max(160, view.innerHeight * 0.45), behavior: "smooth" });
+        if (ev.key === "G") view?.scrollTo({ top: d.documentElement.scrollHeight, behavior: "smooth" });
+        if (ev.key === "g") {
+          if (vimGArmed) {
+            view?.scrollTo({ top: 0, behavior: "smooth" });
+            vimGArmed = false;
+            clearTimeout(vimGTimer);
+          } else {
+            vimGArmed = true;
+            vimGTimer = setTimeout(() => (vimGArmed = false), 600);
+          }
+        } else if (ev.key !== "Escape") {
+          vimGArmed = false;
+          clearTimeout(vimGTimer);
+        }
       }
       handleKVUndoRedoShortcut(ev);
     });
@@ -1153,15 +1265,17 @@ type Theme = "dark" | "light";
         pending.reject(
           new Error((e.data.error && e.data.error.message) || "KV request failed"),
         );
+    } else if (e.data.type === "aidocs:github-response") {
+      const requestId = String(e.data.requestId || "");
+      const pending = githubPending[requestId];
+      if (!pending) return;
+      delete githubPending[requestId];
+      if (e.data.ok) pending.resolve(e.data.result || {});
+      else pending.reject(new Error((e.data.error && e.data.error.message) || "GitHub request failed"));
+    } else if (e.data.type === "aidocs:navigate-heading") {
+      navigateHeading(String(e.data.id || ""));
     } else if (e.data.type === "aidocs:kv-event") {
       emitKVChange(e.data.detail || {});
-    } else if (e.data.type === "aidocs:print") {
-      const w = innerWindow();
-      if (!w) return;
-      try {
-        w.focus();
-        w.print();
-      } catch (err) {}
     }
   });
 })();

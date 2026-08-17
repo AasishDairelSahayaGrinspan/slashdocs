@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/oauth2"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
@@ -31,6 +32,8 @@ type Config struct {
 	// newly created documents when the request does not override it via the
 	// default_permission form field. repo.RoleNone means private: no grant.
 	DefaultDocPermission repo.Role
+	GitHubClientID       string
+	GitHubClientSecret   string
 }
 
 // Server wraps the gin engine.
@@ -56,6 +59,8 @@ type dependencies struct {
 	defaultDocPermission repo.Role
 	readinessChecks      []readinessCheck
 	documentKVEvents     kvevents.Subscriber
+	githubOAuth          *oauth2.Config
+	githubHTTPClient     *http.Client
 }
 
 // Option configures the Server.
@@ -111,6 +116,15 @@ func New(cfg Config, opts ...Option) *Server {
 		deployment:           cfg.Deployment,
 		orgName:              cfg.OrgName,
 		defaultDocPermission: cfg.DefaultDocPermission,
+		githubHTTPClient:     http.DefaultClient,
+	}
+	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
+		deps.githubOAuth = &oauth2.Config{
+			ClientID: cfg.GitHubClientID, ClientSecret: cfg.GitHubClientSecret,
+			Endpoint:    oauth2.Endpoint{AuthURL: "https://github.com/login/oauth/authorize", TokenURL: "https://github.com/login/oauth/access_token"},
+			RedirectURL: strings.TrimRight(cfg.AppOrigin, "/") + "/v1/integrations/github/callback",
+			Scopes:      []string{"repo", "read:user"},
+		}
 	}
 	for _, opt := range opts {
 		opt(&deps)
@@ -163,6 +177,7 @@ func (s *Server) routes(deps dependencies) {
 	s.engine.GET("/cli/:os/:arch", h.downloadCLI)
 	registerAPIDocsRoutes(s.engine)
 	s.engine.GET("/v/:id/:version_id", h.renderVersion)
+	s.engine.GET("/print/:id/:version_id", h.renderPrintVersion)
 	registerFrontendRoutes(s.engine, deps.appOrigin)
 
 	s.engine.GET("/livez", h.livez)
@@ -209,6 +224,10 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/documents/:id/versions/:version_id", h.getVersion)
 	authed.GET("/documents/:id/versions/:version_id/html", h.getVersionHTML)
 	authed.POST("/documents/:id/versions/:version_id/render-token", h.createRenderToken)
+	authed.POST("/documents/:id/versions/:version_id/print-token", h.createPrintToken)
+	authed.GET("/documents/:id/labels", h.listDocumentLabels)
+	authed.PUT("/documents/:id/labels", h.replaceDocumentLabels)
+	authed.POST("/documents/:id/integrations/github/raw", h.githubRawContent)
 	authed.POST("/documents/:id/comments", h.createComment)
 	authed.GET("/documents/:id/comments", h.listComments)
 	authed.GET("/documents/:id/kv", h.listDocumentKV)
@@ -232,6 +251,10 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/pins", h.listPins)
 	authed.PUT("/pins/:resource_type/:resource_id", h.putPin)
 	authed.DELETE("/pins/:resource_type/:resource_id", h.deletePin)
+	authed.GET("/integrations/github", h.githubStatus)
+	authed.GET("/integrations/github/start", h.githubOAuthStart)
+	authed.GET("/integrations/github/callback", h.githubOAuthCallback)
+	authed.DELETE("/integrations/github", h.githubDisconnect)
 }
 
 type handlers struct{ deps dependencies }
