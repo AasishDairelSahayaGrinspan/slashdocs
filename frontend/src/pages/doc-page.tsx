@@ -8,15 +8,20 @@ import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/lib/use-media-query";
+import { useTheme } from "@/lib/theme";
+import { useEscChord } from "@/lib/use-esc-chord";
+import type { ChordKey } from "@/lib/esc-chord";
 import { DocProvider, type PendingSelection } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
 import { Comments } from "./doc-comments";
-import { useResolvedTheme, useTheme } from "@/lib/theme";
+import { Keycast } from "./doc-keycast";
 
 const MIN_PANEL_WIDTH = 240;
 const MAX_PANEL_WIDTH = 640;
 const DEFAULT_PANEL_WIDTH = 380;
+
+const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
 
 const pageStagger = {
   hidden: {},
@@ -91,10 +96,9 @@ export function DocumentPage() {
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
-  const [chordHint, setChordHint] = useState<string>();
+  const [chordLabel, setChordLabel] = useState<string>();
   const nav = useNavigate();
-  const { setTheme } = useTheme();
-  const resolvedTheme = useResolvedTheme();
+  const { theme, setTheme } = useTheme();
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
   const handleDocCommentClick = useCallback(
@@ -181,6 +185,18 @@ export function DocumentPage() {
     );
   }, [setSearchParams]);
 
+  const toggleFullscreen = useCallback(() => {
+    setSearchParams(
+      (params) => {
+        const next = new URLSearchParams(params);
+        if (next.get("fullscreen") === "1") next.delete("fullscreen");
+        else next.set("fullscreen", "1");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
   useEffect(() => {
     if (!fullscreen) return;
     setShowFullscreenHint(true);
@@ -190,70 +206,56 @@ export function DocumentPage() {
     };
   }, [fullscreen]);
 
-  useEffect(() => {
-    let armed = false;
-    let timer = 0;
-    const clear = () => {
-      armed = false;
-      window.clearTimeout(timer);
-      setChordHint(undefined);
-    };
-    const ordinaryEscape = () => {
-      clear();
-      if (fullscreen) exitFullscreen();
-    };
-    const onKeyDown = (event: KeyboardEvent) => {
-      const el = event.target instanceof Element ? event.target : null;
-      if (
-        el?.closest('input,textarea,[contenteditable="true"]') ||
-        document.querySelector(
-          '[role="dialog"][data-state="open"],[role="menu"][data-state="open"]',
-        )
-      ) {
-        clear();
+  const chordKeys = useMemo<ChordKey[]>(
+    () => (fullscreen ? ["t", "f", "h"] : ["t", "f", "c", "h"]),
+    [fullscreen],
+  );
+  const runChord = useCallback(
+    (key: ChordKey) => {
+      if (key === "t") {
+        const nextTheme =
+          theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+        setTheme(nextTheme);
+        setChordLabel(THEME_LABELS[nextTheme]);
         return;
       }
-      if (event.key === "Escape") {
-        if (armed) {
-          ordinaryEscape();
-          return;
-        }
-        armed = true;
-        setChordHint("ESC · t theme · f full screen · c comments · h home");
-        timer = window.setTimeout(ordinaryEscape, 800);
+      if (key === "f") {
+        setChordLabel(fullscreen ? "Exited full screen" : "Full screen");
+        toggleFullscreen();
         return;
       }
-      if (!armed) return;
-      const key = event.key.toLowerCase();
-      clear();
-      if (key === "t") setTheme(resolvedTheme === "dark" ? "light" : "dark");
-      else if (key === "f") {
-        if (fullscreen) exitFullscreen();
-        else
-          setSearchParams((params) => {
-            const next = new URLSearchParams(params);
-            next.set("fullscreen", "1");
-            return next;
-          });
-      } else if (key === "c" && !fullscreen) {
-        if (isMobile) setMobilePanelOpen((value) => !value);
-        else setPanelOpen((value) => !value);
-      } else if (key === "h") nav("/app/documents");
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      window.removeEventListener("keydown", onKeyDown, true);
-      window.clearTimeout(timer);
-    };
-  }, [
-    exitFullscreen,
-    fullscreen,
-    isMobile,
-    nav,
-    resolvedTheme,
-    setSearchParams,
-    setTheme,
-  ]);
+      if (key === "c") {
+        setChordLabel(
+          (isMobile ? mobilePanelOpen : panelOpen)
+            ? "Comments hidden"
+            : "Comments shown",
+        );
+        toggleComments();
+        return;
+      }
+      setChordLabel("Documents");
+      nav("/app/documents");
+    },
+    [
+      theme,
+      setTheme,
+      fullscreen,
+      toggleFullscreen,
+      isMobile,
+      mobilePanelOpen,
+      panelOpen,
+      toggleComments,
+      nav,
+    ],
+  );
+  const onBareEscape = useCallback(() => {
+    if (fullscreen) exitFullscreen();
+  }, [fullscreen, exitFullscreen]);
+  const chord = useEscChord({
+    available: chordKeys,
+    onRun: runChord,
+    onEscape: onBareEscape,
+  });
 
   const ctx = useMemo(
     () => ({
@@ -358,31 +360,24 @@ export function DocumentPage() {
     <DocProvider value={ctx}>
       {fullscreen ? (
         <div className="relative h-full bg-[var(--color-surface-muted)]">
-          {chordHint ? (
-            <div className="pointer-events-none absolute bottom-6 left-5 z-20 rounded-xl bg-neutral-800/95 px-4 py-2.5 font-mono text-sm text-white shadow-lg">
-              {chordHint}
-            </div>
-          ) : null}
           {showFullscreenHint ? (
             <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
-              <span className="hidden sm:inline">Press Esc to exit full screen</span>
+              <span className="hidden sm:inline">
+                Esc to exit · Esc t theme · Esc h home
+              </span>
               <span className="sm:hidden">Go back to exit full screen</span>
             </div>
           ) : null}
           {current ? <RenderFrame /> : <Center>No version available.</Center>}
+          <Keycast state={chord} available={chordKeys} label={chordLabel} />
         </div>
       ) : (
         <motion.div
-          className="relative flex h-full flex-col"
+          className="flex h-full flex-col"
           initial="hidden"
           animate="visible"
           variants={pageStagger}
         >
-          {chordHint ? (
-            <div className="pointer-events-none absolute bottom-6 left-5 z-30 rounded-xl bg-neutral-800/95 px-4 py-2.5 font-mono text-sm text-white shadow-lg">
-              {chordHint}
-            </div>
-          ) : null}
           <motion.div variants={barSlide}>
             <DocBar
               title={docTitle(doc.data)}
@@ -402,6 +397,7 @@ export function DocumentPage() {
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
             <section className="relative flex-1 bg-[var(--color-surface-muted)]">
               {current ? <RenderFrame /> : <Center>No version available.</Center>}
+              <Keycast state={chord} available={chordKeys} label={chordLabel} />
             </section>
             <AnimatePresence initial={false}>
               {panelOpen && (

@@ -9,6 +9,7 @@ import {
   highlightRange,
   refreshSVGRects,
 } from "./highlight.ts";
+import { reduceVimScroll, type VimScrollAction } from "../src/lib/vim-scroll.ts";
 
 type KVItems = Record<string, unknown>;
 
@@ -1197,43 +1198,74 @@ type Theme = "dark" | "light";
       if (selTimer) clearTimeout(selTimer);
       selTimer = setTimeout(selection, 350);
     });
+    const chordKeys = ["t", "f", "c", "h"];
+    let chordArmedAt = 0;
     let vimGArmed = false;
     let vimGTimer = 0;
+    const runVimScroll = (action: VimScrollAction) => {
+      const view = d.defaultView;
+      if (!view) return;
+      if (action === "line-down") view.scrollBy({ top: 72, behavior: "auto" });
+      else if (action === "line-up") view.scrollBy({ top: -72, behavior: "auto" });
+      else if (action === "half-page-down")
+        view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior: "auto" });
+      else if (action === "half-page-up")
+        view.scrollBy({
+          top: -Math.max(160, view.innerHeight * 0.5),
+          behavior: "auto",
+        });
+      else if (action === "top") view.scrollTo({ top: 0, behavior: "auto" });
+      else
+        view.scrollTo({
+          top: d.documentElement.scrollHeight,
+          behavior: "auto",
+        });
+    };
     d.addEventListener("keydown", (ev) => {
       const target = ev.target as Element | null;
-      const typing = !!target?.closest?.(
+      const textEditing = !!target?.closest?.(
         'input,textarea,select,[contenteditable="true"]',
       );
-      if (!typing && ["Escape", "t", "f", "c", "h"].includes(ev.key.toLowerCase())) {
-        parent.postMessage({ type: "aidocs:keydown", key: ev.key }, targetOrigin());
+      if (ev.defaultPrevented || textEditing) {
+        chordArmedAt = 0;
+        vimGArmed = false;
+        clearTimeout(vimGTimer);
+        handleKVUndoRedoShortcut(ev);
+        return;
       }
-      if (!typing && !ev.metaKey && !ev.ctrlKey && !ev.altKey) {
-        const view = d.defaultView;
-        if (ev.key === "j")
-          view?.scrollBy({
-            top: Math.max(160, view.innerHeight * 0.45),
-            behavior: "smooth",
-          });
-        if (ev.key === "k")
-          view?.scrollBy({
-            top: -Math.max(160, view.innerHeight * 0.45),
-            behavior: "smooth",
-          });
-        if (ev.key === "G")
-          view?.scrollTo({ top: d.documentElement.scrollHeight, behavior: "smooth" });
-        if (ev.key === "g") {
-          if (vimGArmed) {
-            view?.scrollTo({ top: 0, behavior: "smooth" });
-            vimGArmed = false;
-            clearTimeout(vimGTimer);
-          } else {
-            vimGArmed = true;
-            vimGTimer = setTimeout(() => (vimGArmed = false), 600);
-          }
-        } else if (ev.key !== "Escape") {
-          vimGArmed = false;
-          clearTimeout(vimGTimer);
+
+      const modified = ev.metaKey || ev.ctrlKey || ev.altKey;
+      if (ev.key === "Escape") {
+        chordArmedAt = modified ? 0 : Date.now();
+        parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
+      } else if (chordArmedAt) {
+        const withinWindow = Date.now() - chordArmedAt <= 800;
+        chordArmedAt = 0;
+        const key = ev.key.toLowerCase();
+        if (withinWindow && !modified && chordKeys.includes(key)) {
+          parent.postMessage({ type: "aidocs:keydown", key }, targetOrigin());
         }
+      }
+
+      const vim = reduceVimScroll(
+        {
+          key: ev.key,
+          ctrlKey: ev.ctrlKey,
+          metaKey: ev.metaKey,
+          altKey: ev.altKey,
+        },
+        vimGArmed,
+      );
+      vimGArmed = vim.gArmed;
+      clearTimeout(vimGTimer);
+      if (vimGArmed) {
+        vimGTimer = setTimeout(() => {
+          vimGArmed = false;
+        }, 600);
+      }
+      if (vim.action) {
+        ev.preventDefault();
+        runVimScroll(vim.action);
       }
       handleKVUndoRedoShortcut(ev);
     });
@@ -1295,6 +1327,18 @@ type Theme = "dark" | "light";
         );
     } else if (e.data.type === "aidocs:navigate-heading") {
       navigateHeading(String(e.data.id || ""));
+    } else if (e.data.type === "aidocs:vim-key") {
+      const d = doc();
+      const KeyboardEventCtor = d?.defaultView?.KeyboardEvent;
+      if (!d || !KeyboardEventCtor) return;
+      d.dispatchEvent(
+        new KeyboardEventCtor("keydown", {
+          key: String(e.data.key || ""),
+          ctrlKey: e.data.ctrlKey === true,
+          metaKey: e.data.metaKey === true,
+          altKey: e.data.altKey === true,
+        }),
+      );
     } else if (e.data.type === "aidocs:kv-event") {
       emitKVChange(e.data.detail || {});
     }

@@ -6,7 +6,14 @@ import { COMMENT_STATUS } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
 import { errorMessage } from "@/lib/errors";
+import { CHORD_KEYS } from "@/lib/esc-chord";
 import { useDoc } from "./doc-context";
+
+const FORWARDED_KEYS = new Set<string>([
+  "Escape",
+  ...CHORD_KEYS.map((item) => item.key),
+]);
+const VIM_KEYS = new Set(["j", "k", "g", "G"]);
 
 // Renders the sandboxed document iframe and exchanges selection and paint
 // messages with the in-iframe bridge. Message origins are validated on both
@@ -123,6 +130,44 @@ export function RenderFrame() {
       frameOrigin,
     );
   }, [theme, ready, frameOrigin]);
+
+  // Vim scrolling works whether focus is inside the rendered document or on
+  // the surrounding viewer chrome. The bridge handles the actual scroll so
+  // there is still a single scroll state machine.
+  useEffect(() => {
+    if (!ready || !frameOrigin) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        event.defaultPrevented ||
+        target?.closest(
+          'input,textarea,select,button,a,[contenteditable="true"],[contenteditable=""]',
+        ) ||
+        document.querySelector(
+          '[role="dialog"][data-state="open"],[role="menu"][data-state="open"]',
+        )
+      ) {
+        return;
+      }
+      const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
+      const halfPage =
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        ["d", "u"].includes(event.key.toLowerCase());
+      if (!(plain && VIM_KEYS.has(event.key)) && !halfPage) return;
+      event.preventDefault();
+      postToCurrentFrame({
+        type: "aidocs:vim-key",
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+      });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ready, frameOrigin, postToCurrentFrame]);
 
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
@@ -334,7 +379,11 @@ export function RenderFrame() {
           ),
         );
       }
-      if (e.data?.type === "aidocs:keydown" && typeof e.data.key === "string") {
+      if (
+        e.data?.type === "aidocs:keydown" &&
+        typeof e.data.key === "string" &&
+        FORWARDED_KEYS.has(e.data.key)
+      ) {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: e.data.key }));
       }
       if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
