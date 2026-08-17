@@ -180,6 +180,9 @@ Interactive documents are allowed.
   - For persisted document-local state such as approvals, tracker rows, and
     dropdown selections, use the aidocs KV primitive:
       aidocs guidelines interactivity kv
+  - For documents that render files from GitHub at read time, use the GitHub
+    bridge rather than embedding credentials or fetching private URLs directly:
+      aidocs guidelines interactivity github
 `,
 	},
 	{
@@ -281,6 +284,109 @@ Small dropdown example:
         });
       }
     });
+  </script>
+`,
+	},
+	{
+		Path:    []string{"interactivity", "github"},
+		Summary: "Render GitHub repository files as reviewable document content.",
+		Aliases: [][]string{{"github"}, {"github-backed"}, {"git-source"}},
+		Body: `aidocs guidelines: interactivity github
+
+Uploaded HTML can read a GitHub repository file through
+window.aidocs.github.getRawContent. Use this for specifications, generated
+references, package metadata, source definitions, and other content that should
+remain in GitHub while being rendered and reviewed in aidocs.
+
+API:
+  const file = await window.aidocs.github.getRawContent({
+    owner: "razorpay",
+    repo: "example",
+    path: "api/openapi.json",
+    ref: "main"
+  });
+
+  // file contains owner, repo, path, ref, and content.
+  // The document chooses how to parse and render file.content.
+
+Ref behavior:
+  - ref may be a branch, tag, or commit SHA.
+  - Prefer a stable commit ref unless the document intentionally needs to follow
+    a floating branch or tag. Floating refs can change without a new aidocs
+    version, so existing comments may need to be re-anchored.
+  - Show the repository, path, and ref in the rendered document so reviewers know
+    exactly what source they are reading.
+
+Access and security:
+  - Every reader loads the file using their own connected GitHub account and can
+    only read repositories that GitHub permits that account to access.
+  - Private organisation repositories may also require organisation approval of
+    the configured GitHub integration.
+  - aidocs keeps the GitHub token outside uploaded HTML. Never put a token in the
+    document or fetch a private raw.githubusercontent.com URL directly.
+  - Treat repository content as untrusted input. Parse known formats and build DOM
+    with textContent. Do not eval source code or assign arbitrary repository
+    content to innerHTML.
+  - Files are limited to 10 MiB.
+
+Connection fallback:
+  If loading fails because the reader may not have connected GitHub, offer a
+  visible button that calls window.aidocs.github.connect(). The trusted aidocs
+  shell starts the connection flow and returns to the same document. Also show a
+  useful error because an incorrect path, ref, or repository permission can fail
+  in the same place.
+
+Reviewability:
+  - Convert the source into semantic, selectable headings, paragraphs, lists,
+    tables, and code blocks. Content added after the fetch remains commentable.
+  - Do not render important review text only into canvas, images, or inaccessible
+    widgets.
+  - Keep stable DOM structure and headings when possible so comments can be
+    re-anchored across aidocs versions.
+
+Small JSON renderer example:
+  <p id="source">Loading GitHub source…</p>
+  <dl id="metadata"></dl>
+
+  <script>
+    const source = document.querySelector("#source");
+    const metadata = document.querySelector("#metadata");
+
+    async function renderGitHubFile() {
+      try {
+        const file = await window.aidocs.github.getRawContent({
+          owner: "razorpay",
+          repo: "example",
+          path: "package.json",
+          ref: "0123456789abcdef0123456789abcdef01234567"
+        });
+        const manifest = JSON.parse(file.content);
+        source.textContent =
+          file.owner + "/" + file.repo + ":" + file.path + "@" + file.ref;
+
+        for (const [label, value] of [
+          ["Package", manifest.name || "Unnamed"],
+          ["Version", manifest.version || "Not specified"]
+        ]) {
+          const term = document.createElement("dt");
+          const description = document.createElement("dd");
+          term.textContent = label;
+          description.textContent = value;
+          metadata.append(term, description);
+        }
+      } catch (error) {
+        source.textContent = String(error && error.message || error);
+        const connect = document.createElement("button");
+        connect.type = "button";
+        connect.textContent = "Connect GitHub";
+        connect.addEventListener("click", () => {
+          window.aidocs.github.connect();
+        });
+        source.after(connect);
+      }
+    }
+
+    renderGitHubFile();
   </script>
 `,
 	},

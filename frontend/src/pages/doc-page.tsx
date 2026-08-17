@@ -11,15 +11,15 @@ import { useIsMobile } from "@/lib/use-media-query";
 import { useTheme } from "@/lib/theme";
 import { useEscChord } from "@/lib/use-esc-chord";
 import type { ChordKey } from "@/lib/esc-chord";
-import { DocProvider, type PendingSelection } from "./doc-context";
+import {
+  DocProvider,
+  type CommentPosition,
+  type PendingSelection,
+} from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
-import { Comments } from "./doc-comments";
+import { CommentRail, Comments } from "./doc-comments";
 import { Keycast } from "./doc-keycast";
-
-const MIN_PANEL_WIDTH = 240;
-const MAX_PANEL_WIDTH = 640;
-const DEFAULT_PANEL_WIDTH = 380;
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
 
@@ -77,7 +77,7 @@ export function DocumentPage() {
     enabled: !!id && !doc.error,
     meta: { suppressGlobalError: true },
   });
-  // One comments query feeds both the paint overlay and the side panel so they
+  // One comments query feeds both the paint overlay and the comment rail so they
   // stay in sync.
   const comments = useQuery({
     queryKey: queryKeys.comments(id),
@@ -90,11 +90,13 @@ export function DocumentPage() {
   const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
     new Set(),
   );
+  const [commentPositions, setCommentPositions] = useState<
+    ReadonlyMap<string, CommentPosition>
+  >(new Map());
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [commentsOpen, setCommentsOpen] = useState(true);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   const [chordLabel, setChordLabel] = useState<string>();
   const nav = useNavigate();
@@ -106,20 +108,21 @@ export function DocumentPage() {
       setActiveComment(commentId);
       if (fullscreen) return;
       if (isMobile) setMobilePanelOpen(true);
-      else setPanelOpen(true);
+      else setCommentsOpen(true);
     },
     [fullscreen, isMobile],
   );
 
-  // On mobile, a text selection from the rendered doc should pop the
-  // comments sheet open so the compose flow is reachable.
+  // A text selection from the rendered doc should reveal the compose flow.
   useEffect(() => {
-    if (isMobile && !fullscreen && selection?.quote) setMobilePanelOpen(true);
+    if (fullscreen || !selection?.quote) return;
+    if (isMobile) setMobilePanelOpen(true);
+    else setCommentsOpen(true);
   }, [isMobile, fullscreen, selection]);
 
   const toggleComments = useCallback(() => {
     if (isMobile) setMobilePanelOpen((o) => !o);
-    else setPanelOpen((o) => !o);
+    else setCommentsOpen((o) => !o);
   }, [isMobile]);
 
   // On mobile the comments sheet should be dismissable with the browser/OS
@@ -174,6 +177,10 @@ export function DocumentPage() {
     versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || queryVersion || latest;
 
+  useEffect(() => {
+    setCommentPositions(new Map());
+  }, [current]);
+
   const exitFullscreen = useCallback(() => {
     setSearchParams(
       (params) => {
@@ -226,7 +233,7 @@ export function DocumentPage() {
       }
       if (key === "c") {
         setChordLabel(
-          (isMobile ? mobilePanelOpen : panelOpen)
+          (isMobile ? mobilePanelOpen : commentsOpen)
             ? "Comments hidden"
             : "Comments shown",
         );
@@ -243,7 +250,7 @@ export function DocumentPage() {
       toggleFullscreen,
       isMobile,
       mobilePanelOpen,
-      panelOpen,
+      commentsOpen,
       toggleComments,
       nav,
     ],
@@ -271,6 +278,8 @@ export function DocumentPage() {
       setActiveComment,
       unanchoredComments,
       setUnanchoredComments,
+      commentPositions,
+      setCommentPositions,
       handleDocCommentClick,
     }),
     [
@@ -283,34 +292,11 @@ export function DocumentPage() {
       selection,
       activeComment,
       unanchoredComments,
+      commentPositions,
       setActiveComment,
       handleDocCommentClick,
     ],
   );
-
-  const onResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-
-    const onMove = (ev: PointerEvent) => {
-      const delta = startX - ev.clientX;
-      setPanelWidth(
-        Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + delta)),
-      );
-    };
-
-    const onUp = (ev: PointerEvent) => {
-      el.releasePointerCapture(ev.pointerId);
-      el.removeEventListener("pointermove", onMove);
-      el.removeEventListener("pointerup", onUp);
-    };
-
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerup", onUp);
-  };
 
   if (doc.isLoading) {
     return (
@@ -390,31 +376,27 @@ export function DocumentPage() {
               versions={versions.data?.items || []}
               labels={doc.data.labels || []}
               onSelectVersion={setSelectedVersion}
-              commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
+              commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
               onToggleComments={toggleComments}
             />
           </motion.div>
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
-            <section className="relative flex-1 bg-[var(--color-surface-muted)]">
+            <section className="relative min-w-0 flex-1 bg-[var(--color-surface-muted)]">
               {current ? <RenderFrame /> : <Center>No version available.</Center>}
               <Keycast state={chord} available={chordKeys} label={chordLabel} />
             </section>
             <AnimatePresence initial={false}>
-              {panelOpen && (
+              {commentsOpen && (
                 <motion.aside
-                  key="comments-panel"
-                  initial={{ width: 0 }}
-                  animate={{ width: panelWidth }}
-                  exit={{ width: 0 }}
+                  key="comment-rail"
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 360, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
                   transition={{ type: "spring", duration: 0.35, bounce: 0 }}
-                  className="relative hidden shrink-0 overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface)] md:block"
+                  className="relative hidden shrink-0 overflow-hidden bg-[var(--color-surface-muted)] md:block"
                 >
-                  <div className="flex h-full flex-col" style={{ width: panelWidth }}>
-                    <div
-                      className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
-                      onPointerDown={onResizePointerDown}
-                    />
-                    <Comments />
+                  <div className="h-full w-[360px]">
+                    <CommentRail />
                   </div>
                 </motion.aside>
               )}

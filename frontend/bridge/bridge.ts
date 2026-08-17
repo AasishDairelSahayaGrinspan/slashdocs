@@ -53,10 +53,14 @@ type GitHubFunction = (input: {
   path: string;
   ref: string;
 }) => Promise<unknown>;
+type GitHubConnectFunction = () => void;
 
 interface AidocsPublicAPI {
   kv?: Record<string, KVFunction>;
-  github?: { getRawContent: GitHubFunction };
+  github?: {
+    getRawContent: GitHubFunction;
+    connect: GitHubConnectFunction;
+  };
   on?: (event: string, handler: KVChangeHandler) => (() => void) | undefined;
   off?: (event: string, handler: KVChangeHandler) => void;
   [key: string]: unknown;
@@ -72,6 +76,7 @@ declare global {
       resolve(value: unknown): void;
       reject(error: unknown): void;
     }>;
+    __aidocsGitHubConnectQueued?: boolean;
     aidocs?: AidocsPublicAPI;
     CustomEvent: typeof CustomEvent;
   }
@@ -426,6 +431,10 @@ type Theme = "dark" | "light";
     });
   }
 
+  function githubConnect(): void {
+    parent.postMessage({ type: "aidocs:github-connect" }, targetOrigin());
+  }
+
   function emitKVChange(detail: unknown): void {
     const w = innerWindow();
     if (!w) return;
@@ -491,7 +500,10 @@ type Theme = "dark" | "light";
       },
     };
     existing.kv = kv;
-    existing.github = { getRawContent: githubRawContent };
+    existing.github = {
+      getRawContent: githubRawContent,
+      connect: githubConnect,
+    };
     existing.on = on;
     existing.off = off;
     try {
@@ -503,6 +515,10 @@ type Theme = "dark" | "light";
     githubQueued.forEach((entry) => {
       githubRawContent(entry.input).then(entry.resolve, entry.reject);
     });
+    if (w.__aidocsGitHubConnectQueued) {
+      w.__aidocsGitHubConnectQueued = false;
+      githubConnect();
+    }
 
     const queued = w.__aidocsKVQueue || [];
     w.__aidocsKVQueue = [];
@@ -558,6 +574,7 @@ type Theme = "dark" | "light";
   // repaint that only changes the active comment can skip re-anchoring.
   let lastPaintKey: string | null = null;
   let lastPaintResults: { id: string; anchored: boolean }[] | null = null;
+  let commentPositionFrame = 0;
   // The active comment whose mark was last revealed (scrolled into view).
   // Reveal fires only when activation changes to a different comment:
   // repaints also arrive for reasons unrelated to activation (a comment
@@ -672,6 +689,48 @@ type Theme = "dark" | "light";
   // whether a highlight survived a document mutation intact.
   const paintedQuotes = new Map<string, string>();
 
+  function postCommentPositions(): void {
+    const d = doc();
+    if (!d || !lastPaint) return;
+    const positions: Array<{ id: string; top: number; bottom: number }> = [];
+    const seen = new Set<string>();
+    for (const item of lastPaint.items) {
+      const id = item && item.id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const escaped = CSS.escape(id);
+      const marks = Array.from(
+        d.querySelectorAll(
+          `mark.aidocs-mark[data-cid="${escaped}"],.aidocs-svg-mark-text[data-cid="${escaped}"],.aidocs-svg-mark-rect[data-cid="${escaped}"]`,
+        ),
+      );
+      let top = Number.POSITIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+      for (const mark of marks) {
+        const rect = mark.getBoundingClientRect();
+        if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) continue;
+        top = Math.min(top, rect.top);
+        bottom = Math.max(bottom, rect.bottom);
+      }
+      if (Number.isFinite(top) && Number.isFinite(bottom)) {
+        positions.push({ id, top, bottom });
+      }
+    }
+    parent.postMessage({ type: "aidocs:comment-positions", positions }, targetOrigin());
+  }
+
+  function scheduleCommentPositions(): void {
+    const view = doc()?.defaultView;
+    if (!view || commentPositionFrame) return;
+    commentPositionFrame = view.requestAnimationFrame(() => {
+      commentPositionFrame = 0;
+      const current = doc();
+      if (!current) return;
+      refreshSVGRects(current);
+      postCommentPositions();
+    });
+  }
+
   function highlightIntact(d: Document, id: string): boolean {
     const expected = paintedQuotes.get(id);
     if (!expected) return false;
@@ -781,6 +840,7 @@ type Theme = "dark" | "light";
       { type: "aidocs:paint-result", results: lastPaintResults },
       targetOrigin(),
     );
+    scheduleCommentPositions();
   }
 
   // Our own painting mutates the document (splitText, mark wrapping, svg
@@ -804,6 +864,7 @@ type Theme = "dark" | "light";
     mutationObserver = new MutationObserver(() => {
       prepareHeadings(d);
       scheduleMutationScan();
+      scheduleCommentPositions();
     });
     // Observe the root element rather than body so a script replacing
     // document.body entirely is still seen.
@@ -833,6 +894,7 @@ type Theme = "dark" | "light";
         { type: "aidocs:paint-result", results: lastPaintResults },
         targetOrigin(),
       );
+      scheduleCommentPositions();
       return;
     }
 
@@ -882,6 +944,7 @@ type Theme = "dark" | "light";
     // Post even when the inner document is unavailable so the parent never
     // keeps stale "highlight not found" state.
     parent.postMessage({ type: "aidocs:paint-result", results }, targetOrigin());
+    scheduleCommentPositions();
   }
 
   function activate(e: MouseEvent): void {
@@ -1043,7 +1106,15 @@ type Theme = "dark" | "light";
     restoredSelection = null;
     const anchor = describeAnchor(d.body, range);
     if (!anchor) return;
-    parent.postMessage({ type: "aidocs:selection", anchor }, targetOrigin());
+    const rect = range.getBoundingClientRect();
+    parent.postMessage(
+      {
+        type: "aidocs:selection",
+        anchor,
+        top: Number.isFinite(rect.top) ? rect.top : undefined,
+      },
+      targetOrigin(),
+    );
   }
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
@@ -1131,6 +1202,7 @@ type Theme = "dark" | "light";
     lastPaint = null;
     lastPaintKey = null;
     lastPaintResults = null;
+    commentPositionFrame = 0;
     revealedActive = null;
     restoredSelection = null;
     paintedQuotes.clear();
@@ -1290,6 +1362,10 @@ type Theme = "dark" | "light";
     );
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
+    d.defaultView?.addEventListener("scroll", scheduleCommentPositions, {
+      passive: true,
+    });
+    d.defaultView?.addEventListener("resize", scheduleCommentPositions);
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
     hydrateKV();
   }
@@ -1327,6 +1403,8 @@ type Theme = "dark" | "light";
         );
     } else if (e.data.type === "aidocs:navigate-heading") {
       navigateHeading(String(e.data.id || ""));
+    } else if (e.data.type === "aidocs:request-comment-positions") {
+      scheduleCommentPositions();
     } else if (e.data.type === "aidocs:vim-key") {
       const d = doc();
       const KeyboardEventCtor = d?.defaultView?.KeyboardEvent;

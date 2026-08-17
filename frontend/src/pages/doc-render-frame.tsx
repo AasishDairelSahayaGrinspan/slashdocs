@@ -27,6 +27,7 @@ export function RenderFrame() {
     setSelection,
     handleDocCommentClick,
     setUnanchoredComments,
+    setCommentPositions,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -96,7 +97,8 @@ export function RenderFrame() {
     // Anchoring results belong to the frame that produced them; drop them so
     // "highlight not found" badges never linger across version switches.
     setUnanchoredComments(new Set());
-  }, [frameOrigin, token.data?.url, setUnanchoredComments]);
+    setCommentPositions(new Map());
+  }, [frameOrigin, token.data?.url, setUnanchoredComments, setCommentPositions]);
 
   // The resolved theme is baked into the iframe URL so the bridge can apply
   // it before the document's first paint (no flash); live toggles are pushed
@@ -181,36 +183,40 @@ export function RenderFrame() {
   const scaleRef = useRef(1);
   const cursorRef = useRef({ x: 0, y: 0 });
 
-  const applyZoom = useCallback((deltaY: number, cursor?: { x: number; y: number }) => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const oldScale = scaleRef.current;
-    const newScale = Math.min(
-      MAX_SCALE,
-      Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)),
-    );
-    if (newScale === oldScale) return;
+  const applyZoom = useCallback(
+    (deltaY: number, cursor?: { x: number; y: number }) => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const oldScale = scaleRef.current;
+      const newScale = Math.min(
+        MAX_SCALE,
+        Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)),
+      );
+      if (newScale === oldScale) return;
 
-    const anchor = cursor ?? cursorRef.current;
-    cursorRef.current = anchor;
+      const anchor = cursor ?? cursorRef.current;
+      cursorRef.current = anchor;
 
-    const rect = el.getBoundingClientRect();
-    const cx = anchor.x - rect.left;
-    const cy = anchor.y - rect.top;
+      const rect = el.getBoundingClientRect();
+      const cx = anchor.x - rect.left;
+      const cy = anchor.y - rect.top;
 
-    // Point in unscaled document space under cursor.
-    const docX = (el.scrollLeft + cx) / oldScale;
-    const docY = (el.scrollTop + cy) / oldScale;
+      // Point in unscaled document space under cursor.
+      const docX = (el.scrollLeft + cx) / oldScale;
+      const docY = (el.scrollTop + cy) / oldScale;
 
-    scaleRef.current = newScale;
-    setScale(newScale);
+      scaleRef.current = newScale;
+      setScale(newScale);
 
-    // After scale change, adjust scroll so the same doc point stays under cursor.
-    requestAnimationFrame(() => {
-      el.scrollLeft = docX * newScale - cx;
-      el.scrollTop = docY * newScale - cy;
-    });
-  }, []);
+      // After scale change, adjust scroll so the same doc point stays under cursor.
+      requestAnimationFrame(() => {
+        el.scrollLeft = docX * newScale - cx;
+        el.scrollTop = docY * newScale - cy;
+        postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+      });
+    },
+    [postToCurrentFrame],
+  );
 
   useEffect(() => {
     const el = wrapperRef.current;
@@ -223,13 +229,18 @@ export function RenderFrame() {
     const onMouseMove = (e: MouseEvent) => {
       cursorRef.current = { x: e.clientX, y: e.clientY };
     };
+    const onScroll = () => {
+      postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+    };
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("mousemove", onMouseMove);
+    el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("mousemove", onMouseMove);
+      el.removeEventListener("scroll", onScroll);
     };
-  }, [applyZoom]);
+  }, [applyZoom, postToCurrentFrame]);
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -344,13 +355,24 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
-        if (quote) setSelection({ quote, anchor });
+        const top =
+          typeof e.data.top === "number"
+            ? e.data.top * scaleRef.current - (wrapperRef.current?.scrollTop || 0)
+            : undefined;
+        if (quote) setSelection({ quote, anchor, top });
       }
       if (e.data?.type === "aidocs:kv-request") {
         void handleKVRequest(e.data as Record<string, unknown>);
       }
       if (e.data?.type === "aidocs:github-request") {
         void handleGitHubRequest(e.data as Record<string, unknown>);
+      }
+      if (e.data?.type === "aidocs:github-connect") {
+        window.location.assign(
+          api.githubConnectURL(
+            window.location.pathname + window.location.search + window.location.hash,
+          ),
+        );
       }
       if (e.data?.type === "aidocs:heading" && typeof e.data.id === "string") {
         const url = new URL(window.location.href);
@@ -378,6 +400,31 @@ export function RenderFrame() {
               .map((r) => r.id as string),
           ),
         );
+      }
+      if (
+        e.data?.type === "aidocs:comment-positions" &&
+        Array.isArray(e.data.positions) &&
+        readyRef.current
+      ) {
+        const positions = new Map<string, { top: number; bottom: number }>();
+        for (const item of e.data.positions.slice(0, 10_000)) {
+          if (
+            !item ||
+            typeof item.id !== "string" ||
+            typeof item.top !== "number" ||
+            typeof item.bottom !== "number" ||
+            !Number.isFinite(item.top) ||
+            !Number.isFinite(item.bottom)
+          ) {
+            continue;
+          }
+          const scrollTop = wrapperRef.current?.scrollTop || 0;
+          positions.set(item.id, {
+            top: item.top * scaleRef.current - scrollTop,
+            bottom: item.bottom * scaleRef.current - scrollTop,
+          });
+        }
+        setCommentPositions(positions);
       }
       if (
         e.data?.type === "aidocs:keydown" &&
@@ -422,6 +469,7 @@ export function RenderFrame() {
     setSelection,
     handleDocCommentClick,
     setUnanchoredComments,
+    setCommentPositions,
     applyZoom,
     rememberKVRevision,
   ]);
@@ -499,6 +547,14 @@ export function RenderFrame() {
           onClick={() => {
             scaleRef.current = 1;
             setScale(1);
+            const wrapper = wrapperRef.current;
+            if (wrapper) {
+              wrapper.scrollLeft = 0;
+              wrapper.scrollTop = 0;
+            }
+            window.requestAnimationFrame(() => {
+              postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+            });
           }}
           className="sticky bottom-3 left-[calc(100%-3.5rem)] z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"
           title="Reset zoom"

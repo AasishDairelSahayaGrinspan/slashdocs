@@ -31,6 +31,23 @@ or commit through the sandbox bridge:
 </script>
 ```
 
+If a fetch fails because the reader has not connected GitHub, let the document
+offer the connection action directly. The trusted aidocs shell starts OAuth and
+returns the reader to the same document and heading:
+
+```html
+<button id="connect-github" type="button">Connect GitHub</button>
+<script>
+  document.querySelector("#connect-github").addEventListener("click", () => {
+    window.aidocs.github.connect();
+  });
+</script>
+```
+
+The document can present this as a button or link-like control. It should call
+`connect()` rather than constructing an OAuth URL, because the app and render
+frames may be served from separate origins.
+
 The document decides how to render the returned raw content. DOM inserted
 after the fetch is monitored by the existing annotation bridge, so readers can
 select it and attach comments normally. Files are limited to 10 MiB.

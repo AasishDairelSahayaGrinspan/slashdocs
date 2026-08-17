@@ -104,6 +104,11 @@ services:
       AIDOCS_OIDC_CLIENT_SECRET: aidocs-dev-secret
       AIDOCS_OIDC_PROVIDER_NAME: Dex
 
+      # Optional per-user GitHub OAuth App credentials. Export these before
+      # running Compose to exercise GitHub-backed documents locally.
+      AIDOCS_GITHUB_CLIENT_ID: ${AIDOCS_GITHUB_CLIENT_ID:-}
+      AIDOCS_GITHUB_CLIENT_SECRET: ${AIDOCS_GITHUB_CLIENT_SECRET:-}
+
       # Dev-only value; generate your own for anything beyond localhost.
       SESSION_SECRET: dev-only-session-secret-0123456789abcdef
     depends_on:

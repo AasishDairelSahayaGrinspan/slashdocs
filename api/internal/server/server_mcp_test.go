@@ -728,7 +728,7 @@ func TestMCPGuidelinesProgressiveDisclosure(t *testing.T) {
 	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
 
 	index := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{}), "single-file HTML contract")
-	for _, want := range []string{`section="core"`, `section="rendering theme"`, `section="all"`} {
+	for _, want := range []string{`section="core"`, `section="rendering theme"`, `section="interactivity github"`, `section="all"`} {
 		if !strings.Contains(index.Text, want) {
 			t.Errorf("guidelines index missing %q: %s", want, index.Text)
 		}
@@ -745,11 +745,14 @@ func TestMCPGuidelinesProgressiveDisclosure(t *testing.T) {
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
 		"section": "theme",
 	}), "aidocs guidelines: rendering theme")
+	assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
+		"section": "github",
+	}), "window.aidocs.github.getRawContent")
 
 	all := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
 		"section": "all",
 	}), "aidocs guidelines: core")
-	for _, want := range []string{"aidocs guidelines: rendering theme", "aidocs guidelines: review"} {
+	for _, want := range []string{"aidocs guidelines: rendering theme", "aidocs guidelines: interactivity github", "aidocs guidelines: review"} {
 		if !strings.Contains(all.Text, want) {
 			t.Errorf("guidelines all is missing %q", want)
 		}
