@@ -228,10 +228,9 @@ export const api = {
     }>("/v1/me"),
   loginURL: (redirect: string = location.pathname + location.search) =>
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
-  listDocuments: (q?: string, label?: string) => {
+  listDocuments: (q?: string) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (label) params.set("label", label);
     const qs = params.toString();
     return request<{ items: Document[] }>(`/v1/documents${qs ? `?${qs}` : ""}`);
   },

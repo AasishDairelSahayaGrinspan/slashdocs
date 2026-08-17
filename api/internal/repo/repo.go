@@ -120,6 +120,16 @@ type FolderEntry struct {
 	LastActive string    `json:"last_active,omitempty"`
 }
 
+// DocumentSearch contains validated, case-insensitive PostgreSQL regular
+// expressions for each supported search dimension. Empty patterns disable a
+// dimension. LabelPatterns use AND semantics.
+type DocumentSearch struct {
+	TitlePattern  string
+	AuthorPattern string
+	LabelPatterns []string
+	FolderPattern string
+}
+
 type Pin struct {
 	ResourceType string `json:"resource_type"`
 	ResourceID   string `json:"resource_id"`
@@ -305,7 +315,7 @@ type Repository interface {
 	FolderAccessChain(ctx context.Context, principal auth.Principal, folderID string) ([]FolderAccess, error)
 	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
-	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
+	SearchDocuments(ctx context.Context, principal auth.Principal, search DocumentSearch, includeOrgWide bool, limit int32) ([]Document, error)
 	// RecordDocumentOpened notes that a principal opened a document, so a
 	// broadly-shared ("anyone") document joins their workspace listing after
 	// first open. Idempotent.

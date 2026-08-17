@@ -360,8 +360,14 @@
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Title search query",
+                        "description": "Search query; supports author:, labels:, in:, and /regex/ values",
                         "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Deprecated exact label filter; use q=labels:\u003clabel\u003e",
+                        "name": "label",
                         "in": "query"
                     }
                 ],

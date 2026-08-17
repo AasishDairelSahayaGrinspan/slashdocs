@@ -35,6 +35,10 @@ export AIDOCS_TOKEN=aidocs_sa_...
 
 ```bash
 aidocs docs list
+aidocs docs list 'incident author:alice@example.com labels:api,review in:"Product Specs"'
+aidocs docs list 'author:/@razorpay\.com$/ labels:/^api-/'
+aidocs docs labels set doc_123 api review-ready
+aidocs docs labels list doc_123
 aidocs docs pull doc_123 --out report.html
 aidocs docs comments list doc_123 --json > review.json
 # edit report.html

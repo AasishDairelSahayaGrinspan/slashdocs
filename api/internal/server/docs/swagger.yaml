@@ -832,9 +832,13 @@ paths:
   /v1/documents:
     get:
       parameters:
-      - description: Title search query
+      - description: Search query; supports author:, labels:, in:, and /regex/ values
         in: query
         name: q
+        type: string
+      - description: Deprecated exact label filter; use q=labels:<label>
+        in: query
+        name: label
         type: string
       produces:
       - application/json

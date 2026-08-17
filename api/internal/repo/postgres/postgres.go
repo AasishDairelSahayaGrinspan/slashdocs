@@ -726,14 +726,29 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 	}
 	return out, nil
 }
-func (s *Store) SearchDocumentsByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Document, error) {
-	rows, err := s.q.SearchDocumentsByTitle(ctx, dbsqlc.SearchDocumentsByTitleParams{Query: query, OwnerID: p.ID, OwnerType: string(p.Type), GoogleGroupIds: p.GoogleGroupIDs, IncludeOrgWide: includeOrgWide, RowLimit: limit})
+func (s *Store) SearchDocuments(ctx context.Context, p auth.Principal, search repo.DocumentSearch, includeOrgWide bool, limit int32) ([]repo.Document, error) {
+	rows, err := s.q.SearchDocuments(ctx, dbsqlc.SearchDocumentsParams{
+		TitlePattern:   search.TitlePattern,
+		AuthorPattern:  search.AuthorPattern,
+		FolderPattern:  search.FolderPattern,
+		LabelPatterns:  search.LabelPatterns,
+		OwnerID:        p.ID,
+		OwnerType:      string(p.Type),
+		GoogleGroupIds: p.GoogleGroupIDs,
+		IncludeOrgWide: includeOrgWide,
+		RowLimit:       limit,
+	})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]repo.Document, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, docFromSearch(r))
+		d := docFromSearch(r)
+		d.Labels, err = s.q.ListDocumentLabels(ctx, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }
@@ -1369,8 +1384,12 @@ func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
 	}
 	return d
 }
-func docFromSearch(r dbsqlc.SearchDocumentsByTitleRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+func docFromSearch(r dbsqlc.SearchDocumentsRow) repo.Document {
+	d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	if r.UpdatedAt.Valid {
+		d.UpdatedAt = r.UpdatedAt.Time.Format(time.RFC3339)
+	}
+	return d
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
 	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}

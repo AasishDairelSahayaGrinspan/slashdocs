@@ -82,7 +82,7 @@ LIMIT 25;
 -- name: UpdateDocumentTitle :exec
 UPDATE documents SET title=$1,updated_at=now() WHERE id=$2;
 
--- name: SearchDocumentsByTitle :many
+-- name: SearchDocuments :many
 WITH RECURSIVE folder_ancestors(doc_id, fid, depth) AS (
   SELECT d2.id, d2.parent_folder_id, 1
   FROM documents d2
@@ -102,12 +102,35 @@ docs_via_folder AS (
 )
 SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(u.email,'') AS owner_email,
-       COALESCE(u.name,sa.name,'') AS owner_name
+       COALESCE(u.name,sa.name,'') AS owner_name,
+       d.updated_at
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
 LEFT JOIN service_accounts sa
   ON d.owner_type='service_account' AND sa.id=d.owner_id
-WHERE d.title ILIKE '%' || @query::text || '%'
+WHERE (@title_pattern::text = '' OR d.title ~* @title_pattern::text)
+  AND (
+    @author_pattern::text = ''
+    OR COALESCE(NULLIF(u.email,''), NULLIF(sa.name,''), d.owner_id) ~* @author_pattern::text
+  )
+  AND (
+    @folder_pattern::text = ''
+    OR EXISTS (
+      SELECT 1
+      FROM folder_ancestors search_folder_ancestor
+      JOIN folders search_folder ON search_folder.id=search_folder_ancestor.fid
+      WHERE search_folder_ancestor.doc_id=d.id
+        AND search_folder.title ~* @folder_pattern::text
+    )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM unnest(@label_patterns::text[]) AS requested_label(pattern)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM document_labels dl
+      WHERE dl.document_id=d.id AND dl.label ~* requested_label.pattern
+    )
+  )
   AND (
     (d.owner_type= @owner_type AND d.owner_id= @owner_id)
     OR EXISTS (
@@ -121,7 +144,7 @@ WHERE d.title ILIKE '%' || @query::text || '%'
     )
     OR d.id IN (SELECT doc_id FROM docs_via_folder)
   )
-ORDER BY d.title
+ORDER BY d.updated_at DESC, d.title
 LIMIT @row_limit;
 
 -- name: DeleteDocument :execrows

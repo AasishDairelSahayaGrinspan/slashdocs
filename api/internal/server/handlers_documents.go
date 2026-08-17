@@ -104,31 +104,34 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Produce json
-// @Param q query string false "Title search query"
+// @Param q query string false "Search query; supports author:, labels:, in:, and /regex/ values"
+// @Param label query string false "Deprecated exact label filter; use q=labels:<label>"
 // @Success 200 {object} listResponse[repo.Document]
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
 	if !requireResolvedGroupsForAggregate(c) {
 		return
 	}
-	if label := c.Query("label"); label != "" {
-		label = strings.ToLower(strings.TrimSpace(label))
+	q := strings.TrimSpace(c.Query("q"))
+	search, err := parseDocumentSearch(q)
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	if label := strings.ToLower(strings.TrimSpace(c.Query("label"))); label != "" {
 		if !labelPattern.MatchString(label) {
 			badRequest(c, "invalid label")
 			return
 		}
-		items, err := h.deps.repository.ListDocumentsByLabel(c.Request.Context(), *current(c), label)
-		if err != nil {
-			internalErr(c, err)
+		if len(search.LabelPatterns) >= maxSearchLabels {
+			badRequest(c, fmt.Sprintf("at most %d labels are allowed", maxSearchLabels))
 			return
 		}
-		c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
-		return
+		search.LabelPatterns = append(search.LabelPatterns, "^"+escapePostgresRegex(label)+"$")
 	}
-	q := c.Query("q")
-	if q != "" {
+	if q != "" || len(search.LabelPatterns) > 0 {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
-		items, err := h.deps.repository.SearchDocumentsByTitle(c.Request.Context(), *current(c), q, includeOrgWide, 25)
+		items, err := h.deps.repository.SearchDocuments(c.Request.Context(), *current(c), search, includeOrgWide, 25)
 		if err != nil {
 			internalErr(c, err)
 			return

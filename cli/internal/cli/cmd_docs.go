@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -20,7 +21,7 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
 	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
 	c.AddCommand(
-		simple(g, out, "list", "GET", "/v1/documents", 0),
+		documentListCmd(g, out),
 		documentCreateCmd(g, out),
 		simplePath(g, out, "show", "GET", "/v1/documents/%s"),
 		documentUpdateCmd(g, out),
@@ -30,9 +31,107 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		docsPushCmd(g, out),
 		versionsCmd(g, out),
 		commentsCmd(g, out),
+		documentLabelsCmd(g, out),
 		grantsCmd(g, out),
 	)
 	return c
+}
+
+func documentListCmd(g *globals, out io.Writer) *cobra.Command {
+	var query string
+	cmd := &cobra.Command{
+		Use:   "list [query]",
+		Short: "List or search documents",
+		Long: "List documents, or search with the same query language as the web application.\n\n" +
+			"Supported primitives:\n" +
+			"  author:<email>       Match the document author\n" +
+			"  labels:<a,b>         Require every comma-separated label\n" +
+			"  in:<folder>          Match a folder or any ancestor folder\n" +
+			"  /pattern/            Use a primitive case-insensitive regex value\n\n" +
+			"Quote the whole query when it contains spaces.",
+		Example: "  aidocs docs list 'incident author:alice@example.com labels:api,review in:\"Product Specs\"'\n" +
+			"  aidocs docs list --query 'author:/@razorpay\\.com$/ labels:/^api-/'",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && cmd.Flags().Changed("query") {
+				return usageError{errors.New("pass the query either as an argument or with --query, not both")}
+			}
+			if len(args) == 1 {
+				query = args[0]
+			}
+			path := "/v1/documents"
+			if strings.TrimSpace(query) != "" {
+				params := url.Values{"q": []string{query}}
+				path += "?" + params.Encode()
+			}
+			return run(g, out, func(c *Client) ([]byte, error) {
+				return c.do("GET", path, nil, "")
+			})
+		},
+	}
+	cmd.Flags().StringVar(&query, "query", "", "search query")
+	return cmd
+}
+
+func documentLabelsCmd(g *globals, out io.Writer) *cobra.Command {
+	root := &cobra.Command{Use: "labels", Short: "Manage document labels"}
+	root.AddCommand(
+		simplePath(g, out, "list", "GET", "/v1/documents/%s/labels"),
+		documentLabelsSetCmd(g, out),
+		documentLabelsClearCmd(g, out),
+	)
+	return root
+}
+
+func documentLabelsSetCmd(g *globals, out io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:     "set <doc_id> <label>...",
+		Short:   "Replace a document's labels",
+		Example: "  aidocs docs labels set doc_… api review-ready\n  aidocs docs labels set doc_… api,review-ready",
+		Args:    cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			labels, err := normalizedLabelArgs(args[1:])
+			if err != nil {
+				return usageError{err}
+			}
+			return action(g, out, func(c *Client) ([]byte, error) {
+				return c.doJSON("PUT", apiPath("/v1/documents/%s/labels", args[0]), map[string]any{"labels": labels})
+			}, func(map[string]any) string {
+				return fmt.Sprintf("Set labels on %s: %s.", args[0], strings.Join(labels, ", "))
+			})
+		},
+	}
+}
+
+func documentLabelsClearCmd(g *globals, out io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "clear <doc_id>",
+		Short: "Remove every label from a document",
+		Args:  exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return action(g, out, func(c *Client) ([]byte, error) {
+				return c.doJSON("PUT", apiPath("/v1/documents/%s/labels", args[0]), map[string]any{"labels": []string{}})
+			}, func(map[string]any) string { return "Cleared labels from " + args[0] + "." })
+		},
+	}
+}
+
+func normalizedLabelArgs(args []string) ([]string, error) {
+	labels := make([]string, 0, len(args))
+	seen := map[string]bool{}
+	for _, raw := range args {
+		for _, value := range strings.Split(raw, ",") {
+			label := strings.ToLower(strings.TrimSpace(value))
+			if label == "" {
+				return nil, errors.New("labels cannot be empty")
+			}
+			if !seen[label] {
+				seen[label] = true
+				labels = append(labels, label)
+			}
+		}
+	}
+	return labels, nil
 }
 
 func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
