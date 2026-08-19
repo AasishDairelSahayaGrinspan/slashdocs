@@ -34,6 +34,8 @@ type Comment struct {
 	ResolvedAt         pgtype.Timestamptz
 	ParentCommentID    pgtype.Text
 	RootCommentID      string
+	AuthorDisplay      string
+	Severity           string
 }
 
 // Structured principals mentioned in comment bodies. Mention metadata grants no access; future notification delivery must re-check effective document access and apply rate limits.

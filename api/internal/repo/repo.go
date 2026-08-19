@@ -202,6 +202,34 @@ type Comment struct {
 	RootCommentID   string           `json:"root_comment_id,omitempty"`
 	Mentions        []CommentMention `json:"mentions"`
 	Replies         []Comment        `json:"replies,omitempty"`
+	AuthorDisplay   string           `json:"author_display,omitempty"`
+	Severity        string           `json:"severity,omitempty"`
+}
+
+// CommentMeta carries the avatar-review presentation fields of a comment.
+// AuthorDisplay renders instead of the author's own name (e.g. "Priya's
+// avatar") and Severity is one of the Severity* constants. Both are empty for
+// ordinary human comments; only service-account authors may set them.
+type CommentMeta struct {
+	AuthorDisplay string
+	Severity      string
+}
+
+// Comment severities carried on avatar-review comments.
+const (
+	SeverityBlocking  = "blocking"
+	SeverityShouldFix = "should-fix"
+	SeverityConsider  = "consider"
+)
+
+// ValidSeverity reports whether s is an accepted comment severity. The empty
+// string is valid: it means no severity tag.
+func ValidSeverity(s string) bool {
+	switch s {
+	case "", SeverityBlocking, SeverityShouldFix, SeverityConsider:
+		return true
+	}
+	return false
 }
 
 // CommentMention associates an exact UTF-16 range in a comment body with a
@@ -310,7 +338,7 @@ type Repository interface {
 	ListVersions(ctx context.Context, documentID string) ([]Version, error)
 	GetVersion(ctx context.Context, id string) (Version, error)
 	GetVersionHTML(ctx context.Context, id string) ([]byte, error)
-	CreateComment(ctx context.Context, documentID, versionID, body string, anchor Anchor, author auth.Principal, mentions []CommentMention) (Comment, error)
+	CreateComment(ctx context.Context, documentID, versionID, body string, anchor Anchor, author auth.Principal, meta CommentMeta, mentions []CommentMention) (Comment, error)
 	CreateCommentReply(ctx context.Context, documentID, parentCommentID, body string, author auth.Principal, mentions []CommentMention) (Comment, error)
 	GetComment(ctx context.Context, id string) (Comment, error)
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)

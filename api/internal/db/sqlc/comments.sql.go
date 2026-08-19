@@ -30,7 +30,7 @@ func (q *Queries) DeleteCommentMentions(ctx context.Context, commentID string) e
 }
 
 const getComment = `-- name: GetComment :one
-SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id
+SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id, author_display, severity
 FROM comments
 WHERE id = $1
 `
@@ -49,6 +49,8 @@ type GetCommentRow struct {
 	Status             string
 	ParentCommentID    pgtype.Text
 	RootCommentID      string
+	AuthorDisplay      string
+	Severity           string
 }
 
 func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, error) {
@@ -68,12 +70,14 @@ func (q *Queries) GetComment(ctx context.Context, id string) (GetCommentRow, err
 		&i.Status,
 		&i.ParentCommentID,
 		&i.RootCommentID,
+		&i.AuthorDisplay,
+		&i.Severity,
 	)
 	return i, err
 }
 
 const getCommentForReply = `-- name: GetCommentForReply :one
-SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id
+SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id, author_display, severity
 FROM comments
 WHERE id = $1
 FOR KEY SHARE
@@ -93,6 +97,8 @@ type GetCommentForReplyRow struct {
 	Status             string
 	ParentCommentID    pgtype.Text
 	RootCommentID      string
+	AuthorDisplay      string
+	Severity           string
 }
 
 func (q *Queries) GetCommentForReply(ctx context.Context, id string) (GetCommentForReplyRow, error) {
@@ -112,12 +118,14 @@ func (q *Queries) GetCommentForReply(ctx context.Context, id string) (GetComment
 		&i.Status,
 		&i.ParentCommentID,
 		&i.RootCommentID,
+		&i.AuthorDisplay,
+		&i.Severity,
 	)
 	return i, err
 }
 
 const getCommentForUpdate = `-- name: GetCommentForUpdate :one
-SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id
+SELECT id, document_id, created_on_version_id, author_type, author_id, author_email, author_name, body, selected_text, anchor_json, status, parent_comment_id, root_comment_id, author_display, severity
 FROM comments
 WHERE id = $1
 FOR UPDATE
@@ -137,6 +145,8 @@ type GetCommentForUpdateRow struct {
 	Status             string
 	ParentCommentID    pgtype.Text
 	RootCommentID      string
+	AuthorDisplay      string
+	Severity           string
 }
 
 func (q *Queries) GetCommentForUpdate(ctx context.Context, id string) (GetCommentForUpdateRow, error) {
@@ -156,6 +166,8 @@ func (q *Queries) GetCommentForUpdate(ctx context.Context, id string) (GetCommen
 		&i.Status,
 		&i.ParentCommentID,
 		&i.RootCommentID,
+		&i.AuthorDisplay,
+		&i.Severity,
 	)
 	return i, err
 }
@@ -207,8 +219,8 @@ func (q *Queries) GetMentionUser(ctx context.Context, id string) (GetMentionUser
 }
 
 const insertComment = `-- name: InsertComment :exec
-INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,root_comment_id)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$1)
+INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,root_comment_id,author_display,severity)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$1,$11,$12)
 `
 
 type InsertCommentParams struct {
@@ -222,6 +234,8 @@ type InsertCommentParams struct {
 	Body               string
 	SelectedText       string
 	AnchorJson         []byte
+	AuthorDisplay      string
+	Severity           string
 }
 
 func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) error {
@@ -236,6 +250,8 @@ func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) er
 		arg.Body,
 		arg.SelectedText,
 		arg.AnchorJson,
+		arg.AuthorDisplay,
+		arg.Severity,
 	)
 	return err
 }
@@ -372,7 +388,7 @@ func (q *Queries) ListCommentMentions(ctx context.Context, commentIds []string) 
 }
 
 const listComments = `-- name: ListComments :many
-SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id
+SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id,author_display,severity
 FROM comments WHERE document_id= $1 AND ($2::text='' OR status= $2) AND ($3::text='' OR created_on_version_id= $3) ORDER BY created_at, id
 `
 
@@ -396,6 +412,8 @@ type ListCommentsRow struct {
 	Status             string
 	ParentCommentID    pgtype.Text
 	RootCommentID      string
+	AuthorDisplay      string
+	Severity           string
 }
 
 func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]ListCommentsRow, error) {
@@ -421,6 +439,8 @@ func (q *Queries) ListComments(ctx context.Context, arg ListCommentsParams) ([]L
 			&i.Status,
 			&i.ParentCommentID,
 			&i.RootCommentID,
+			&i.AuthorDisplay,
+			&i.Severity,
 		); err != nil {
 			return nil, err
 		}

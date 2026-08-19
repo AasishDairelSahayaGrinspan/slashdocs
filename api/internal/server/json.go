@@ -68,6 +68,8 @@ type commentResponse struct {
 	Anchor             *repo.Anchor              `json:"anchor,omitempty"`
 	CurrentPlacement   *commentPlacementResponse `json:"current_placement,omitempty"`
 	Replies            *[]commentResponse        `json:"replies,omitempty"`
+	AuthorDisplay      string                    `json:"author_display,omitempty"`
+	Severity           string                    `json:"severity,omitempty"`
 }
 
 func commentsJSON(items []repo.Comment, placementVersionID string, placementHTML []byte) []commentResponse {
@@ -157,6 +159,8 @@ func commentBaseJSON(cm repo.Comment) commentResponse {
 		CreatedOnVersionID: cm.VersionID,
 		ParentCommentID:    cm.ParentCommentID,
 		Mentions:           commentMentionsJSON(cm.Mentions),
+		AuthorDisplay:      cm.AuthorDisplay,
+		Severity:           cm.Severity,
 	}
 	if cm.SelectedText != "" {
 		out.SelectedText = cm.SelectedText

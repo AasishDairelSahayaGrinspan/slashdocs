@@ -109,7 +109,7 @@ func newConfiguredTestEnv(t *testing.T, cfg server.Config, extraOptions ...serve
 			t.Fatalf("seed grant: %v", err)
 		}
 	}
-	e.cmt, err = store.CreateComment(ctx, e.doc.ID, e.ver.ID, "original", repo.Anchor{Quote: "fixture"}, fixtureCommenter, nil)
+	e.cmt, err = store.CreateComment(ctx, e.doc.ID, e.ver.ID, "original", repo.Anchor{Quote: "fixture"}, fixtureCommenter, repo.CommentMeta{}, nil)
 	if err != nil {
 		t.Fatalf("seed comment: %v", err)
 	}
@@ -134,6 +134,20 @@ func newConfiguredTestEnv(t *testing.T, cfg server.Config, extraOptions ...serve
 	options = append(options, extraOptions...)
 	e.h = server.New(cfg, options...).Handler()
 	return e
+}
+
+// serviceAccountPrincipal returns the seeded service account as a principal,
+// shaped the way bearer-token auth resolves one: name set, email empty.
+func serviceAccountPrincipal(e *testEnv) auth.Principal {
+	return auth.Principal{Type: auth.PrincipalServiceAccount, ID: e.sa.ID, Name: e.sa.Name}
+}
+
+// grantDocumentRole grants the principal a role on the fixture document.
+func (e *testEnv) grantDocumentRole(p auth.Principal, role repo.Role) {
+	e.t.Helper()
+	if _, err := e.store.CreateGrant(context.Background(), "document", e.doc.ID, p, role, fixtureOwner); err != nil {
+		e.t.Fatalf("seed grant for %s: %v", p.ID, err)
+	}
 }
 
 // seedUser inserts a user row so foreign keys (documents, grants, workspace

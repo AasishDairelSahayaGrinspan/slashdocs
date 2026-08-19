@@ -47,6 +47,10 @@ type createCommentRequest struct {
 	Body      string                  `json:"body"`
 	Anchor    repo.Anchor             `json:"anchor"`
 	Mentions  []commentMentionRequest `json:"mentions"`
+	// AuthorDisplay and Severity are avatar-review presentation fields,
+	// accepted from service-account principals only.
+	AuthorDisplay string `json:"author_display"`
+	Severity      string `json:"severity"`
 }
 
 type createCommentReplyRequest struct {
@@ -97,7 +101,15 @@ func (h handlers) createComment(c *gin.Context) {
 		badRequest(c, "invalid comment")
 		return
 	}
-	cm, err := h.deps.repository.CreateComment(c.Request.Context(), c.Param("id"), in.VersionID, in.Body, in.Anchor, *p, commentMentions(in.Mentions))
+	if (in.AuthorDisplay != "" || in.Severity != "") && p.Type != auth.PrincipalServiceAccount {
+		forbidden(c, "only service accounts may set author_display or severity")
+		return
+	}
+	if !repo.ValidSeverity(in.Severity) {
+		badRequest(c, "invalid comment severity")
+		return
+	}
+	cm, err := h.deps.repository.CreateComment(c.Request.Context(), c.Param("id"), in.VersionID, in.Body, in.Anchor, *p, repo.CommentMeta{AuthorDisplay: in.AuthorDisplay, Severity: in.Severity}, commentMentions(in.Mentions))
 	if err != nil {
 		commentWriteError(c, err)
 		return
