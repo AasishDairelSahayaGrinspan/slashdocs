@@ -302,6 +302,8 @@ func registerMCPCommentTools(server *mcpserver.MCPServer, api mcpAPIAdapter) {
 		mcp.WithString("quote", mcp.Required(), mcp.Description("Exact selected text.")),
 		mcp.WithString("prefix", mcp.Description("Text immediately before the quote.")),
 		mcp.WithString("suffix", mcp.Description("Text immediately after the quote.")),
+		mcp.WithString("author_display", mcp.Description("Display identity for the comment, e.g. \"Priya's avatar\". Service-account principals only.")),
+		mcp.WithString("severity", mcp.Description("Optional severity tag. Service-account principals only."), mcp.Enum("blocking", "should-fix", "consider")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		doc, invalid := mcpRequired(request, "document_id")
 		if invalid != nil {
@@ -322,6 +324,12 @@ func registerMCPCommentTools(server *mcpserver.MCPServer, api mcpAPIAdapter) {
 		payload := map[string]any{"version_id": version, "body": body, "anchor": map[string]any{
 			"quote": quote, "prefix": request.GetString("prefix", ""), "suffix": request.GetString("suffix", ""),
 		}}
+		if display := request.GetString("author_display", ""); display != "" {
+			payload["author_display"] = display
+		}
+		if severity := request.GetString("severity", ""); severity != "" {
+			payload["severity"] = severity
+		}
 		return api.json(ctx, http.MethodPost, "/v1/documents/"+doc+"/comments", payload, mcpParams("id", doc), api.handlers.createComment)
 	})
 

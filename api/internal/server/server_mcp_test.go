@@ -473,6 +473,52 @@ func TestMCPServiceAccountToolParity(t *testing.T) {
 	}), "ok")
 }
 
+func TestMCPCreateCommentCarriesAvatarFields(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+
+	document, version, err := e.store.CreateDocument(context.Background(), fixtureUser, "Avatar MCP", []byte("<html><body>avatar target text</body></html>"))
+	if err != nil {
+		t.Fatalf("create document: %v", err)
+	}
+	serviceAccount, err := e.store.CreateServiceAccount(context.Background(), fixtureUser, "avatar-bot@example.bot")
+	if err != nil {
+		t.Fatalf("seed service account: %v", err)
+	}
+	saToken, saKeyHash, err := auth.NewBearerToken(auth.ServiceAccountPrefix)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store.CreateServiceAccountKey(context.Background(), serviceAccount.ID, "default", saKeyHash); err != nil {
+		t.Fatalf("seed service-account key: %v", err)
+	}
+	saPrincipal := auth.Principal{Type: auth.PrincipalServiceAccount, ID: serviceAccount.ID, Name: serviceAccount.Name}
+	if _, err := e.store.CreateGrant(context.Background(), "document", document.ID, saPrincipal, repo.RoleCommenter, fixtureUser); err != nil {
+		t.Fatalf("grant commenter to service account: %v", err)
+	}
+
+	comment := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, saToken, "create_comment", map[string]any{
+		"document_id": document.ID, "version_id": version.ID,
+		"body":  "The claim needs a citation.",
+		"quote": "avatar target text",
+		"author_display": "Priya's avatar", "severity": "blocking",
+	}), "Priya's avatar"))
+	if comment["severity"] != "blocking" {
+		t.Fatalf("severity = %v, want blocking", comment["severity"])
+	}
+	commentID := requiredMCPString(t, comment, "id")
+
+	assertMCPToolOK(t, callMCPToolHTTP(t, e, saToken, "list_comments", map[string]any{
+		"document_id": document.ID,
+	}), commentID)
+
+	// A human MCP principal must not be able to impersonate an avatar.
+	userToken := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+	assertMCPToolError(t, callMCPToolHTTP(t, e, userToken, "create_comment", map[string]any{
+		"document_id": document.ID, "version_id": version.ID,
+		"body": "spoof", "quote": "avatar target text", "author_display": "Priya's avatar",
+	}), "service accounts")
+}
+
 func TestMCPToolPermissionsAndConcurrentVersionConflict(t *testing.T) {
 	e := newMCPOAuthTestEnv(t)
 	for _, p := range []auth.Principal{fixtureEditor, fixtureCommenter, fixtureViewer, fixtureStranger} {
