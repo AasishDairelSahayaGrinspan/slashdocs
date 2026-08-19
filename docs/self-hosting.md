@@ -501,6 +501,7 @@ both. The redirect URI to register is
 | `AIDOCS_KV_EVENTS_MODE`                  | `auto`      | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                              |
 | `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset       | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.      |
 | `AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`     | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.         |
+| `AIDOCS_AVATAR_SERVICE_MOCK`             | unset       | Set `true` to enable avatar reviews backed by the BUILT-IN MOCK avatar service (fixture avatars, fabricated comments). Development and demos only; leave unset in production until the real avatar service ships. |
 | `AIDOCS_COMMIT_SHA` / `COMMIT_SHA`       | unset       | Build revision exposed at `/commit.txt`.                                                                                              |
 | `ALLOWED_OAUTH_DOMAINS`                  | unset       | Comma-separated email-domain allowlist for OAuth logins (public deployments).                                                         |
 | `AIDOCS_DEPLOYMENT`                      | `public`    | `public` or `org`. An org deployment gates login to `AIDOCS_ORG_DOMAINS`.                                                             |

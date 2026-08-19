@@ -104,6 +104,9 @@ services:
       AIDOCS_OIDC_CLIENT_SECRET: aidocs-dev-secret
       AIDOCS_OIDC_PROVIDER_NAME: Dex
 
+      # Dev-only: avatar reviews served by the built-in mock avatar service.
+      AIDOCS_AVATAR_SERVICE_MOCK: "true"
+
       # Dev-only value; generate your own for anything beyond localhost.
       SESSION_SECRET: dev-only-session-secret-0123456789abcdef
     depends_on:
