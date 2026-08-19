@@ -452,3 +452,25 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* Soft halo promoting the Avatar button until a review runs (spec: glow
+   preferred over a NEW tag). */
+@keyframes avatar-glow-pulse {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+  50% {
+    box-shadow: 0 0 10px 3px color-mix(in srgb, var(--color-accent) 28%, transparent);
+  }
+}
+.avatar-glow {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border));
+  animation: avatar-glow-pulse 2.6s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .avatar-glow {
+    animation: none;
+    box-shadow: 0 0 8px 2px color-mix(in srgb, var(--color-accent) 30%, transparent);
+  }
+}

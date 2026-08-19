@@ -12,6 +12,7 @@ import { DocProvider, type PendingSelection } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
 import { Comments } from "./doc-comments";
+import { AvatarReviewProvider } from "./doc-avatar";
 
 const MIN_PANEL_WIDTH = 240;
 const MAX_PANEL_WIDTH = 640;
@@ -283,79 +284,81 @@ export function DocumentPage() {
 
   return (
     <DocProvider value={ctx}>
-      {fullscreen ? (
-        <div className="relative h-full bg-[var(--color-surface-muted)]">
-          {showFullscreenHint ? (
-            <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
-              <span className="hidden sm:inline">Press Esc to exit full screen</span>
-              <span className="sm:hidden">Go back to exit full screen</span>
-            </div>
-          ) : null}
-          {current ? <RenderFrame /> : <Center>No version available.</Center>}
-        </div>
-      ) : (
-        <motion.div
-          className="flex h-full flex-col"
-          initial="hidden"
-          animate="visible"
-          variants={pageStagger}
-        >
-          <motion.div variants={barSlide}>
-            <DocBar
-              title={docTitle(doc.data)}
-              docId={id}
-              owner={doc.data.owner}
-              principal={me.data?.principal}
-              parentFolder={doc.data.parent_folder}
-              current={current}
-              latest={latest}
-              versions={versions.data?.items || []}
-              onSelectVersion={setSelectedVersion}
-              commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
-              onToggleComments={toggleComments}
-            />
-          </motion.div>
-          <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
-            <section className="relative flex-1 bg-[var(--color-surface-muted)]">
-              {current ? <RenderFrame /> : <Center>No version available.</Center>}
-            </section>
-            <AnimatePresence initial={false}>
-              {panelOpen && (
-                <motion.aside
-                  key="comments-panel"
-                  initial={{ width: 0 }}
-                  animate={{ width: panelWidth }}
-                  exit={{ width: 0 }}
-                  transition={{ type: "spring", duration: 0.35, bounce: 0 }}
-                  className="relative hidden shrink-0 overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface)] md:block"
-                >
-                  <div className="flex h-full flex-col" style={{ width: panelWidth }}>
-                    <div
-                      className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
-                      onPointerDown={onResizePointerDown}
-                    />
-                    <Comments />
-                  </div>
-                </motion.aside>
-              )}
-            </AnimatePresence>
-          </motion.div>
+      <AvatarReviewProvider>
+        {fullscreen ? (
+          <div className="relative h-full bg-[var(--color-surface-muted)]">
+            {showFullscreenHint ? (
+              <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
+                <span className="hidden sm:inline">Press Esc to exit full screen</span>
+                <span className="sm:hidden">Go back to exit full screen</span>
+              </div>
+            ) : null}
+            {current ? <RenderFrame /> : <Center>No version available.</Center>}
+          </div>
+        ) : (
+          <motion.div
+            className="flex h-full flex-col"
+            initial="hidden"
+            animate="visible"
+            variants={pageStagger}
+          >
+            <motion.div variants={barSlide}>
+              <DocBar
+                title={docTitle(doc.data)}
+                docId={id}
+                owner={doc.data.owner}
+                principal={me.data?.principal}
+                parentFolder={doc.data.parent_folder}
+                current={current}
+                latest={latest}
+                versions={versions.data?.items || []}
+                onSelectVersion={setSelectedVersion}
+                commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
+                onToggleComments={toggleComments}
+              />
+            </motion.div>
+            <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
+              <section className="relative flex-1 bg-[var(--color-surface-muted)]">
+                {current ? <RenderFrame /> : <Center>No version available.</Center>}
+              </section>
+              <AnimatePresence initial={false}>
+                {panelOpen && (
+                  <motion.aside
+                    key="comments-panel"
+                    initial={{ width: 0 }}
+                    animate={{ width: panelWidth }}
+                    exit={{ width: 0 }}
+                    transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                    className="relative hidden shrink-0 overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface)] md:block"
+                  >
+                    <div className="flex h-full flex-col" style={{ width: panelWidth }}>
+                      <div
+                        className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
+                        onPointerDown={onResizePointerDown}
+                      />
+                      <Comments />
+                    </div>
+                  </motion.aside>
+                )}
+              </AnimatePresence>
+            </motion.div>
 
-          {/* Mobile: comments live in a slide-over sheet */}
-          <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
-            <SheetContent
-              side="right"
-              className="w-full max-w-md p-0 md:hidden"
-              aria-describedby={undefined}
-            >
-              <SheetHeader className="sr-only">
-                <SheetTitle>Comments</SheetTitle>
-              </SheetHeader>
-              <Comments />
-            </SheetContent>
-          </Sheet>
-        </motion.div>
-      )}
+            {/* Mobile: comments live in a slide-over sheet */}
+            <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
+              <SheetContent
+                side="right"
+                className="w-full max-w-md p-0 md:hidden"
+                aria-describedby={undefined}
+              >
+                <SheetHeader className="sr-only">
+                  <SheetTitle>Comments</SheetTitle>
+                </SheetHeader>
+                <Comments />
+              </SheetContent>
+            </Sheet>
+          </motion.div>
+        )}
+      </AvatarReviewProvider>
     </DocProvider>
   );
 }

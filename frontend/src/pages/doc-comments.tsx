@@ -45,7 +45,13 @@ import {
   DEFAULT_COMMENT_FILTER,
   type CommentFilter,
 } from "@/lib/constants";
+import { severityBadgeVariant } from "@/lib/avatar-review";
 import { useDoc } from "./doc-context";
+import {
+  AvatarCommentFeedback,
+  AvatarCommentMarker,
+  AvatarReviewProgress,
+} from "./doc-avatar";
 
 type MentionTarget = {
   start: number;
@@ -380,6 +386,7 @@ export function Comments() {
           ))}
         </div>
       </div>
+      <AvatarReviewProgress />
       <div className="flex-1 overflow-y-auto p-4">
         {quote && (
           <form
@@ -502,17 +509,26 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
         }
       }}
     >
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-semibold">
-          {c.author.name || c.author.email || c.author.id}
-        </span>
-        {resolved ? (
-          <Badge variant="success">
-            <CheckCircle2 className="h-3 w-3" /> resolved
-          </Badge>
+      <div className="mb-1 flex items-center justify-between gap-2">
+        {c.author_display ? (
+          <AvatarCommentMarker name={c.author_display} />
         ) : (
-          <Badge variant="accent">open</Badge>
+          <span className="text-xs font-semibold">
+            {c.author.name || c.author.email || c.author.id}
+          </span>
         )}
+        <span className="flex shrink-0 items-center gap-1">
+          {severityBadgeVariant(c.severity) ? (
+            <Badge variant={severityBadgeVariant(c.severity)!}>{c.severity}</Badge>
+          ) : null}
+          {resolved ? (
+            <Badge variant="success">
+              <CheckCircle2 className="h-3 w-3" /> resolved
+            </Badge>
+          ) : (
+            <Badge variant="accent">open</Badge>
+          )}
+        </span>
       </div>
       {unanchoredComments.has(c.id) && (
         <Badge variant="warning" className="mb-2">
@@ -551,10 +567,12 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
         }}
         pending={reply.isPending}
       />
-      <div className="mt-2 flex justify-end">
+      <div className="mt-2 flex items-center justify-between gap-2">
+        <AvatarCommentFeedback comment={c} />
         <Button
           variant="ghost"
           size="sm"
+          className="ml-auto"
           onClick={(e) => {
             e.stopPropagation();
             m.mutate(resolved ? COMMENT_STATUS.open : COMMENT_STATUS.resolved);

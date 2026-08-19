@@ -41,6 +41,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
 import { UploadVersionItem } from "./doc-upload-version";
+import { AvatarButton } from "./doc-avatar";
 
 export function DocBar({
   title,
@@ -142,6 +143,7 @@ export function DocBar({
           <Maximize2 className="h-4 w-4" /> Full screen
         </Link>
       </Button>
+      <AvatarButton />
       <Sheet>
         <SheetTrigger asChild>
           <Button

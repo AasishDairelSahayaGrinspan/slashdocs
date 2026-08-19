@@ -19,6 +19,8 @@ export const queryKeys = {
   folderAccessAll: () => ["folder-access"] as const,
   folderAccess: (id: string) => ["folder-access", id] as const,
   documentAccess: (id: string) => ["document-access", id] as const,
+  avatars: (doc: string) => ["avatars", doc] as const,
+  avatarReview: (requestId: string) => ["avatar-review", requestId] as const,
   pins: () => ["pins"] as const,
   userSearch: (query: string) => ["users", "search", query] as const,
 };

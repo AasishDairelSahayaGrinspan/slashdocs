@@ -29,6 +29,9 @@ export type ServerConfig = {
   org_name: string;
   everyone_label: string;
   provider_name: string;
+  // Present (true) only when the server has an avatar-service client
+  // configured; older servers omit it.
+  avatar_reviews_enabled?: boolean;
 };
 export type Version = {
   id: string;
@@ -65,6 +68,47 @@ export type Comment = {
     confidence: number;
     matched_text: string;
   };
+  // Avatar-review presentation: the identity the comment renders as
+  // ("Priya's avatar") and its severity tag. Absent on human comments.
+  author_display?: string;
+  severity?: string;
+};
+export type AvatarInfo = {
+  id: string;
+  display_name: string;
+  person_email?: string;
+  focus_areas: string[];
+  relevance_hint: string;
+  coming_soon?: boolean;
+};
+export type AvatarList = {
+  items: AvatarInfo[];
+  max_selectable: number;
+};
+export type AvatarReviewState =
+  | "queued"
+  | "running"
+  | "commented"
+  | "no_comments"
+  | "failed";
+export type AvatarReview = {
+  review_id: string;
+  avatar_id: string;
+  display_name: string;
+  state: AvatarReviewState;
+  comment_count: number;
+  error?: string;
+};
+export type AvatarReviewStatus = {
+  request_id: string;
+  aidoc_id: string;
+  aidoc_version: string;
+  reviews: AvatarReview[];
+};
+export type AvatarFeedbackState = {
+  signal: string;
+  up_count: number;
+  down_count: number;
 };
 export type CommentPatch = {
   body?: string;
@@ -438,6 +482,28 @@ export const api = {
     request<{ items: EffectiveAccessItem[] }>(`/v1/folders/${id}/access`),
   documentAccess: (id: string) =>
     request<{ items: EffectiveAccessItem[] }>(`/v1/documents/${id}/access`),
+  // Avatar reviews (server proxies to the avatar service)
+  listAvatars: (doc: string) =>
+    request<AvatarList>(`/v1/avatars?document_id=${encodeURIComponent(doc)}`),
+  requestAvatarReview: (doc: string, version: string, avatarIds: string[]) =>
+    request<AvatarReviewStatus>("/v1/avatar-reviews", {
+      method: "POST",
+      body: JSON.stringify({
+        document_id: doc,
+        version_id: version,
+        avatar_ids: avatarIds,
+      }),
+    }),
+  getAvatarReview: (requestId: string) =>
+    request<AvatarReviewStatus>(`/v1/avatar-reviews/${encodeURIComponent(requestId)}`),
+  submitAvatarFeedback: (commentId: string, signal: "up" | "down", persona: string) =>
+    request<AvatarFeedbackState>(
+      `/v1/avatar-comments/${encodeURIComponent(commentId)}/feedback`,
+      {
+        method: "POST",
+        body: JSON.stringify({ signal, persona }),
+      },
+    ),
   // Pins
   listPins: () => request<{ items: Pin[] }>("/v1/pins"),
   putPin: (resourceType: string, resourceId: string) =>
