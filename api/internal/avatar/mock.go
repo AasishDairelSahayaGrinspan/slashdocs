@@ -26,9 +26,9 @@ type Mock struct {
 
 	mu         sync.Mutex
 	seq        int
-	requests   map[string]*mockRequest          // request id → request
-	idempotent map[string]string                // doc|version|avatars → request id
-	votes      map[string]map[string]string     // comment ref → voter → signal
+	requests   map[string]*mockRequest      // request id → request
+	idempotent map[string]string            // doc|version|avatars → request id
+	votes      map[string]map[string]string // comment ref → voter → signal
 }
 
 type MockConfig struct {

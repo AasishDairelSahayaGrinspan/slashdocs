@@ -328,6 +328,156 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/avatar-comments/{comment_id}/feedback": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Upserts the caller's vote with the avatar service; aidocs stores nothing. Repeating the same signal toggles the vote off.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "avatars"
+                ],
+                "summary": "Vote on an avatar comment",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "comment_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Signal (up|down) and persona (author|ic)",
+                        "name": "feedback",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.avatarFeedbackRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/avatar.FeedbackState"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/avatar-reviews": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "avatars"
+                ],
+                "summary": "Request an avatar review of a document version",
+                "parameters": [
+                    {
+                        "description": "Document, version, and selected avatars",
+                        "name": "review",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.createAvatarReviewRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/avatar.ReviewRequestStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/avatar-reviews/{request_id}": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "avatars"
+                ],
+                "summary": "Poll the status of an avatar review request",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Review request ID",
+                        "name": "request_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/avatar.ReviewRequestStatus"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/avatars": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "avatars"
+                ],
+                "summary": "List avatars available to review a document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "document_id",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/avatar.AvatarList"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/config": {
             "get": {
                 "produces": [
@@ -1451,6 +1601,103 @@ const docTemplate = `{
                 "PrincipalAnonymous"
             ]
         },
+        "avatar.Avatar": {
+            "type": "object",
+            "properties": {
+                "coming_soon": {
+                    "type": "boolean"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "focus_areas": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "id": {
+                    "type": "string"
+                },
+                "person_email": {
+                    "type": "string"
+                },
+                "relevance_hint": {
+                    "type": "string"
+                }
+            }
+        },
+        "avatar.AvatarList": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/avatar.Avatar"
+                    }
+                },
+                "max_selectable": {
+                    "type": "integer"
+                }
+            }
+        },
+        "avatar.AvatarReview": {
+            "type": "object",
+            "properties": {
+                "avatar_id": {
+                    "type": "string"
+                },
+                "comment_count": {
+                    "type": "integer"
+                },
+                "display_name": {
+                    "type": "string"
+                },
+                "error": {
+                    "type": "string"
+                },
+                "review_id": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "avatar.FeedbackState": {
+            "type": "object",
+            "properties": {
+                "down_count": {
+                    "type": "integer"
+                },
+                "signal": {
+                    "type": "string"
+                },
+                "up_count": {
+                    "type": "integer"
+                }
+            }
+        },
+        "avatar.ReviewRequestStatus": {
+            "type": "object",
+            "properties": {
+                "aidoc_id": {
+                    "type": "string"
+                },
+                "aidoc_version": {
+                    "type": "string"
+                },
+                "request_id": {
+                    "type": "string"
+                },
+                "reviews": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/avatar.AvatarReview"
+                    }
+                }
+            }
+        },
         "repo.Anchor": {
             "type": "object",
             "properties": {
@@ -1636,6 +1883,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.avatarFeedbackRequest": {
+            "type": "object",
+            "properties": {
+                "persona": {
+                    "type": "string"
+                },
+                "signal": {
+                    "type": "string"
+                }
+            }
+        },
         "server.cliExchangePrincipal": {
             "type": "object",
             "properties": {
@@ -1767,6 +2025,9 @@ const docTemplate = `{
                 "author": {
                     "$ref": "#/definitions/server.principalResponse"
                 },
+                "author_display": {
+                    "type": "string"
+                },
                 "body": {
                     "type": "string"
                 },
@@ -1797,6 +2058,9 @@ const docTemplate = `{
                 "selected_text": {
                     "type": "string"
                 },
+                "severity": {
+                    "type": "string"
+                },
                 "status": {
                     "type": "string"
                 }
@@ -1805,6 +2069,10 @@ const docTemplate = `{
         "server.configResponse": {
             "type": "object",
             "properties": {
+                "avatar_reviews_enabled": {
+                    "description": "AvatarReviewsEnabled advertises the avatar review feature so the\nfrontend shows the Avatar button only when the routes exist.",
+                    "type": "boolean"
+                },
                 "default_doc_permission": {
                     "type": "string"
                 },
@@ -1818,6 +2086,23 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "provider_name": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.createAvatarReviewRequest": {
+            "type": "object",
+            "properties": {
+                "avatar_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "document_id": {
+                    "type": "string"
+                },
+                "version_id": {
                     "type": "string"
                 }
             }
@@ -1842,6 +2127,10 @@ const docTemplate = `{
                 "anchor": {
                     "$ref": "#/definitions/repo.Anchor"
                 },
+                "author_display": {
+                    "description": "AuthorDisplay and Severity are avatar-review presentation fields,\naccepted from service-account principals only.",
+                    "type": "string"
+                },
                 "body": {
                     "type": "string"
                 },
@@ -1850,6 +2139,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/server.commentMentionRequest"
                     }
+                },
+                "severity": {
+                    "type": "string"
                 },
                 "version_id": {
                     "type": "string"

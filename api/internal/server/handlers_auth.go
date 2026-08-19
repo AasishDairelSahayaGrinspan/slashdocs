@@ -49,6 +49,9 @@ type configResponse struct {
 	EveryoneLabel        string `json:"everyone_label"`
 	ProviderName         string `json:"provider_name"`
 	DefaultDocPermission string `json:"default_doc_permission"`
+	// AvatarReviewsEnabled advertises the avatar review feature so the
+	// frontend shows the Avatar button only when the routes exist.
+	AvatarReviewsEnabled bool `json:"avatar_reviews_enabled,omitempty"`
 }
 
 // meResponse is the payload of GET /v1/me. Exactly one of User and
@@ -461,6 +464,7 @@ func (h handlers) config(c *gin.Context) {
 		EveryoneLabel:        everyoneLabel(deployment, h.deps.orgName),
 		ProviderName:         defaultProviderName(h.deps.oidcProviderName),
 		DefaultDocPermission: defaultDocPermissionLabel(h.deps.defaultDocPermission),
+		AvatarReviewsEnabled: h.deps.avatarClient != nil,
 	})
 }
 

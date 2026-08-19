@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/avatar"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -56,7 +58,15 @@ type dependencies struct {
 	defaultDocPermission repo.Role
 	readinessChecks      []readinessCheck
 	documentKVEvents     kvevents.Subscriber
+	// avatarClient is the avatar-service seam. Nil disables the avatar
+	// review feature entirely: no routes, not advertised in /v1/config.
+	avatarClient avatar.Client
+	// avatarMockDelays, when non-nil, makes New construct the built-in mock
+	// client over the repository (unless avatarClient is already set).
+	avatarMockDelays *avatarMockDelays
 }
+
+type avatarMockDelays struct{ queue, run time.Duration }
 
 // Option configures the Server.
 type Option func(*dependencies)
@@ -75,6 +85,20 @@ func WithDocumentKVEvents(events kvevents.Subscriber) Option {
 
 func WithStateStore(st auth.LoginStateStore) Option {
 	return func(d *dependencies) { d.stateStore = st }
+}
+
+// WithAvatarClient enables avatar reviews backed by the given client.
+func WithAvatarClient(client avatar.Client) Option {
+	return func(d *dependencies) { d.avatarClient = client }
+}
+
+// WithAvatarMock enables avatar reviews backed by the built-in mock
+// (AIDOCS_AVATAR_SERVICE_MOCK=true). Zero delays use the mock's defaults;
+// tests pass short ones so the state machine runs fast.
+// TODO(avatar-service): mocked — swap the deployment to WithAvatarClient once
+// the real avatar service is live.
+func WithAvatarMock(queueDelay, runDelay time.Duration) Option {
+	return func(d *dependencies) { d.avatarMockDelays = &avatarMockDelays{queue: queueDelay, run: runDelay} }
 }
 
 func WithReadinessCheck(name string, fn func(context.Context) error) Option {
@@ -122,6 +146,13 @@ func New(cfg Config, opts ...Option) *Server {
 	if deps.documentKVEvents == nil {
 		// Do not create an unowned background broker for programmatic callers.
 		deps.documentKVEvents = unavailableDocumentKVEvents{}
+	}
+	if deps.avatarClient == nil && deps.avatarMockDelays != nil {
+		deps.avatarClient = avatar.NewMock(avatar.MockConfig{
+			QueueDelay: deps.avatarMockDelays.queue,
+			RunDelay:   deps.avatarMockDelays.run,
+			Store:      avatarDocumentStore{repository: deps.repository},
+		})
 	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
@@ -232,6 +263,15 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/pins", h.listPins)
 	authed.PUT("/pins/:resource_type/:resource_id", h.putPin)
 	authed.DELETE("/pins/:resource_type/:resource_id", h.deletePin)
+
+	// Avatar review routes exist only when an avatar-service client is
+	// configured; the frontend discovers the feature via /v1/config.
+	if deps.avatarClient != nil {
+		authed.GET("/avatars", h.listAvatars)
+		authed.POST("/avatar-reviews", h.createAvatarReview)
+		authed.GET("/avatar-reviews/:request_id", h.getAvatarReview)
+		authed.POST("/avatar-comments/:comment_id/feedback", h.submitAvatarCommentFeedback)
+	}
 }
 
 type handlers struct{ deps dependencies }

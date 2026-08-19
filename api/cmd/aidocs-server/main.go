@@ -272,6 +272,12 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if pinger, ok := blobs.(blob.Pinger); ok {
 		options = append(options, server.WithReadinessCheck("blob", pinger.Ping))
 	}
+	// TODO(avatar-service): mocked — replace with a real avatar-service
+	// client option (service URL + credentials) once the service is live.
+	if os.Getenv("AIDOCS_AVATAR_SERVICE_MOCK") == "true" {
+		options = append(options, server.WithAvatarMock(0, 0))
+		slog.Warn("avatar reviews are served by the built-in mock (AIDOCS_AVATAR_SERVICE_MOCK=true)")
+	}
 	return server.New(server.Config{
 		Environment:          server.EnvProduction,
 		AppOrigin:            origins.appOrigin,

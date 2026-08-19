@@ -25,6 +25,69 @@ definitions:
     - PrincipalServiceAccount
     - PrincipalAnyone
     - PrincipalAnonymous
+  avatar.Avatar:
+    properties:
+      coming_soon:
+        type: boolean
+      display_name:
+        type: string
+      focus_areas:
+        items:
+          type: string
+        type: array
+      id:
+        type: string
+      person_email:
+        type: string
+      relevance_hint:
+        type: string
+    type: object
+  avatar.AvatarList:
+    properties:
+      items:
+        items:
+          $ref: '#/definitions/avatar.Avatar'
+        type: array
+      max_selectable:
+        type: integer
+    type: object
+  avatar.AvatarReview:
+    properties:
+      avatar_id:
+        type: string
+      comment_count:
+        type: integer
+      display_name:
+        type: string
+      error:
+        type: string
+      review_id:
+        type: string
+      state:
+        type: string
+    type: object
+  avatar.FeedbackState:
+    properties:
+      down_count:
+        type: integer
+      signal:
+        type: string
+      up_count:
+        type: integer
+    type: object
+  avatar.ReviewRequestStatus:
+    properties:
+      aidoc_id:
+        type: string
+      aidoc_version:
+        type: string
+      request_id:
+        type: string
+      reviews:
+        items:
+          $ref: '#/definitions/avatar.AvatarReview'
+        type: array
+    type: object
   repo.Anchor:
     properties:
       dom_path:
@@ -148,6 +211,13 @@ definitions:
       sha256:
         type: string
     type: object
+  server.avatarFeedbackRequest:
+    properties:
+      persona:
+        type: string
+      signal:
+        type: string
+    type: object
   server.cliExchangePrincipal:
     properties:
       email:
@@ -235,6 +305,8 @@ definitions:
         $ref: '#/definitions/repo.Anchor'
       author:
         $ref: '#/definitions/server.principalResponse'
+      author_display:
+        type: string
       body:
         type: string
       created_on_version_id:
@@ -255,11 +327,18 @@ definitions:
         type: array
       selected_text:
         type: string
+      severity:
+        type: string
       status:
         type: string
     type: object
   server.configResponse:
     properties:
+      avatar_reviews_enabled:
+        description: |-
+          AvatarReviewsEnabled advertises the avatar review feature so the
+          frontend shows the Avatar button only when the routes exist.
+        type: boolean
       default_doc_permission:
         type: string
       deployment:
@@ -269,6 +348,17 @@ definitions:
       org_name:
         type: string
       provider_name:
+        type: string
+    type: object
+  server.createAvatarReviewRequest:
+    properties:
+      avatar_ids:
+        items:
+          type: string
+        type: array
+      document_id:
+        type: string
+      version_id:
         type: string
     type: object
   server.createCommentReplyRequest:
@@ -284,12 +374,19 @@ definitions:
     properties:
       anchor:
         $ref: '#/definitions/repo.Anchor'
+      author_display:
+        description: |-
+          AuthorDisplay and Severity are avatar-review presentation fields,
+          accepted from service-account principals only.
+        type: string
       body:
         type: string
       mentions:
         items:
           $ref: '#/definitions/server.commentMentionRequest'
         type: array
+      severity:
+        type: string
       version_id:
         type: string
     type: object
@@ -759,6 +856,95 @@ paths:
       summary: Start OIDC login
       tags:
       - auth
+  /v1/avatar-comments/{comment_id}/feedback:
+    post:
+      consumes:
+      - application/json
+      description: Upserts the caller's vote with the avatar service; aidocs stores
+        nothing. Repeating the same signal toggles the vote off.
+      parameters:
+      - description: Comment ID
+        in: path
+        name: comment_id
+        required: true
+        type: string
+      - description: Signal (up|down) and persona (author|ic)
+        in: body
+        name: feedback
+        required: true
+        schema:
+          $ref: '#/definitions/server.avatarFeedbackRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/avatar.FeedbackState'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Vote on an avatar comment
+      tags:
+      - avatars
+  /v1/avatar-reviews:
+    post:
+      consumes:
+      - application/json
+      parameters:
+      - description: Document, version, and selected avatars
+        in: body
+        name: review
+        required: true
+        schema:
+          $ref: '#/definitions/server.createAvatarReviewRequest'
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/avatar.ReviewRequestStatus'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Request an avatar review of a document version
+      tags:
+      - avatars
+  /v1/avatar-reviews/{request_id}:
+    get:
+      parameters:
+      - description: Review request ID
+        in: path
+        name: request_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/avatar.ReviewRequestStatus'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: Poll the status of an avatar review request
+      tags:
+      - avatars
+  /v1/avatars:
+    get:
+      parameters:
+      - description: Document ID
+        in: query
+        name: document_id
+        required: true
+        type: string
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/avatar.AvatarList'
+      security:
+      - bearerAuth: []
+      - cookieAuth: []
+      summary: List avatars available to review a document
+      tags:
+      - avatars
   /v1/config:
     get:
       produces:

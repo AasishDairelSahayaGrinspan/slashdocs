@@ -145,7 +145,13 @@ func serviceAccountPrincipal(e *testEnv) auth.Principal {
 // grantDocumentRole grants the principal a role on the fixture document.
 func (e *testEnv) grantDocumentRole(p auth.Principal, role repo.Role) {
 	e.t.Helper()
-	if _, err := e.store.CreateGrant(context.Background(), "document", e.doc.ID, p, role, fixtureOwner); err != nil {
+	e.grantDocumentRoleOn(e.doc.ID, p, role)
+}
+
+// grantDocumentRoleOn grants the principal a role on any document.
+func (e *testEnv) grantDocumentRoleOn(docID string, p auth.Principal, role repo.Role) {
+	e.t.Helper()
+	if _, err := e.store.CreateGrant(context.Background(), "document", docID, p, role, fixtureOwner); err != nil {
 		e.t.Fatalf("seed grant for %s: %v", p.ID, err)
 	}
 }

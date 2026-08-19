@@ -498,8 +498,8 @@ func TestMCPCreateCommentCarriesAvatarFields(t *testing.T) {
 
 	comment := mustMCPObject(t, assertMCPToolOK(t, callMCPToolHTTP(t, e, saToken, "create_comment", map[string]any{
 		"document_id": document.ID, "version_id": version.ID,
-		"body":  "The claim needs a citation.",
-		"quote": "avatar target text",
+		"body":           "The claim needs a citation.",
+		"quote":          "avatar target text",
 		"author_display": "Priya's avatar", "severity": "blocking",
 	}), "Priya's avatar"))
 	if comment["severity"] != "blocking" {
