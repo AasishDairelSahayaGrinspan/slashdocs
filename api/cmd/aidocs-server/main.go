@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/avatar"
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/db"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
@@ -272,9 +273,19 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if pinger, ok := blobs.(blob.Pinger); ok {
 		options = append(options, server.WithReadinessCheck("blob", pinger.Ping))
 	}
-	// TODO(avatar-service): mocked — replace with a real avatar-service
-	// client option (service URL + credentials) once the service is live.
-	if os.Getenv("AIDOCS_AVATAR_SERVICE_MOCK") == "true" {
+	// Avatar reviews: the real service when configured, the built-in mock as
+	// the explicit dev fallback. The real client signs in to the avatar
+	// service with a service (superuser) credential and attributes each
+	// review to the aidocs user who triggered it.
+	if avatarURL := os.Getenv("AIDOCS_AVATAR_SERVICE_URL"); avatarURL != "" {
+		user := os.Getenv("AIDOCS_AVATAR_SERVICE_USERNAME")
+		pass := os.Getenv("AIDOCS_AVATAR_SERVICE_PASSWORD")
+		if user == "" || pass == "" {
+			return nil, errors.New("AIDOCS_AVATAR_SERVICE_URL is set but AIDOCS_AVATAR_SERVICE_USERNAME/PASSWORD are not")
+		}
+		options = append(options, server.WithAvatarClient(avatar.NewHTTPClient(avatarURL, user, pass, origins.appOrigin)))
+		slog.Info("avatar reviews are served by the avatar service", "url", avatarURL)
+	} else if os.Getenv("AIDOCS_AVATAR_SERVICE_MOCK") == "true" {
 		options = append(options, server.WithAvatarMock(0, 0))
 		slog.Warn("avatar reviews are served by the built-in mock (AIDOCS_AVATAR_SERVICE_MOCK=true)")
 	}

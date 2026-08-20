@@ -105,6 +105,13 @@ services:
       AIDOCS_OIDC_PROVIDER_NAME: Dex
 
       # Dev-only: avatar reviews served by the built-in mock avatar service.
+      # Real avatar service passthrough (wins over the mock when set):
+      #   AIDOCS_AVATAR_SERVICE_URL=http://host.docker.internal:8000 \
+      #   AIDOCS_AVATAR_SERVICE_USERNAME=admin AIDOCS_AVATAR_SERVICE_PASSWORD=… \
+      #   docker compose up
+      AIDOCS_AVATAR_SERVICE_URL: ${AIDOCS_AVATAR_SERVICE_URL:-}
+      AIDOCS_AVATAR_SERVICE_USERNAME: ${AIDOCS_AVATAR_SERVICE_USERNAME:-}
+      AIDOCS_AVATAR_SERVICE_PASSWORD: ${AIDOCS_AVATAR_SERVICE_PASSWORD:-}
       AIDOCS_AVATAR_SERVICE_MOCK: "true"
 
       # Dev-only value; generate your own for anything beyond localhost.
