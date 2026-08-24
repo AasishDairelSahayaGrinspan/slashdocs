@@ -196,6 +196,13 @@ blob:
   existingSecret: aidocs-blob
   accessKeyIDKey: access-key-id
   secretAccessKeyKey: secret-access-key
+
+googleGroups:
+  enabled: true
+  customerID: C01234567
+  adminEmail: groups-reader-admin@example.com
+  existingSecret: aidocs-google-groups
+  credentialsKey: credentials.json
 ```
 
 ## Redirect URIs

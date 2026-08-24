@@ -1,6 +1,5 @@
 import { useTitle } from "@/lib/use-title";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -12,9 +11,7 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { api } from "@/api";
 import { publicURL } from "@/lib/config";
-import { queryKeys } from "@/lib/queryKeys";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/misc";
@@ -30,17 +27,7 @@ type StepKey = keyof OnboardingState["steps"];
 export function StartPage() {
   useTitle("Get started");
   const { state, setStep, skip } = useOnboarding();
-  const config = useQuery({
-    queryKey: queryKeys.config(),
-    queryFn: () => api.getConfig(),
-    staleTime: Infinity,
-  });
-  // Self-hosted/org instances aren't the CLI's hosted default, so the login
-  // command must name this server.
-  const loginCmd =
-    config.data?.deployment === "org"
-      ? `aidocs auth login ${publicURL()}`
-      : "aidocs auth login";
+  const loginCmd = `aidocs auth login ${publicURL()}`;
   const { done, total } = onboardingProgress(state);
   const nav = useNavigate();
 

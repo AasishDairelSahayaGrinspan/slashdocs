@@ -5,11 +5,13 @@ import (
 	"errors"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/bots"
+	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
@@ -18,16 +20,52 @@ import (
 // Sentinel errors returned by resolveGrantPrincipal so callers can map them to
 // HTTP responses without matching on error message text.
 var (
-	errInvalidAddress      = errors.New("invalid grant address")
-	errPrincipalIDRequired = errors.New("principal id required")
-	errUnknownUserEmail    = errors.New("unknown user email")
+	errInvalidAddress           = errors.New("invalid grant address")
+	errPrincipalIDRequired      = errors.New("principal id required")
+	errUnknownUserEmail         = errors.New("unknown user email")
+	errGoogleGroupsDisabled     = errors.New("google groups disabled")
+	errGoogleGroupEmailRequired = errors.New("google group email required")
 )
 
-func resolveGrantPrincipal(c *gin.Context, r repo.Repository, address string, principal auth.Principal) (auth.Principal, error) {
+type grantPrincipalInput struct {
+	Type  auth.PrincipalType `json:"type" enums:"user,service_account,google_group,anyone"`
+	ID    string             `json:"id,omitempty"`
+	Email string             `json:"email,omitempty"`
+	Name  string             `json:"name,omitempty"`
+}
+
+type grantInput struct {
+	Address   string              `json:"address,omitempty"`
+	Principal grantPrincipalInput `json:"principal"`
+	Role      repo.Role           `json:"role" enums:"viewer,commenter,editor,owner"`
+}
+
+func resolveGrantPrincipal(c *gin.Context, r repo.Repository, directory googlegroups.GoogleGroupDirectory, groupsEnabled bool, address string, principal auth.Principal) (auth.Principal, error) {
 	// The "anyone" principal is the whole-server audience; it has no address and
 	// no backing record to resolve.
 	if principal.Type == auth.PrincipalAnyone {
 		return auth.Principal{Type: auth.PrincipalAnyone}, nil
+	}
+	if principal.Type == auth.PrincipalGoogleGroup {
+		if !groupsEnabled || directory == nil {
+			return auth.Principal{}, errGoogleGroupsDisabled
+		}
+		if strings.TrimSpace(principal.Email) == "" {
+			return auth.Principal{}, errGoogleGroupEmailRequired
+		}
+		// Never trust a caller-supplied group ID. Lookup+get verifies the
+		// canonical address, immutable groups/{id}, customer, and group type.
+		group, err := directory.LookupGroup(c.Request.Context(), principal.Email)
+		if err != nil {
+			return auth.Principal{}, err
+		}
+		if err := r.UpsertGoogleGroup(c.Request.Context(), repo.GoogleGroup{
+			ID: group.ID, CustomerID: group.CustomerID, Email: group.Email,
+			Name: group.Name, LastVerifiedAt: time.Now(),
+		}); err != nil {
+			return auth.Principal{}, err
+		}
+		return auth.Principal{Type: auth.PrincipalGoogleGroup, ID: group.ID, Email: group.Email, Name: group.Name}, nil
 	}
 	if address != "" {
 		var err error
@@ -82,6 +120,39 @@ func resolveStoredGrantPrincipal(ctx context.Context, r repo.Repository, princip
 	}
 }
 
+func validGrantRoleForPrincipal(principalType auth.PrincipalType, role repo.Role) bool {
+	if role == repo.RoleOwner {
+		return principalType == auth.PrincipalGoogleGroup
+	}
+	return validGrantRole(role)
+}
+
+func (h handlers) isCanonicalOwner(c *gin.Context, resourceType, resourceID string) bool {
+	p := current(c)
+	if p == nil {
+		return false
+	}
+	if resourceType == "folder" {
+		resource, err := h.deps.repository.GetFolder(c.Request.Context(), resourceID)
+		return err == nil && resource.Owner.Type == p.Type && resource.Owner.ID == p.ID
+	}
+	resource, err := h.deps.repository.GetDocument(c.Request.Context(), resourceID)
+	return err == nil && resource.Owner.Type == p.Type && resource.Owner.ID == p.ID
+}
+
+func (h handlers) requireCanonicalOwnerForOwnerGroupChange(c *gin.Context, resourceType, resourceID string, before, after repo.Grant) bool {
+	changesOwnerGroup := before.Principal.Type == auth.PrincipalGoogleGroup && before.Role == repo.RoleOwner ||
+		after.Principal.Type == auth.PrincipalGoogleGroup && after.Role == repo.RoleOwner
+	if !changesOwnerGroup {
+		return true
+	}
+	if !h.isCanonicalOwner(c, resourceType, resourceID) {
+		forbidden(c, "only the canonical owner may manage owner-level Google Group grants")
+		return false
+	}
+	return true
+}
+
 // createGrantResponse is the payload of POST /v1/documents/{id}/grants.
 type createGrantResponse struct {
 	ID        string         `json:"id"`
@@ -121,16 +192,7 @@ func (h handlers) createGrant(c *gin.Context) {
 		return
 	}
 	p := current(c)
-	var in struct {
-		Address   string `json:"address"`
-		Principal struct {
-			Type  auth.PrincipalType `json:"type"`
-			ID    string             `json:"id"`
-			Email string             `json:"email"`
-			Name  string             `json:"name"`
-		} `json:"principal"`
-		Role repo.Role `json:"role"`
-	}
+	var in grantInput
 	if !requireJSON(c) {
 		return
 	}
@@ -138,12 +200,12 @@ func (h handlers) createGrant(c *gin.Context) {
 		badRequest(c, "invalid grant")
 		return
 	}
-	if !validGrantRole(in.Role) {
+	if !validGrantRoleForPrincipal(in.Principal.Type, in.Role) {
 		badRequest(c, "invalid role")
 		return
 	}
 	principal := auth.Principal{Type: in.Principal.Type, ID: in.Principal.ID, Email: in.Principal.Email, Name: in.Principal.Name}
-	resolved, err := resolveGrantPrincipal(c, h.deps.repository, in.Address, principal)
+	resolved, err := resolveGrantPrincipal(c, h.deps.repository, h.deps.googleGroupDirectory, h.deps.googleGroupsEnabled, in.Address, principal)
 	if err != nil {
 		switch {
 		case errors.Is(err, errInvalidAddress):
@@ -152,11 +214,23 @@ func (h handlers) createGrant(c *gin.Context) {
 			badRequest(c, "principal id, user email, or service account name is required")
 		case errors.Is(err, errUnknownUserEmail):
 			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
+		case errors.Is(err, errGoogleGroupsDisabled):
+			badRequest(c, "Google Group sharing is disabled")
+		case errors.Is(err, errGoogleGroupEmailRequired), googlegroups.IsNotFound(err):
+			badRequest(c, "Select a verified Google Group result")
 		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
 		default:
-			internalErr(c, err)
+			if in.Principal.Type == auth.PrincipalGoogleGroup {
+				incGoogleGroupOperation("grant_resolution", "failure")
+				c.JSON(http.StatusServiceUnavailable, errorResponse("dependency_unavailable", "Google Group directory is temporarily unavailable", nil))
+			} else {
+				internalErr(c, err)
+			}
 		}
+		return
+	}
+	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "document", c.Param("id"), repo.Grant{}, repo.Grant{Principal: resolved, Role: in.Role}) {
 		return
 	}
 	g, err := h.deps.repository.CreateGrant(c.Request.Context(), "document", c.Param("id"), resolved, in.Role, *p)
@@ -198,8 +272,20 @@ func (h handlers) patchGrant(c *gin.Context) {
 	if !requireJSON(c) {
 		return
 	}
-	if err := c.ShouldBindJSON(&in); err != nil || !validGrantRole(in.Role) {
+	if err := c.ShouldBindJSON(&in); err != nil {
 		badRequest(c, "invalid grant")
+		return
+	}
+	existing, err := h.deps.repository.GetGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"))
+	if err != nil {
+		notFound(c)
+		return
+	}
+	if !validGrantRoleForPrincipal(existing.Principal.Type, in.Role) {
+		badRequest(c, "invalid grant")
+		return
+	}
+	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "document", c.Param("id"), existing, repo.Grant{Principal: existing.Principal, Role: in.Role}) {
 		return
 	}
 	g, err := h.deps.repository.UpdateGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"), in.Role)
@@ -226,6 +312,14 @@ func (h handlers) patchGrant(c *gin.Context) {
 // @Router /v1/documents/{id}/grants/{grant_id} [delete]
 func (h handlers) deleteGrant(c *gin.Context) {
 	if !h.needDocRole(c, c.Param("id"), repo.RoleCommenter) {
+		return
+	}
+	existing, err := h.deps.repository.GetGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"))
+	if err != nil {
+		notFound(c)
+		return
+	}
+	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "document", c.Param("id"), existing, repo.Grant{}) {
 		return
 	}
 	if err := h.deps.repository.DeleteGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id")); err != nil {

@@ -9,6 +9,11 @@ import {
   highlightRange,
   refreshSVGRects,
 } from "./highlight.ts";
+import {
+  reduceVimScroll,
+  vimLineScrollDistance,
+  type VimScrollAction,
+} from "../src/lib/vim-scroll.ts";
 
 type KVItems = Record<string, unknown>;
 
@@ -27,6 +32,11 @@ interface KVPendingRequest {
   reject(error: unknown): void;
 }
 
+interface GitHubPendingRequest {
+  resolve(value: unknown): void;
+  reject(error: unknown): void;
+}
+
 type KVChangeHandler = (detail: unknown) => void;
 
 interface KVHandlers {
@@ -41,9 +51,20 @@ interface QueuedKVOperation {
 }
 
 type KVFunction = (...args: never[]) => Promise<unknown>;
+type GitHubFunction = (input: {
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string;
+}) => Promise<unknown>;
+type GitHubConnectFunction = () => void;
 
 interface AidocsPublicAPI {
   kv?: Record<string, KVFunction>;
+  github?: {
+    getRawContent: GitHubFunction;
+    connect: GitHubConnectFunction;
+  };
   on?: (event: string, handler: KVChangeHandler) => (() => void) | undefined;
   off?: (event: string, handler: KVChangeHandler) => void;
   [key: string]: unknown;
@@ -54,6 +75,12 @@ declare global {
     __AIDOCS_APP_ORIGIN__?: string;
     __aidocsKVHandlers?: KVHandlers;
     __aidocsKVQueue?: QueuedKVOperation[];
+    __aidocsGitHubQueue?: Array<{
+      input: Parameters<GitHubFunction>[0];
+      resolve(value: unknown): void;
+      reject(error: unknown): void;
+    }>;
+    __aidocsGitHubConnectQueued?: boolean;
     aidocs?: AidocsPublicAPI;
     CustomEvent: typeof CustomEvent;
   }
@@ -73,6 +100,8 @@ type Theme = "dark" | "light";
   const frame = document.getElementById("aidocs-doc") as HTMLIFrameElement;
   let kvRequestID = 0;
   const kvPending: Record<string, KVPendingRequest> = {};
+  let githubRequestID = 0;
+  const githubPending: Record<string, GitHubPendingRequest> = {};
   const kvRequestTimeoutMS = 10000;
   const kvHistoryLimit = 100;
   let kvUndoStack: KVHistoryEntry[] = [];
@@ -368,6 +397,48 @@ type Theme = "dark" | "light";
     });
   }
 
+  function githubRawContent(input: Parameters<GitHubFunction>[0]): Promise<unknown> {
+    if (!input || typeof input !== "object") {
+      return Promise.reject(
+        new TypeError("aidocs.github.getRawContent requires an input object"),
+      );
+    }
+    const payload = {
+      owner: String(input.owner || ""),
+      repo: String(input.repo || ""),
+      path: String(input.path || ""),
+      ref: String(input.ref || ""),
+    };
+    if (!payload.owner || !payload.repo || !payload.path || !payload.ref) {
+      return Promise.reject(new TypeError("owner, repo, path, and ref are required"));
+    }
+    const requestId = "github_" + ++githubRequestID + "_" + Date.now();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        delete githubPending[requestId];
+        reject(new Error("GitHub request timed out"));
+      }, 30000);
+      githubPending[requestId] = {
+        resolve(value) {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        reject(error) {
+          clearTimeout(timer);
+          reject(error);
+        },
+      };
+      parent.postMessage(
+        { type: "aidocs:github-request", requestId, operation: "raw", ...payload },
+        targetOrigin(),
+      );
+    });
+  }
+
+  function githubConnect(): void {
+    parent.postMessage({ type: "aidocs:github-connect" }, targetOrigin());
+  }
+
   function emitKVChange(detail: unknown): void {
     const w = innerWindow();
     if (!w) return;
@@ -433,11 +504,25 @@ type Theme = "dark" | "light";
       },
     };
     existing.kv = kv;
+    existing.github = {
+      getRawContent: githubRawContent,
+      connect: githubConnect,
+    };
     existing.on = on;
     existing.off = off;
     try {
       w.aidocs = existing;
     } catch (e) {}
+
+    const githubQueued = w.__aidocsGitHubQueue || [];
+    w.__aidocsGitHubQueue = [];
+    githubQueued.forEach((entry) => {
+      githubRawContent(entry.input).then(entry.resolve, entry.reject);
+    });
+    if (w.__aidocsGitHubConnectQueued) {
+      w.__aidocsGitHubConnectQueued = false;
+      githubConnect();
+    }
 
     const queued = w.__aidocsKVQueue || [];
     w.__aidocsKVQueue = [];
@@ -493,6 +578,7 @@ type Theme = "dark" | "light";
   // repaint that only changes the active comment can skip re-anchoring.
   let lastPaintKey: string | null = null;
   let lastPaintResults: { id: string; anchored: boolean }[] | null = null;
+  let commentPositionFrame = 0;
   // The active comment whose mark was last revealed (scrolled into view).
   // Reveal fires only when activation changes to a different comment:
   // repaints also arrive for reasons unrelated to activation (a comment
@@ -607,6 +693,74 @@ type Theme = "dark" | "light";
   // whether a highlight survived a document mutation intact.
   const paintedQuotes = new Map<string, string>();
 
+  function postCommentScroll(): void {
+    const d = doc();
+    if (!d) return;
+    parent.postMessage(
+      {
+        type: "aidocs:comment-scroll",
+        scrollTop: d.defaultView?.scrollY || d.documentElement.scrollTop || 0,
+      },
+      targetOrigin(),
+    );
+  }
+
+  function postCommentPositions(): void {
+    const d = doc();
+    if (!d || !lastPaint) return;
+    const view = d.defaultView;
+    const scrollTop = view?.scrollY || d.documentElement.scrollTop || 0;
+    const scrollHeight = Math.max(
+      d.documentElement.scrollHeight,
+      d.body?.scrollHeight || 0,
+    );
+    const positions: Array<{ id: string; top: number; bottom: number }> = [];
+    const seen = new Set<string>();
+    for (const item of lastPaint.items) {
+      const id = item && item.id;
+      if (!id || seen.has(id)) continue;
+      seen.add(id);
+      const escaped = CSS.escape(id);
+      const marks = Array.from(
+        d.querySelectorAll(
+          `mark.aidocs-mark[data-cid="${escaped}"],.aidocs-svg-mark-text[data-cid="${escaped}"],.aidocs-svg-mark-rect[data-cid="${escaped}"]`,
+        ),
+      );
+      let top = Number.POSITIVE_INFINITY;
+      let bottom = Number.NEGATIVE_INFINITY;
+      for (const mark of marks) {
+        const rect = mark.getBoundingClientRect();
+        if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) continue;
+        top = Math.min(top, rect.top);
+        bottom = Math.max(bottom, rect.bottom);
+      }
+      if (Number.isFinite(top) && Number.isFinite(bottom)) {
+        positions.push({ id, top: top + scrollTop, bottom: bottom + scrollTop });
+      }
+    }
+    parent.postMessage(
+      {
+        type: "aidocs:comment-positions",
+        positions,
+        scrollTop,
+        scrollHeight,
+      },
+      targetOrigin(),
+    );
+  }
+
+  function scheduleCommentPositions(): void {
+    const view = doc()?.defaultView;
+    if (!view || commentPositionFrame) return;
+    commentPositionFrame = view.requestAnimationFrame(() => {
+      commentPositionFrame = 0;
+      const current = doc();
+      if (!current) return;
+      refreshSVGRects(current);
+      postCommentPositions();
+    });
+  }
+
   function highlightIntact(d: Document, id: string): boolean {
     const expected = paintedQuotes.get(id);
     if (!expected) return false;
@@ -716,6 +870,7 @@ type Theme = "dark" | "light";
       { type: "aidocs:paint-result", results: lastPaintResults },
       targetOrigin(),
     );
+    scheduleCommentPositions();
   }
 
   // Our own painting mutates the document (splitText, mark wrapping, svg
@@ -736,7 +891,11 @@ type Theme = "dark" | "light";
 
   function observeMutations(d: Document): void {
     if (mutationObserver) mutationObserver.disconnect();
-    mutationObserver = new MutationObserver(scheduleMutationScan);
+    mutationObserver = new MutationObserver(() => {
+      prepareHeadings(d);
+      scheduleMutationScan();
+      scheduleCommentPositions();
+    });
     // Observe the root element rather than body so a script replacing
     // document.body entirely is still seen.
     observedRoot = d.documentElement;
@@ -765,6 +924,7 @@ type Theme = "dark" | "light";
         { type: "aidocs:paint-result", results: lastPaintResults },
         targetOrigin(),
       );
+      scheduleCommentPositions();
       return;
     }
 
@@ -814,6 +974,7 @@ type Theme = "dark" | "light";
     // Post even when the inner document is unavailable so the parent never
     // keeps stale "highlight not found" state.
     parent.postMessage({ type: "aidocs:paint-result", results }, targetOrigin());
+    scheduleCommentPositions();
   }
 
   function activate(e: MouseEvent): void {
@@ -877,6 +1038,10 @@ type Theme = "dark" | "light";
         try {
           d.defaultView!.history.replaceState(null, "", href);
         } catch (err) {}
+        parent.postMessage(
+          { type: "aidocs:heading", id: decodeURIComponent(href.slice(1)) },
+          targetOrigin(),
+        );
       }
       return;
     }
@@ -971,7 +1136,16 @@ type Theme = "dark" | "light";
     restoredSelection = null;
     const anchor = describeAnchor(d.body, range);
     if (!anchor) return;
-    parent.postMessage({ type: "aidocs:selection", anchor }, targetOrigin());
+    const rect = range.getBoundingClientRect();
+    const scrollTop = d.defaultView?.scrollY || d.documentElement.scrollTop || 0;
+    parent.postMessage(
+      {
+        type: "aidocs:selection",
+        anchor,
+        top: Number.isFinite(rect.top) ? rect.top + scrollTop : undefined,
+      },
+      targetOrigin(),
+    );
   }
 
   function isTextEditingTarget(target: EventTarget | null): boolean {
@@ -1024,6 +1198,30 @@ type Theme = "dark" | "light";
 
   curTheme = initialTheme();
   let setupDoc: Document | null = null;
+
+  function prepareHeadings(d: Document): void {
+    const used: Record<string, number> = {};
+    Array.from(d.querySelectorAll("h1,h2,h3,h4,h5,h6")).forEach((heading) => {
+      const base =
+        heading.id ||
+        (heading.textContent || "section")
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-+|-+$/g, "") ||
+        "section";
+      const count = used[base] || 0;
+      used[base] = count + 1;
+      if (!heading.id) heading.id = count ? `${base}-${count + 1}` : base;
+    });
+  }
+
+  function navigateHeading(id: string): void {
+    const d = doc();
+    if (!d || !id) return;
+    const target = d.getElementById(id);
+    if (target) target.scrollIntoView({ block: "start" });
+  }
   function setupFrame(): void {
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
@@ -1035,6 +1233,7 @@ type Theme = "dark" | "light";
     lastPaint = null;
     lastPaintKey = null;
     lastPaintResults = null;
+    commentPositionFrame = 0;
     revealedActive = null;
     restoredSelection = null;
     paintedQuotes.clear();
@@ -1045,6 +1244,7 @@ type Theme = "dark" | "light";
     resetKVHistory();
     injectStyles();
     installAidocsAPI();
+    prepareHeadings(d);
     prepareLinks();
     applyTheme(curTheme);
     // Track the selection gesture so mutation repairs never run mid-drag
@@ -1101,9 +1301,82 @@ type Theme = "dark" | "light";
       if (selTimer) clearTimeout(selTimer);
       selTimer = setTimeout(selection, 350);
     });
+    const chordKeys = ["t", "f", "c", "h"];
+    let chordArmedAt = 0;
+    let vimGArmed = false;
+    let vimGTimer = 0;
+    const runVimScroll = (action: VimScrollAction, repeat = false) => {
+      const view = d.defaultView;
+      if (!view) return;
+      if (action === "line-down")
+        view.scrollBy({
+          top: vimLineScrollDistance(repeat),
+          behavior: repeat ? "instant" : "auto",
+        });
+      else if (action === "line-up")
+        view.scrollBy({
+          top: -vimLineScrollDistance(repeat),
+          behavior: repeat ? "instant" : "auto",
+        });
+      else if (action === "half-page-down")
+        view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior: "auto" });
+      else if (action === "half-page-up")
+        view.scrollBy({
+          top: -Math.max(160, view.innerHeight * 0.5),
+          behavior: "auto",
+        });
+      else if (action === "top") view.scrollTo({ top: 0, behavior: "auto" });
+      else
+        view.scrollTo({
+          top: d.documentElement.scrollHeight,
+          behavior: "auto",
+        });
+    };
     d.addEventListener("keydown", (ev) => {
+      const target = ev.target as Element | null;
+      const textEditing = !!target?.closest?.(
+        'input,textarea,select,[contenteditable="true"]',
+      );
+      if (ev.defaultPrevented || textEditing) {
+        chordArmedAt = 0;
+        vimGArmed = false;
+        clearTimeout(vimGTimer);
+        handleKVUndoRedoShortcut(ev);
+        return;
+      }
+
+      const modified = ev.metaKey || ev.ctrlKey || ev.altKey;
       if (ev.key === "Escape") {
+        chordArmedAt = modified ? 0 : Date.now();
         parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
+      } else if (chordArmedAt) {
+        const withinWindow = Date.now() - chordArmedAt <= 800;
+        chordArmedAt = 0;
+        const key = ev.key.toLowerCase();
+        if (withinWindow && !modified && chordKeys.includes(key)) {
+          parent.postMessage({ type: "aidocs:keydown", key }, targetOrigin());
+        }
+      }
+
+      const vim = reduceVimScroll(
+        {
+          key: ev.key,
+          ctrlKey: ev.ctrlKey,
+          metaKey: ev.metaKey,
+          altKey: ev.altKey,
+        },
+        vimGArmed,
+      );
+      vimGArmed = vim.gArmed;
+      clearTimeout(vimGTimer);
+      if (vimGArmed) {
+        vimGTimer = setTimeout(() => {
+          vimGArmed = false;
+        }, 600);
+      }
+      if (vim.action) {
+        ev.preventDefault();
+        runVimScroll(vim.action, ev.repeat);
       }
       handleKVUndoRedoShortcut(ev);
     });
@@ -1128,6 +1401,10 @@ type Theme = "dark" | "light";
     );
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
+    d.defaultView?.addEventListener("scroll", postCommentScroll, {
+      passive: true,
+    });
+    d.defaultView?.addEventListener("resize", scheduleCommentPositions);
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
     hydrateKV();
   }
@@ -1153,15 +1430,44 @@ type Theme = "dark" | "light";
         pending.reject(
           new Error((e.data.error && e.data.error.message) || "KV request failed"),
         );
+    } else if (e.data.type === "aidocs:github-response") {
+      const requestId = String(e.data.requestId || "");
+      const pending = githubPending[requestId];
+      if (!pending) return;
+      delete githubPending[requestId];
+      if (e.data.ok) pending.resolve(e.data.result || {});
+      else
+        pending.reject(
+          new Error((e.data.error && e.data.error.message) || "GitHub request failed"),
+        );
+    } else if (e.data.type === "aidocs:navigate-heading") {
+      navigateHeading(String(e.data.id || ""));
+    } else if (e.data.type === "aidocs:request-comment-positions") {
+      scheduleCommentPositions();
+    } else if (
+      e.data.type === "aidocs:scroll-to" &&
+      typeof e.data.top === "number" &&
+      Number.isFinite(e.data.top)
+    ) {
+      doc()?.defaultView?.scrollTo({
+        top: Math.max(0, e.data.top),
+        behavior: "instant",
+      });
+    } else if (e.data.type === "aidocs:vim-key") {
+      const d = doc();
+      const KeyboardEventCtor = d?.defaultView?.KeyboardEvent;
+      if (!d || !KeyboardEventCtor) return;
+      d.dispatchEvent(
+        new KeyboardEventCtor("keydown", {
+          key: String(e.data.key || ""),
+          ctrlKey: e.data.ctrlKey === true,
+          metaKey: e.data.metaKey === true,
+          altKey: e.data.altKey === true,
+          repeat: e.data.repeat === true,
+        }),
+      );
     } else if (e.data.type === "aidocs:kv-event") {
       emitKVChange(e.data.detail || {});
-    } else if (e.data.type === "aidocs:print") {
-      const w = innerWindow();
-      if (!w) return;
-      try {
-        w.focus();
-        w.print();
-      } catch (err) {}
     }
   });
 })();

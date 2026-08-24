@@ -118,6 +118,46 @@ func (h handlers) createRenderToken(c *gin.Context) {
 	c.JSON(http.StatusOK, renderTokenResponse{Token: token, URL: path})
 }
 
+func (h handlers) createPrintToken(c *gin.Context) {
+	v, ok := h.loadVersionForViewer(c)
+	if !ok {
+		return
+	}
+	subject := renderAudiencePrefix + v.DocumentID + "/" + v.ID
+	token := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).SignForAudience(subject, "print", 2*time.Minute)
+	path := "/print/" + v.DocumentID + "/" + v.ID + "?token=" + url.QueryEscape(token)
+	if h.deps.renderOrigin != "" {
+		path = strings.TrimRight(h.deps.renderOrigin, "/") + path
+	}
+	c.JSON(http.StatusOK, renderTokenResponse{Token: token, URL: path})
+}
+
+func (h handlers) renderPrintVersion(c *gin.Context) {
+	if h.deps.renderOrigin != "" && !hostMatchesOrigin(c.Request.Host, h.deps.renderOrigin) {
+		notFound(c)
+		return
+	}
+	docID, vid := c.Param("id"), c.Param("version_id")
+	uid, ok := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).VerifyAudience(c.Query("token"), "print")
+	if !ok || uid != renderAudiencePrefix+docID+"/"+vid {
+		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "invalid print token", nil))
+		return
+	}
+	b, err := h.deps.repository.GetVersionHTML(c.Request.Context(), vid)
+	if errors.Is(err, repo.ErrNotFound) {
+		notFound(c)
+		return
+	}
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	c.Header("Content-Security-Policy", "default-src 'none'; img-src * data: blob:; media-src * data: blob:; font-src * data: blob:; style-src * 'unsafe-inline'; script-src 'unsafe-inline'; connect-src *; frame-ancestors 'none'; object-src 'none'")
+	c.Header("Referrer-Policy", "no-referrer")
+	c.Header("X-Content-Type-Options", "nosniff")
+	c.Data(http.StatusOK, "text/html; charset=utf-8", printableHTML(b))
+}
+
 // RenderVersion godoc
 // @Summary Render version wrapper
 // @Tags render

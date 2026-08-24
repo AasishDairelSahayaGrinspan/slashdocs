@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 )
@@ -87,6 +88,7 @@ type Document struct {
 	ParentFolderID   string            `json:"parent_folder_id,omitempty"`
 	ParentFolder     *FolderBreadcrumb `json:"parent_folder,omitempty"`
 	UpdatedAt        string            `json:"updated_at,omitempty"`
+	Labels           []string          `json:"labels,omitempty"`
 }
 
 type FolderBreadcrumb struct {
@@ -116,6 +118,16 @@ type FolderEntry struct {
 	Folder     *Folder   `json:"folder,omitempty"`
 	Document   *Document `json:"document,omitempty"`
 	LastActive string    `json:"last_active,omitempty"`
+}
+
+// DocumentSearch contains validated, case-insensitive PostgreSQL regular
+// expressions for each supported search dimension. Empty patterns disable a
+// dimension. LabelPatterns use AND semantics.
+type DocumentSearch struct {
+	TitlePattern  string
+	AuthorPattern string
+	LabelPatterns []string
+	FolderPattern string
 }
 
 type Pin struct {
@@ -166,6 +178,21 @@ type Grant struct {
 	GrantedBy    auth.Principal `json:"granted_by"`
 }
 
+type GoogleGroup struct {
+	ID             string    `json:"id"`
+	CustomerID     string    `json:"-"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name"`
+	LastVerifiedAt time.Time `json:"-"`
+}
+
+type GoogleGroupMembershipSnapshot struct {
+	GroupIDs      []string
+	LastAttemptAt time.Time
+	LastSuccessAt time.Time
+	LastErrorCode string
+}
+
 type Version struct {
 	ID            string         `json:"id"`
 	Number        int            `json:"number"`
@@ -173,6 +200,16 @@ type Version struct {
 	CreatedBy     auth.Principal `json:"created_by"`
 	ChangeSummary string         `json:"change_summary"`
 	SHA256        string         `json:"sha256"`
+	CreatedAt     string         `json:"created_at"`
+}
+
+type GitHubConnection struct {
+	UserID                string `json:"-"`
+	GitHubUserID          int64  `json:"github_user_id"`
+	Login                 string `json:"login"`
+	AvatarURL             string `json:"avatar_url,omitempty"`
+	AccessTokenCiphertext []byte `json:"-"`
+	UpdatedAt             string `json:"updated_at,omitempty"`
 }
 
 type Anchor struct {
@@ -278,7 +315,7 @@ type Repository interface {
 	FolderAccessChain(ctx context.Context, principal auth.Principal, folderID string) ([]FolderAccess, error)
 	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
-	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
+	SearchDocuments(ctx context.Context, principal auth.Principal, search DocumentSearch, includeOrgWide bool, limit int32) ([]Document, error)
 	// RecordDocumentOpened notes that a principal opened a document, so a
 	// broadly-shared ("anyone") document joins their workspace listing after
 	// first open. Idempotent.
@@ -286,6 +323,12 @@ type Repository interface {
 	GetDocument(ctx context.Context, id string) (Document, error)
 	UpdateDocument(ctx context.Context, id, title string) (Document, error)
 	DeleteDocument(ctx context.Context, id string) error
+	ListDocumentsByLabel(ctx context.Context, principal auth.Principal, label string) ([]Document, error)
+	ListDocumentLabels(ctx context.Context, documentID string) ([]string, error)
+	ReplaceDocumentLabels(ctx context.Context, documentID string, labels []string, actor auth.Principal) ([]string, error)
+	UpsertGitHubConnection(ctx context.Context, connection GitHubConnection) error
+	GetGitHubConnection(ctx context.Context, userID string) (GitHubConnection, error)
+	DeleteGitHubConnection(ctx context.Context, userID string) error
 	CreateServiceAccount(ctx context.Context, owner auth.Principal, name string) (ServiceAccount, error)
 	ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error)
 	GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error)
@@ -302,8 +345,13 @@ type Repository interface {
 	UserByEmail(ctx context.Context, email string) (auth.Principal, error)
 	SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error)
 	EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error)
+	GoogleGroupMembershipSnapshot(ctx context.Context, userID string) (GoogleGroupMembershipSnapshot, error)
+	ReplaceGoogleGroupMemberships(ctx context.Context, userID string, groups []GoogleGroup, syncedAt time.Time) error
+	RecordGoogleGroupMembershipFailure(ctx context.Context, userID, errorCode string, attemptedAt time.Time) error
+	UpsertGoogleGroup(ctx context.Context, group GoogleGroup) error
 	CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
 	ListGrants(ctx context.Context, documentID string) ([]Grant, error)
+	GetGrant(ctx context.Context, resourceID, grantID string) (Grant, error)
 	UpdateGrant(ctx context.Context, documentID, grantID string, role Role) (Grant, error)
 	DeleteGrant(ctx context.Context, documentID, grantID string) error
 	CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal) (Version, error)

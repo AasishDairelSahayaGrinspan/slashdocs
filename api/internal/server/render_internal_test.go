@@ -102,6 +102,7 @@ func TestBridgePreservesWireMessageFamilies(t *testing.T) {
 	bridge := requireEmbeddedBridge(t)
 	for _, messageType := range []string{
 		"aidocs:activate",
+		"aidocs:github-connect",
 		"aidocs:keydown",
 		"aidocs:kv-event",
 		"aidocs:kv-request",
@@ -114,6 +115,15 @@ func TestBridgePreservesWireMessageFamilies(t *testing.T) {
 	} {
 		if !strings.Contains(bridge, messageType) {
 			t.Fatalf("embedded bridge is missing wire message %q", messageType)
+		}
+	}
+}
+
+func TestBridgePreludeExposesGitHubConnectBeforeDocumentScriptsRun(t *testing.T) {
+	withPrelude := userHTMLWithBridgePrelude([]byte(`<html><head><script>window.aidocs.github.connect()</script></head><body></body></html>`))
+	for _, needle := range []string{"githubConnect", "__aidocsGitHubConnectQueued", "connect:githubConnect"} {
+		if !strings.Contains(withPrelude, needle) {
+			t.Fatalf("bridge prelude is missing GitHub connect hook %q: %s", needle, withPrelude)
 		}
 	}
 }

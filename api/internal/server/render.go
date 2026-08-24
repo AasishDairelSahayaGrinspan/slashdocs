@@ -119,7 +119,7 @@ type wrapperData struct {
 	BridgeJS    template.JS
 }
 
-const bridgePrelude = `<script id="aidocs-bootstrap">(function(){if(window.aidocs&&window.aidocs.kv)return;var q=[];var handlers={kvchange:[]};function enqueue(op,args){return new Promise(function(resolve,reject){q.push({op:op,args:Array.prototype.slice.call(args),resolve:resolve,reject:reject});});}function off(event,handler){if(event!=="kvchange")return;handlers.kvchange=handlers.kvchange.filter(function(h){return h!==handler;});}function on(event,handler){if(event==="kvchange"&&typeof handler==="function"){handlers.kvchange.push(handler);return function(){off(event,handler);};}}window.__aidocsKVQueue=q;window.__aidocsKVHandlers=handlers;window.aidocs=Object.assign(window.aidocs||{},{kv:{get:function(){return enqueue("get",arguments);},all:function(){return enqueue("all",arguments);},set:function(){return enqueue("set",arguments);},delete:function(){return enqueue("delete",arguments);},patch:function(){return enqueue("patch",arguments);},undo:function(){return enqueue("undo",arguments);},redo:function(){return enqueue("redo",arguments);}},on:on,off:off});})();</script>`
+const bridgePrelude = `<script id="aidocs-bootstrap">(function(){if(window.aidocs&&window.aidocs.kv&&window.aidocs.github&&window.aidocs.github.connect)return;var q=[],gq=[],handlers={kvchange:[]};function enqueue(op,args){return new Promise(function(resolve,reject){q.push({op:op,args:Array.prototype.slice.call(args),resolve:resolve,reject:reject});});}function github(input){return new Promise(function(resolve,reject){gq.push({input:input,resolve:resolve,reject:reject});});}function githubConnect(){window.__aidocsGitHubConnectQueued=true;}function off(event,handler){if(event!=="kvchange")return;handlers.kvchange=handlers.kvchange.filter(function(h){return h!==handler;});}function on(event,handler){if(event==="kvchange"&&typeof handler==="function"){handlers.kvchange.push(handler);return function(){off(event,handler);};}}window.__aidocsKVQueue=q;window.__aidocsGitHubQueue=gq;window.__aidocsKVHandlers=handlers;window.aidocs=Object.assign(window.aidocs||{},{kv:{get:function(){return enqueue("get",arguments);},all:function(){return enqueue("all",arguments);},set:function(){return enqueue("set",arguments);},delete:function(){return enqueue("delete",arguments);},patch:function(){return enqueue("patch",arguments);},undo:function(){return enqueue("undo",arguments);},redo:function(){return enqueue("redo",arguments);}},github:{getRawContent:github,connect:githubConnect},on:on,off:off});})();</script>`
 
 func userHTMLWithBridgePrelude(userHTML []byte) string {
 	s := string(userHTML)
@@ -193,4 +193,14 @@ func renderWrapperHTML(userHTML []byte, appOrigin string) []byte {
 		return []byte("<!doctype html><html><body>render error</body></html>")
 	}
 	return []byte(sb.String())
+}
+
+func printableHTML(userHTML []byte) []byte {
+	const printBootstrap = `<style id="aidocs-print-style">[data-aidocs-comment-id],.aidocs-comment-highlight{background:transparent!important;box-shadow:none!important}@media print{html,body{overflow:visible!important;height:auto!important}}</style><script id="aidocs-print-bootstrap">addEventListener("load",function(){setTimeout(function(){window.print()},150)},{once:true});</script>`
+	s := string(userHTML)
+	lower := strings.ToLower(s)
+	if idx := strings.LastIndex(lower, "</body>"); idx >= 0 {
+		return []byte(s[:idx] + printBootstrap + s[idx:])
+	}
+	return []byte(s + printBootstrap)
 }

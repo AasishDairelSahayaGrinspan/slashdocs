@@ -6,6 +6,17 @@ import type { Anchor, Comment, Principal } from "@/api";
 export type PendingSelection = {
   quote: string;
   anchor?: Partial<Anchor>;
+  top?: number;
+};
+
+export type CommentPosition = {
+  top: number;
+  bottom: number;
+};
+
+export type CommentViewport = {
+  scrollTop: number;
+  scrollHeight: number;
 };
 
 export type DocContextValue = {
@@ -23,6 +34,14 @@ export type DocContextValue = {
   // currently rendered version; replaced wholesale on every repaint.
   unanchoredComments: ReadonlySet<string>;
   setUnanchoredComments: (ids: ReadonlySet<string>) => void;
+  commentPositions: ReadonlyMap<string, CommentPosition>;
+  setCommentPositions: (positions: ReadonlyMap<string, CommentPosition>) => void;
+  commentViewport: CommentViewport;
+  setCommentViewport: (viewport: CommentViewport) => void;
+  registerDocumentScroller: (scroller: ((top: number) => void) | null) => void;
+  scrollDocumentTo: (top: number) => void;
+  registerCommentRailSync: (sync: ((top: number) => void) | null) => void;
+  syncCommentRail: (top: number) => void;
   handleDocCommentClick: (id: string) => void;
 };
 

@@ -5,10 +5,9 @@ import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import { MoreHorizontal, Plus, Search, Sparkles } from "lucide-react";
+import { MoreHorizontal, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Center, Skeleton, EmptyState } from "@/components/ui/misc";
+import { Skeleton, EmptyState } from "@/components/ui/misc";
 import { Dropdown, DropdownContent, DropdownTrigger } from "@/components/ui/dropdown";
 import { api, docID, docTitle, type Folder, type FolderEntry } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -20,6 +19,8 @@ import { UnifiedTable } from "@/components/browse/unified-table";
 import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
 import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
 import { UploadBackupItem } from "@/components/browse/upload-backup";
+import { DocumentSearchInput } from "@/components/browse/document-search-input";
+import { hasDocumentSearchOperators } from "@/lib/search-query";
 import {
   DndContext,
   PointerSensor,
@@ -47,10 +48,12 @@ export function DocumentsPage() {
     queryKey: queryKeys.pins(),
     queryFn: api.listPins,
   });
+  const structuredSearch = hasDocumentSearchOperators(debouncedQ);
   const rootFolders = useQuery({
     queryKey: [...queryKeys.folders(), debouncedQ],
     queryFn: () => api.listFolders(undefined, undefined, debouncedQ || undefined),
     placeholderData: (prev) => prev,
+    enabled: !structuredSearch,
   });
   const { state: onb } = useOnboarding();
   const nav = useNavigate();
@@ -65,7 +68,7 @@ export function DocumentsPage() {
     }
   }, [docs.data]);
   const documents = useMemo(() => docs.data?.items || [], [docs.data]);
-  const folderEntries = (rootFolders.data?.items || []).filter(
+  const folderEntries = (structuredSearch ? [] : rootFolders.data?.items || []).filter(
     (e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder,
   );
   const folders = folderEntries.map((e) => e.folder);
@@ -176,8 +179,6 @@ export function DocumentsPage() {
       </div>
     );
   }
-  if (docs.error) return <Center>Could not load documents.</Center>;
-
   const searching = debouncedQ.length > 0;
   const empty = !searching && documents.length === 0 && folders.length === 0;
 
@@ -191,15 +192,7 @@ export function DocumentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:flex-initial">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-muted)]" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search…"
-              className="w-full pl-8 sm:w-56"
-            />
-          </div>
+          <DocumentSearchInput value={q} onChange={setQ} />
           <ViewModeToggle />
           <Button
             variant="outline"
@@ -228,7 +221,12 @@ export function DocumentsPage() {
         </div>
       </div>
 
-      {empty ? (
+      {docs.error ? (
+        <EmptyState
+          title={searching ? "Search query not valid" : "Could not load documents"}
+          description={errorMessage(docs.error, "Could not search documents.")}
+        />
+      ) : empty ? (
         <EmptyDocs />
       ) : searching ? (
         documents.length === 0 && folders.length === 0 ? (

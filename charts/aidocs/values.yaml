@@ -101,6 +101,27 @@ googleOAuth:
   clientIDKey: GOOGLE_OAUTH_CLIENT_ID
   clientSecretKey: GOOGLE_OAUTH_CLIENT_SECRET
 
+# Optional GitHub OAuth App used by window.aidocs.github in rendered documents.
+# Register https://aidocs.example.com/v1/integrations/github/callback.
+githubOAuth:
+  enabled: false
+  clientID: ""
+  clientSecret: ""
+  existingSecret: ""
+  clientIDKey: AIDOCS_GITHUB_CLIENT_ID
+  clientSecretKey: AIDOCS_GITHUB_CLIENT_SECRET
+
+# Optional Google Workspace group sharing. Requires deployment.mode=org and
+# a Secret containing delegated service-account credentials.
+googleGroups:
+  enabled: false
+  customerID: ""
+  adminEmail: ""
+  existingSecret: ""
+  credentialsKey: credentials.json
+  membershipTTL: 1m
+  requestTimeout: 5s
+
 # Generic OpenID Connect provider (Okta, Entra ID, Keycloak, Dex, ...).
 # Register the redirect URI with the provider as:
 #   https://aidocs.example.com/v1/auth/oidc/callback

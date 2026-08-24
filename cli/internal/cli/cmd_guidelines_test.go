@@ -19,6 +19,7 @@ func TestGuidelinesIndexPointsToSections(t *testing.T) {
 		"aidocs guidelines core",
 		"aidocs guidelines rendering theme",
 		"aidocs guidelines interactivity kv",
+		"aidocs guidelines interactivity github",
 		"aidocs guidelines all",
 	} {
 		if !strings.Contains(got, want) {
@@ -27,6 +28,29 @@ func TestGuidelinesIndexPointsToSections(t *testing.T) {
 	}
 	if strings.Contains(got, "window.aidocs.kv.get") {
 		t.Fatalf("index should not include full KV detail:\n%s", got)
+	}
+}
+
+func TestGuidelinesGitHubAliasDocumentsPrimitive(t *testing.T) {
+	got, err := Execute([]string{"guidelines", "github"})
+	if err != nil {
+		t.Fatalf("GitHub guidelines returned error: %v", err)
+	}
+	for _, want := range []string{
+		"aidocs guidelines: interactivity github",
+		"window.aidocs.github.getRawContent",
+		"window.aidocs.github.connect",
+		"branch, tag, or commit SHA",
+		"Prefer a stable commit ref unless",
+		"a floating branch or tag",
+		"Every reader loads the file using their own connected GitHub account",
+		"Content added after the fetch remains commentable",
+		"Do not eval source code",
+		"Files are limited to 10 MiB",
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("GitHub output missing %q:\n%s", want, got)
+		}
 	}
 }
 

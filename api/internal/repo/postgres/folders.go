@@ -48,9 +48,10 @@ func grantRankRole(rank int32) repo.Role {
 // principal has no access at that level.
 func (s *Store) FolderAccessChain(ctx context.Context, p auth.Principal, folderID string) ([]repo.FolderAccess, error) {
 	rows, err := s.q.ListFolderAccessChain(ctx, dbsqlc.ListFolderAccessChainParams{
-		FolderID:      folderID,
-		PrincipalType: string(p.Type),
-		PrincipalID:   p.ID,
+		FolderID:       folderID,
+		PrincipalType:  string(p.Type),
+		PrincipalID:    p.ID,
+		GoogleGroupIds: p.GoogleGroupIDs,
 	})
 	if err != nil {
 		return nil, err
@@ -277,7 +278,7 @@ func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path
 	out := []repo.FolderEntry{}
 	isRoot := parent == ""
 	if isRoot {
-		rows, err := s.q.ListRootFolderEntries(ctx, dbsqlc.ListRootFolderEntriesParams{PrincipalType: string(p.Type), PrincipalID: p.ID})
+		rows, err := s.q.ListRootFolderEntries(ctx, dbsqlc.ListRootFolderEntriesParams{PrincipalType: string(p.Type), PrincipalID: p.ID, GoogleGroupIds: p.GoogleGroupIDs})
 		if err != nil {
 			return nil, false, nil, err
 		}
@@ -331,7 +332,7 @@ func (s *Store) resolveFolderPath(ctx context.Context, p auth.Principal, folderI
 	}
 	for i, part := range strings.Split(strings.Trim(path, "/"), "/") {
 		if i == 0 && parent == "" {
-			rows, err := s.q.FindRootFoldersByTitle(ctx, dbsqlc.FindRootFoldersByTitleParams{Title: part, PrincipalType: string(p.Type), PrincipalID: p.ID})
+			rows, err := s.q.FindRootFoldersByTitle(ctx, dbsqlc.FindRootFoldersByTitleParams{Title: part, PrincipalType: string(p.Type), PrincipalID: p.ID, GoogleGroupIds: p.GoogleGroupIDs})
 			if err != nil {
 				return "", err
 			}
@@ -364,6 +365,7 @@ func (s *Store) SearchFoldersByTitle(ctx context.Context, p auth.Principal, quer
 	rows, err := s.q.SearchFoldersByTitle(ctx, dbsqlc.SearchFoldersByTitleParams{
 		PrincipalType:  string(p.Type),
 		PrincipalID:    p.ID,
+		GoogleGroupIds: p.GoogleGroupIDs,
 		IncludeOrgWide: includeOrgWide,
 		Query:          query,
 		RowLimit:       limit,

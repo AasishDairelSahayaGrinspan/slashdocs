@@ -1,13 +1,19 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { toast } from "sonner";
 import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { COMMENT_STATUS } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
 import { errorMessage } from "@/lib/errors";
+import { CHORD_KEYS } from "@/lib/esc-chord";
 import { useDoc } from "./doc-context";
+
+const FORWARDED_KEYS = new Set<string>([
+  "Escape",
+  ...CHORD_KEYS.map((item) => item.key),
+]);
+const VIM_KEYS = new Set(["j", "k", "g", "G"]);
 
 // Renders the sandboxed document iframe and exchanges selection and paint
 // messages with the in-iframe bridge. Message origins are validated on both
@@ -21,6 +27,10 @@ export function RenderFrame() {
     setSelection,
     handleDocCommentClick,
     setUnanchoredComments,
+    setCommentPositions,
+    setCommentViewport,
+    registerDocumentScroller,
+    syncCommentRail,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -90,7 +100,15 @@ export function RenderFrame() {
     // Anchoring results belong to the frame that produced them; drop them so
     // "highlight not found" badges never linger across version switches.
     setUnanchoredComments(new Set());
-  }, [frameOrigin, token.data?.url, setUnanchoredComments]);
+    setCommentPositions(new Map());
+    setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
+  }, [
+    frameOrigin,
+    token.data?.url,
+    setUnanchoredComments,
+    setCommentPositions,
+    setCommentViewport,
+  ]);
 
   // The resolved theme is baked into the iframe URL so the bridge can apply
   // it before the document's first paint (no flash); live toggles are pushed
@@ -125,6 +143,45 @@ export function RenderFrame() {
     );
   }, [theme, ready, frameOrigin]);
 
+  // Vim scrolling works whether focus is inside the rendered document or on
+  // the surrounding viewer chrome. The bridge handles the actual scroll so
+  // there is still a single scroll state machine.
+  useEffect(() => {
+    if (!ready || !frameOrigin) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (
+        event.defaultPrevented ||
+        target?.closest(
+          'input,textarea,select,button,a,[contenteditable="true"],[contenteditable=""]',
+        ) ||
+        document.querySelector(
+          '[role="dialog"][data-state="open"],[role="menu"][data-state="open"]',
+        )
+      ) {
+        return;
+      }
+      const plain = !event.metaKey && !event.ctrlKey && !event.altKey;
+      const halfPage =
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        ["d", "u"].includes(event.key.toLowerCase());
+      if (!(plain && VIM_KEYS.has(event.key)) && !halfPage) return;
+      event.preventDefault();
+      postToCurrentFrame({
+        type: "aidocs:vim-key",
+        key: event.key,
+        ctrlKey: event.ctrlKey,
+        metaKey: event.metaKey,
+        altKey: event.altKey,
+        repeat: event.repeat,
+      });
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [ready, frameOrigin, postToCurrentFrame]);
+
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
   // Zoom is anchored to the cursor position (magnifying-glass feel).
@@ -137,36 +194,56 @@ export function RenderFrame() {
   const scaleRef = useRef(1);
   const cursorRef = useRef({ x: 0, y: 0 });
 
-  const applyZoom = useCallback((deltaY: number, cursor?: { x: number; y: number }) => {
-    const el = wrapperRef.current;
-    if (!el) return;
-    const oldScale = scaleRef.current;
-    const newScale = Math.min(
-      MAX_SCALE,
-      Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)),
-    );
-    if (newScale === oldScale) return;
+  const scrollDocumentTo = useCallback(
+    (top: number) => {
+      const wrapperScrollTop = wrapperRef.current?.scrollTop || 0;
+      postToCurrentFrame({
+        type: "aidocs:scroll-to",
+        top: Math.max(0, (top - wrapperScrollTop) / scaleRef.current),
+      });
+    },
+    [postToCurrentFrame],
+  );
 
-    const anchor = cursor ?? cursorRef.current;
-    cursorRef.current = anchor;
+  useEffect(() => {
+    registerDocumentScroller(scrollDocumentTo);
+    return () => registerDocumentScroller(null);
+  }, [registerDocumentScroller, scrollDocumentTo]);
 
-    const rect = el.getBoundingClientRect();
-    const cx = anchor.x - rect.left;
-    const cy = anchor.y - rect.top;
+  const applyZoom = useCallback(
+    (deltaY: number, cursor?: { x: number; y: number }) => {
+      const el = wrapperRef.current;
+      if (!el) return;
+      const oldScale = scaleRef.current;
+      const newScale = Math.min(
+        MAX_SCALE,
+        Math.max(MIN_SCALE, oldScale * (1 - deltaY * 0.005)),
+      );
+      if (newScale === oldScale) return;
 
-    // Point in unscaled document space under cursor.
-    const docX = (el.scrollLeft + cx) / oldScale;
-    const docY = (el.scrollTop + cy) / oldScale;
+      const anchor = cursor ?? cursorRef.current;
+      cursorRef.current = anchor;
 
-    scaleRef.current = newScale;
-    setScale(newScale);
+      const rect = el.getBoundingClientRect();
+      const cx = anchor.x - rect.left;
+      const cy = anchor.y - rect.top;
 
-    // After scale change, adjust scroll so the same doc point stays under cursor.
-    requestAnimationFrame(() => {
-      el.scrollLeft = docX * newScale - cx;
-      el.scrollTop = docY * newScale - cy;
-    });
-  }, []);
+      // Point in unscaled document space under cursor.
+      const docX = (el.scrollLeft + cx) / oldScale;
+      const docY = (el.scrollTop + cy) / oldScale;
+
+      scaleRef.current = newScale;
+      setScale(newScale);
+
+      // After scale change, adjust scroll so the same doc point stays under cursor.
+      requestAnimationFrame(() => {
+        el.scrollLeft = docX * newScale - cx;
+        el.scrollTop = docY * newScale - cy;
+        postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+      });
+    },
+    [postToCurrentFrame],
+  );
 
   useEffect(() => {
     const el = wrapperRef.current;
@@ -179,13 +256,18 @@ export function RenderFrame() {
     const onMouseMove = (e: MouseEvent) => {
       cursorRef.current = { x: e.clientX, y: e.clientY };
     };
+    const onScroll = () => {
+      postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+    };
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("mousemove", onMouseMove);
+    el.addEventListener("scroll", onScroll, { passive: true });
     return () => {
       el.removeEventListener("wheel", onWheel);
       el.removeEventListener("mousemove", onMouseMove);
+      el.removeEventListener("scroll", onScroll);
     };
-  }, [applyZoom]);
+  }, [applyZoom, postToCurrentFrame]);
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
@@ -274,13 +356,53 @@ export function RenderFrame() {
           sendError(err);
         }
       };
+      const handleGitHubRequest = async (data: Record<string, unknown>) => {
+        const requestId = String(data.requestId || "");
+        try {
+          if (data.operation !== "raw") throw new Error("unknown GitHub operation");
+          const result = await api.githubRawContent(docId, {
+            owner: String(data.owner || ""),
+            repo: String(data.repo || ""),
+            path: String(data.path || ""),
+            ref: String(data.ref || ""),
+          });
+          postToFrame({ type: "aidocs:github-response", requestId, ok: true, result });
+        } catch (err) {
+          postToFrame({
+            type: "aidocs:github-response",
+            requestId,
+            ok: false,
+            error:
+              err instanceof APIError
+                ? { message: err.message, code: err.code, status: err.status }
+                : { message: errorMessage(err, "GitHub request failed") },
+          });
+        }
+      };
       if (e.data?.type === "aidocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
-        if (quote) setSelection({ quote, anchor });
+        const top =
+          typeof e.data.top === "number" ? e.data.top * scaleRef.current : undefined;
+        if (quote) setSelection({ quote, anchor, top });
       }
       if (e.data?.type === "aidocs:kv-request") {
         void handleKVRequest(e.data as Record<string, unknown>);
+      }
+      if (e.data?.type === "aidocs:github-request") {
+        void handleGitHubRequest(e.data as Record<string, unknown>);
+      }
+      if (e.data?.type === "aidocs:github-connect") {
+        window.location.assign(
+          api.githubConnectURL(
+            window.location.pathname + window.location.search + window.location.hash,
+          ),
+        );
+      }
+      if (e.data?.type === "aidocs:heading" && typeof e.data.id === "string") {
+        const url = new URL(window.location.href);
+        url.hash = e.data.id;
+        window.history.replaceState(window.history.state, "", url);
       }
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
@@ -304,8 +426,60 @@ export function RenderFrame() {
           ),
         );
       }
-      if (e.data?.type === "aidocs:keydown" && e.data.key === "Escape") {
-        window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+      if (
+        e.data?.type === "aidocs:comment-scroll" &&
+        typeof e.data.scrollTop === "number" &&
+        Number.isFinite(e.data.scrollTop) &&
+        readyRef.current
+      ) {
+        syncCommentRail(
+          e.data.scrollTop * scaleRef.current + (wrapperRef.current?.scrollTop || 0),
+        );
+      }
+      if (
+        e.data?.type === "aidocs:comment-positions" &&
+        Array.isArray(e.data.positions) &&
+        readyRef.current
+      ) {
+        const positions = new Map<string, { top: number; bottom: number }>();
+        for (const item of e.data.positions.slice(0, 10_000)) {
+          if (
+            !item ||
+            typeof item.id !== "string" ||
+            typeof item.top !== "number" ||
+            typeof item.bottom !== "number" ||
+            !Number.isFinite(item.top) ||
+            !Number.isFinite(item.bottom)
+          ) {
+            continue;
+          }
+          positions.set(item.id, {
+            top: item.top * scaleRef.current,
+            bottom: item.bottom * scaleRef.current,
+          });
+        }
+        setCommentPositions(positions);
+        if (
+          typeof e.data.scrollTop === "number" &&
+          typeof e.data.scrollHeight === "number" &&
+          Number.isFinite(e.data.scrollTop) &&
+          Number.isFinite(e.data.scrollHeight)
+        ) {
+          const scrollTop =
+            e.data.scrollTop * scaleRef.current + (wrapperRef.current?.scrollTop || 0);
+          syncCommentRail(scrollTop);
+          setCommentViewport({
+            scrollTop,
+            scrollHeight: Math.max(1, e.data.scrollHeight * scaleRef.current),
+          });
+        }
+      }
+      if (
+        e.data?.type === "aidocs:keydown" &&
+        typeof e.data.key === "string" &&
+        FORWARDED_KEYS.has(e.data.key)
+      ) {
+        window.dispatchEvent(new KeyboardEvent("keydown", { key: e.data.key }));
       }
       if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
         const frameRect = ref.current?.getBoundingClientRect();
@@ -326,6 +500,13 @@ export function RenderFrame() {
           { type: "aidocs:theme", theme: themeRef.current },
           frameOrigin,
         );
+        const heading = decodeURIComponent(window.location.hash.slice(1));
+        if (heading) {
+          ref.current?.contentWindow?.postMessage(
+            { type: "aidocs:navigate-heading", id: heading },
+            frameOrigin,
+          );
+        }
       }
     };
     window.addEventListener("message", onMsg);
@@ -336,6 +517,9 @@ export function RenderFrame() {
     setSelection,
     handleDocCommentClick,
     setUnanchoredComments,
+    setCommentPositions,
+    setCommentViewport,
+    syncCommentRail,
     applyZoom,
     rememberKVRevision,
   ]);
@@ -372,22 +556,6 @@ export function RenderFrame() {
   useEffect(() => {
     paint();
   }, [paint]);
-
-  // Forward print requests from the DocBar dropdown to the bridge, which
-  // calls print() on the inner document iframe — preserving the bridge
-  // script, KV store, and all other integrations in the printed output.
-  useEffect(() => {
-    const onPrint = () => {
-      if (!ready || !frameOrigin) {
-        toast.error("Document is still loading. Please try again in a moment.");
-        return;
-      }
-      ref.current?.contentWindow?.postMessage({ type: "aidocs:print" }, frameOrigin);
-      toast.success('Print dialog opened — choose "Save as PDF" to export.');
-    };
-    window.addEventListener("aidocs:print", onPrint);
-    return () => window.removeEventListener("aidocs:print", onPrint);
-  }, [ready, frameOrigin]);
 
   // The parent (DocPage) only mounts RenderFrame when a current version
   // exists, so version is always set here.
@@ -429,6 +597,14 @@ export function RenderFrame() {
           onClick={() => {
             scaleRef.current = 1;
             setScale(1);
+            const wrapper = wrapperRef.current;
+            if (wrapper) {
+              wrapper.scrollLeft = 0;
+              wrapper.scrollTop = 0;
+            }
+            window.requestAnimationFrame(() => {
+              postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+            });
           }}
           className="sticky bottom-3 left-[calc(100%-3.5rem)] z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"
           title="Reset zoom"
