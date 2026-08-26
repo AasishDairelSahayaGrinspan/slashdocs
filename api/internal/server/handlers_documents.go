@@ -108,12 +108,16 @@ const (
 
 // pageParams reads limit/offset. A malformed value is rejected rather than silently ignored —
 // a client that asks for limit=abc has a bug, and returning page 1 hides it.
+//
+// ParseInt with a bitSize of 32 does the range check for us: anything outside int32 is a
+// syntax/range error here rather than a silent wrap. Converting a plain Atoi result would
+// turn offset=3000000000 into -1294967296, which Postgres then rejects as a negative OFFSET.
 func pageParams(c *gin.Context) (limit, offset int32, err error) {
 	limit, offset = searchPageDefault, 0
 	if raw := strings.TrimSpace(c.Query("limit")); raw != "" {
-		n, convErr := strconv.Atoi(raw)
+		n, convErr := strconv.ParseInt(raw, 10, 32)
 		if convErr != nil || n <= 0 {
-			return 0, 0, fmt.Errorf("limit must be a positive integer")
+			return 0, 0, errors.New("limit must be a positive integer")
 		}
 		if n > searchPageMax {
 			n = searchPageMax
@@ -121,9 +125,9 @@ func pageParams(c *gin.Context) (limit, offset int32, err error) {
 		limit = int32(n)
 	}
 	if raw := strings.TrimSpace(c.Query("offset")); raw != "" {
-		n, convErr := strconv.Atoi(raw)
+		n, convErr := strconv.ParseInt(raw, 10, 32)
 		if convErr != nil || n < 0 {
-			return 0, 0, fmt.Errorf("offset must be a non-negative integer")
+			return 0, 0, errors.New("offset must be a non-negative integer")
 		}
 		offset = int32(n)
 	}

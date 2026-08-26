@@ -29,6 +29,13 @@ func TestPageParams(t *testing.T) {
 		{"negative limit", "limit=-5", 0, 0, true},
 		{"negative offset", "offset=-1", 0, 0, true},
 		{"non-numeric offset", "offset=xyz", 0, 0, true},
+		// Values above int32 must not wrap. A plain Atoi + int32() cast turned
+		// offset=3000000000 into -1294967296, which Postgres rejects as a negative
+		// OFFSET — a 500 on user input. Caught in review on #75.
+		{"offset above int32 is rejected", "offset=3000000000", 0, 0, true},
+		{"offset at int32 max is accepted", "offset=2147483647", searchPageDefault, 2147483647, false},
+		{"limit above int32 is rejected", "limit=3000000000", 0, 0, true},
+		{"limit at int32 max is clamped", "limit=2147483647", searchPageMax, 0, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
