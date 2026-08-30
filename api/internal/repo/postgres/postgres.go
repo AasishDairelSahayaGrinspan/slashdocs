@@ -179,7 +179,7 @@ func (s *Store) ReplaceGoogleGroupMemberships(ctx context.Context, userID string
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback(ctx)
+	defer rollback(ctx, tx)
 	for _, group := range groups {
 		// ACL rows reference the immutable groups/{id}; mutable addresses and
 		// display names are refreshed metadata only.

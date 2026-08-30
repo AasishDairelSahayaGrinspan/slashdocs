@@ -408,22 +408,43 @@ func (h handlers) writeCommentReaction(c *gin.Context, write reactionWrite) {
 	c.Status(http.StatusNoContent)
 }
 
-func (h handlers) canDeleteComment(c *gin.Context, docID, commentID string) bool {
-	p := current(c)
+// loadCommentInDocument fetches a comment and confirms it belongs to docID,
+// answering the client on every failure path.
+//
+// Distinct from commentInDocument above, which the reaction handlers use: this
+// one runs before any document-role check, so it reports a missing comment as
+// 403 and a cross-document one as 404. That split is only safe because the
+// caller has not yet established the caller's access, and it is why the two
+// helpers are not merged.
+func (h handlers) loadCommentInDocument(c *gin.Context, docID, commentID string) (repo.Comment, bool) {
 	cm, err := h.deps.repository.GetComment(c.Request.Context(), commentID)
 	if err != nil {
 		if errors.Is(err, repo.ErrNotFound) {
 			forbidden(c, "comment access required")
-			return false
+			return repo.Comment{}, false
 		}
 		internalErr(c, err)
-		return false
+		return repo.Comment{}, false
 	}
 	if cm.DocumentID != docID {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "comment not found in document", nil))
+		return repo.Comment{}, false
+	}
+	return cm, true
+}
+
+// authoredBy reports whether the principal wrote the comment. Principal ids are
+// only unique within a type, so both fields must match.
+func authoredBy(cm repo.Comment, p auth.Principal) bool {
+	return cm.Author.Type == p.Type && cm.Author.ID == p.ID
+}
+
+func (h handlers) canDeleteComment(c *gin.Context, docID, commentID string) bool {
+	cm, ok := h.loadCommentInDocument(c, docID, commentID)
+	if !ok {
 		return false
 	}
-	if cm.Author.Type == p.Type && cm.Author.ID == p.ID {
+	if authoredBy(cm, *current(c)) {
 		return true
 	}
 	forbidden(c, "only the comment author can delete this comment")
@@ -431,21 +452,12 @@ func (h handlers) canDeleteComment(c *gin.Context, docID, commentID string) bool
 }
 
 func (h handlers) canMutateComment(c *gin.Context, docID, commentID string) bool {
+	cm, ok := h.loadCommentInDocument(c, docID, commentID)
+	if !ok {
+		return false
+	}
 	p := current(c)
-	cm, err := h.deps.repository.GetComment(c.Request.Context(), commentID)
-	if err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
-			forbidden(c, "comment access required")
-			return false
-		}
-		internalErr(c, err)
-		return false
-	}
-	if cm.DocumentID != docID {
-		c.JSON(http.StatusNotFound, errorResponse("not_found", "comment not found in document", nil))
-		return false
-	}
-	if cm.Author.Type == p.Type && cm.Author.ID == p.ID {
+	if authoredBy(cm, *p) {
 		return true
 	}
 	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *p, cm.DocumentID)

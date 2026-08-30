@@ -27,6 +27,33 @@ var (
 	errGoogleGroupEmailRequired = errors.New("google group email required")
 )
 
+// respondGrantPrincipalError maps a resolveGrantPrincipal failure onto its HTTP
+// response. Document and folder sharing resolve principals identically, so the
+// mapping lives here rather than being repeated per resource. principalType is
+// the requested type, which decides whether an unclassified failure is a
+// Google directory outage or a server fault.
+func respondGrantPrincipalError(c *gin.Context, err error, principalType auth.PrincipalType) {
+	switch {
+	case errors.Is(err, errInvalidAddress):
+		badRequest(c, "That doesn't look like an email or bot address.")
+	case errors.Is(err, errPrincipalIDRequired):
+		badRequest(c, "principal id, user email, or service account name is required")
+	case errors.Is(err, errUnknownUserEmail):
+		badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
+	case errors.Is(err, errGoogleGroupsDisabled):
+		badRequest(c, "Google Group sharing is disabled")
+	case errors.Is(err, errGoogleGroupEmailRequired), googlegroups.IsNotFound(err):
+		badRequest(c, "Select a verified Google Group result")
+	case errors.Is(err, repo.ErrNotFound):
+		notFound(c)
+	case principalType == auth.PrincipalGoogleGroup:
+		incGoogleGroupOperation("grant_resolution", "failure")
+		c.JSON(http.StatusServiceUnavailable, errorResponse("dependency_unavailable", "Google Group directory is temporarily unavailable", nil))
+	default:
+		internalErr(c, err)
+	}
+}
+
 type grantPrincipalInput struct {
 	Type  auth.PrincipalType `json:"type" enums:"user,service_account,google_group,anyone"`
 	ID    string             `json:"id,omitempty"`
@@ -207,27 +234,7 @@ func (h handlers) createGrant(c *gin.Context) {
 	principal := auth.Principal{Type: in.Principal.Type, ID: in.Principal.ID, Email: in.Principal.Email, Name: in.Principal.Name}
 	resolved, err := resolveGrantPrincipal(c, h.deps.repository, h.deps.googleGroupDirectory, h.deps.googleGroupsEnabled, in.Address, principal)
 	if err != nil {
-		switch {
-		case errors.Is(err, errInvalidAddress):
-			badRequest(c, "That doesn't look like an email or bot address.")
-		case errors.Is(err, errPrincipalIDRequired):
-			badRequest(c, "principal id, user email, or service account name is required")
-		case errors.Is(err, errUnknownUserEmail):
-			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
-		case errors.Is(err, errGoogleGroupsDisabled):
-			badRequest(c, "Google Group sharing is disabled")
-		case errors.Is(err, errGoogleGroupEmailRequired), googlegroups.IsNotFound(err):
-			badRequest(c, "Select a verified Google Group result")
-		case errors.Is(err, repo.ErrNotFound):
-			notFound(c)
-		default:
-			if in.Principal.Type == auth.PrincipalGoogleGroup {
-				incGoogleGroupOperation("grant_resolution", "failure")
-				c.JSON(http.StatusServiceUnavailable, errorResponse("dependency_unavailable", "Google Group directory is temporarily unavailable", nil))
-			} else {
-				internalErr(c, err)
-			}
-		}
+		respondGrantPrincipalError(c, err, in.Principal.Type)
 		return
 	}
 	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "document", c.Param("id"), repo.Grant{}, repo.Grant{Principal: resolved, Role: in.Role}) {

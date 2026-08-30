@@ -17,7 +17,7 @@ func TestGoogleGroupGrantFlagsPayloadAndOutput(t *testing.T) {
 			t.Fatal(err)
 		}
 		requests = append(requests, body)
-		json.NewEncoder(w).Encode(map[string]any{
+		_ = json.NewEncoder(w).Encode(map[string]any{
 			"id": "gr_1", "role": body["role"],
 			"principal": map[string]any{"type": "google_group", "id": "groups/1", "email": "platform@example.com", "name": "Platform"},
 		})

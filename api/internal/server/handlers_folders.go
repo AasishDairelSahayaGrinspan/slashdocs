@@ -8,7 +8,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
@@ -401,27 +400,7 @@ func (h handlers) createFolderGrant(c *gin.Context) {
 	principal := auth.Principal{Type: in.Principal.Type, ID: in.Principal.ID, Email: in.Principal.Email, Name: in.Principal.Name}
 	resolved, err := resolveGrantPrincipal(c, h.deps.repository, h.deps.googleGroupDirectory, h.deps.googleGroupsEnabled, in.Address, principal)
 	if err != nil {
-		switch {
-		case errors.Is(err, errInvalidAddress):
-			badRequest(c, "That doesn't look like an email or bot address.")
-		case errors.Is(err, errPrincipalIDRequired):
-			badRequest(c, "principal id, user email, or service account name is required")
-		case errors.Is(err, errUnknownUserEmail):
-			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
-		case errors.Is(err, errGoogleGroupsDisabled):
-			badRequest(c, "Google Group sharing is disabled")
-		case errors.Is(err, errGoogleGroupEmailRequired), googlegroups.IsNotFound(err):
-			badRequest(c, "Select a verified Google Group result")
-		case errors.Is(err, repo.ErrNotFound):
-			notFound(c)
-		default:
-			if in.Principal.Type == auth.PrincipalGoogleGroup {
-				incGoogleGroupOperation("grant_resolution", "failure")
-				c.JSON(http.StatusServiceUnavailable, errorResponse("dependency_unavailable", "Google Group directory is temporarily unavailable", nil))
-			} else {
-				internalErr(c, err)
-			}
-		}
+		respondGrantPrincipalError(c, err, in.Principal.Type)
 		return
 	}
 	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "folder", c.Param("id"), repo.Grant{}, repo.Grant{Principal: resolved, Role: in.Role}) {
