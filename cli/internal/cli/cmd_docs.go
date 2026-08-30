@@ -582,7 +582,7 @@ func deleteCommentCmd(g *globals, out io.Writer) *cobra.Command {
 
 // reactionSlugs is the server's accepted set, repeated here only so help text
 // and errors are useful offline. The server remains the authority.
-const reactionSlugs = "+1, -1, laugh, hooray, confused, heart, rocket, eyes"
+const reactionSlugs = "+1, -1, laugh, hooray, confused, heart, rocket, eyes, plus"
 
 func reactionCmd(g *globals, out io.Writer, name, short, method string, msg func(args []string) string) *cobra.Command {
 	cmd := mutate(g, out, name+" <doc_id> <comment_id> <emoji>", short, method, "/v1/documents/%s/comments/%s/reactions/%s", 3, msg)

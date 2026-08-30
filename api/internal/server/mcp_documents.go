@@ -406,7 +406,7 @@ func registerMCPCommentMutationTools(server *mcpserver.MCPServer, api mcpAPIAdap
 			mcp.WithString("emoji",
 				mcp.Required(),
 				mcp.Description("Reaction slug."),
-				mcp.Enum("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes"),
+				mcp.Enum("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes", "plus"),
 			),
 		)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			doc, comment, _, invalid := mcpCommentArguments(request, false)

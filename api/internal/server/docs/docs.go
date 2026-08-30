@@ -748,7 +748,8 @@ const docTemplate = `{
                             "confused",
                             "heart",
                             "rocket",
-                            "eyes"
+                            "eyes",
+                            "plus"
                         ],
                         "type": "string",
                         "description": "Reaction slug",
@@ -801,7 +802,8 @@ const docTemplate = `{
                             "confused",
                             "heart",
                             "rocket",
-                            "eyes"
+                            "eyes",
+                            "plus"
                         ],
                         "type": "string",
                         "description": "Reaction slug",

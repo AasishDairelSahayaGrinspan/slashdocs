@@ -148,6 +148,27 @@ func TestReactionOnReply(t *testing.T) {
 	}
 }
 
+// Every advertised slug must survive both the handler allowlist and the
+// column CHECK; a slug added to one but not the other fails here rather than
+// at runtime.
+func TestEveryAllowedReactionSlugIsAccepted(t *testing.T) {
+	e := newTestEnv(t)
+	slugs := []string{"+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes", "plus"}
+	for _, emoji := range slugs {
+		reactTo(t, e, http.MethodPut, e.doc.ID, e.cmt.ID, emoji, fixtureCommenter)
+	}
+
+	got := reactionsOf(t, e, fixtureCommenter)
+	if len(got) != len(slugs) {
+		t.Fatalf("reaction groups = %d, want %d: %#v", len(got), len(slugs), got)
+	}
+	for i, emoji := range slugs {
+		if got[i]["emoji"] != emoji || got[i]["count"] != float64(1) {
+			t.Fatalf("group %d = %#v, want emoji %q with count 1", i, got[i], emoji)
+		}
+	}
+}
+
 func TestReactionRejectsUnknownEmoji(t *testing.T) {
 	e := newTestEnv(t)
 	rr := do(t, e.h, http.MethodPut, reactionPath(e.doc.ID, e.cmt.ID, "pineapple"), "", map[string]string{

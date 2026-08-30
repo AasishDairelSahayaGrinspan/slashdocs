@@ -741,7 +741,8 @@
                             "confused",
                             "heart",
                             "rocket",
-                            "eyes"
+                            "eyes",
+                            "plus"
                         ],
                         "type": "string",
                         "description": "Reaction slug",
@@ -794,7 +795,8 @@
                             "confused",
                             "heart",
                             "rocket",
-                            "eyes"
+                            "eyes",
+                            "plus"
                         ],
                         "type": "string",
                         "description": "Reaction slug",

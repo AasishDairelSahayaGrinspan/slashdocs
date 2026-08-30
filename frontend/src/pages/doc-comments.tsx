@@ -332,6 +332,7 @@ const REACTION_GLYPH: Record<string, string> = {
   heart: "❤️",
   rocket: "🚀",
   eyes: "👀",
+  plus: "➕",
 } satisfies Record<ReactionEmoji, string>;
 
 function ReactionBar({ c, docId }: { c: Comment; docId: string }) {

@@ -328,6 +328,7 @@ func (h handlers) deleteComment(c *gin.Context) {
 var allowedCommentReactions = map[string]bool{
 	"+1": true, "-1": true, "laugh": true, "hooray": true,
 	"confused": true, "heart": true, "rocket": true, "eyes": true,
+	"plus": true,
 }
 
 // commentInDocument loads a comment and confirms it belongs to docID. Callers
@@ -355,7 +356,7 @@ func (h handlers) commentInDocument(c *gin.Context, docID, commentID string) boo
 // @Security cookieAuth
 // @Param id path string true "Document ID"
 // @Param comment_id path string true "Comment ID"
-// @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes)
+// @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes, plus)
 // @Success 204
 // @Router /v1/documents/{id}/comments/{comment_id}/reactions/{emoji} [put]
 func (h handlers) putCommentReaction(c *gin.Context) {
@@ -370,7 +371,7 @@ func (h handlers) putCommentReaction(c *gin.Context) {
 // @Security cookieAuth
 // @Param id path string true "Document ID"
 // @Param comment_id path string true "Comment ID"
-// @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes)
+// @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes, plus)
 // @Success 204
 // @Router /v1/documents/{id}/comments/{comment_id}/reactions/{emoji} [delete]
 func (h handlers) deleteCommentReaction(c *gin.Context) {

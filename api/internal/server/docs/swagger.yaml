@@ -1090,6 +1090,7 @@ paths:
         - heart
         - rocket
         - eyes
+        - plus
         in: path
         name: emoji
         required: true
@@ -1127,6 +1128,7 @@ paths:
         - heart
         - rocket
         - eyes
+        - plus
         in: path
         name: emoji
         required: true

@@ -74,6 +74,7 @@ export const REACTION_EMOJI = [
   "heart",
   "rocket",
   "eyes",
+  "plus",
 ] as const;
 export type ReactionEmoji = (typeof REACTION_EMOJI)[number];
 export type CommentReaction = {
