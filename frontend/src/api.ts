@@ -63,6 +63,24 @@ export type Anchor = {
   start_offset?: number;
   end_offset?: number;
 };
+// REACTION_EMOJI is the closed set the server accepts. Values are stable ASCII
+// slugs rather than literal emoji, so each client picks its own glyph.
+export const REACTION_EMOJI = [
+  "+1",
+  "-1",
+  "laugh",
+  "hooray",
+  "confused",
+  "heart",
+  "rocket",
+  "eyes",
+] as const;
+export type ReactionEmoji = (typeof REACTION_EMOJI)[number];
+export type CommentReaction = {
+  emoji: string;
+  count: number;
+  reacted: boolean;
+};
 export type Comment = {
   id: string;
   body: string;
@@ -75,6 +93,8 @@ export type Comment = {
   // Optional only for rolling-upgrade reads from an older server. New servers
   // always return an array, including when it is empty.
   mentions?: CommentMention[];
+  // Optional for the same reason as mentions.
+  reactions?: CommentReaction[];
   anchor?: Anchor;
   replies?: Comment[];
   current_placement?: {
@@ -301,6 +321,11 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  setCommentReaction: (doc: string, comment: string, emoji: string, reacted: boolean) =>
+    request<void>(
+      `/v1/documents/${doc}/comments/${comment}/reactions/${encodeURIComponent(emoji)}`,
+      { method: reacted ? "PUT" : "DELETE" },
+    ),
   listComments: (doc: string, version?: string) =>
     request<{ items: Comment[] }>(
       `/v1/documents/${doc}/comments${version ? `?version_id=${encodeURIComponent(version)}` : ""}`,

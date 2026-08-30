@@ -103,7 +103,7 @@ func (h handlers) createComment(c *gin.Context) {
 		return
 	}
 	incComment("created", cm.Status, actorType(c))
-	c.JSON(http.StatusCreated, commentJSON(cm, cm.VersionID, ""))
+	c.JSON(http.StatusCreated, commentJSON(cm, cm.VersionID, "", *p))
 }
 
 // ListComments godoc
@@ -137,7 +137,7 @@ func (h handlers) listComments(c *gin.Context) {
 	if placementVersionID != "" {
 		placementHTML, _ = h.deps.repository.GetVersionHTML(c.Request.Context(), placementVersionID)
 	}
-	c.JSON(http.StatusOK, listResponse[commentResponse]{Items: commentsJSON(items, placementVersionID, placementHTML)})
+	c.JSON(http.StatusOK, listResponse[commentResponse]{Items: commentsJSON(items, placementVersionID, placementHTML, *current(c))})
 }
 
 // CreateCommentReply godoc
@@ -183,7 +183,7 @@ func (h handlers) createCommentReply(c *gin.Context) {
 		return
 	}
 	incComment("created", cm.Status, actorType(c))
-	c.JSON(http.StatusCreated, commentJSON(cm, "", ""))
+	c.JSON(http.StatusCreated, commentJSON(cm, "", "", *current(c)))
 }
 
 // PatchComment godoc
@@ -235,7 +235,7 @@ func (h handlers) patchComment(c *gin.Context) {
 		event = "reopened"
 	}
 	incComment(event, cm.Status, actorType(c))
-	c.JSON(http.StatusOK, commentJSON(cm, cm.VersionID, ""))
+	c.JSON(http.StatusOK, commentJSON(cm, cm.VersionID, "", *current(c)))
 }
 
 func normalizePatchCommentRequest(in *patchCommentRequest) string {
@@ -314,6 +314,93 @@ func (h handlers) deleteComment(c *gin.Context) {
 		return
 	}
 	incComment("deleted", labelUnknown, actorType(c))
+	c.Status(http.StatusNoContent)
+}
+
+// allowedCommentReactions is the closed set of reaction slugs. Values are
+// stable ASCII identifiers rather than literal emoji so they survive URLs,
+// logs, and font differences, and each client picks its own glyph.
+//
+// This check is load-bearing rather than cosmetic: the MCP adapter passes tool
+// arguments straight to c.Param without a router match, so nothing else stands
+// between an agent-supplied value and the database.
+var allowedCommentReactions = map[string]bool{
+	"+1": true, "-1": true, "laugh": true, "hooray": true,
+	"confused": true, "heart": true, "rocket": true, "eyes": true,
+}
+
+// commentInDocument loads a comment and confirms it belongs to docID. Callers
+// must check the document role first; a missing comment and a comment in
+// another document deliberately share one 404 so the response cannot be used
+// to probe for comment IDs outside the document the caller named.
+func (h handlers) commentInDocument(c *gin.Context, docID, commentID string) bool {
+	cm, err := h.deps.repository.GetComment(c.Request.Context(), commentID)
+	if err != nil && !errors.Is(err, repo.ErrNotFound) {
+		internalErr(c, err)
+		return false
+	}
+	if err != nil || cm.DocumentID != docID {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "comment not found in document", nil))
+		return false
+	}
+	return true
+}
+
+// PutCommentReaction godoc
+// @Summary Add comment reaction
+// @Description Adds the caller's reaction to a comment or reply. Repeating the same reaction is a no-op.
+// @Tags comments
+// @Security bearerAuth
+// @Security cookieAuth
+// @Param id path string true "Document ID"
+// @Param comment_id path string true "Comment ID"
+// @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes)
+// @Success 204
+// @Router /v1/documents/{id}/comments/{comment_id}/reactions/{emoji} [put]
+func (h handlers) putCommentReaction(c *gin.Context) { h.writeCommentReaction(c, true) }
+
+// DeleteCommentReaction godoc
+// @Summary Remove comment reaction
+// @Description Removes the caller's reaction from a comment or reply. Removing an absent reaction is a no-op.
+// @Tags comments
+// @Security bearerAuth
+// @Security cookieAuth
+// @Param id path string true "Document ID"
+// @Param comment_id path string true "Comment ID"
+// @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes)
+// @Success 204
+// @Router /v1/documents/{id}/comments/{comment_id}/reactions/{emoji} [delete]
+func (h handlers) deleteCommentReaction(c *gin.Context) { h.writeCommentReaction(c, false) }
+
+// writeCommentReaction backs both reaction verbs. Both are idempotent, so both
+// answer 204 whether or not the row already existed.
+func (h handlers) writeCommentReaction(c *gin.Context, add bool) {
+	docID, commentID := c.Param("id"), c.Param("comment_id")
+	emoji := c.Param("emoji")
+	if !allowedCommentReactions[emoji] {
+		badRequest(c, "unsupported reaction")
+		return
+	}
+	// Role before comment lookup: needDocRole authorizes the document in the
+	// URL but says nothing about which document the comment belongs to, so the
+	// membership check below is what actually confines the write.
+	if !h.needDocRole(c, docID, repo.RoleCommenter) {
+		return
+	}
+	if !h.commentInDocument(c, docID, commentID) {
+		return
+	}
+	p := current(c)
+	var err error
+	if add {
+		err = h.deps.repository.PutCommentReaction(c.Request.Context(), commentID, *p, emoji)
+	} else {
+		err = h.deps.repository.DeleteCommentReaction(c.Request.Context(), commentID, *p, emoji)
+	}
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
 	c.Status(http.StatusNoContent)
 }
 

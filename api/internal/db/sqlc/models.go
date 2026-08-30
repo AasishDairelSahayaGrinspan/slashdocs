@@ -60,6 +60,16 @@ type CommentPlacement struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+// Lightweight acknowledgements on comments and replies. One row per (comment, principal, emoji); the primary key makes adding a reaction idempotent and removing one a primary-key delete.
+type CommentReaction struct {
+	CommentID     string
+	PrincipalType string
+	PrincipalID   string
+	// Stable ASCII slug from a fixed set, not a literal emoji character, so the value is URL-safe and each client chooses its own glyph. The CHECK keeps an old pod or a direct SQL writer from storing a slug clients cannot render.
+	Emoji     string
+	CreatedAt pgtype.Timestamptz
+}
+
 type Document struct {
 	ID               string
 	Title            string

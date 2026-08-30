@@ -257,6 +257,8 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)
 	authed.DELETE("/documents/:id/comments/:comment_id", h.deleteComment)
+	authed.PUT("/documents/:id/comments/:comment_id/reactions/:emoji", h.putCommentReaction)
+	authed.DELETE("/documents/:id/comments/:comment_id/reactions/:emoji", h.deleteCommentReaction)
 	authed.POST("/folders", h.createFolder)
 	authed.GET("/folders", h.listFolders)
 	authed.GET("/folders/:id", h.getFolder)

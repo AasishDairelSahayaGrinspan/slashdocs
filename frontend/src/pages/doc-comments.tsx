@@ -27,7 +27,14 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
-import { api, type Anchor, type Comment, type UserPrincipal } from "@/api";
+import {
+  api,
+  REACTION_EMOJI,
+  type Anchor,
+  type Comment,
+  type UserPrincipal,
+} from "@/api";
+import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/queryKeys";
 import { layoutCommentRail } from "@/lib/comment-rail";
 import { samePrincipal } from "@/lib/principals";
@@ -305,6 +312,97 @@ function CommentBody({
         ),
       )}
     </p>
+  );
+}
+
+// REACTION_GLYPH maps the server's stable slugs to the glyph this client
+// shows. The slug is the contract; the glyph is ours to choose.
+const REACTION_GLYPH: Record<string, string> = {
+  "+1": "👍",
+  "-1": "👎",
+  laugh: "😄",
+  hooray: "🎉",
+  confused: "😕",
+  heart: "❤️",
+  rocket: "🚀",
+  eyes: "👀",
+};
+
+function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
+  const q = useQueryClient();
+  const [picking, setPicking] = useState(false);
+  const reactions = c.reactions || [];
+  const toggle = useMutation({
+    mutationFn: ({ emoji, reacted }: { emoji: string; reacted: boolean }) =>
+      api.setCommentReaction(docId, c.id, emoji, reacted),
+    onSuccess: () => q.invalidateQueries({ queryKey: queryKeys.comments(docId) }),
+    onError: (e) => toast.error(errorMessage(e, "Reaction failed")),
+  });
+  const react = (emoji: string, reacted: boolean) => {
+    setPicking(false);
+    toggle.mutate({ emoji, reacted });
+  };
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1">
+      {reactions.map((r) => (
+        <button
+          key={r.emoji}
+          type="button"
+          aria-pressed={r.reacted}
+          aria-label={`${r.emoji}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            react(r.emoji, !r.reacted);
+          }}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+            r.reacted
+              ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
+              : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]",
+          )}
+        >
+          <span aria-hidden="true">{REACTION_GLYPH[r.emoji] || r.emoji}</span>
+          <span className="tabular-nums">{r.count}</span>
+        </button>
+      ))}
+      <div className="relative">
+        <button
+          type="button"
+          aria-label="Add reaction"
+          aria-expanded={picking}
+          onClick={(e) => {
+            e.stopPropagation();
+            setPicking((open) => !open);
+          }}
+          className="rounded-full border border-dashed border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]"
+        >
+          +
+        </button>
+        {picking && (
+          <div
+            role="menu"
+            className="absolute bottom-full left-0 z-10 mb-1 flex gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
+          >
+            {REACTION_EMOJI.map((emoji) => (
+              <button
+                key={emoji}
+                type="button"
+                role="menuitem"
+                aria-label={emoji}
+                title={emoji}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  react(emoji, !reactions.some((r) => r.emoji === emoji && r.reacted));
+                }}
+                className="rounded p-1 text-sm hover:bg-[var(--color-surface-muted)]"
+              >
+                <span aria-hidden="true">{REACTION_GLYPH[emoji]}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -750,6 +848,7 @@ function CommentCard({
           className="opacity-0 transition-opacity group-hover:opacity-100"
         />
       </div>
+      <ReactionBar c={c} docId={docId} />
       {(c.replies || []).length > 0 && (
         <div className="mt-3 space-y-2 border-l border-[var(--color-border)] pl-3">
           {(c.replies || []).map((r) => (
@@ -807,6 +906,7 @@ function ReplyItem({
         />
       </div>
       <CommentBody text={r.body} mentions={r.mentions} />
+      <ReactionBar c={r} docId={docId} />
     </div>
   );
 }

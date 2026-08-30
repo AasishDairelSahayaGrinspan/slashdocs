@@ -688,6 +688,46 @@ func commentMentionsByID(ctx context.Context, q *dbsqlc.Queries, commentIDs []st
 	return byID, nil
 }
 
+// commentReactionsByID bulk-loads reactions for a set of comments so callers
+// avoid a per-comment round trip, mirroring commentMentionsByID. Every
+// requested ID is seeded with an empty slice so a comment without reactions
+// renders as [] rather than null.
+func commentReactionsByID(ctx context.Context, q *dbsqlc.Queries, commentIDs []string) (map[string][]repo.CommentReaction, error) {
+	byID := make(map[string][]repo.CommentReaction, len(commentIDs))
+	for _, id := range commentIDs {
+		byID[id] = []repo.CommentReaction{}
+	}
+	if len(commentIDs) == 0 {
+		return byID, nil
+	}
+	rows, err := q.ListCommentReactions(ctx, commentIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		byID[row.CommentID] = append(byID[row.CommentID], repo.CommentReaction{
+			Principal: auth.Principal{
+				Type: auth.PrincipalType(row.PrincipalType),
+				ID:   row.PrincipalID,
+			},
+			Emoji: row.Emoji,
+		})
+	}
+	return byID, nil
+}
+
+func (s *Store) PutCommentReaction(ctx context.Context, commentID string, p auth.Principal, emoji string) error {
+	return s.q.PutCommentReaction(ctx, dbsqlc.PutCommentReactionParams{
+		CommentID: commentID, PrincipalType: string(p.Type), PrincipalID: p.ID, Emoji: emoji,
+	})
+}
+
+func (s *Store) DeleteCommentReaction(ctx context.Context, commentID string, p auth.Principal, emoji string) error {
+	return s.q.DeleteCommentReaction(ctx, dbsqlc.DeleteCommentReactionParams{
+		CommentID: commentID, PrincipalType: string(p.Type), PrincipalID: p.ID, Emoji: emoji,
+	})
+}
+
 func upsertUser(ctx context.Context, q *dbsqlc.Queries, p auth.Principal) error {
 	return q.UpsertUser(ctx, dbsqlc.UpsertUserParams{ID: p.ID, Email: p.Email, Name: p.Name})
 }
@@ -1031,6 +1071,11 @@ func (s *Store) GetComment(ctx context.Context, id string) (repo.Comment, error)
 		return repo.Comment{}, err
 	}
 	comment.Mentions = mentions[id]
+	reactions, err := commentReactionsByID(ctx, q, []string{id})
+	if err != nil {
+		return repo.Comment{}, err
+	}
+	comment.Reactions = reactions[id]
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
@@ -1057,8 +1102,13 @@ func (s *Store) ListComments(ctx context.Context, documentID, status, versionID 
 	if err != nil {
 		return nil, err
 	}
+	reactions, err := commentReactionsByID(ctx, q, ids)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
 		out[i].Mentions = mentions[out[i].ID]
+		out[i].Reactions = reactions[out[i].ID]
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -1100,6 +1150,11 @@ func (s *Store) UpdateComment(ctx context.Context, id string, update repo.Commen
 		return repo.Comment{}, err
 	}
 	comment.Mentions = mentions[id]
+	reactions, err := commentReactionsByID(ctx, q, []string{id})
+	if err != nil {
+		return repo.Comment{}, err
+	}
+	comment.Reactions = reactions[id]
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
