@@ -349,7 +349,7 @@ function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
     toggle.mutate({ emoji, reacted });
   };
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-1">
+    <div className="relative mt-2 flex flex-wrap items-center gap-1">
       {reactions.map((r) => (
         <button
           key={r.emoji}
@@ -371,51 +371,46 @@ function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
           <span className="tabular-nums">{r.count}</span>
         </button>
       ))}
-      <div className="relative">
-        <button
-          type="button"
-          aria-label="Add reaction"
-          aria-expanded={picking}
-          onClick={(e) => {
-            e.stopPropagation();
-            setPicking((open) => !open);
-          }}
-          className="rounded-full border border-dashed border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]"
+      <button
+        type="button"
+        aria-label="Add reaction"
+        aria-expanded={picking}
+        onClick={(e) => {
+          e.stopPropagation();
+          setPicking((open) => !open);
+        }}
+        className="rounded-full border border-dashed border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]"
+      >
+        +
+      </button>
+      {/*
+        Anchored to the bar, not the "+" button: the button moves as reactions
+        wrap, and the bar spans the card so the picker stays inside it. w-max
+        stops the absolute box shrinking to its anchor's width.
+      */}
+      {picking && (
+        <div
+          role="menu"
+          className="absolute bottom-full left-0 z-10 mb-1 flex w-max max-w-full flex-wrap gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
         >
-          +
-        </button>
-        {/*
-          The picker is anchored right so it grows leftward. Its trigger is
-          always the last item in the reaction bar, so it drifts further right
-          with every reaction added; opening rightward pushed the picker past
-          the card and the rail clipped it (the rail is overflow-x-hidden),
-          leaving the last emoji unreachable. Wrapping is the fallback for a
-          rail too narrow to fit one row.
-        */}
-        {picking && (
-          <div
-            role="menu"
-            className="absolute bottom-full right-0 z-10 mb-1 flex max-w-[min(16rem,calc(100vw-2rem))] flex-wrap justify-end gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
-          >
-            {REACTION_EMOJI.map((emoji) => (
-              <button
-                key={emoji}
-                type="button"
-                role="menuitem"
-                aria-label={emoji}
-                title={emoji}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  react(emoji, !reactions.some((r) => r.emoji === emoji && r.reacted));
-                }}
-                className="rounded p-1 text-sm hover:bg-[var(--color-surface-muted)]"
-              >
-                <span aria-hidden="true">{REACTION_GLYPH[emoji]}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </div>
+          {REACTION_EMOJI.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              role="menuitem"
+              aria-label={emoji}
+              title={emoji}
+              onClick={(e) => {
+                e.stopPropagation();
+                react(emoji, !reactions.some((r) => r.emoji === emoji && r.reacted));
+              }}
+              className="rounded p-1 text-sm hover:bg-[var(--color-surface-muted)]"
+            >
+              <span aria-hidden="true">{REACTION_GLYPH[emoji]}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
