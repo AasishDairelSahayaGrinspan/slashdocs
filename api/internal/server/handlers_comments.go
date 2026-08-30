@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -357,7 +358,9 @@ func (h handlers) commentInDocument(c *gin.Context, docID, commentID string) boo
 // @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes)
 // @Success 204
 // @Router /v1/documents/{id}/comments/{comment_id}/reactions/{emoji} [put]
-func (h handlers) putCommentReaction(c *gin.Context) { h.writeCommentReaction(c, true) }
+func (h handlers) putCommentReaction(c *gin.Context) {
+	h.writeCommentReaction(c, h.deps.repository.PutCommentReaction)
+}
 
 // DeleteCommentReaction godoc
 // @Summary Remove comment reaction
@@ -370,11 +373,18 @@ func (h handlers) putCommentReaction(c *gin.Context) { h.writeCommentReaction(c,
 // @Param emoji path string true "Reaction slug" Enums(+1, -1, laugh, hooray, confused, heart, rocket, eyes)
 // @Success 204
 // @Router /v1/documents/{id}/comments/{comment_id}/reactions/{emoji} [delete]
-func (h handlers) deleteCommentReaction(c *gin.Context) { h.writeCommentReaction(c, false) }
+func (h handlers) deleteCommentReaction(c *gin.Context) {
+	h.writeCommentReaction(c, h.deps.repository.DeleteCommentReaction)
+}
+
+// reactionWrite is the shape both reaction mutations share, so each handler
+// names the repository method it means instead of passing a flag for the
+// helper to branch on.
+type reactionWrite func(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
 
 // writeCommentReaction backs both reaction verbs. Both are idempotent, so both
 // answer 204 whether or not the row already existed.
-func (h handlers) writeCommentReaction(c *gin.Context, add bool) {
+func (h handlers) writeCommentReaction(c *gin.Context, write reactionWrite) {
 	docID, commentID := c.Param("id"), c.Param("comment_id")
 	emoji := c.Param("emoji")
 	if !allowedCommentReactions[emoji] {
@@ -390,14 +400,7 @@ func (h handlers) writeCommentReaction(c *gin.Context, add bool) {
 	if !h.commentInDocument(c, docID, commentID) {
 		return
 	}
-	p := current(c)
-	var err error
-	if add {
-		err = h.deps.repository.PutCommentReaction(c.Request.Context(), commentID, *p, emoji)
-	} else {
-		err = h.deps.repository.DeleteCommentReaction(c.Request.Context(), commentID, *p, emoji)
-	}
-	if err != nil {
+	if err := write(c.Request.Context(), commentID, *current(c), emoji); err != nil {
 		internalErr(c, err)
 		return
 	}

@@ -32,6 +32,7 @@ import {
   REACTION_EMOJI,
   type Anchor,
   type Comment,
+  type ReactionEmoji,
   type UserPrincipal,
 } from "@/api";
 import { cn } from "@/lib/cn";
@@ -317,6 +318,11 @@ function CommentBody({
 
 // REACTION_GLYPH maps the server's stable slugs to the glyph this client
 // shows. The slug is the contract; the glyph is ours to choose.
+//
+// `satisfies` makes the literal exhaustive over REACTION_EMOJI, so adding a
+// slug there fails the build until it has a glyph. The declared type stays
+// keyed by string because reaction slugs arrive from the server unvalidated,
+// and a server that adds one before this client ships must still render.
 const REACTION_GLYPH: Record<string, string> = {
   "+1": "👍",
   "-1": "👎",
@@ -326,7 +332,7 @@ const REACTION_GLYPH: Record<string, string> = {
   heart: "❤️",
   rocket: "🚀",
   eyes: "👀",
-};
+} satisfies Record<ReactionEmoji, string>;
 
 function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
   const q = useQueryClient();

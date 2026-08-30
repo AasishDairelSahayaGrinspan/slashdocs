@@ -321,6 +321,10 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  // emoji stays a string: the only caller forwards a slug the server sent, and
+  // narrowing it here would need a cast that asserts what the wire does not
+  // guarantee. Values authored in this client come from REACTION_EMOJI, which
+  // is already the literal union.
   setCommentReaction: (doc: string, comment: string, emoji: string, reacted: boolean) =>
     request<void>(
       `/v1/documents/${doc}/comments/${comment}/reactions/${encodeURIComponent(emoji)}`,
