@@ -384,10 +384,18 @@ function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
         >
           +
         </button>
+        {/*
+          The picker is anchored right so it grows leftward. Its trigger is
+          always the last item in the reaction bar, so it drifts further right
+          with every reaction added; opening rightward pushed the picker past
+          the card and the rail clipped it (the rail is overflow-x-hidden),
+          leaving the last emoji unreachable. Wrapping is the fallback for a
+          rail too narrow to fit one row.
+        */}
         {picking && (
           <div
             role="menu"
-            className="absolute bottom-full left-0 z-10 mb-1 flex gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
+            className="absolute bottom-full right-0 z-10 mb-1 flex max-w-[min(16rem,calc(100vw-2rem))] flex-wrap justify-end gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
           >
             {REACTION_EMOJI.map((emoji) => (
               <button
