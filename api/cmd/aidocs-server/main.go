@@ -15,6 +15,8 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/oauth2/google"
+
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/db"
@@ -23,7 +25,6 @@ import (
 	"github.com/razorpay/aidocs/api/internal/repo"
 	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
 	"github.com/razorpay/aidocs/api/internal/server"
-	"golang.org/x/oauth2/google"
 )
 
 // HTTP server timeouts. WriteTimeout is deliberately absent (zero): the KV
@@ -389,6 +390,34 @@ type googleGroupsConfig struct {
 	directory     googlegroups.GoogleGroupDirectory
 }
 
+// googleGroupsWorkspace is the validated Workspace identity that group
+// sharing needs once it is switched on.
+type googleGroupsWorkspace struct {
+	customerID      string
+	adminEmail      string
+	credentialsFile string
+}
+
+// readGoogleGroupsWorkspaceEnv validates the three Workspace settings that
+// become mandatory when AIDOCS_GOOGLE_GROUPS_ENABLED is true.
+func readGoogleGroupsWorkspaceEnv() (googleGroupsWorkspace, error) {
+	workspace := googleGroupsWorkspace{
+		customerID:      os.Getenv("GOOGLE_GROUPS_CUSTOMER_ID"),
+		adminEmail:      strings.TrimSpace(os.Getenv("GOOGLE_GROUPS_ADMIN_EMAIL")),
+		credentialsFile: os.Getenv("GOOGLE_GROUPS_CREDENTIALS_FILE"),
+	}
+	if !strings.HasPrefix(workspace.customerID, "C") || strings.ContainsAny(workspace.customerID, " /\\\t\r\n") {
+		return workspace, fmt.Errorf("GOOGLE_GROUPS_CUSTOMER_ID must be a Workspace customer ID beginning with C")
+	}
+	if workspace.adminEmail == "" || !strings.Contains(workspace.adminEmail, "@") {
+		return workspace, fmt.Errorf("GOOGLE_GROUPS_ADMIN_EMAIL must be a valid delegated administrator email")
+	}
+	if workspace.credentialsFile == "" {
+		return workspace, fmt.Errorf("GOOGLE_GROUPS_CREDENTIALS_FILE is required when Google Groups are enabled")
+	}
+	return workspace, nil
+}
+
 func loadGoogleGroupsConfig(ctx context.Context, deployment string) (googleGroupsConfig, error) {
 	var cfg googleGroupsConfig
 	enabledRaw := os.Getenv("AIDOCS_GOOGLE_GROUPS_ENABLED")
@@ -406,19 +435,11 @@ func loadGoogleGroupsConfig(ctx context.Context, deployment string) (googleGroup
 	if deployment != server.DeploymentOrg {
 		return cfg, fmt.Errorf("AIDOCS_GOOGLE_GROUPS_ENABLED requires AIDOCS_DEPLOYMENT=org")
 	}
-	customerID := os.Getenv("GOOGLE_GROUPS_CUSTOMER_ID")
-	adminEmail := strings.TrimSpace(os.Getenv("GOOGLE_GROUPS_ADMIN_EMAIL"))
-	credentialsFile := os.Getenv("GOOGLE_GROUPS_CREDENTIALS_FILE")
-	if !strings.HasPrefix(customerID, "C") || strings.ContainsAny(customerID, " /\\\t\r\n") {
-		return cfg, fmt.Errorf("GOOGLE_GROUPS_CUSTOMER_ID must be a Workspace customer ID beginning with C")
+	workspace, err := readGoogleGroupsWorkspaceEnv()
+	if err != nil {
+		return cfg, err
 	}
-	if adminEmail == "" || !strings.Contains(adminEmail, "@") {
-		return cfg, fmt.Errorf("GOOGLE_GROUPS_ADMIN_EMAIL must be a valid delegated administrator email")
-	}
-	if credentialsFile == "" {
-		return cfg, fmt.Errorf("GOOGLE_GROUPS_CREDENTIALS_FILE is required when Google Groups are enabled")
-	}
-	credentials, err := os.ReadFile(credentialsFile)
+	credentials, err := os.ReadFile(workspace.credentialsFile)
 	if err != nil {
 		return cfg, fmt.Errorf("GOOGLE_GROUPS_CREDENTIALS_FILE must be present and readable")
 	}
@@ -434,9 +455,9 @@ func loadGoogleGroupsConfig(ctx context.Context, deployment string) (googleGroup
 	if err != nil {
 		return cfg, fmt.Errorf("GOOGLE_GROUPS_CREDENTIALS_FILE does not contain valid service-account credentials")
 	}
-	jwtConfig.Subject = adminEmail
+	jwtConfig.Subject = workspace.adminEmail
 	directory, err := googlegroups.NewHTTPDirectory(googlegroups.HTTPDirectoryConfig{
-		Client: jwtConfig.Client(ctx), CustomerID: customerID, Timeout: requestTimeout,
+		Client: jwtConfig.Client(ctx), CustomerID: workspace.customerID, Timeout: requestTimeout,
 		Observer: server.ObserveGoogleGroupRequest,
 	})
 	if err != nil {

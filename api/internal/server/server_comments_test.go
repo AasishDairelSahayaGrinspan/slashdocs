@@ -31,6 +31,7 @@ func TestCreateComment(t *testing.T) {
 		  "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
 		  "body": "Add a number here.",
 		  "mentions": [],
+		  "reactions": [],
 		  "selected_text": "fixture",
 	  "anchor": {
 	    "quote": "fixture",
@@ -72,6 +73,7 @@ func TestCreateCommentReplyAndListThread(t *testing.T) {
 		  "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
 		  "body": "reply body",
 		  "mentions": [],
+		  "reactions": [],
 		  "status": "open",
 	  "created_on_version_id": %q,
 	  "parent_comment_id": %q
@@ -87,6 +89,7 @@ func TestCreateCommentReplyAndListThread(t *testing.T) {
 		    "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
 		    "body": "original",
 		    "mentions": [],
+		    "reactions": [],
 		    "selected_text": "fixture",
 	    "anchor": { "quote": "fixture", "prefix": "", "suffix": "", "dom_path": "", "start_offset": 0, "end_offset": 0 },
 	    "status": "open",
@@ -97,6 +100,7 @@ func TestCreateCommentReplyAndListThread(t *testing.T) {
 		      "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
 		      "body": "reply body",
 		      "mentions": [],
+		      "reactions": [],
 		      "status": "open",
 	      "created_on_version_id": %q,
 	      "parent_comment_id": %q

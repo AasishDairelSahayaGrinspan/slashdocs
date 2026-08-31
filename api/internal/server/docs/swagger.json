@@ -702,6 +702,116 @@
                 }
             }
         },
+        "/v1/documents/{id}/comments/{comment_id}/reactions/{emoji}": {
+            "put": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Adds the caller's reaction to a comment or reply. Repeating the same reaction is a no-op.",
+                "tags": [
+                    "comments"
+                ],
+                "summary": "Add comment reaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "comment_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "+1",
+                            "-1",
+                            "laugh",
+                            "hooray",
+                            "confused",
+                            "heart",
+                            "rocket",
+                            "eyes",
+                            "plus"
+                        ],
+                        "type": "string",
+                        "description": "Reaction slug",
+                        "name": "emoji",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Removes the caller's reaction from a comment or reply. Removing an absent reaction is a no-op.",
+                "tags": [
+                    "comments"
+                ],
+                "summary": "Remove comment reaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "comment_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "+1",
+                            "-1",
+                            "laugh",
+                            "hooray",
+                            "confused",
+                            "heart",
+                            "rocket",
+                            "eyes",
+                            "plus"
+                        ],
+                        "type": "string",
+                        "description": "Reaction slug",
+                        "name": "emoji",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/documents/{id}/comments/{comment_id}/replies": {
             "post": {
                 "security": [
@@ -1860,6 +1970,20 @@
                 }
             }
         },
+        "server.commentReactionResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "emoji": {
+                    "type": "string"
+                },
+                "reacted": {
+                    "type": "boolean"
+                }
+            }
+        },
         "server.commentResponse": {
             "type": "object",
             "properties": {
@@ -1889,6 +2013,12 @@
                 },
                 "parent_comment_id": {
                     "type": "string"
+                },
+                "reactions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.commentReactionResponse"
+                    }
                 },
                 "replies": {
                     "type": "array",

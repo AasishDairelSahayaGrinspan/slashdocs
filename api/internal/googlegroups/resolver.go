@@ -94,21 +94,34 @@ func (r *Resolver) Resolve(ctx context.Context, principal *auth.Principal) *auth
 
 	flight, owner := r.startFlight(principal.ID)
 	if !owner {
-		select {
-		case <-ctx.Done():
+		return awaitFlight(ctx, flight, resolved)
+	}
+	return r.refreshMemberships(ctx, principal, flight, resolved)
+}
+
+// awaitFlight waits on the refresh another caller already started, rather than
+// issuing a second directory call for the same user.
+func awaitFlight(ctx context.Context, flight *membershipFlight, resolved auth.Principal) *auth.Principal {
+	select {
+	case <-ctx.Done():
+		resolved.GoogleGroupMembershipState = auth.GoogleGroupMembershipUnavailable
+		return &resolved
+	case <-flight.done:
+		if flight.err {
 			resolved.GoogleGroupMembershipState = auth.GoogleGroupMembershipUnavailable
 			return &resolved
-		case <-flight.done:
-			if flight.err {
-				resolved.GoogleGroupMembershipState = auth.GoogleGroupMembershipUnavailable
-				return &resolved
-			}
-			resolved.GoogleGroupIDs = append([]string(nil), flight.ids...)
-			resolved.GoogleGroupMembershipState = auth.GoogleGroupMembershipResolved
-			return &resolved
 		}
+		resolved.GoogleGroupIDs = append([]string(nil), flight.ids...)
+		resolved.GoogleGroupMembershipState = auth.GoogleGroupMembershipResolved
+		return &resolved
 	}
+}
 
+// refreshMemberships fetches memberships from the directory, persists them, and
+// releases the flight so waiters observe the same outcome. A failure is
+// recorded on a non-cancellable context so the retry cooldown still applies
+// when the caller's request was the thing that was cancelled.
+func (r *Resolver) refreshMemberships(ctx context.Context, principal *auth.Principal, flight *membershipFlight, resolved auth.Principal) *auth.Principal {
 	groups, refreshErr := r.directory.TransitiveGroupsForMember(ctx, principal.Email)
 	ids := make([]string, 0, len(groups))
 	stored := make([]repo.GoogleGroup, 0, len(groups))

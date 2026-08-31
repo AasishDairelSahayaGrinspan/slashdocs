@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
@@ -126,31 +127,51 @@ type githubRawRequest struct {
 	Ref   string `json:"ref"`
 }
 
-func (h handlers) githubRawContent(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
-		return
-	}
+// bindGitHubRawRequest reads and validates the repository coordinates,
+// answering the client itself when they are unusable.
+func bindGitHubRawRequest(c *gin.Context) (githubRawRequest, bool) {
 	var in githubRawRequest
 	if err := c.ShouldBindJSON(&in); err != nil || in.Owner == "" || in.Repo == "" || in.Path == "" || in.Ref == "" {
 		badRequest(c, "owner, repo, path, and ref are required")
-		return
+		return githubRawRequest{}, false
 	}
 	if strings.Contains(in.Owner, "/") || strings.Contains(in.Repo, "/") || strings.HasPrefix(in.Path, "/") || strings.Contains(in.Path, "..") {
 		badRequest(c, "invalid repository path")
-		return
+		return githubRawRequest{}, false
 	}
+	return in, true
+}
+
+// githubTokenFor opens the caller's stored GitHub token, answering the client
+// when GitHub is not connected or the stored token cannot be decrypted.
+func (h handlers) githubTokenFor(c *gin.Context) (string, bool) {
 	conn, err := h.deps.repository.GetGitHubConnection(c.Request.Context(), current(c).ID)
 	if errors.Is(err, repo.ErrNotFound) {
 		c.JSON(http.StatusPreconditionRequired, errorResponse("github_not_connected", "Connect GitHub before loading repository content", nil))
-		return
+		return "", false
 	}
 	if err != nil {
 		internalErr(c, err)
-		return
+		return "", false
 	}
 	token, err := openGitHubToken(h.deps.sessionSecret, conn.AccessTokenCiphertext)
 	if err != nil {
 		internalErr(c, err)
+		return "", false
+	}
+	return token, true
+}
+
+func (h handlers) githubRawContent(c *gin.Context) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
+		return
+	}
+	in, ok := bindGitHubRawRequest(c)
+	if !ok {
+		return
+	}
+	token, ok := h.githubTokenFor(c)
+	if !ok {
 		return
 	}
 	endpoint := fmt.Sprintf("%s/repos/%s/%s/contents/%s?ref=%s", githubAPIBase, url.PathEscape(in.Owner), url.PathEscape(in.Repo), escapeGitHubPath(in.Path), url.QueryEscape(in.Ref))
@@ -163,9 +184,9 @@ func (h handlers) githubRawContent(c *gin.Context) {
 		c.JSON(http.StatusBadGateway, errorResponse("github_unavailable", "GitHub request failed", nil))
 		return
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
-		io.Copy(io.Discard, res.Body)
+		_, _ = io.Copy(io.Discard, res.Body)
 		c.JSON(res.StatusCode, errorResponse("github_error", "GitHub could not return that file", nil))
 		return
 	}
@@ -189,7 +210,7 @@ func (h handlers) githubJSON(ctx context.Context, token, path string, out any) e
 	if err != nil {
 		return err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("github status %d", res.StatusCode)
 	}

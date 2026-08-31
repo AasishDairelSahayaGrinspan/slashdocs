@@ -134,6 +134,7 @@ func New(cfg Config, opts ...Option) *Server {
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
 		deps.githubOAuth = &oauth2.Config{
 			ClientID: cfg.GitHubClientID, ClientSecret: cfg.GitHubClientSecret,
+			//nolint:gosec // G101 matches on the "access_token" path segment; these are GitHub's public OAuth endpoint URLs, not credentials.
 			Endpoint:    oauth2.Endpoint{AuthURL: "https://github.com/login/oauth/authorize", TokenURL: "https://github.com/login/oauth/access_token"},
 			RedirectURL: strings.TrimRight(cfg.AppOrigin, "/") + "/v1/integrations/github/callback",
 			Scopes:      []string{"repo", "read:user"},
@@ -257,6 +258,8 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)
 	authed.DELETE("/documents/:id/comments/:comment_id", h.deleteComment)
+	authed.PUT("/documents/:id/comments/:comment_id/reactions/:emoji", h.putCommentReaction)
+	authed.DELETE("/documents/:id/comments/:comment_id/reactions/:emoji", h.deleteCommentReaction)
 	authed.POST("/folders", h.createFolder)
 	authed.GET("/folders", h.listFolders)
 	authed.GET("/folders/:id", h.getFolder)

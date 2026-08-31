@@ -567,12 +567,28 @@ func commentsCmd(g *globals, out io.Writer) *cobra.Command {
 	update.Flags().StringVar(&updateBody, "body", "", "new comment body text")
 	update.Flags().StringVar(&updateStatus, "status", "", "new status: open or resolved")
 
-	c.AddCommand(list, create, reply, update, deleteCommentCmd(g, out), resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"))
+	c.AddCommand(list, create, reply, update, deleteCommentCmd(g, out),
+		resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"),
+		reactionCmd(g, out, "react", "Add a reaction to a document comment", "PUT",
+			func(a []string) string { return "Reacted " + a[2] + " on comment " + a[1] + "." }),
+		reactionCmd(g, out, "unreact", "Remove your reaction from a document comment", "DELETE",
+			func(a []string) string { return "Removed " + a[2] + " from comment " + a[1] + "." }))
 	return c
 }
 
 func deleteCommentCmd(g *globals, out io.Writer) *cobra.Command {
 	return mutate(g, out, "delete <doc_id> <comment_id>", "Delete a document comment", "DELETE", "/v1/documents/%s/comments/%s", 2, func(a []string) string { return "Deleted comment " + a[1] + "." })
+}
+
+// reactionSlugs is the server's accepted set, repeated here only so help text
+// and errors are useful offline. The server remains the authority.
+const reactionSlugs = "+1, -1, laugh, hooray, confused, heart, rocket, eyes, plus"
+
+func reactionCmd(g *globals, out io.Writer, name, short, method string, msg func(args []string) string) *cobra.Command {
+	cmd := mutate(g, out, name+" <doc_id> <comment_id> <emoji>", short, method, "/v1/documents/%s/comments/%s/reactions/%s", 3, msg)
+	cmd.Long = short + ".\n\nReactions work on both root comments and replies.\nValid values: " + reactionSlugs + "."
+	cmd.Example = "  aidocs docs comments " + name + " doc_123 cmt_456 +1"
+	return cmd
 }
 
 func resolveCmd(g *globals, out io.Writer, name, status string) *cobra.Command {

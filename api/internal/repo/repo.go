@@ -227,18 +227,29 @@ type CLICredential struct {
 }
 
 type Comment struct {
-	ID              string           `json:"id"`
-	DocumentID      string           `json:"document_id"`
-	VersionID       string           `json:"version_id"`
-	Author          auth.Principal   `json:"author"`
-	Body            string           `json:"body"`
-	SelectedText    string           `json:"selected_text"`
-	Anchor          Anchor           `json:"anchor"`
-	Status          string           `json:"status"`
-	ParentCommentID string           `json:"parent_comment_id,omitempty"`
-	RootCommentID   string           `json:"root_comment_id,omitempty"`
-	Mentions        []CommentMention `json:"mentions"`
-	Replies         []Comment        `json:"replies,omitempty"`
+	ID              string            `json:"id"`
+	DocumentID      string            `json:"document_id"`
+	VersionID       string            `json:"version_id"`
+	Author          auth.Principal    `json:"author"`
+	Body            string            `json:"body"`
+	SelectedText    string            `json:"selected_text"`
+	Anchor          Anchor            `json:"anchor"`
+	Status          string            `json:"status"`
+	ParentCommentID string            `json:"parent_comment_id,omitempty"`
+	RootCommentID   string            `json:"root_comment_id,omitempty"`
+	Mentions        []CommentMention  `json:"mentions"`
+	Reactions       []CommentReaction `json:"reactions"`
+	Replies         []Comment         `json:"replies,omitempty"`
+}
+
+// CommentReaction is one principal's acknowledgement of a comment with one
+// emoji slug. The repository returns the raw rows in first-reaction order;
+// grouping them into per-emoji counts, and deciding whether the current
+// viewer is among them, is a presentation concern and happens in the API
+// layer rather than here.
+type CommentReaction struct {
+	Principal auth.Principal `json:"principal"`
+	Emoji     string         `json:"emoji"`
 }
 
 // CommentMention associates an exact UTF-16 range in a comment body with a
@@ -364,6 +375,8 @@ type Repository interface {
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)
 	UpdateComment(ctx context.Context, id string, update CommentUpdate) (Comment, error)
 	DeleteComment(ctx context.Context, id string) error
+	PutCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
+	DeleteCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
 	ListDocumentKV(ctx context.Context, documentID string) (DocumentKVSnapshot, error)
 	ListDocumentKVEvents(ctx context.Context, documentID string, afterRevision int64, limit int32) ([]DocumentKVEvent, error)
 	PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error)

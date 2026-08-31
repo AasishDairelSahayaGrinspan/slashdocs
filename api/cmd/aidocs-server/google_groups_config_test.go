@@ -71,6 +71,7 @@ func serviceAccountCredentials(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
+	//nolint:gosec // G101 matches the "private_key" keys; this is a throwaway key generated in-test, not a real credential.
 	payload, err := json.Marshal(map[string]string{
 		"type": "service_account", "client_email": "reader@example.iam.gserviceaccount.com",
 		"private_key_id": "test", "private_key": string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateKey})),
