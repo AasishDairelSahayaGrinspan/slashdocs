@@ -196,7 +196,7 @@ func (s *Server) routes(deps dependencies) {
 	s.engine.GET("/install.sh", h.installScript)
 	s.engine.GET("/skills/:name/SKILL.md", h.downloadSkill)
 	s.engine.GET("/cli/:os/:arch", h.downloadCLI)
-	registerAPIDocsRoutes(s.engine)
+	registerAPIDocsRoutes(s.engine, deps)
 	s.engine.GET("/v/:id/:version_id", h.renderVersion)
 	s.engine.GET("/print/:id/:version_id", h.renderPrintVersion)
 	registerFrontendRoutes(s.engine, deps.appOrigin)
