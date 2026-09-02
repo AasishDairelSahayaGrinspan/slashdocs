@@ -192,6 +192,7 @@ test("keeps Move to folder reachable from the compact document menu", async ({
 
   const dialog = page.getByRole("dialog", { name: "Move document" });
   await expect(dialog).toBeVisible();
+  await expect(menu).toBeHidden();
   await expect(dialog.getByRole("button", { name: "Cancel" })).toBeVisible();
   await expect(dialog.getByRole("button", { name: "Move", exact: true })).toBeVisible();
 });

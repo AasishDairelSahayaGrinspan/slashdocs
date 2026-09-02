@@ -363,14 +363,14 @@
 @media (prefers-reduced-motion: reduce) {
   .move-dialog-content[data-state="open"],
   .move-dialog-content[data-state="closed"] {
-    animation: none !important;
-    transform: translate(-50%, -50%) !important;
+    animation: none;
+    transform: translate(-50%, -50%);
   }
 }
 @media (max-width: 767px) and (prefers-reduced-motion: reduce) {
   .move-dialog-content[data-state="open"],
   .move-dialog-content[data-state="closed"] {
-    transform: translateY(0) !important;
+    transform: translateY(0);
   }
 }
 

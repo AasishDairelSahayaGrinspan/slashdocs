@@ -244,12 +244,7 @@ export function DocBar({
             </>
           ) : null}
           {canEdit ? (
-            <DropdownItem
-              onSelect={(event) => {
-                event.preventDefault();
-                setMoveOpen(true);
-              }}
-            >
+            <DropdownItem onSelect={() => setMoveOpen(true)}>
               <FolderIcon className="h-4 w-4" /> Move to folder
             </DropdownItem>
           ) : null}

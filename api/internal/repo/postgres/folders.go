@@ -579,14 +579,10 @@ func (s *Store) MoveDocumentToFolder(ctx context.Context, p auth.Principal, fold
 		return repo.MoveResult{}, repo.ErrSourceChanged
 	}
 	if actualSource.Kind == "folder" && actualSource.FolderID == folderID {
-		hasGrants, err := q.FolderOrAncestorsHaveGrants(ctx, folderID)
-		if err != nil {
-			return repo.MoveResult{}, err
-		}
 		if err := tx.Commit(ctx); err != nil {
 			return repo.MoveResult{}, err
 		}
-		return repo.MoveResult{Moved: false, PermissionWarning: hasGrants}, nil
+		return repo.MoveResult{Moved: false}, nil
 	}
 	moved, err := q.MoveDocumentToFolder(ctx, dbsqlc.MoveDocumentToFolderParams{FolderID: folderID, DocumentID: docID})
 	if err != nil {
