@@ -50,6 +50,8 @@ type configResponse struct {
 	ProviderName         string `json:"provider_name"`
 	DefaultDocPermission string `json:"default_doc_permission"`
 	GoogleGroupsEnabled  bool   `json:"google_groups_enabled"`
+	LabelsEnabled        bool   `json:"labels_enabled"`
+	SearchTagsEnabled    bool   `json:"search_tags_enabled"`
 }
 
 // meResponse is the payload of GET /v1/me. Exactly one of User and
@@ -463,6 +465,8 @@ func (h handlers) config(c *gin.Context) {
 		ProviderName:         defaultProviderName(h.deps.oidcProviderName),
 		DefaultDocPermission: defaultDocPermissionLabel(h.deps.defaultDocPermission),
 		GoogleGroupsEnabled:  h.deps.googleGroupsEnabled,
+		LabelsEnabled:        h.deps.labelsEnabled,
+		SearchTagsEnabled:    h.deps.searchTagsEnabled,
 	})
 }
 

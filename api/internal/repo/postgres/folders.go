@@ -22,7 +22,7 @@ import (
 const folderTreeLockID int64 = 0x6169646f63735f66 // "aidocs_f"
 
 // folderMaxDepth is the deepest folder nesting the product allows.
-const folderMaxDepth = 5
+const folderMaxDepth = 15
 
 // grantRankRole maps the numeric role rank computed by ListFolderAccessChain
 // (owner=4, editor=3, commenter=2, viewer=1, none=0) back to a repo.Role.
@@ -145,7 +145,10 @@ func (s *Store) getFolder(ctx context.Context, q *dbsqlc.Queries, id string) (re
 		Owner:          auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Name: r.OwnerName, Email: r.OwnerEmail},
 	}
 	if f.ParentFolderID != "" {
-		anc, err := q.ListFolderAncestors(ctx, f.ParentFolderID)
+		anc, err := q.ListFolderAncestors(ctx, dbsqlc.ListFolderAncestorsParams{
+			FolderID: f.ParentFolderID,
+			MaxDepth: folderMaxDepth,
+		})
 		if err != nil {
 			return repo.Folder{}, err
 		}

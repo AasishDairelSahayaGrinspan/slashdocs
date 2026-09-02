@@ -39,6 +39,8 @@ export function DocumentsPage() {
     return () => window.clearTimeout(t);
   }, [q]);
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
+  const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
+  const searchTagsEnabled = config.data?.search_tags_enabled === true;
   const docs = useQuery({
     queryKey: [...queryKeys.documents(), debouncedQ],
     queryFn: () => api.listDocuments(debouncedQ || undefined),
@@ -48,7 +50,7 @@ export function DocumentsPage() {
     queryKey: queryKeys.pins(),
     queryFn: api.listPins,
   });
-  const structuredSearch = hasDocumentSearchOperators(debouncedQ);
+  const structuredSearch = searchTagsEnabled && hasDocumentSearchOperators(debouncedQ);
   const rootFolders = useQuery({
     queryKey: [...queryKeys.folders(), debouncedQ],
     queryFn: () => api.listFolders(undefined, undefined, debouncedQ || undefined),
@@ -192,7 +194,11 @@ export function DocumentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <DocumentSearchInput value={q} onChange={setQ} />
+          <DocumentSearchInput
+            value={q}
+            onChange={setQ}
+            searchTagsEnabled={searchTagsEnabled}
+          />
           <ViewModeToggle />
           <Button
             variant="outline"

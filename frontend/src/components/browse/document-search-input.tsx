@@ -9,15 +9,20 @@ import { activeAuthorToken, replaceAuthorToken } from "@/lib/search-query";
 export function DocumentSearchInput({
   value,
   onChange,
+  searchTagsEnabled = true,
 }: {
   value: string;
   onChange: (value: string) => void;
+  searchTagsEnabled?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [cursor, setCursor] = useState(value.length);
   const [focused, setFocused] = useState(false);
   const [activeIndex, setActiveIndex] = useState(0);
-  const token = useMemo(() => activeAuthorToken(value, cursor), [value, cursor]);
+  const token = useMemo(
+    () => (searchTagsEnabled ? activeAuthorToken(value, cursor) : null),
+    [searchTagsEnabled, value, cursor],
+  );
   const [authorQuery, setAuthorQuery] = useState("");
 
   useEffect(() => {
@@ -31,7 +36,7 @@ export function DocumentSearchInput({
   const authors = useQuery({
     queryKey: queryKeys.userSearch(authorQuery),
     queryFn: () => api.searchUsers(authorQuery),
-    enabled: authorQuery.length >= 2,
+    enabled: searchTagsEnabled && authorQuery.length >= 2,
     staleTime: 30_000,
   });
   const suggestions = authors.data?.items || [];
@@ -88,11 +93,15 @@ export function DocumentSearchInput({
             setFocused(false);
           }
         }}
-        placeholder="Search or use author:, labels:, in:"
+        placeholder={
+          searchTagsEnabled
+            ? "Search or use author:, labels:, in:"
+            : "Search documents…"
+        }
         className="w-full pl-9 sm:w-[360px]"
         role="combobox"
         aria-label="Search documents"
-        aria-autocomplete="list"
+        aria-autocomplete={searchTagsEnabled ? "list" : "none"}
         aria-expanded={open}
         aria-controls={open ? "document-author-suggestions" : undefined}
         aria-activedescendant={

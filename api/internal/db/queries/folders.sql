@@ -33,7 +33,7 @@ WITH RECURSIVE anc(id, title, parent, depth) AS (
   UNION ALL
   SELECT f.id, f.title, COALESCE(f.parent_folder_id,''), a.depth+1
   FROM folders f JOIN anc a ON f.id=a.parent
-  WHERE a.parent != '' AND a.depth < 10
+  WHERE a.parent != '' AND a.depth < sqlc.arg(max_depth)::int
 )
 SELECT id, title FROM anc ORDER BY depth DESC;
 
