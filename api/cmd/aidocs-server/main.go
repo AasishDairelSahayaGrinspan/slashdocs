@@ -265,6 +265,14 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
+	labelsEnabled, err := boolEnv("AIDOCS_LABELS_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	searchTagsEnabled, err := boolEnv("AIDOCS_SEARCH_TAGS_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
 	oidcProvider, providerName, err := loadOIDC(ctx, origins.appOrigin)
 	if err != nil {
 		return nil, err
@@ -297,6 +305,8 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		GitHubClientSecret:        os.Getenv("AIDOCS_GITHUB_CLIENT_SECRET"),
 		GoogleGroupsEnabled:       googleGroups.enabled,
 		GoogleGroupsMembershipTTL: googleGroups.membershipTTL,
+		DisableLabels:             !labelsEnabled,
+		DisableSearchTags:         !searchTagsEnabled,
 	}, options...), nil
 }
 
@@ -382,6 +392,17 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func boolEnv(name string, fallback bool) (bool, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	if raw != "true" && raw != "false" {
+		return false, fmt.Errorf("%s must be true or false", name)
+	}
+	return raw == "true", nil
 }
 
 type googleGroupsConfig struct {

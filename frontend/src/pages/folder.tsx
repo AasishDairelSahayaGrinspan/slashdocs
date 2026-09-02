@@ -238,7 +238,7 @@ export function FolderPage() {
     >
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         {/* Breadcrumbs */}
-        <nav className="mb-4 flex items-center gap-1 text-sm text-[var(--color-fg-muted)]">
+        <nav className="mb-4 flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-[var(--color-fg-muted)]">
           <DroppableBreadcrumb
             dropId="drop:__root__"
             to="/app/documents"
@@ -246,7 +246,7 @@ export function FolderPage() {
             isDragging={!!activeDrag}
           />
           {breadcrumbs.map((b) => (
-            <span key={b.id} className="flex items-center gap-1">
+            <span key={b.id} className="flex shrink-0 items-center gap-1">
               <ChevronRight className="h-3 w-3" />
               <DroppableBreadcrumb
                 dropId={`drop:${b.id}`}
@@ -257,7 +257,7 @@ export function FolderPage() {
             </span>
           ))}
           <ChevronRight className="h-3 w-3" />
-          <span className="font-medium text-[var(--color-fg)]">{f.title}</span>
+          <span className="shrink-0 font-medium text-[var(--color-fg)]">{f.title}</span>
         </nav>
 
         {/* Header */}

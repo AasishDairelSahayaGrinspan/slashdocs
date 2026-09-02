@@ -57,6 +57,23 @@ func parseDocumentSearch(raw string) (repo.DocumentSearch, error) {
 	return out, nil
 }
 
+// parseDocumentTitleSearch preserves ordinary title substring search while
+// structured search tags are disabled. Colons, quotes, slashes, and other
+// search-language syntax are treated as literal title characters.
+func parseDocumentTitleSearch(raw string) (repo.DocumentSearch, error) {
+	raw = strings.TrimSpace(raw)
+	if len(raw) > maxSearchQueryBytes {
+		return repo.DocumentSearch{}, fmt.Errorf("%w: query is too long", errInvalidSearch)
+	}
+	if len(raw) > maxSearchValueBytes {
+		return repo.DocumentSearch{}, fmt.Errorf("%w: value is too long", errInvalidSearch)
+	}
+	if raw == "" {
+		return repo.DocumentSearch{}, nil
+	}
+	return repo.DocumentSearch{TitlePattern: escapePostgresRegex(raw)}, nil
+}
+
 func applySearchModifier(out *repo.DocumentSearch, key, value string) error {
 	switch key {
 	case "author":

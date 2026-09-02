@@ -113,12 +113,23 @@ func (h handlers) listDocuments(c *gin.Context) {
 		return
 	}
 	q := strings.TrimSpace(c.Query("q"))
-	search, err := parseDocumentSearch(q)
+	var search repo.DocumentSearch
+	var err error
+	if h.deps.searchTagsEnabled {
+		search, err = parseDocumentSearch(q)
+	} else {
+		search, err = parseDocumentTitleSearch(q)
+	}
 	if err != nil {
 		badRequest(c, err.Error())
 		return
 	}
+	search.IncludeLabels = h.deps.labelsEnabled
 	if label := strings.ToLower(strings.TrimSpace(c.Query("label"))); label != "" {
+		if !h.deps.labelsEnabled {
+			featureDisabled(c, "Document labels are temporarily disabled")
+			return
+		}
 		if !labelPattern.MatchString(label) {
 			badRequest(c, "invalid label")
 			return
@@ -144,8 +155,10 @@ func (h handlers) listDocuments(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	for i := range items {
-		items[i].Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), items[i].ID)
+	if h.deps.labelsEnabled {
+		for i := range items {
+			items[i].Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), items[i].ID)
+		}
 	}
 	c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
 }
@@ -196,7 +209,9 @@ func (h handlers) getDocument(c *gin.Context) {
 			}
 		}
 	}
-	d.Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), d.ID)
+	if h.deps.labelsEnabled {
+		d.Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), d.ID)
+	}
 	c.JSON(http.StatusOK, d)
 }
 

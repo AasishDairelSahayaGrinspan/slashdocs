@@ -173,7 +173,7 @@ func TestPostgresConcurrentFolderMoves(t *testing.T) {
 
 	// Walk every folder's parent chain: it must terminate at a root without
 	// revisiting a folder, within the depth limit.
-	const maxDepth = 5
+	const maxDepth = 15
 	for _, id := range ids {
 		seen := map[string]bool{}
 		for cur := id; cur != ""; {

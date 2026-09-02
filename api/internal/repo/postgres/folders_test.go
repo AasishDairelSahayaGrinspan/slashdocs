@@ -119,12 +119,21 @@ func TestPostgresFolderInvariants(t *testing.T) {
 	t.Run("depth limit", func(t *testing.T) {
 		r := newFolderStore(t)
 		p := ""
-		for i := 0; i < 5; i++ {
+		var deepest repo.Folder
+		for i := 0; i < 15; i++ {
 			f, err := r.CreateFolder(ctx, owner, fmt.Sprintf("L%d", i), p)
 			if err != nil {
 				t.Fatal(err)
 			}
+			deepest = f
 			p = f.ID
+		}
+		got, err := r.GetFolder(ctx, deepest.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Ancestors) != 14 {
+			t.Fatalf("deepest folder has %d ancestors, want 14", len(got.Ancestors))
 		}
 		if _, err := r.CreateFolder(ctx, owner, "TooDeep", p); !errors.Is(err, repo.ErrConflict) {
 			t.Fatalf("err=%v", err)

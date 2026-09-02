@@ -784,9 +784,11 @@ func (s *Store) SearchDocuments(ctx context.Context, p auth.Principal, search re
 	out := make([]repo.Document, 0, len(rows))
 	for _, r := range rows {
 		d := docFromSearch(r)
-		d.Labels, err = s.q.ListDocumentLabels(ctx, r.ID)
-		if err != nil {
-			return nil, err
+		if search.IncludeLabels {
+			d.Labels, err = s.q.ListDocumentLabels(ctx, r.ID)
+			if err != nil {
+				return nil, err
+			}
 		}
 		out = append(out, d)
 	}

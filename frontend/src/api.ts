@@ -31,6 +31,8 @@ export type ServerConfig = {
   everyone_label: string;
   provider_name: string;
   google_groups_enabled: boolean;
+  labels_enabled: boolean;
+  search_tags_enabled: boolean;
 };
 export type GoogleGroup = { id: string; email: string; name: string };
 export type Version = {

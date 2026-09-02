@@ -128,6 +128,9 @@ type DocumentSearch struct {
 	AuthorPattern string
 	LabelPatterns []string
 	FolderPattern string
+	// IncludeLabels controls response hydration only; LabelPatterns still
+	// filter regardless of this value.
+	IncludeLabels bool
 }
 
 type Pin struct {

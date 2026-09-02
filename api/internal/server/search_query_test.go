@@ -71,3 +71,15 @@ func TestParseDocumentSearchRejectsInvalidInput(t *testing.T) {
 		})
 	}
 }
+
+func TestParseDocumentTitleSearchTreatsTagsAndRegexAsLiteralText(t *testing.T) {
+	t.Parallel()
+	got, err := parseDocumentTitleSearch(`author:alice@example.com /incident/`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := repo.DocumentSearch{TitlePattern: `author:alice@example\.com /incident/`}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("parseDocumentTitleSearch() = %#v, want %#v", got, want)
+	}
+}
