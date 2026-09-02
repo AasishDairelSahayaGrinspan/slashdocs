@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -34,6 +35,16 @@ type folderListResponse struct {
 	Folder  *repo.Folder       `json:"folder"`
 	Items   []repo.FolderEntry `json:"items"`
 	HasMore bool               `json:"has_more"`
+}
+
+type accessResponse struct {
+	Items          []repo.EffectiveAccessItem `json:"items"`
+	CurrentRole    repo.Role                  `json:"current_role"`
+	CanonicalOwner bool                       `json:"canonical_owner"`
+}
+
+func samePrincipal(a, b auth.Principal) bool {
+	return a.Type != "" && a.Type == b.Type && a.ID != "" && a.ID == b.ID
 }
 
 // permissionWarning flags a move that may broaden who can see the moved
@@ -100,9 +111,17 @@ func (h handlers) listFolders(c *gin.Context) {
 	if !requireResolvedGroupsForAggregate(c) {
 		return
 	}
-	if q := c.Query("q"); q != "" {
+	// An explicitly supplied q (including q=) is the autocomplete/search
+	// contract. A request without q retains the workspace browsing behavior.
+	q, hasQuery := c.GetQuery("q")
+	if hasQuery {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
-		folders, err := h.deps.repository.SearchFoldersByTitle(c.Request.Context(), *current(c), q, includeOrgWide, 25)
+		minRole, ok := parseFolderSearchRole(c.Query("min_role"))
+		if !ok {
+			badRequest(c, "invalid min_role")
+			return
+		}
+		folders, err := h.deps.repository.SearchFoldersByTitle(c.Request.Context(), *current(c), q, includeOrgWide, minRole, 25)
 		if err != nil {
 			internalErr(c, err)
 			return
@@ -145,6 +164,14 @@ func (h handlers) listFolders(c *gin.Context) {
 			return
 		}
 	}
+	if folder != nil {
+		chain, err := h.deps.repository.FolderAccessChain(c.Request.Context(), *current(c), folder.ID)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+		filterVisibleFolderAncestors(folder, chain)
+	}
 	c.JSON(http.StatusOK, folderListResponse{Folder: folder, Items: items, HasMore: has})
 }
 func (h handlers) getFolder(c *gin.Context) {
@@ -172,23 +199,56 @@ func (h handlers) getFolder(c *gin.Context) {
 	if p.Type != f.Owner.Type || p.ID != f.Owner.ID {
 		_ = h.deps.repository.RecordFolderOpened(c.Request.Context(), f.ID, *p)
 	}
-	// Filter ancestors to only those the viewer can access (bottom-up).
-	if len(f.Ancestors) > 0 {
-		roles := make(map[string]repo.Role, len(chain))
-		for _, a := range chain {
-			roles[a.ID] = a.Role
-		}
-		visibleFrom := len(f.Ancestors)
-		for i := len(f.Ancestors) - 1; i >= 0; i-- {
-			if atLeast(roles[f.Ancestors[i].ID], repo.RoleViewer) {
-				visibleFrom = i
-			} else {
-				break
-			}
-		}
-		f.Ancestors = f.Ancestors[visibleFrom:]
-	}
+	filterVisibleFolderAncestors(&f, chain)
 	c.JSON(http.StatusOK, f)
+}
+
+func parseFolderSearchRole(raw string) (repo.Role, bool) {
+	switch raw {
+	case "", string(repo.RoleViewer):
+		if raw == "" {
+			return repo.RoleNone, true
+		}
+		return repo.RoleViewer, true
+	case string(repo.RoleCommenter):
+		return repo.RoleCommenter, true
+	case string(repo.RoleEditor):
+		return repo.RoleEditor, true
+	case string(repo.RoleOwner):
+		return repo.RoleOwner, true
+	default:
+		return repo.RoleNone, false
+	}
+}
+
+// filterVisibleFolderAncestors keeps the root-first contiguous suffix nearest
+// the requested folder. Any hidden prefix is represented only by the boolean;
+// hidden ids/titles are never serialized.
+func filterVisibleFolderAncestors(f *repo.Folder, chain []repo.FolderAccess) {
+	if f == nil || len(f.Ancestors) == 0 || len(chain) == 0 {
+		return
+	}
+	roles := make(map[string]repo.Role, len(chain))
+	for _, a := range chain {
+		roles[a.ID] = a.Role
+	}
+	visibleFrom := len(f.Ancestors)
+	for i := len(f.Ancestors) - 1; i >= 0; i-- {
+		if atLeast(roles[f.Ancestors[i].ID], repo.RoleViewer) {
+			visibleFrom = i
+		} else {
+			break
+		}
+	}
+	if visibleFrom > 0 {
+		f.AncestorsTruncated = true
+		if visibleFrom == len(f.Ancestors) {
+			// The immediate parent is part of the hidden prefix. Keep its id
+			// out of the additive legacy field as well as breadcrumbs.
+			f.ParentFolderID = ""
+		}
+	}
+	f.Ancestors = f.Ancestors[visibleFrom:]
 }
 func (h handlers) patchFolder(c *gin.Context) {
 	if !h.needFolderRole(c, c.Param("id"), repo.RoleOwner) {
@@ -275,7 +335,26 @@ func (h handlers) deleteFolder(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 func (h handlers) folderAccess(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleViewer) {
+	role, err := h.deps.repository.RoleForFolder(c.Request.Context(), *current(c), c.Param("id"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if !atLeast(role, repo.RoleViewer) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return
+		}
+		forbidden(c, "viewer role required")
+		return
+	}
+	folder, err := h.deps.repository.GetFolder(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+			return
+		}
+		internalErr(c, err)
 		return
 	}
 	items, err := h.deps.repository.ListEffectiveAccess(c.Request.Context(), "folder", c.Param("id"))
@@ -283,10 +362,29 @@ func (h handlers) folderAccess(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, listResponse[repo.EffectiveAccessItem]{Items: items})
+	c.JSON(http.StatusOK, accessResponse{Items: items, CurrentRole: role, CanonicalOwner: samePrincipal(*current(c), folder.Owner)})
 }
 func (h handlers) documentAccess(c *gin.Context) {
-	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
+	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), c.Param("id"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	if !atLeast(role, repo.RoleViewer) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return
+		}
+		forbidden(c, "viewer role required")
+		return
+	}
+	document, err := h.deps.repository.GetDocument(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+			return
+		}
+		internalErr(c, err)
 		return
 	}
 	items, err := h.deps.repository.ListEffectiveAccess(c.Request.Context(), "document", c.Param("id"))
@@ -294,7 +392,7 @@ func (h handlers) documentAccess(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, listResponse[repo.EffectiveAccessItem]{Items: items})
+	c.JSON(http.StatusOK, accessResponse{Items: items, CurrentRole: role, CanonicalOwner: samePrincipal(*current(c), document.Owner)})
 }
 
 func (h handlers) listFolderDocs(c *gin.Context) {
@@ -313,11 +411,9 @@ func (h handlers) listFolderDocs(c *gin.Context) {
 }
 func (h handlers) moveDocToFolder(c *gin.Context) {
 	folderID := c.Param("id")
-	if !h.needFolderRole(c, folderID, repo.RoleEditor) {
-		return
-	}
 	var in struct {
-		DocumentID string `json:"document_id"`
+		DocumentID     string          `json:"document_id"`
+		ExpectedSource json.RawMessage `json:"expected_source"`
 	}
 	if !requireJSON(c) {
 		return
@@ -326,54 +422,81 @@ func (h handlers) moveDocToFolder(c *gin.Context) {
 		badRequest(c, "invalid document")
 		return
 	}
-	p := current(c)
-	docRole, err := h.deps.repository.RoleForDocument(c.Request.Context(), *p, in.DocumentID)
+	expectedSource, err := parseExpectedMoveSource(in.ExpectedSource)
 	if err != nil {
-		internalErr(c, err)
+		badRequest(c, "invalid expected_source")
 		return
 	}
-	if !atLeast(docRole, repo.RoleEditor) {
-		forbidden(c, "editor role on the document is required")
+	if !requireResolvedGroupsForAggregate(c) {
 		return
 	}
-	hasGrants, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *p, folderID, in.DocumentID)
+	result, err := h.deps.repository.MoveDocumentToFolder(c.Request.Context(), *current(c), folderID, in.DocumentID, expectedSource)
 	if err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
-			notFound(c)
-			return
-		}
-		internalErr(c, err)
+		respondDocumentMoveError(c, err)
 		return
 	}
-	out := moveDocResponse{DocumentID: in.DocumentID, FolderID: folderID, Moved: true}
-	if hasGrants {
+	out := moveDocResponse{DocumentID: in.DocumentID, FolderID: folderID, Moved: result.Moved}
+	if result.PermissionWarning {
 		out.PermissionWarning = mayBroadenAccessWarning("This folder has active grants — everyone with access may see this document.")
 	}
 	c.JSON(http.StatusOK, out)
 }
 func (h handlers) moveDocToRoot(c *gin.Context) {
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleEditor) {
+	if !requireResolvedGroupsForAggregate(c) {
 		return
 	}
-	p := current(c)
-	docRole, err := h.deps.repository.RoleForDocument(c.Request.Context(), *p, c.Param("doc_id"))
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	if !atLeast(docRole, repo.RoleEditor) {
-		forbidden(c, "editor role on the document is required")
-		return
-	}
-	if err := h.deps.repository.MoveDocumentToRoot(c.Request.Context(), c.Param("id"), c.Param("doc_id")); err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
-			notFound(c)
-			return
-		}
-		internalErr(c, err)
+	if _, err := h.deps.repository.MoveDocumentToRoot(c.Request.Context(), *current(c), c.Param("id"), c.Param("doc_id")); err != nil {
+		respondDocumentMoveError(c, err)
 		return
 	}
 	c.Status(http.StatusNoContent)
+}
+
+func parseExpectedMoveSource(raw json.RawMessage) (*repo.MoveSource, error) {
+	if len(raw) == 0 {
+		return nil, nil
+	}
+	if bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
+		return nil, errors.New("null expected_source")
+	}
+	var in struct {
+		Kind     string `json:"kind"`
+		FolderID string `json:"folder_id"`
+	}
+	if err := json.Unmarshal(raw, &in); err != nil {
+		return nil, err
+	}
+	switch in.Kind {
+	case "root":
+		if in.FolderID != "" {
+			return nil, errors.New("root source cannot have folder_id")
+		}
+		return &repo.MoveSource{Kind: "root"}, nil
+	case "folder":
+		if in.FolderID == "" {
+			return nil, errors.New("folder source needs folder_id")
+		}
+		return &repo.MoveSource{Kind: "folder", FolderID: in.FolderID}, nil
+	default:
+		return nil, errors.New("unknown source kind")
+	}
+}
+
+func respondDocumentMoveError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, repo.ErrSourceChanged):
+		c.JSON(http.StatusConflict, errorResponse("source_changed", "document source changed; refresh and retry", nil))
+	case errors.Is(err, repo.ErrForbidden):
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return
+		}
+		forbidden(c, "editor role on the document and move source/destination is required")
+	case errors.Is(err, repo.ErrNotFound):
+		notFound(c)
+	default:
+		internalErr(c, err)
+	}
 }
 
 // CreateFolderGrant godoc

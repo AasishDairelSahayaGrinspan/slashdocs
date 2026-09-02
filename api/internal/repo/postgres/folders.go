@@ -47,7 +47,11 @@ func grantRankRole(rank int32) repo.Role {
 // folder does not exist; a chain entry's role is repo.RoleNone when the
 // principal has no access at that level.
 func (s *Store) FolderAccessChain(ctx context.Context, p auth.Principal, folderID string) ([]repo.FolderAccess, error) {
-	rows, err := s.q.ListFolderAccessChain(ctx, dbsqlc.ListFolderAccessChainParams{
+	return folderAccessChain(ctx, s.q, p, folderID)
+}
+
+func folderAccessChain(ctx context.Context, q *dbsqlc.Queries, p auth.Principal, folderID string) ([]repo.FolderAccess, error) {
+	rows, err := q.ListFolderAccessChain(ctx, dbsqlc.ListFolderAccessChainParams{
 		FolderID:       folderID,
 		PrincipalType:  string(p.Type),
 		PrincipalID:    p.ID,
@@ -71,7 +75,7 @@ func (s *Store) FolderAccessChain(ctx context.Context, p auth.Principal, folderI
 }
 
 func (s *Store) RoleForFolder(ctx context.Context, p auth.Principal, folderID string) (repo.Role, error) {
-	chain, err := s.FolderAccessChain(ctx, p, folderID)
+	chain, err := folderAccessChain(ctx, s.q, p, folderID)
 	if errors.Is(err, repo.ErrNotFound) {
 		// A missing folder and an unshared one are the same permission
 		// verdict (RoleNone), not an error; errors are reserved for lookup
@@ -361,13 +365,14 @@ func (s *Store) resolveFolderPath(ctx context.Context, p auth.Principal, folderI
 	return parent, nil
 }
 
-func (s *Store) SearchFoldersByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Folder, error) {
+func (s *Store) SearchFoldersByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, minRole repo.Role, limit int32) ([]repo.Folder, error) {
 	rows, err := s.q.SearchFoldersByTitle(ctx, dbsqlc.SearchFoldersByTitleParams{
 		PrincipalType:  string(p.Type),
 		PrincipalID:    p.ID,
 		GoogleGroupIds: p.GoogleGroupIDs,
 		IncludeOrgWide: includeOrgWide,
 		Query:          query,
+		MinRoleRank:    int32(roleRankForSearch(minRole)),
 		RowLimit:       limit,
 	})
 	if err != nil {
@@ -375,9 +380,161 @@ func (s *Store) SearchFoldersByTitle(ctx context.Context, p auth.Principal, quer
 	}
 	var out []repo.Folder
 	for _, r := range rows {
-		out = append(out, repo.Folder{ID: r.ID, Title: r.Title, ParentFolderID: r.ParentFolderID, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Name: r.OwnerName, Email: r.OwnerEmail}})
+		f := repo.Folder{ID: r.ID, Title: r.Title, ParentFolderID: r.ParentFolderID, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Name: r.OwnerName, Email: r.OwnerEmail}}
+		chain, err := folderAccessChain(ctx, s.q, p, f.ID)
+		if errors.Is(err, repo.ErrNotFound) {
+			// The candidate may have been deleted between the set-wise search
+			// and this breadcrumb lookup. Do not return a stale or unverified
+			// destination.
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		// The set-wise query establishes the candidate cap, while this
+		// per-result chain lookup supplies safe breadcrumbs. Re-check the
+		// candidate's current role after that lookup so a revocation observed
+		// between the two reads cannot be serialized as an eligible destination.
+		if len(chain) == 0 || !roleAtLeast(chain[len(chain)-1].Role, minRole) {
+			continue
+		}
+		f.Ancestors, f.AncestorsTruncated = safeAncestorBreadcrumbs(chain)
+		if r.ParentFolderID != "" && len(f.Ancestors) == 0 {
+			// A direct grant can make a nested folder visible while its parent
+			// remains hidden. Do not leak that parent's id through the legacy
+			// parent_folder_id field when no safe breadcrumb is available.
+			f.ParentFolderID = ""
+		}
+		out = append(out, f)
 	}
 	return out, nil
+}
+
+func roleRankForSearch(role repo.Role) int {
+	switch role {
+	case repo.RoleViewer:
+		return 1
+	case repo.RoleCommenter:
+		return 2
+	case repo.RoleEditor:
+		return 3
+	case repo.RoleOwner:
+		return 4
+	default:
+		return 0
+	}
+}
+
+func roleAtLeast(got, need repo.Role) bool {
+	return repo.MaxRole(got, need) == got
+}
+
+// safeAncestorBreadcrumbs returns only the contiguous viewer-visible suffix
+// of a root-first access chain. Hidden prefixes are represented by the bool;
+// their ids and titles never enter the response.
+func safeAncestorBreadcrumbs(chain []repo.FolderAccess) ([]repo.FolderBreadcrumb, bool) {
+	if len(chain) <= 1 {
+		return nil, false
+	}
+	visible := make([]repo.FolderBreadcrumb, 0, len(chain)-1)
+	truncated := false
+	for i := len(chain) - 2; i >= 0; i-- {
+		if !roleAtLeast(chain[i].Role, repo.RoleViewer) {
+			truncated = true
+			break
+		}
+		visible = append(visible, repo.FolderBreadcrumb{ID: chain[i].ID, Title: chain[i].Title})
+	}
+	for i, j := 0, len(visible)-1; i < j; i, j = i+1, j-1 {
+		visible[i], visible[j] = visible[j], visible[i]
+	}
+	if len(visible) < len(chain)-1 {
+		truncated = true
+	}
+	return visible, truncated
+}
+
+func sameMoveSource(expected, actual repo.MoveSource) bool {
+	if expected.Kind != actual.Kind {
+		return false
+	}
+	if expected.Kind == "root" {
+		return expected.FolderID == ""
+	}
+	return expected.Kind == "folder" && expected.FolderID != "" && expected.FolderID == actual.FolderID
+}
+
+func roleForFolderQ(ctx context.Context, q *dbsqlc.Queries, p auth.Principal, folderID string) (repo.Role, error) {
+	chain, err := folderAccessChain(ctx, q, p, folderID)
+	if errors.Is(err, repo.ErrNotFound) {
+		// Authorization must not disclose whether a destination exists. A
+		// missing folder has no effective role, just like an existing folder
+		// that is not shared with this principal; callers should therefore see
+		// the same forbidden result in both cases.
+		return repo.RoleNone, nil
+	}
+	if err != nil {
+		return repo.RoleNone, err
+	}
+	if len(chain) == 0 {
+		// Keep this helper defensive if the access-chain query ever returns an
+		// empty result without the repository sentinel.
+		return repo.RoleNone, nil
+	}
+	return chain[len(chain)-1].Role, nil
+}
+
+func roleForDocumentQ(ctx context.Context, q *dbsqlc.Queries, p auth.Principal, documentID string) (repo.Role, error) {
+	owner, err := q.GetDocumentOwner(ctx, documentID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.RoleNone, repo.ErrNotFound
+	}
+	if err != nil {
+		return repo.RoleNone, err
+	}
+	best := repo.RoleNone
+	if string(p.Type) == owner.OwnerType && p.ID == owner.OwnerID {
+		best = repo.RoleOwner
+	}
+	grants, err := q.ListDocumentInheritedGrants(ctx, documentID)
+	if err != nil {
+		return repo.RoleNone, err
+	}
+	for _, g := range grants {
+		if principalHasGrant(p, g.PrincipalType, g.PrincipalID) {
+			best = repo.MaxRole(best, repo.Role(g.Role))
+		}
+	}
+	return best, nil
+}
+
+func authorizeDocumentMove(ctx context.Context, q *dbsqlc.Queries, p auth.Principal, doc dbsqlc.LockDocumentForMoveRow, source repo.MoveSource, destination string) error {
+	docRole, err := roleForDocumentQ(ctx, q, p, doc.ID)
+	if err != nil {
+		return err
+	}
+	if !roleAtLeast(docRole, repo.RoleEditor) {
+		return repo.ErrForbidden
+	}
+	if source.Kind == "folder" {
+		sourceRole, err := roleForFolderQ(ctx, q, p, source.FolderID)
+		if err != nil {
+			return err
+		}
+		if !roleAtLeast(sourceRole, repo.RoleEditor) {
+			return repo.ErrForbidden
+		}
+	}
+	if destination != "" {
+		destinationRole, err := roleForFolderQ(ctx, q, p, destination)
+		if err != nil {
+			return err
+		}
+		if !roleAtLeast(destinationRole, repo.RoleEditor) {
+			return repo.ErrForbidden
+		}
+	}
+	return nil
 }
 
 func (s *Store) FolderHasGrants(ctx context.Context, folderID string) (bool, error) {
@@ -388,10 +545,10 @@ func (s *Store) RecordFolderOpened(ctx context.Context, folderID string, p auth.
 	return s.q.RecordFolderWorkspaceEntry(ctx, dbsqlc.RecordFolderWorkspaceEntryParams{FolderID: folderID, PrincipalType: string(p.Type), PrincipalID: p.ID})
 }
 
-func (s *Store) MoveDocumentToFolder(ctx context.Context, _ auth.Principal, folderID, docID string) (bool, error) {
+func (s *Store) MoveDocumentToFolder(ctx context.Context, p auth.Principal, folderID, docID string, expectedSource ...*repo.MoveSource) (repo.MoveResult, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
-		return false, err
+		return repo.MoveResult{}, err
 	}
 	defer rollback(ctx, tx)
 	q := s.q.WithTx(tx)
@@ -399,28 +556,99 @@ func (s *Store) MoveDocumentToFolder(ctx context.Context, _ auth.Principal, fold
 	// actually landed in; serialize with tree mutations so the move and the
 	// grant lookup observe the same ancestry.
 	if err := q.AcquireFolderTreeLock(ctx, folderTreeLockID); err != nil {
-		return false, err
+		return repo.MoveResult{}, err
+	}
+	doc, err := q.LockDocumentForMove(ctx, docID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return repo.MoveResult{}, repo.ErrNotFound
+		}
+		return repo.MoveResult{}, err
+	}
+	actualSource := repo.MoveSource{Kind: "root", FolderID: ""}
+	if doc.ParentFolderID != "" {
+		actualSource = repo.MoveSource{Kind: "folder", FolderID: doc.ParentFolderID}
+	}
+	if err := authorizeDocumentMove(ctx, q, p, doc, actualSource, folderID); err != nil {
+		return repo.MoveResult{}, err
+	}
+	if len(expectedSource) > 0 && expectedSource[0] != nil && !sameMoveSource(*expectedSource[0], actualSource) {
+		return repo.MoveResult{}, repo.ErrSourceChanged
+	}
+	if actualSource.Kind == "folder" && actualSource.FolderID == folderID {
+		hasGrants, err := q.FolderOrAncestorsHaveGrants(ctx, folderID)
+		if err != nil {
+			return repo.MoveResult{}, err
+		}
+		if err := tx.Commit(ctx); err != nil {
+			return repo.MoveResult{}, err
+		}
+		return repo.MoveResult{Moved: false, PermissionWarning: hasGrants}, nil
 	}
 	moved, err := q.MoveDocumentToFolder(ctx, dbsqlc.MoveDocumentToFolderParams{FolderID: folderID, DocumentID: docID})
 	if err != nil {
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "23503" { // destination folder does not exist
-			return false, repo.ErrNotFound
+			return repo.MoveResult{}, repo.ErrNotFound
 		}
-		return false, err
+		return repo.MoveResult{}, err
 	}
 	if moved == 0 {
-		return false, repo.ErrNotFound
+		return repo.MoveResult{}, repo.ErrNotFound
 	}
 	hasGrants, err := q.FolderOrAncestorsHaveGrants(ctx, folderID)
 	if err != nil {
-		return false, err
+		return repo.MoveResult{}, err
 	}
-	return hasGrants, tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return repo.MoveResult{}, err
+	}
+	return repo.MoveResult{Moved: true, PermissionWarning: hasGrants}, nil
 }
 
-func (s *Store) MoveDocumentToRoot(ctx context.Context, folderID, docID string) error {
-	return s.q.MoveDocumentToRoot(ctx, dbsqlc.MoveDocumentToRootParams{DocumentID: docID, FolderID: folderID})
+func (s *Store) MoveDocumentToRoot(ctx context.Context, p auth.Principal, folderID, docID string) (repo.MoveResult, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return repo.MoveResult{}, err
+	}
+	defer rollback(ctx, tx)
+	q := s.q.WithTx(tx)
+	if err := q.AcquireFolderTreeLock(ctx, folderTreeLockID); err != nil {
+		return repo.MoveResult{}, err
+	}
+	doc, err := q.LockDocumentForMove(ctx, docID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.MoveResult{}, repo.ErrNotFound
+	}
+	if err != nil {
+		return repo.MoveResult{}, err
+	}
+	actualSource := repo.MoveSource{Kind: "root", FolderID: ""}
+	if doc.ParentFolderID != "" {
+		actualSource = repo.MoveSource{Kind: "folder", FolderID: doc.ParentFolderID}
+	}
+	if err := authorizeDocumentMove(ctx, q, p, doc, actualSource, ""); err != nil {
+		return repo.MoveResult{}, err
+	}
+	if actualSource.Kind != "folder" || actualSource.FolderID != folderID {
+		return repo.MoveResult{}, repo.ErrSourceChanged
+	}
+	if _, err := q.GetFolder(ctx, folderID); errors.Is(err, pgx.ErrNoRows) {
+		return repo.MoveResult{}, repo.ErrNotFound
+	} else if err != nil {
+		return repo.MoveResult{}, err
+	}
+	moved, err := q.MoveDocumentToRoot(ctx, dbsqlc.MoveDocumentToRootParams{DocumentID: docID, FolderID: folderID})
+	if err != nil {
+		return repo.MoveResult{}, err
+	}
+	if moved == 0 {
+		return repo.MoveResult{}, repo.ErrSourceChanged
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return repo.MoveResult{}, err
+	}
+	return repo.MoveResult{Moved: true}, nil
 }
 
 func (s *Store) ListFolderDocuments(ctx context.Context, _ auth.Principal, folderID string) ([]repo.Document, error) {
