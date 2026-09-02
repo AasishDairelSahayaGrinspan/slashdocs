@@ -441,10 +441,15 @@ WITH RECURSIVE anc(id, title, parent, depth) AS (
   UNION ALL
   SELECT f.id, f.title, COALESCE(f.parent_folder_id,''), a.depth+1
   FROM folders f JOIN anc a ON f.id=a.parent
-  WHERE a.parent != '' AND a.depth < 10
+  WHERE a.parent != '' AND a.depth < $2::int
 )
 SELECT id, title FROM anc ORDER BY depth DESC
 `
+
+type ListFolderAncestorsParams struct {
+	FolderID string
+	MaxDepth int32
+}
 
 type ListFolderAncestorsRow struct {
 	ID    string
@@ -453,8 +458,8 @@ type ListFolderAncestorsRow struct {
 
 // Breadcrumbs for a folder: its ancestors starting from @folder_id upwards,
 // returned root-first.
-func (q *Queries) ListFolderAncestors(ctx context.Context, folderID string) ([]ListFolderAncestorsRow, error) {
-	rows, err := q.db.Query(ctx, listFolderAncestors, folderID)
+func (q *Queries) ListFolderAncestors(ctx context.Context, arg ListFolderAncestorsParams) ([]ListFolderAncestorsRow, error) {
+	rows, err := q.db.Query(ctx, listFolderAncestors, arg.FolderID, arg.MaxDepth)
 	if err != nil {
 		return nil, err
 	}

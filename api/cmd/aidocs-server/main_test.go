@@ -80,6 +80,21 @@ func TestLoadDeploymentSettingsDefaultDocPermission(t *testing.T) {
 	}
 }
 
+func TestBoolEnv(t *testing.T) {
+	t.Setenv("AIDOCS_TEST_FEATURE_ENABLED", "")
+	if got, err := boolEnv("AIDOCS_TEST_FEATURE_ENABLED", false); err != nil || got {
+		t.Fatalf("unset boolEnv = %v, %v; want false, nil", got, err)
+	}
+	t.Setenv("AIDOCS_TEST_FEATURE_ENABLED", "true")
+	if got, err := boolEnv("AIDOCS_TEST_FEATURE_ENABLED", false); err != nil || !got {
+		t.Fatalf("true boolEnv = %v, %v; want true, nil", got, err)
+	}
+	t.Setenv("AIDOCS_TEST_FEATURE_ENABLED", "yes")
+	if _, err := boolEnv("AIDOCS_TEST_FEATURE_ENABLED", false); err == nil {
+		t.Fatal("boolEnv accepted a non-boolean value")
+	}
+}
+
 func TestValidateOrigin(t *testing.T) {
 	t.Parallel()
 

@@ -2056,11 +2056,17 @@ const docTemplate = `{
                 "google_groups_enabled": {
                     "type": "boolean"
                 },
+                "labels_enabled": {
+                    "type": "boolean"
+                },
                 "org_name": {
                     "type": "string"
                 },
                 "provider_name": {
                     "type": "string"
+                },
+                "search_tags_enabled": {
+                    "type": "boolean"
                 }
             }
         },

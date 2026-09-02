@@ -248,6 +248,7 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 		AuthorPattern: `search-folder-owner@test\.com$`,
 		LabelPatterns: []string{"^api-", "payments"},
 		FolderPattern: "Payments|Checkout",
+		IncludeLabels: true,
 	}, false, 25)
 	if err != nil {
 		t.Fatal(err)
