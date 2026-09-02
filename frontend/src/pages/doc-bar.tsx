@@ -39,6 +39,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
+import { MoveDocumentDialog } from "@/components/move-document-dialog";
 import { api, type Principal, type Version } from "@/api";
 import { canManageSharing, ROLE_RANK } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
@@ -88,6 +89,7 @@ export function DocBar({
   const canManageAccess = canManage || canManageSharing(currentAccessRole);
   const canEdit =
     canManage || (ROLE_RANK[currentAccessRole || ""] || 0) >= ROLE_RANK.editor;
+  const [moveOpen, setMoveOpen] = useState(false);
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -199,7 +201,7 @@ export function DocBar({
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownTrigger>
-        <DropdownContent>
+        <DropdownContent className="max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto overscroll-contain [scrollbar-gutter:stable]">
           <DropdownItem
             className="sm:hidden"
             onSelect={() => nav(`/app/d/${docId}?fullscreen=1&version=${current}`)}
@@ -238,8 +240,24 @@ export function DocBar({
               />
             </>
           ) : null}
+          {canEdit ? (
+            <DropdownItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setMoveOpen(true);
+              }}
+            >
+              <FolderIcon className="h-4 w-4" /> Move to folder
+            </DropdownItem>
+          ) : null}
         </DropdownContent>
       </Dropdown>
+      <MoveDocumentDialog
+        open={moveOpen}
+        onOpenChange={setMoveOpen}
+        docId={docId}
+        currentFolder={parentFolder}
+      />
     </div>
   );
 }
