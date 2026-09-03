@@ -1504,7 +1504,13 @@ func (s *Store) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]repo
 	}
 
 	root := chain[0]
-	ownerP := auth.Principal{Type: auth.PrincipalType(root.OwnerType), ID: root.OwnerID}
+	ownerP := auth.Principal{
+		Type:       auth.PrincipalType(root.OwnerType),
+		ID:         root.OwnerID,
+		Email:      root.OwnerEmail,
+		Name:       root.OwnerName,
+		PictureURL: root.OwnerPictureUrl,
+	}
 	add(ownerP, repo.AccessSource{ResourceType: root.AncestorType, ResourceID: root.AncestorID, ResourceTitle: root.Title, Role: repo.RoleOwner})
 
 	ids := make([]string, 0, len(chain))

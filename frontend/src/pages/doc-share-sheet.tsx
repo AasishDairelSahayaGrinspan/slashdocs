@@ -581,6 +581,10 @@ export function ShareSheet({
                       !item.sources.some((source) => source.grant_id) &&
                       !isGroup;
                     const ownerGroup = isGroup && item.effective_role === "owner";
+                    const principalLabel =
+                      item.principal.name ||
+                      item.principal.email ||
+                      (canonicalOwner ? "Owner" : item.principal.id);
                     return (
                       <div
                         key={item.principal.type + ":" + item.principal.id}
@@ -591,9 +595,7 @@ export function ShareSheet({
                             {isGroup ? (
                               <UsersRound className="h-3.5 w-3.5 shrink-0" />
                             ) : null}
-                            {item.principal?.name ||
-                              item.principal?.email ||
-                              item.principal?.id}
+                            {principalLabel}
                             {item.principal?.type === "service_account" ? " (bot)" : ""}
                           </div>
                           {item.principal?.name && item.principal?.email ? (
