@@ -81,10 +81,21 @@ WITH RECURSIVE ancestors(rid, rtype, depth) AS (
 SELECT a.rid::text AS ancestor_id, a.rtype::text AS ancestor_type,
        COALESCE(f.title, d.title, '') AS title,
        COALESCE(f.owner_type, d.owner_type, '') AS owner_type,
-       COALESCE(f.owner_id, d.owner_id, '') AS owner_id
+       COALESCE(f.owner_id, d.owner_id, '') AS owner_id,
+       COALESCE(ou.email, '') AS owner_email,
+       COALESCE(ou.name, osa.name, '') AS owner_name,
+       COALESCE(ou.picture_url, '') AS owner_picture_url
 FROM ancestors a
 LEFT JOIN folders f ON a.rtype='folder' AND f.id=a.rid
 LEFT JOIN documents d ON a.rtype='document' AND d.id=a.rid
+LEFT JOIN users ou
+  ON COALESCE(f.owner_type, d.owner_type)='user'
+ AND COALESCE(f.owner_id, d.owner_id)=ou.id
+-- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts osa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON COALESCE(f.owner_type, d.owner_type)='service_account'
+ AND COALESCE(f.owner_id, d.owner_id)=osa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE a.rid IS NOT NULL;
 
 -- name: ListGrantsForResources :many

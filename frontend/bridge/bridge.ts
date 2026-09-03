@@ -1401,6 +1401,11 @@ type Theme = "dark" | "light";
     );
     d.addEventListener("click", activate);
     d.addEventListener("click", handleLinkClick);
+    d.addEventListener(
+      "click",
+      () => parent.postMessage({ type: "aidocs:document-click" }, targetOrigin()),
+      true,
+    );
     d.defaultView?.addEventListener("scroll", postCommentScroll, {
       passive: true,
     });

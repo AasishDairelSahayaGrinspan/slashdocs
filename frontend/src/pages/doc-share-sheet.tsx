@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentPropsWithoutRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
@@ -44,12 +44,18 @@ export function ShareSheet({
   resourceId,
   canManageAccess = true,
   isCanonicalOwner = false,
+  onOpenAutoFocus,
+  onInteractOutside,
 }: {
   docId?: string;
   resourceType?: "document" | "folder";
   resourceId?: string;
   canManageAccess?: boolean;
   isCanonicalOwner?: boolean;
+  onOpenAutoFocus?: ComponentPropsWithoutRef<typeof SheetContent>["onOpenAutoFocus"];
+  onInteractOutside?: ComponentPropsWithoutRef<
+    typeof SheetContent
+  >["onInteractOutside"];
 }) {
   const id = resourceId || docId || "";
   const isFolder = resourceType === "folder";
@@ -301,7 +307,11 @@ export function ShareSheet({
   const resourceLabel = isFolder ? "folder" : "document";
 
   return (
-    <SheetContent aria-describedby={undefined}>
+    <SheetContent
+      aria-describedby={undefined}
+      onOpenAutoFocus={onOpenAutoFocus}
+      onInteractOutside={onInteractOutside}
+    >
       <SheetHeader>
         <SheetTitle>Share {resourceLabel}</SheetTitle>
       </SheetHeader>
@@ -581,6 +591,10 @@ export function ShareSheet({
                       !item.sources.some((source) => source.grant_id) &&
                       !isGroup;
                     const ownerGroup = isGroup && item.effective_role === "owner";
+                    const principalLabel =
+                      item.principal.name ||
+                      item.principal.email ||
+                      (canonicalOwner ? "Owner" : item.principal.id);
                     return (
                       <div
                         key={item.principal.type + ":" + item.principal.id}
@@ -591,9 +605,7 @@ export function ShareSheet({
                             {isGroup ? (
                               <UsersRound className="h-3.5 w-3.5 shrink-0" />
                             ) : null}
-                            {item.principal?.name ||
-                              item.principal?.email ||
-                              item.principal?.id}
+                            {principalLabel}
                             {item.principal?.type === "service_account" ? " (bot)" : ""}
                           </div>
                           {item.principal?.name && item.principal?.email ? (

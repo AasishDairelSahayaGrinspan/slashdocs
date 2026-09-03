@@ -121,6 +121,7 @@ export function DocumentPage() {
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
   const [commentsOpen, setCommentsOpen] = useState(true);
+  const [shareOpen, setShareOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   const [chordLabel, setChordLabel] = useState<string>();
@@ -137,6 +138,7 @@ export function DocumentPage() {
     },
     [fullscreen, isMobile],
   );
+  const handleRenderedDocumentClick = useCallback(() => setShareOpen(false), []);
 
   // A text selection from the rendered doc should reveal the compose flow.
   useEffect(() => {
@@ -313,6 +315,7 @@ export function DocumentPage() {
       registerCommentRailSync,
       syncCommentRail,
       handleDocCommentClick,
+      handleRenderedDocumentClick,
     }),
     [
       id,
@@ -332,6 +335,7 @@ export function DocumentPage() {
       registerCommentRailSync,
       syncCommentRail,
       handleDocCommentClick,
+      handleRenderedDocumentClick,
     ],
   );
 
@@ -415,6 +419,8 @@ export function DocumentPage() {
               onSelectVersion={setSelectedVersion}
               commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
               onToggleComments={toggleComments}
+              shareOpen={shareOpen}
+              onShareOpenChange={setShareOpen}
             />
           </motion.div>
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">

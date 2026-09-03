@@ -107,6 +107,26 @@ func TestPostgresFolderInvariants(t *testing.T) {
 			t.Fatalf("missing folder provenance: %#v", items)
 		}
 	})
+	t.Run("effective access hydrates canonical owner", func(t *testing.T) {
+		r := newFolderStore(t)
+		doc, _, err := r.CreateDocument(ctx, owner, "Owned doc", []byte("x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, err := r.ListEffectiveAccess(ctx, "document", doc.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range items {
+			if item.EffectiveRole == repo.RoleOwner && item.Principal.ID == owner.ID {
+				if item.Principal.Name != owner.Name || item.Principal.Email != owner.Email {
+					t.Fatalf("owner profile = %#v, want name %q and email %q", item.Principal, owner.Name, owner.Email)
+				}
+				return
+			}
+		}
+		t.Fatalf("canonical owner missing from effective access: %#v", items)
+	})
 	t.Run("cycle prevention", func(t *testing.T) {
 		r := newFolderStore(t)
 		a, _ := r.CreateFolder(ctx, owner, "A", "")

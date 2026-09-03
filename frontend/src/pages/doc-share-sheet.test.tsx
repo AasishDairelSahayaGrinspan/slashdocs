@@ -19,6 +19,7 @@ type FetchOptions = {
   groupItems?: Array<{ id: string; email: string; name: string }>;
   accessFails?: boolean;
   canonicalOwner?: boolean;
+  owner?: { id: string; email?: string; name?: string };
 };
 
 function installFetch(options: FetchOptions = {}) {
@@ -73,9 +74,11 @@ function installFetch(options: FetchOptions = {}) {
             {
               principal: {
                 type: "user",
-                id: "owner",
-                email: "owner@example.com",
-                name: "Owner",
+                ...(options.owner ?? {
+                  id: "owner",
+                  email: "owner@example.com",
+                  name: "Owner",
+                }),
               },
               effective_role: "owner",
               sources: [
@@ -253,6 +256,14 @@ describe("Google Group sharing", () => {
     expect(await screen.findByText("Canonical owner")).toBeVisible();
     expect(screen.getByText("Google Group co-owner · direct access")).toBeVisible();
     expect(screen.getByText("Inherited from Parent folder")).toBeVisible();
+  });
+
+  it("does not expose an internal id for an unhydrated canonical owner", async () => {
+    installFetch({ owner: { id: "usr_google_123456789" } });
+    renderShare();
+    expect(await screen.findByText("Canonical owner")).toBeVisible();
+    expect(screen.getAllByText("Owner").length).toBeGreaterThan(0);
+    expect(screen.queryByText("usr_google_123456789")).toBeNull();
   });
 
   it("shows owner only to canonical owners and confirms owner-grant changes", async () => {
