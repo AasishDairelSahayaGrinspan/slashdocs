@@ -59,6 +59,8 @@ export function DocBar({
   onSelectVersion,
   commentsOpen,
   onToggleComments,
+  shareOpen,
+  onShareOpenChange,
 }: {
   title: string;
   docId: string;
@@ -72,6 +74,8 @@ export function DocBar({
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
+  shareOpen: boolean;
+  onShareOpenChange: (open: boolean) => void;
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
@@ -166,7 +170,7 @@ export function DocBar({
           <Maximize2 className="h-4 w-4" /> Full screen
         </Link>
       </Button>
-      <Sheet modal={false}>
+      <Sheet modal={false} open={shareOpen} onOpenChange={onShareOpenChange}>
         <SheetTrigger asChild>
           <Button
             variant="outline"

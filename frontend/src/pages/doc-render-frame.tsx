@@ -31,6 +31,7 @@ export function RenderFrame() {
     setCommentViewport,
     registerDocumentScroller,
     syncCommentRail,
+    handleRenderedDocumentClick,
   } = useDoc();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -407,6 +408,9 @@ export function RenderFrame() {
       if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
       }
+      if (e.data?.type === "aidocs:document-click") {
+        handleRenderedDocumentClick();
+      }
       if (
         e.data?.type === "aidocs:paint-result" &&
         Array.isArray(e.data.results) &&
@@ -516,6 +520,7 @@ export function RenderFrame() {
     frameOrigin,
     setSelection,
     handleDocCommentClick,
+    handleRenderedDocumentClick,
     setUnanchoredComments,
     setCommentPositions,
     setCommentViewport,

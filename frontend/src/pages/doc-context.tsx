@@ -43,6 +43,7 @@ export type DocContextValue = {
   registerCommentRailSync: (sync: ((top: number) => void) | null) => void;
   syncCommentRail: (top: number) => void;
   handleDocCommentClick: (id: string) => void;
+  handleRenderedDocumentClick: () => void;
 };
 
 const DocContext = createContext<DocContextValue | null>(null);

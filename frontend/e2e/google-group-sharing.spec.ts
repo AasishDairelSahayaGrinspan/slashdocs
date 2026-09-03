@@ -177,7 +177,7 @@ async function installFakeWorkspace(page: Page, state: WorkspaceState) {
   await page.route("**/fake-render**", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: '<!doctype html><title>Rendered group plan</title><body style="min-height:5000px"><p>Visible document content</p></body>',
+      body: '<!doctype html><title>Rendered group plan</title><body style="min-height:5000px"><p>Visible document content</p><script>document.addEventListener("click",()=>parent.postMessage({type:"aidocs:document-click"},location.origin))</script></body>',
     }),
   );
   await page.route("**/v1/**", async (route) => {
@@ -390,6 +390,9 @@ test("keeps the sandboxed document scrollable while sharing is open", async ({
     )
     .toBeGreaterThan(0);
   await expect(page.getByRole("dialog", { name: "Share document" })).toBeVisible();
+
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+  await expect(page.getByRole("dialog", { name: "Share document" })).toBeHidden();
 });
 
 test("direct and nested members discover and open group-shared resources", async ({
