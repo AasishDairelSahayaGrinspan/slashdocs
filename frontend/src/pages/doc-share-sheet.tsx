@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ComponentPropsWithoutRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
@@ -44,12 +44,18 @@ export function ShareSheet({
   resourceId,
   canManageAccess = true,
   isCanonicalOwner = false,
+  onOpenAutoFocus,
+  onInteractOutside,
 }: {
   docId?: string;
   resourceType?: "document" | "folder";
   resourceId?: string;
   canManageAccess?: boolean;
   isCanonicalOwner?: boolean;
+  onOpenAutoFocus?: ComponentPropsWithoutRef<typeof SheetContent>["onOpenAutoFocus"];
+  onInteractOutside?: ComponentPropsWithoutRef<
+    typeof SheetContent
+  >["onInteractOutside"];
 }) {
   const id = resourceId || docId || "";
   const isFolder = resourceType === "folder";
@@ -301,7 +307,11 @@ export function ShareSheet({
   const resourceLabel = isFolder ? "folder" : "document";
 
   return (
-    <SheetContent aria-describedby={undefined}>
+    <SheetContent
+      aria-describedby={undefined}
+      onOpenAutoFocus={onOpenAutoFocus}
+      onInteractOutside={onInteractOutside}
+    >
       <SheetHeader>
         <SheetTitle>Share {resourceLabel}</SheetTitle>
       </SheetHeader>

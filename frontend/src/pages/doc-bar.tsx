@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -89,6 +89,7 @@ export function DocBar({
   const canManageAccess = canManage || canManageSharing(currentAccessRole);
   const canEdit =
     canManage || (ROLE_RANK[currentAccessRole || ""] || 0) >= ROLE_RANK.editor;
+  const shareFrameFocusRef = useRef<HTMLIFrameElement | null>(null);
   const del = useMutation({
     mutationFn: () => api.deleteDocument(docId),
     onSuccess: () => {
@@ -165,13 +166,21 @@ export function DocBar({
           <Maximize2 className="h-4 w-4" /> Full screen
         </Link>
       </Button>
-      <Sheet>
+      <Sheet modal={false}>
         <SheetTrigger asChild>
           <Button
             variant="outline"
             size="sm"
             className="shrink-0 px-2.5 sm:px-3"
             aria-label="Share"
+            onPointerDown={() => {
+              const active = document.activeElement;
+              shareFrameFocusRef.current =
+                active instanceof HTMLIFrameElement &&
+                active.title === "Rendered document"
+                  ? active
+                  : null;
+            }}
           >
             <Share2 className="h-4 w-4" />
             <span className="hidden sm:inline">Share</span>
@@ -181,6 +190,22 @@ export function DocBar({
           docId={docId}
           canManageAccess={canManageAccess}
           isCanonicalOwner={canManage}
+          onOpenAutoFocus={(event) => {
+            const frame = shareFrameFocusRef.current;
+            shareFrameFocusRef.current = null;
+            if (!frame?.isConnected) return;
+            event.preventDefault();
+            frame.focus();
+          }}
+          onInteractOutside={(event) => {
+            const target = event.target;
+            if (
+              target instanceof HTMLIFrameElement &&
+              target.title === "Rendered document"
+            ) {
+              event.preventDefault();
+            }
+          }}
         />
       </Sheet>
       <Button
