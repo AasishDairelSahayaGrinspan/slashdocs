@@ -18,7 +18,7 @@ import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { useDoc } from "./doc-context";
-import { Comments } from "./doc-comments";
+import { CommentRail, Comments } from "./doc-comments";
 
 const STATUS_BADGE: Record<
   ApprovalStatus,
@@ -55,7 +55,11 @@ type PanelTab = "comments" | "approvals";
 // ReviewPanel hosts the side panel's segmented Comments / Approvals switch.
 // The Approvals tab only appears once the document has assigned approvers or
 // the viewer is the owner (who can assign the first one).
-export function ReviewPanel() {
+export function ReviewPanel({
+  commentsView = "list",
+}: {
+  commentsView?: "rail" | "list";
+}) {
   const { docId, principal } = useDoc();
   const [tab, setTab] = useState<PanelTab>("comments");
   const doc = useQuery({
@@ -68,7 +72,8 @@ export function ReviewPanel() {
   useEffect(() => {
     if (!showApprovals && tab === "approvals") setTab("comments");
   }, [showApprovals, tab]);
-  if (!showApprovals) return <Comments />;
+  const comments = commentsView === "rail" ? <CommentRail /> : <Comments />;
+  if (!showApprovals) return comments;
   return (
     <div className="flex h-full flex-col">
       <div className="border-b border-[var(--color-border)] px-4 pt-3">
@@ -87,7 +92,7 @@ export function ReviewPanel() {
         </div>
       </div>
       <div className="min-h-0 flex-1">
-        {tab === "comments" ? <Comments /> : <Approvals isOwner={isOwner} />}
+        {tab === "comments" ? comments : <Approvals isOwner={isOwner} />}
       </div>
     </div>
   );

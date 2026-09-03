@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -20,7 +21,7 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "docs", Short: "Manage documents"}
 	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
 	c.AddCommand(
-		simple(g, out, "list", "GET", "/v1/documents", 0),
+		documentListCmd(g, out),
 		documentCreateCmd(g, out),
 		simplePath(g, out, "show", "GET", "/v1/documents/%s"),
 		documentUpdateCmd(g, out),
@@ -30,6 +31,7 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		docsPushCmd(g, out),
 		versionsCmd(g, out),
 		commentsCmd(g, out),
+		documentLabelsCmd(g, out),
 		grantsCmd(g, out),
 		approversCmd(g, out),
 		approvalsCmd(g, out),
@@ -38,6 +40,103 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 		revokeApprovalCmd(g, out),
 	)
 	return c
+}
+
+func documentListCmd(g *globals, out io.Writer) *cobra.Command {
+	var query string
+	cmd := &cobra.Command{
+		Use:   "list [query]",
+		Short: "List or search documents",
+		Long: "List documents, or search with the same query language as the web application.\n\n" +
+			"Supported primitives:\n" +
+			"  author:<email>       Match the document author\n" +
+			"  labels:<a,b>         Require every comma-separated label\n" +
+			"  in:<folder>          Match a folder or any ancestor folder\n" +
+			"  /pattern/            Use a primitive case-insensitive regex value\n\n" +
+			"Quote the whole query when it contains spaces.",
+		Example: "  aidocs docs list 'incident author:alice@example.com labels:api,review in:\"Product Specs\"'\n" +
+			"  aidocs docs list --query 'author:/@razorpay\\.com$/ labels:/^api-/'",
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if len(args) == 1 && cmd.Flags().Changed("query") {
+				return usageError{errors.New("pass the query either as an argument or with --query, not both")}
+			}
+			if len(args) == 1 {
+				query = args[0]
+			}
+			path := "/v1/documents"
+			if strings.TrimSpace(query) != "" {
+				params := url.Values{"q": []string{query}}
+				path += "?" + params.Encode()
+			}
+			return run(g, out, func(c *Client) ([]byte, error) {
+				return c.do("GET", path, nil, "")
+			})
+		},
+	}
+	cmd.Flags().StringVar(&query, "query", "", "search query")
+	return cmd
+}
+
+func documentLabelsCmd(g *globals, out io.Writer) *cobra.Command {
+	root := &cobra.Command{Use: "labels", Short: "Manage document labels"}
+	root.AddCommand(
+		simplePath(g, out, "list", "GET", "/v1/documents/%s/labels"),
+		documentLabelsSetCmd(g, out),
+		documentLabelsClearCmd(g, out),
+	)
+	return root
+}
+
+func documentLabelsSetCmd(g *globals, out io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:     "set <doc_id> <label>...",
+		Short:   "Replace a document's labels",
+		Example: "  aidocs docs labels set doc_… api review-ready\n  aidocs docs labels set doc_… api,review-ready",
+		Args:    cobra.MinimumNArgs(2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			labels, err := normalizedLabelArgs(args[1:])
+			if err != nil {
+				return usageError{err}
+			}
+			return action(g, out, func(c *Client) ([]byte, error) {
+				return c.doJSON("PUT", apiPath("/v1/documents/%s/labels", args[0]), map[string]any{"labels": labels})
+			}, func(map[string]any) string {
+				return fmt.Sprintf("Set labels on %s: %s.", args[0], strings.Join(labels, ", "))
+			})
+		},
+	}
+}
+
+func documentLabelsClearCmd(g *globals, out io.Writer) *cobra.Command {
+	return &cobra.Command{
+		Use:   "clear <doc_id>",
+		Short: "Remove every label from a document",
+		Args:  exactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return action(g, out, func(c *Client) ([]byte, error) {
+				return c.doJSON("PUT", apiPath("/v1/documents/%s/labels", args[0]), map[string]any{"labels": []string{}})
+			}, func(map[string]any) string { return "Cleared labels from " + args[0] + "." })
+		},
+	}
+}
+
+func normalizedLabelArgs(args []string) ([]string, error) {
+	labels := make([]string, 0, len(args))
+	seen := map[string]bool{}
+	for _, raw := range args {
+		for _, value := range strings.Split(raw, ",") {
+			label := strings.ToLower(strings.TrimSpace(value))
+			if label == "" {
+				return nil, errors.New("labels cannot be empty")
+			}
+			if !seen[label] {
+				seen[label] = true
+				labels = append(labels, label)
+			}
+		}
+	}
+	return labels, nil
 }
 
 func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
@@ -229,36 +328,47 @@ func documentMoveCmd(g *globals, out io.Writer) *cobra.Command {
 
 func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 	c := &cobra.Command{Use: "grants", Short: "Manage document grants"}
-	var principal, address, role string
+	var principal, address, group, role string
 	var everyone bool
 	add := &cobra.Command{
 		Use:   "add <doc_id>",
-		Short: "Share a doc with a person, bot, or everyone",
-		Long: "Share a doc by passing an email or bot address, or use --everyone to grant\n" +
+		Short: "Share a doc with a person, bot, Google Group, or everyone",
+		Long: "Share a doc by passing an email, bot address, or verified Google Group, or use --everyone to grant\n" +
 			"access to everyone who can reach this server (anyone with the link on a\n" +
 			"public deployment, or everyone in the org on an org deployment).\n\n" +
 			"Examples:\n" +
 			"  aidocs docs grants add doc_… --to user@org.example --role commenter\n" +
 			"  aidocs docs grants add doc_… --to report-creator@brave.otter.bot --role editor\n" +
+			"  aidocs docs grants add doc_… --group tech-infra@org.example --role commenter\n" +
 			"  aidocs docs grants add doc_… --everyone --role viewer",
 		Args: exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			body := map[string]any{"role": role}
 			var target string
+			selected := 0
+			for _, set := range []bool{address != "", group != "", everyone, principal != ""} {
+				if set {
+					selected++
+				}
+			}
+			if selected > 1 {
+				return usageError{errors.New("--group, --to, --everyone, and --principal are mutually exclusive")}
+			}
 			switch {
-			case everyone && (address != "" || principal != ""):
-				return errors.New("--everyone cannot be combined with --to or --principal")
 			case everyone:
 				body["principal"] = map[string]any{"type": "anyone"}
 				target = everyoneLabelFor(g)
 			case address != "":
 				body["address"] = address
 				target = address
+			case group != "":
+				body["principal"] = map[string]any{"type": "google_group", "email": group}
+				target = group
 			case principal != "":
 				body["principal"] = parsePrincipal(principal)
 				target = principal
 			default:
-				return errors.New("pass --to <email-or-bot-address> or --everyone")
+				return usageError{errors.New("pass --to <email-or-bot-address>, --group <email>, or --everyone")}
 			}
 			return action(g, out, func(c *Client) ([]byte, error) {
 				return c.doJSON("POST", apiPath("/v1/documents/%s/grants", args[0]), body)
@@ -268,9 +378,10 @@ func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 		},
 	}
 	add.Flags().StringVar(&address, "to", "", "email or bot address (e.g. user@org.example or report-creator@brave.otter.bot)")
+	add.Flags().StringVar(&group, "group", "", "verified organization Google Group email")
 	add.Flags().BoolVar(&everyone, "everyone", false, "share with everyone who can reach this server")
 	add.Flags().StringVar(&principal, "principal", "", "legacy: sa:<id> or user:<email>")
-	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, or editor")
+	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, editor, or owner (groups only)")
 	var r string
 	upd := &cobra.Command{Use: "update <doc_id> <grant_id>", Short: "Update a grant role", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		return action(g, out, func(c *Client) ([]byte, error) {
@@ -467,12 +578,28 @@ func commentsCmd(g *globals, out io.Writer) *cobra.Command {
 	update.Flags().StringVar(&updateBody, "body", "", "new comment body text")
 	update.Flags().StringVar(&updateStatus, "status", "", "new status: open or resolved")
 
-	c.AddCommand(list, create, reply, update, deleteCommentCmd(g, out), resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"))
+	c.AddCommand(list, create, reply, update, deleteCommentCmd(g, out),
+		resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"),
+		reactionCmd(g, out, "react", "Add a reaction to a document comment", "PUT",
+			func(a []string) string { return "Reacted " + a[2] + " on comment " + a[1] + "." }),
+		reactionCmd(g, out, "unreact", "Remove your reaction from a document comment", "DELETE",
+			func(a []string) string { return "Removed " + a[2] + " from comment " + a[1] + "." }))
 	return c
 }
 
 func deleteCommentCmd(g *globals, out io.Writer) *cobra.Command {
 	return mutate(g, out, "delete <doc_id> <comment_id>", "Delete a document comment", "DELETE", "/v1/documents/%s/comments/%s", 2, func(a []string) string { return "Deleted comment " + a[1] + "." })
+}
+
+// reactionSlugs is the server's accepted set, repeated here only so help text
+// and errors are useful offline. The server remains the authority.
+const reactionSlugs = "+1, -1, laugh, hooray, confused, heart, rocket, eyes, plus"
+
+func reactionCmd(g *globals, out io.Writer, name, short, method string, msg func(args []string) string) *cobra.Command {
+	cmd := mutate(g, out, name+" <doc_id> <comment_id> <emoji>", short, method, "/v1/documents/%s/comments/%s/reactions/%s", 3, msg)
+	cmd.Long = short + ".\n\nReactions work on both root comments and replies.\nValid values: " + reactionSlugs + "."
+	cmd.Example = "  aidocs docs comments " + name + " doc_123 cmt_456 +1"
+	return cmd
 }
 
 func resolveCmd(g *globals, out io.Writer, name, status string) *cobra.Command {

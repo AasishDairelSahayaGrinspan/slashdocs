@@ -52,6 +52,7 @@ func guidelineIndex() string {
 	b.WriteString("  aidocs guidelines assets       -> aidocs guidelines core assets\n")
 	b.WriteString("  aidocs guidelines theme        -> aidocs guidelines rendering theme\n")
 	b.WriteString("  aidocs guidelines kv           -> aidocs guidelines interactivity kv\n")
+	b.WriteString("  aidocs guidelines github       -> aidocs guidelines interactivity github\n")
 	b.WriteString("  aidocs guidelines publishing   -> aidocs guidelines core publishing\n")
 	b.WriteString("\nFor a full dump:\n")
 	b.WriteString("  aidocs guidelines all\n")

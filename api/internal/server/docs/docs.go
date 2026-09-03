@@ -367,8 +367,14 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Title search query",
+                        "description": "Search query; supports author:, labels:, in:, and /regex/ values",
                         "name": "q",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Deprecated exact label filter; use q=labels:\u003clabel\u003e",
+                        "name": "label",
                         "in": "query"
                     }
                 ],
@@ -922,6 +928,116 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/documents/{id}/comments/{comment_id}/reactions/{emoji}": {
+            "put": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Adds the caller's reaction to a comment or reply. Repeating the same reaction is a no-op.",
+                "tags": [
+                    "comments"
+                ],
+                "summary": "Add comment reaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "comment_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "+1",
+                            "-1",
+                            "laugh",
+                            "hooray",
+                            "confused",
+                            "heart",
+                            "rocket",
+                            "eyes",
+                            "plus"
+                        ],
+                        "type": "string",
+                        "description": "Reaction slug",
+                        "name": "emoji",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Removes the caller's reaction from a comment or reply. Removing an absent reaction is a no-op.",
+                "tags": [
+                    "comments"
+                ],
+                "summary": "Remove comment reaction",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comment ID",
+                        "name": "comment_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "enum": [
+                            "+1",
+                            "-1",
+                            "laugh",
+                            "hooray",
+                            "confused",
+                            "heart",
+                            "rocket",
+                            "eyes",
+                            "plus"
+                        ],
+                        "type": "string",
+                        "description": "Reaction slug",
+                        "name": "emoji",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/documents/{id}/comments/{comment_id}/replies": {
             "post": {
                 "security": [
@@ -1300,6 +1416,98 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/folders/{id}/grants": {
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "grants"
+                ],
+                "summary": "Create folder grant",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Folder ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Grant target and role; google_group principals are resolved from principal.email",
+                        "name": "grant",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.grantInput"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/repo.Grant"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/google-groups": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "google-groups"
+                ],
+                "summary": "Search verified organization Google Groups",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Email or display-name query (minimum 2 characters)",
+                        "name": "q",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.googleGroupSearchResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    },
+                    "503": {
+                        "description": "Service Unavailable",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": true
+                        }
+                    }
+                }
+            }
+        },
         "/v1/me": {
             "get": {
                 "security": [
@@ -1666,12 +1874,14 @@ const docTemplate = `{
             "enum": [
                 "user",
                 "service_account",
+                "google_group",
                 "anyone",
                 "anonymous"
             ],
             "x-enum-varnames": [
                 "PrincipalUser",
                 "PrincipalServiceAccount",
+                "PrincipalGoogleGroup",
                 "PrincipalAnyone",
                 "PrincipalAnonymous"
             ]
@@ -1742,6 +1952,12 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                },
+                "labels": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
                 },
                 "owner": {
                     "$ref": "#/definitions/auth.Principal"
@@ -1866,6 +2082,9 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "change_summary": {
+                    "type": "string"
+                },
+                "created_at": {
                     "type": "string"
                 },
                 "created_by": {
@@ -2090,6 +2309,20 @@ const docTemplate = `{
                 }
             }
         },
+        "server.commentReactionResponse": {
+            "type": "object",
+            "properties": {
+                "count": {
+                    "type": "integer"
+                },
+                "emoji": {
+                    "type": "string"
+                },
+                "reacted": {
+                    "type": "boolean"
+                }
+            }
+        },
         "server.commentResponse": {
             "type": "object",
             "properties": {
@@ -2120,6 +2353,12 @@ const docTemplate = `{
                 "parent_comment_id": {
                     "type": "string"
                 },
+                "reactions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.commentReactionResponse"
+                    }
+                },
                 "replies": {
                     "type": "array",
                     "items": {
@@ -2146,11 +2385,20 @@ const docTemplate = `{
                 "everyone_label": {
                     "type": "string"
                 },
+                "google_groups_enabled": {
+                    "type": "boolean"
+                },
+                "labels_enabled": {
+                    "type": "boolean"
+                },
                 "org_name": {
                     "type": "string"
                 },
                 "provider_name": {
                     "type": "string"
+                },
+                "search_tags_enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -2333,6 +2581,31 @@ const docTemplate = `{
                 }
             }
         },
+        "server.googleGroupSearchItem": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                }
+            }
+        },
+        "server.googleGroupSearchResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.googleGroupSearchItem"
+                    }
+                }
+            }
+        },
         "server.grantGrantedBy": {
             "type": "object",
             "properties": {
@@ -2341,6 +2614,30 @@ const docTemplate = `{
                 },
                 "id": {
                     "type": "string"
+                }
+            }
+        },
+        "server.grantInput": {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "string"
+                },
+                "principal": {
+                    "$ref": "#/definitions/server.grantPrincipalInput"
+                },
+                "role": {
+                    "enum": [
+                        "viewer",
+                        "commenter",
+                        "editor",
+                        "owner"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/repo.Role"
+                        }
+                    ]
                 }
             }
         },
@@ -2358,6 +2655,33 @@ const docTemplate = `{
                 },
                 "type": {
                     "$ref": "#/definitions/auth.PrincipalType"
+                }
+            }
+        },
+        "server.grantPrincipalInput": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "string"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "type": {
+                    "enum": [
+                        "user",
+                        "service_account",
+                        "google_group",
+                        "anyone"
+                    ],
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/auth.PrincipalType"
+                        }
+                    ]
                 }
             }
         },

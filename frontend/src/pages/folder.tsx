@@ -38,7 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { api, docID, type FolderEntry } from "@/api";
+import { api, APIError, docID, type FolderEntry } from "@/api";
 import { canManageSharing } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
@@ -88,9 +88,7 @@ export function FolderPage() {
     enabled: !!id && !!me.data?.principal && !isOwner,
     staleTime: 30_000,
   });
-  const currentAccessRole = access.data?.items.find((item) =>
-    samePrincipal(item.principal, me.data?.principal),
-  )?.effective_role;
+  const currentAccessRole = access.data?.current_role;
   const canManageAccess = isOwner || canManageSharing(currentAccessRole);
 
   const viewMode = viewModeStore.useStore();
@@ -184,10 +182,28 @@ export function FolderPage() {
       </div>
     );
   }
-  if (folder.error || contents.error) return <Center>Could not load folder.</Center>;
+  if (folder.error || contents.error) {
+    const dependencyError = [folder.error, contents.error].some(
+      (error) =>
+        error instanceof APIError && error.code === "group_membership_unavailable",
+    );
+    return (
+      <Center>
+        {dependencyError
+          ? "Google Group access is temporarily unavailable. Try again shortly; stale group content has not been shown."
+          : "Could not load folder."}
+      </Center>
+    );
+  }
 
   const f = folder.data!;
   const items = contents.data?.items || [];
+  const readme = items.find(
+    (entry) => entry.type === "document" && entry.document?.title === "README.html",
+  )?.document;
+  const visibleItems = readme
+    ? items.filter((entry) => entry.document?.id !== readme.id)
+    : items;
   const breadcrumbs = f.ancestors || [];
 
   function handleDragStart(event: DragStartEvent) {
@@ -222,7 +238,7 @@ export function FolderPage() {
     >
       <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
         {/* Breadcrumbs */}
-        <nav className="mb-4 flex items-center gap-1 text-sm text-[var(--color-fg-muted)]">
+        <nav className="mb-4 flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-[var(--color-fg-muted)]">
           <DroppableBreadcrumb
             dropId="drop:__root__"
             to="/app/documents"
@@ -230,7 +246,7 @@ export function FolderPage() {
             isDragging={!!activeDrag}
           />
           {breadcrumbs.map((b) => (
-            <span key={b.id} className="flex items-center gap-1">
+            <span key={b.id} className="flex shrink-0 items-center gap-1">
               <ChevronRight className="h-3 w-3" />
               <DroppableBreadcrumb
                 dropId={`drop:${b.id}`}
@@ -241,7 +257,7 @@ export function FolderPage() {
             </span>
           ))}
           <ChevronRight className="h-3 w-3" />
-          <span className="font-medium text-[var(--color-fg)]">{f.title}</span>
+          <span className="shrink-0 font-medium text-[var(--color-fg)]">{f.title}</span>
         </nav>
 
         {/* Header */}
@@ -279,6 +295,7 @@ export function FolderPage() {
                 resourceType="folder"
                 resourceId={id}
                 canManageAccess={canManageAccess}
+                isCanonicalOwner={isOwner}
               />
             </Sheet>
             <Dropdown>
@@ -333,14 +350,15 @@ export function FolderPage() {
         </AlertDialog>
 
         {/* Contents */}
-        {items.length === 0 ? (
+        {visibleItems.length === 0 && !readme ? (
           <EmptyState
             title="Empty folder"
             description="Add documents or create subfolders."
           />
         ) : (
-          <FolderContents items={items} pinnedIds={pinnedIds} />
+          <FolderContents items={visibleItems} pinnedIds={pinnedIds} />
         )}
+        {readme ? <FolderReadme document={readme} /> : null}
 
         {/* New subfolder dialog */}
         <NewFolderDialog
@@ -392,6 +410,44 @@ export function FolderPage() {
       </div>
       <BrowseDragOverlay activeDrag={activeDrag} viewMode={viewMode} />
     </DndContext>
+  );
+}
+
+function FolderReadme({
+  document,
+}: {
+  document: NonNullable<FolderEntry["document"]>;
+}) {
+  const token = useQuery({
+    queryKey: ["folder-readme-render", document.id, document.current_version_id],
+    queryFn: () => api.renderToken(document.id, document.current_version_id || ""),
+    enabled: !!document.current_version_id,
+    staleTime: 4 * 60_000,
+  });
+  return (
+    <section className="mt-8 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
+      <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
+        <div>
+          <div className="text-sm font-semibold">README.html</div>
+          <div className="text-xs text-[var(--color-fg-muted)]">Folder overview</div>
+        </div>
+        <Button asChild variant="outline" size="sm">
+          <Link to={`/app/d/${document.id}`}>Open document</Link>
+        </Button>
+      </div>
+      {token.data?.url ? (
+        <iframe
+          title="Folder README"
+          src={token.data.url}
+          className="h-[min(70vh,760px)] w-full border-0"
+          sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
+        />
+      ) : (
+        <div className="p-6 text-sm text-[var(--color-fg-muted)]">
+          {token.error ? "Could not render README.html." : "Preparing README.html…"}
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -1,5 +1,5 @@
 export type Principal = {
-  type: "user" | "service_account" | "anyone";
+  type: "user" | "service_account" | "google_group" | "anyone";
   id: string;
   email?: string;
   name?: string;
@@ -25,13 +25,18 @@ export type Document = {
   approval_status?: ApprovalStatus;
   approval_summary?: ApprovalSummary;
   updated_at?: string;
+  labels?: string[];
 };
 export type ServerConfig = {
   deployment: "public" | "org";
   org_name: string;
   everyone_label: string;
   provider_name: string;
+  google_groups_enabled: boolean;
+  labels_enabled: boolean;
+  search_tags_enabled: boolean;
 };
+export type GoogleGroup = { id: string; email: string; name: string };
 export type Version = {
   id: string;
   number: number;
@@ -39,7 +44,21 @@ export type Version = {
   created_by?: Principal;
   change_summary?: string;
   sha256?: string;
+  created_at?: string;
 };
+export type GitHubStatus = {
+  connected: boolean;
+  configured: boolean;
+  login?: string;
+  avatar_url?: string;
+};
+export type GitHubRawRequest = {
+  owner: string;
+  repo: string;
+  path: string;
+  ref: string;
+};
+export type GitHubRawResponse = GitHubRawRequest & { content: string };
 export type Anchor = {
   quote: string;
   prefix?: string;
@@ -47,6 +66,25 @@ export type Anchor = {
   dom_path?: string;
   start_offset?: number;
   end_offset?: number;
+};
+// REACTION_EMOJI is the closed set the server accepts. Values are stable ASCII
+// slugs rather than literal emoji, so each client picks its own glyph.
+export const REACTION_EMOJI = [
+  "+1",
+  "-1",
+  "laugh",
+  "hooray",
+  "confused",
+  "heart",
+  "rocket",
+  "eyes",
+  "plus",
+] as const;
+export type ReactionEmoji = (typeof REACTION_EMOJI)[number];
+export type CommentReaction = {
+  emoji: string;
+  count: number;
+  reacted: boolean;
 };
 export type Comment = {
   id: string;
@@ -60,6 +98,8 @@ export type Comment = {
   // Optional only for rolling-upgrade reads from an older server. New servers
   // always return an array, including when it is empty.
   mentions?: CommentMention[];
+  // Optional for the same reason as mentions.
+  reactions?: CommentReaction[];
   anchor?: Anchor;
   replies?: Comment[];
   current_placement?: {
@@ -249,14 +289,18 @@ export const api = {
     }>("/v1/me"),
   loginURL: (redirect: string = location.pathname + location.search) =>
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
-  listDocuments: (q?: string) =>
-    request<{ items: Document[] }>(
-      `/v1/documents${q ? `?q=${encodeURIComponent(q)}` : ""}`,
-    ),
+  listDocuments: (q?: string) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    const qs = params.toString();
+    return request<{ items: Document[] }>(`/v1/documents${qs ? `?${qs}` : ""}`);
+  },
   getDocument: (id: string) => request<Document>(`/v1/documents/${id}`),
   getConfig: () => request<ServerConfig>("/v1/config"),
   searchUsers: (q: string) =>
     request<{ items: UserPrincipal[] }>(`/v1/users?q=${encodeURIComponent(q)}`),
+  searchGoogleGroups: (q: string) =>
+    request<{ items: GoogleGroup[] }>(`/v1/google-groups?q=${encodeURIComponent(q)}`),
   createDocument: (title: string, file: File) => {
     const fd = new FormData();
     fd.set("title", title);
@@ -320,6 +364,28 @@ export const api = {
     request<undefined>(`/v1/documents/${doc}/approvals/${approvalId}`, {
       method: "DELETE",
     }),
+  printToken: (doc: string, version: string) =>
+    request<{ token: string; url: string }>(
+      `/v1/documents/${doc}/versions/${version}/print-token`,
+      { method: "POST" },
+    ),
+  getDocumentLabels: (doc: string) =>
+    request<{ items: string[] }>(`/v1/documents/${doc}/labels`),
+  replaceDocumentLabels: (doc: string, labels: string[]) =>
+    request<{ items: string[] }>(`/v1/documents/${doc}/labels`, {
+      method: "PUT",
+      body: JSON.stringify({ labels }),
+    }),
+  githubStatus: () => request<GitHubStatus>("/v1/integrations/github"),
+  githubConnectURL: (redirect = location.pathname + location.search) =>
+    `/v1/integrations/github/start?redirect=${encodeURIComponent(redirect)}`,
+  githubDisconnect: () =>
+    request<void>("/v1/integrations/github", { method: "DELETE" }),
+  githubRawContent: (doc: string, input: GitHubRawRequest) =>
+    request<GitHubRawResponse>(`/v1/documents/${doc}/github/raw`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
   listDocumentKV: (doc: string) =>
     request<DocumentKVSnapshot>(`/v1/documents/${doc}/kv`),
   patchDocumentKV: (doc: string, patch: DocumentKVPatch) =>
@@ -327,6 +393,15 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify(patch),
     }),
+  // emoji stays a string: the only caller forwards a slug the server sent, and
+  // narrowing it here would need a cast that asserts what the wire does not
+  // guarantee. Values authored in this client come from REACTION_EMOJI, which
+  // is already the literal union.
+  setCommentReaction: (doc: string, comment: string, emoji: string, reacted: boolean) =>
+    request<void>(
+      `/v1/documents/${doc}/comments/${comment}/reactions/${encodeURIComponent(emoji)}`,
+      { method: reacted ? "PUT" : "DELETE" },
+    ),
   listComments: (doc: string, version?: string) =>
     request<{ items: Comment[] }>(
       `/v1/documents/${doc}/comments${version ? `?version_id=${encodeURIComponent(version)}` : ""}`,
@@ -392,6 +467,14 @@ export const api = {
     request<Grant>(`/v1/documents/${doc}/grants`, {
       method: "POST",
       body: JSON.stringify({ address, role }),
+    }),
+  createGoogleGroupGrant: (doc: string, email: string, role: string) =>
+    request<Grant>(`/v1/documents/${doc}/grants`, {
+      method: "POST",
+      body: JSON.stringify({
+        principal: { type: "google_group", email },
+        role,
+      }),
     }),
   // setGeneralAccess upserts the "anyone" grant (everyone who can reach this
   // server). Pass role "" / null to remove it (no general access).
@@ -474,6 +557,14 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ address, role }),
     }),
+  createFolderGoogleGroupGrant: (id: string, email: string, role: string) =>
+    request<Grant>(`/v1/folders/${id}/grants`, {
+      method: "POST",
+      body: JSON.stringify({
+        principal: { type: "google_group", email },
+        role,
+      }),
+    }),
   setFolderGeneralAccess: (id: string, role: string) =>
     request<Grant>(`/v1/folders/${id}/grants`, {
       method: "POST",
@@ -504,9 +595,17 @@ export const api = {
       method: "DELETE",
     }),
   folderAccess: (id: string) =>
-    request<{ items: EffectiveAccessItem[] }>(`/v1/folders/${id}/access`),
+    request<{
+      items: EffectiveAccessItem[];
+      current_role: string;
+      canonical_owner: boolean;
+    }>(`/v1/folders/${id}/access`),
   documentAccess: (id: string) =>
-    request<{ items: EffectiveAccessItem[] }>(`/v1/documents/${id}/access`),
+    request<{
+      items: EffectiveAccessItem[];
+      current_role: string;
+      canonical_owner: boolean;
+    }>(`/v1/documents/${id}/access`),
   // Pins
   listPins: () => request<{ items: Pin[] }>("/v1/pins"),
   putPin: (resourceType: string, resourceId: string) =>

@@ -107,6 +107,26 @@ func TestPostgresFolderInvariants(t *testing.T) {
 			t.Fatalf("missing folder provenance: %#v", items)
 		}
 	})
+	t.Run("effective access hydrates canonical owner", func(t *testing.T) {
+		r := newFolderStore(t)
+		doc, _, err := r.CreateDocument(ctx, owner, "Owned doc", []byte("x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		items, err := r.ListEffectiveAccess(ctx, "document", doc.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range items {
+			if item.EffectiveRole == repo.RoleOwner && item.Principal.ID == owner.ID {
+				if item.Principal.Name != owner.Name || item.Principal.Email != owner.Email {
+					t.Fatalf("owner profile = %#v, want name %q and email %q", item.Principal, owner.Name, owner.Email)
+				}
+				return
+			}
+		}
+		t.Fatalf("canonical owner missing from effective access: %#v", items)
+	})
 	t.Run("cycle prevention", func(t *testing.T) {
 		r := newFolderStore(t)
 		a, _ := r.CreateFolder(ctx, owner, "A", "")
@@ -119,12 +139,21 @@ func TestPostgresFolderInvariants(t *testing.T) {
 	t.Run("depth limit", func(t *testing.T) {
 		r := newFolderStore(t)
 		p := ""
-		for i := 0; i < 5; i++ {
+		var deepest repo.Folder
+		for i := 0; i < 15; i++ {
 			f, err := r.CreateFolder(ctx, owner, fmt.Sprintf("L%d", i), p)
 			if err != nil {
 				t.Fatal(err)
 			}
+			deepest = f
 			p = f.ID
+		}
+		got, err := r.GetFolder(ctx, deepest.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Ancestors) != 14 {
+			t.Fatalf("deepest folder has %d ancestors, want 14", len(got.Ancestors))
 		}
 		if _, err := r.CreateFolder(ctx, owner, "TooDeep", p); !errors.Is(err, repo.ErrConflict) {
 			t.Fatalf("err=%v", err)

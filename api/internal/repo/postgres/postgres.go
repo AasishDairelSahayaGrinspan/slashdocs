@@ -142,6 +142,97 @@ func (s *Store) EnsureUserByEmail(ctx context.Context, email string) (auth.Princ
 	}
 	return auth.Principal{Type: auth.PrincipalUser, ID: id, Email: email}, nil
 }
+
+func (s *Store) GoogleGroupMembershipSnapshot(ctx context.Context, userID string) (repo.GoogleGroupMembershipSnapshot, error) {
+	var snapshot repo.GoogleGroupMembershipSnapshot
+	var lastSuccess pgtype.Timestamptz
+	err := s.db.QueryRow(ctx, `
+		SELECT last_attempt_at, last_success_at, last_error_code
+		FROM google_group_sync_state WHERE user_id=$1`, userID).
+		Scan(&snapshot.LastAttemptAt, &lastSuccess, &snapshot.LastErrorCode)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return snapshot, nil
+	}
+	if err != nil {
+		return snapshot, err
+	}
+	if lastSuccess.Valid {
+		snapshot.LastSuccessAt = lastSuccess.Time
+	}
+	rows, err := s.db.Query(ctx, `SELECT group_id FROM google_group_memberships WHERE user_id=$1 ORDER BY group_id`, userID)
+	if err != nil {
+		return snapshot, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var groupID string
+		if err := rows.Scan(&groupID); err != nil {
+			return snapshot, err
+		}
+		snapshot.GroupIDs = append(snapshot.GroupIDs, groupID)
+	}
+	return snapshot, rows.Err()
+}
+
+func (s *Store) ReplaceGoogleGroupMemberships(ctx context.Context, userID string, groups []repo.GoogleGroup, syncedAt time.Time) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+	for _, group := range groups {
+		// ACL rows reference the immutable groups/{id}; mutable addresses and
+		// display names are refreshed metadata only.
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO google_groups(id,customer_id,email,display_name,last_verified_at)
+			VALUES($1,$2,$3,$4,$5)
+			ON CONFLICT(id) DO UPDATE SET customer_id=EXCLUDED.customer_id,
+			  email=EXCLUDED.email, display_name=EXCLUDED.display_name,
+			  last_verified_at=EXCLUDED.last_verified_at, updated_at=now()`,
+			group.ID, group.CustomerID, group.Email, group.Name, syncedAt); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM google_group_memberships WHERE user_id=$1`, userID); err != nil {
+		return err
+	}
+	for _, group := range groups {
+		if _, err := tx.Exec(ctx, `INSERT INTO google_group_memberships(user_id,group_id,synced_at) VALUES($1,$2,$3)`, userID, group.ID, syncedAt); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(ctx, `
+		INSERT INTO google_group_sync_state(user_id,last_attempt_at,last_success_at,last_error_code)
+		VALUES($1,$2,$2,'')
+		ON CONFLICT(user_id) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,
+		  last_success_at=EXCLUDED.last_success_at, last_error_code=''`, userID, syncedAt); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+
+func (s *Store) RecordGoogleGroupMembershipFailure(ctx context.Context, userID, errorCode string, attemptedAt time.Time) error {
+	// Failed refreshes deliberately retain the old membership rows for
+	// diagnostics. Authorization separately ignores them once last_success_at
+	// is outside the configured freshness window.
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO google_group_sync_state(user_id,last_attempt_at,last_error_code)
+		VALUES($1,$2,$3)
+		ON CONFLICT(user_id) DO UPDATE SET last_attempt_at=EXCLUDED.last_attempt_at,
+		  last_error_code=EXCLUDED.last_error_code`, userID, attemptedAt, errorCode)
+	return err
+}
+
+func (s *Store) UpsertGoogleGroup(ctx context.Context, group repo.GoogleGroup) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO google_groups(id,customer_id,email,display_name,last_verified_at)
+		VALUES($1,$2,$3,$4,$5)
+		ON CONFLICT(id) DO UPDATE SET customer_id=EXCLUDED.customer_id,
+		  email=EXCLUDED.email, display_name=EXCLUDED.display_name,
+		  last_verified_at=EXCLUDED.last_verified_at, updated_at=now()`,
+		group.ID, group.CustomerID, group.Email, group.Name, group.LastVerifiedAt)
+	return err
+}
 func (s *Store) CreateCLICredential(ctx context.Context, userID, name, tokenHash string) (string, error) {
 	id := newID("cred")
 	err := s.q.CreateCLICredential(ctx, dbsqlc.CreateCLICredentialParams{ID: id, UserID: userID, Name: name, TokenHash: tokenHash})
@@ -182,11 +273,26 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 		return "", err
 	}
 	for _, g := range grants {
-		if (g.PrincipalType == string(p.Type) && g.PrincipalID == p.ID) || g.PrincipalType == string(auth.PrincipalAnyone) {
+		if principalHasGrant(p, g.PrincipalType, g.PrincipalID) {
 			best = repo.MaxRole(best, repo.Role(g.Role))
 		}
 	}
 	return best, nil
+}
+
+func principalHasGrant(p auth.Principal, principalType, principalID string) bool {
+	if principalType == string(auth.PrincipalAnyone) || (principalType == string(p.Type) && principalID == p.ID) {
+		return true
+	}
+	if p.Type != auth.PrincipalUser || principalType != string(auth.PrincipalGoogleGroup) {
+		return false
+	}
+	for _, groupID := range p.GoogleGroupIDs {
+		if groupID == principalID {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (repo.Document, repo.Version, error) {
@@ -291,6 +397,10 @@ func (s *Store) PrincipalExists(ctx context.Context, p auth.Principal) (bool, er
 		return s.q.UserExists(ctx, p.ID)
 	case auth.PrincipalServiceAccount:
 		return s.q.ServiceAccountExists(ctx, p.ID)
+	case auth.PrincipalGoogleGroup:
+		var exists bool
+		err := s.db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM google_groups WHERE id=$1)`, p.ID).Scan(&exists)
+		return exists, err
 	default:
 		return false, nil
 	}
@@ -588,6 +698,46 @@ func commentMentionsByID(ctx context.Context, q *dbsqlc.Queries, commentIDs []st
 	return byID, nil
 }
 
+// commentReactionsByID bulk-loads reactions for a set of comments so callers
+// avoid a per-comment round trip, mirroring commentMentionsByID. Every
+// requested ID is seeded with an empty slice so a comment without reactions
+// renders as [] rather than null.
+func commentReactionsByID(ctx context.Context, q *dbsqlc.Queries, commentIDs []string) (map[string][]repo.CommentReaction, error) {
+	byID := make(map[string][]repo.CommentReaction, len(commentIDs))
+	for _, id := range commentIDs {
+		byID[id] = []repo.CommentReaction{}
+	}
+	if len(commentIDs) == 0 {
+		return byID, nil
+	}
+	rows, err := q.ListCommentReactions(ctx, commentIDs)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		byID[row.CommentID] = append(byID[row.CommentID], repo.CommentReaction{
+			Principal: auth.Principal{
+				Type: auth.PrincipalType(row.PrincipalType),
+				ID:   row.PrincipalID,
+			},
+			Emoji: row.Emoji,
+		})
+	}
+	return byID, nil
+}
+
+func (s *Store) PutCommentReaction(ctx context.Context, commentID string, p auth.Principal, emoji string) error {
+	return s.q.PutCommentReaction(ctx, dbsqlc.PutCommentReactionParams{
+		CommentID: commentID, PrincipalType: string(p.Type), PrincipalID: p.ID, Emoji: emoji,
+	})
+}
+
+func (s *Store) DeleteCommentReaction(ctx context.Context, commentID string, p auth.Principal, emoji string) error {
+	return s.q.DeleteCommentReaction(ctx, dbsqlc.DeleteCommentReactionParams{
+		CommentID: commentID, PrincipalType: string(p.Type), PrincipalID: p.ID, Emoji: emoji,
+	})
+}
+
 func upsertUser(ctx context.Context, q *dbsqlc.Queries, p auth.Principal) error {
 	return q.UpsertUser(ctx, dbsqlc.UpsertUserParams{ID: p.ID, Email: p.Email, Name: p.Name})
 }
@@ -616,7 +766,7 @@ func pgTimeRFC3339(ts pgtype.Timestamptz) string {
 }
 
 func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Document, error) {
-	rows, err := s.q.ListDocuments(ctx, dbsqlc.ListDocumentsParams{OwnerID: p.ID, OwnerType: string(p.Type)})
+	rows, err := s.q.ListDocuments(ctx, dbsqlc.ListDocumentsParams{OwnerID: p.ID, OwnerType: string(p.Type), Column3: p.GoogleGroupIDs})
 	if err != nil {
 		return nil, err
 	}
@@ -626,14 +776,31 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 	}
 	return out, nil
 }
-func (s *Store) SearchDocumentsByTitle(ctx context.Context, p auth.Principal, query string, includeOrgWide bool, limit int32) ([]repo.Document, error) {
-	rows, err := s.q.SearchDocumentsByTitle(ctx, dbsqlc.SearchDocumentsByTitleParams{Query: query, OwnerID: p.ID, OwnerType: string(p.Type), IncludeOrgWide: includeOrgWide, RowLimit: limit})
+func (s *Store) SearchDocuments(ctx context.Context, p auth.Principal, search repo.DocumentSearch, includeOrgWide bool, limit int32) ([]repo.Document, error) {
+	rows, err := s.q.SearchDocuments(ctx, dbsqlc.SearchDocumentsParams{
+		TitlePattern:   search.TitlePattern,
+		AuthorPattern:  search.AuthorPattern,
+		FolderPattern:  search.FolderPattern,
+		LabelPatterns:  search.LabelPatterns,
+		OwnerID:        p.ID,
+		OwnerType:      string(p.Type),
+		GoogleGroupIds: p.GoogleGroupIDs,
+		IncludeOrgWide: includeOrgWide,
+		RowLimit:       limit,
+	})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]repo.Document, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, docFromSearch(r))
+		d := docFromSearch(r)
+		if search.IncludeLabels {
+			d.Labels, err = s.q.ListDocumentLabels(ctx, r.ID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		out = append(out, d)
 	}
 	return out, nil
 }
@@ -671,6 +838,79 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 		}
 	}
 	return tx.Commit(ctx)
+}
+
+func (s *Store) ListDocumentsByLabel(ctx context.Context, p auth.Principal, label string) ([]repo.Document, error) {
+	rows, err := s.q.ListAccessibleDocumentsByLabel(ctx, dbsqlc.ListAccessibleDocumentsByLabelParams{
+		OwnerID: p.ID, OwnerType: string(p.Type), Label: label, GoogleGroupIds: p.GoogleGroupIDs,
+	})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.Document, 0, len(rows))
+	for _, r := range rows {
+		d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+		if r.UpdatedAt.Valid {
+			d.UpdatedAt = r.UpdatedAt.Time.UTC().Format(time.RFC3339Nano)
+		}
+		d.Labels, err = s.q.ListDocumentLabels(ctx, r.ID)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (s *Store) ListDocumentLabels(ctx context.Context, documentID string) ([]string, error) {
+	return s.q.ListDocumentLabels(ctx, documentID)
+}
+
+func (s *Store) ReplaceDocumentLabels(ctx context.Context, documentID string, labels []string, actor auth.Principal) ([]string, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer rollback(ctx, tx)
+	q := s.q.WithTx(tx)
+	if err := q.DeleteDocumentLabels(ctx, documentID); err != nil {
+		return nil, err
+	}
+	for _, label := range labels {
+		if err := q.InsertDocumentLabel(ctx, dbsqlc.InsertDocumentLabelParams{DocumentID: documentID, Label: label, CreatedByType: string(actor.Type), CreatedByID: actor.ID}); err != nil {
+			return nil, err
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return append([]string(nil), labels...), nil
+}
+
+func (s *Store) UpsertGitHubConnection(ctx context.Context, c repo.GitHubConnection) error {
+	return s.q.UpsertGitHubConnection(ctx, dbsqlc.UpsertGitHubConnectionParams{UserID: c.UserID, GithubUserID: c.GitHubUserID, Login: c.Login, AvatarUrl: c.AvatarURL, AccessTokenCiphertext: c.AccessTokenCiphertext})
+}
+
+func (s *Store) GetGitHubConnection(ctx context.Context, userID string) (repo.GitHubConnection, error) {
+	r, err := s.q.GetGitHubConnection(ctx, userID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return repo.GitHubConnection{}, repo.ErrNotFound
+	}
+	if err != nil {
+		return repo.GitHubConnection{}, err
+	}
+	return repo.GitHubConnection{UserID: r.UserID, GitHubUserID: r.GithubUserID, Login: r.Login, AvatarURL: r.AvatarUrl, AccessTokenCiphertext: r.AccessTokenCiphertext, UpdatedAt: pgTimeRFC3339(r.UpdatedAt)}, nil
+}
+
+func (s *Store) DeleteGitHubConnection(ctx context.Context, userID string) error {
+	n, err := s.q.DeleteGitHubConnection(ctx, userID)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return repo.ErrNotFound
+	}
+	return nil
 }
 func (s *Store) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]repo.ServiceAccount, error) {
 	rows, err := s.q.ListServiceAccounts(ctx, owner.ID)
@@ -740,23 +980,43 @@ func (s *Store) ListGrants(ctx context.Context, resourceID string) ([]repo.Grant
 	}
 	return out, nil
 }
-func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role) (repo.Grant, error) {
-	r, err := s.q.UpdateResourceGrantRole(ctx, dbsqlc.UpdateResourceGrantRoleParams{Role: string(role), GrantID: grantID, ResourceID: resourceID})
+func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.Grant, error) {
+	row := s.db.QueryRow(ctx, `
+		SELECT g.id,g.resource_type,g.resource_id,g.principal_type,g.principal_id,
+		       COALESCE(u.email,gg.email,''),COALESCE(u.name,sa.name,gg.display_name,''),
+		       g.role,g.granted_by_type,g.granted_by_user_id,
+		       COALESCE(gu.email,''),COALESCE(gu.name,gsa.name,'')
+		FROM resource_grants g
+		LEFT JOIN users u ON g.principal_type='user' AND g.principal_id=u.id
+		LEFT JOIN service_accounts sa ON g.principal_type='service_account' AND g.principal_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+		LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
+		LEFT JOIN users gu ON g.granted_by_type='user' AND g.granted_by_user_id=gu.id
+		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`, grantID, resourceID)
+	var g repo.Grant
+	var principalType, grantedByType string
+	err := row.Scan(&g.ID, &g.ResourceType, &g.ResourceID, &principalType, &g.Principal.ID,
+		&g.Principal.Email, &g.Principal.Name, &g.Role, &grantedByType, &g.GrantedBy.ID,
+		&g.GrantedBy.Email, &g.GrantedBy.Name)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return repo.Grant{}, repo.ErrNotFound
 	}
 	if err != nil {
 		return repo.Grant{}, err
 	}
-	return repo.Grant{
-		ID:           r.ID,
-		DocumentID:   resourceID,
-		ResourceType: r.ResourceType,
-		ResourceID:   r.ResourceID,
-		Principal:    auth.Principal{Type: auth.PrincipalType(r.PrincipalType), ID: r.PrincipalID},
-		Role:         repo.Role(r.Role),
-		GrantedBy:    auth.Principal{Type: auth.PrincipalType(r.GrantedByType), ID: r.GrantedByUserID},
-	}, nil
+	g.DocumentID = g.ResourceID
+	g.Principal.Type = auth.PrincipalType(principalType)
+	g.GrantedBy.Type = auth.PrincipalType(grantedByType)
+	return g, nil
+}
+
+func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role) (repo.Grant, error) {
+	if _, err := s.q.UpdateResourceGrantRole(ctx, dbsqlc.UpdateResourceGrantRoleParams{Role: string(role), GrantID: grantID, ResourceID: resourceID}); errors.Is(err, pgx.ErrNoRows) {
+		return repo.Grant{}, repo.ErrNotFound
+	} else if err != nil {
+		return repo.Grant{}, err
+	}
+	return s.GetGrant(ctx, resourceID, grantID)
 }
 func (s *Store) DeleteGrant(ctx context.Context, resourceID, grantID string) error {
 	revoked, err := s.q.RevokeResourceGrant(ctx, dbsqlc.RevokeResourceGrantParams{GrantID: grantID, ResourceID: resourceID})
@@ -775,7 +1035,7 @@ func (s *Store) ListVersions(ctx context.Context, documentID string) ([]repo.Ver
 	}
 	out := make([]repo.Version, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256})
+		out = append(out, repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256, CreatedAt: pgTimeRFC3339(r.CreatedAt)})
 	}
 	return out, nil
 }
@@ -787,7 +1047,7 @@ func (s *Store) GetVersion(ctx context.Context, id string) (repo.Version, error)
 	if err != nil {
 		return repo.Version{}, err
 	}
-	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256}, nil
+	return repo.Version{ID: r.ID, Number: int(r.Number), DocumentID: r.DocumentID, CreatedBy: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID, Email: r.CreatedByEmail, Name: r.CreatedByName, PictureURL: r.CreatedByPictureUrl}, ChangeSummary: r.ChangeSummary, SHA256: r.Sha256, CreatedAt: pgTimeRFC3339(r.CreatedAt)}, nil
 }
 func (s *Store) GetVersionHTML(ctx context.Context, id string) ([]byte, error) {
 	key, err := s.q.GetVersionBlobKey(ctx, id)
@@ -823,6 +1083,11 @@ func (s *Store) GetComment(ctx context.Context, id string) (repo.Comment, error)
 		return repo.Comment{}, err
 	}
 	comment.Mentions = mentions[id]
+	reactions, err := commentReactionsByID(ctx, q, []string{id})
+	if err != nil {
+		return repo.Comment{}, err
+	}
+	comment.Reactions = reactions[id]
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
@@ -849,8 +1114,13 @@ func (s *Store) ListComments(ctx context.Context, documentID, status, versionID 
 	if err != nil {
 		return nil, err
 	}
+	reactions, err := commentReactionsByID(ctx, q, ids)
+	if err != nil {
+		return nil, err
+	}
 	for i := range out {
 		out[i].Mentions = mentions[out[i].ID]
+		out[i].Reactions = reactions[out[i].ID]
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, err
@@ -892,6 +1162,11 @@ func (s *Store) UpdateComment(ctx context.Context, id string, update repo.Commen
 		return repo.Comment{}, err
 	}
 	comment.Mentions = mentions[id]
+	reactions, err := commentReactionsByID(ctx, q, []string{id})
+	if err != nil {
+		return repo.Comment{}, err
+	}
+	comment.Reactions = reactions[id]
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
@@ -1176,8 +1451,12 @@ func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
 	}
 	return d
 }
-func docFromSearch(r dbsqlc.SearchDocumentsByTitleRow) repo.Document {
-	return repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+func docFromSearch(r dbsqlc.SearchDocumentsRow) repo.Document {
+	d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	if r.UpdatedAt.Valid {
+		d.UpdatedAt = r.UpdatedAt.Time.Format(time.RFC3339)
+	}
+	return d
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
 	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
@@ -1235,7 +1514,13 @@ func (s *Store) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]repo
 	}
 
 	root := chain[0]
-	ownerP := auth.Principal{Type: auth.PrincipalType(root.OwnerType), ID: root.OwnerID}
+	ownerP := auth.Principal{
+		Type:       auth.PrincipalType(root.OwnerType),
+		ID:         root.OwnerID,
+		Email:      root.OwnerEmail,
+		Name:       root.OwnerName,
+		PictureURL: root.OwnerPictureUrl,
+	}
 	add(ownerP, repo.AccessSource{ResourceType: root.AncestorType, ResourceID: root.AncestorID, ResourceTitle: root.Title, Role: repo.RoleOwner})
 
 	ids := make([]string, 0, len(chain))

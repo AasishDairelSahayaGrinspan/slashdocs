@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -82,6 +83,69 @@ func TestCreateDocument(t *testing.T) {
 	if jsonField(t, got.Body.Bytes(), "current_version_id") != verID {
 		t.Fatalf("document round-trip lost version: %s", got.Body.String())
 	}
+}
+
+func TestDocumentSearchPrimitives(t *testing.T) {
+	e := newTestEnv(t)
+	headers := map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	}
+	rr := do(t, e.h, http.MethodPut, "/v1/documents/"+e.doc.ID+"/labels", `{"labels":["api-review","payments"]}`, headers)
+	assertStatus(t, rr, http.StatusOK)
+
+	query := `author:/@example\.com$/ labels:/^api-/,payments`
+	rr = do(t, e.h, http.MethodGet, "/v1/documents?q="+url.QueryEscape(query), "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusOK)
+	if !strings.Contains(rr.Body.String(), e.doc.ID) {
+		t.Fatalf("combined search did not return document: %s", rr.Body.String())
+	}
+
+	// The legacy label parameter remains compatible and combines with q.
+	rr = do(t, e.h, http.MethodGet, "/v1/documents?q="+url.QueryEscape(e.doc.Title)+"&label=payments", "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusOK)
+	if !strings.Contains(rr.Body.String(), e.doc.ID) {
+		t.Fatalf("legacy label compatibility search did not return document: %s", rr.Body.String())
+	}
+
+	rr = do(t, e.h, http.MethodGet, "/v1/documents?q="+url.QueryEscape(`author:/[/`), "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusBadRequest)
+}
+
+func TestTemporarilyDisabledLabelsAndSearchTags(t *testing.T) {
+	e := newConfiguredTestEnv(t, server.Config{
+		Environment:       "test",
+		DisableLabels:     true,
+		DisableSearchTags: true,
+	})
+	headers := map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	}
+
+	rr := do(t, e.h, http.MethodPut, "/v1/documents/"+e.doc.ID+"/labels", `{"labels":["payments"]}`, headers)
+	assertStatus(t, rr, http.StatusNotFound)
+	assertJSON(t, rr.Body.Bytes(), `{"error":{"code":"feature_disabled","message":"Document labels are temporarily disabled"}}`)
+
+	query := `author:` + fixtureOwner.Email
+	rr = do(t, e.h, http.MethodGet, "/v1/documents?q="+url.QueryEscape(query), "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusOK)
+	if strings.Contains(rr.Body.String(), e.doc.ID) {
+		t.Fatalf("disabled search tag was still interpreted: %s", rr.Body.String())
+	}
+
+	rr = do(t, e.h, http.MethodGet, "/v1/documents?label=payments", "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusNotFound)
 }
 
 func TestServiceAccountCanCreateDocument(t *testing.T) {

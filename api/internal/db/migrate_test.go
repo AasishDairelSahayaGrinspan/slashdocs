@@ -83,7 +83,8 @@ func TestCommentMentionMigrationsSplitTriggerFromLegacyCleanup(t *testing.T) {
 	}
 	assertMigrationMentionCount(t, database, "cmt_structured", 0)
 
-	// Exercise the production migrator for the separate migration-19 cleanup.
+	// Exercise the production migrator through the latest migration, including
+	// the separate migration-19 cleanup.
 	if err := aidb.Migrate(databaseURL); err != nil {
 		t.Fatalf("production migrate through 19: %v", err)
 	}
@@ -95,8 +96,8 @@ func TestCommentMentionMigrationsSplitTriggerFromLegacyCleanup(t *testing.T) {
 	}
 	assertMentionMigrationObjects(t, database)
 	version, err := goose.GetDBVersion(database)
-	if err != nil || version != 20 {
-		t.Fatalf("migration version = %d, %v; want 20", version, err)
+	if err != nil || version != 24 {
+		t.Fatalf("migration version = %d, %v; want 24", version, err)
 	}
 
 	// The cleanup cannot reconstruct markers, so migration 19's Down is a
@@ -122,7 +123,7 @@ func TestCommentMentionMigrationsSplitTriggerFromLegacyCleanup(t *testing.T) {
 		t.Fatalf("legacy write after rollback = %q, want markers preserved", got)
 	}
 	if err := aidb.Migrate(databaseURL); err != nil {
-		t.Fatalf("restore migration 19: %v", err)
+		t.Fatalf("restore latest migrations: %v", err)
 	}
 	if got := migrationCommentBody(t, database, "cmt_after_rollback"); got != "Rollback @admin" {
 		t.Fatalf("cleanup after re-upgrade body = %q", got)

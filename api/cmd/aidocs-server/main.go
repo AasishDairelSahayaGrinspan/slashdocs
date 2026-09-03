@@ -15,9 +15,12 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/oauth2/google"
+
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/db"
+	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
 	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
@@ -258,6 +261,18 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
+	googleGroups, err := loadGoogleGroupsConfig(ctx, deployment.name)
+	if err != nil {
+		return nil, err
+	}
+	labelsEnabled, err := boolEnv("AIDOCS_LABELS_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
+	searchTagsEnabled, err := boolEnv("AIDOCS_SEARCH_TAGS_ENABLED", false)
+	if err != nil {
+		return nil, err
+	}
 	oidcProvider, providerName, err := loadOIDC(ctx, origins.appOrigin)
 	if err != nil {
 		return nil, err
@@ -272,17 +287,26 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if pinger, ok := blobs.(blob.Pinger); ok {
 		options = append(options, server.WithReadinessCheck("blob", pinger.Ping))
 	}
+	if googleGroups.directory != nil {
+		options = append(options, server.WithGoogleGroupDirectory(googleGroups.directory))
+	}
 	return server.New(server.Config{
-		Environment:          server.EnvProduction,
-		AppOrigin:            origins.appOrigin,
-		RenderOrigin:         origins.renderOrigin,
-		OIDC:                 oidcProvider,
-		OIDCProviderName:     providerName,
-		SessionSecret:        origins.sessionSecret,
-		AllowedOAuthDomains:  deployment.allowedOAuthDomains,
-		Deployment:           deployment.name,
-		OrgName:              deployment.orgName,
-		DefaultDocPermission: deployment.defaultDocPermission,
+		Environment:               server.EnvProduction,
+		AppOrigin:                 origins.appOrigin,
+		RenderOrigin:              origins.renderOrigin,
+		OIDC:                      oidcProvider,
+		OIDCProviderName:          providerName,
+		SessionSecret:             origins.sessionSecret,
+		AllowedOAuthDomains:       deployment.allowedOAuthDomains,
+		Deployment:                deployment.name,
+		OrgName:                   deployment.orgName,
+		DefaultDocPermission:      deployment.defaultDocPermission,
+		GitHubClientID:            os.Getenv("AIDOCS_GITHUB_CLIENT_ID"),
+		GitHubClientSecret:        os.Getenv("AIDOCS_GITHUB_CLIENT_SECRET"),
+		GoogleGroupsEnabled:       googleGroups.enabled,
+		GoogleGroupsMembershipTTL: googleGroups.membershipTTL,
+		DisableLabels:             !labelsEnabled,
+		DisableSearchTags:         !searchTagsEnabled,
 	}, options...), nil
 }
 
@@ -368,6 +392,113 @@ func envOrDefault(name, fallback string) string {
 		return value
 	}
 	return fallback
+}
+
+func boolEnv(name string, fallback bool) (bool, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	if raw != "true" && raw != "false" {
+		return false, fmt.Errorf("%s must be true or false", name)
+	}
+	return raw == "true", nil
+}
+
+type googleGroupsConfig struct {
+	enabled       bool
+	membershipTTL time.Duration
+	directory     googlegroups.GoogleGroupDirectory
+}
+
+// googleGroupsWorkspace is the validated Workspace identity that group
+// sharing needs once it is switched on.
+type googleGroupsWorkspace struct {
+	customerID      string
+	adminEmail      string
+	credentialsFile string
+}
+
+// readGoogleGroupsWorkspaceEnv validates the three Workspace settings that
+// become mandatory when AIDOCS_GOOGLE_GROUPS_ENABLED is true.
+func readGoogleGroupsWorkspaceEnv() (googleGroupsWorkspace, error) {
+	workspace := googleGroupsWorkspace{
+		customerID:      os.Getenv("GOOGLE_GROUPS_CUSTOMER_ID"),
+		adminEmail:      strings.TrimSpace(os.Getenv("GOOGLE_GROUPS_ADMIN_EMAIL")),
+		credentialsFile: os.Getenv("GOOGLE_GROUPS_CREDENTIALS_FILE"),
+	}
+	if !strings.HasPrefix(workspace.customerID, "C") || strings.ContainsAny(workspace.customerID, " /\\\t\r\n") {
+		return workspace, fmt.Errorf("GOOGLE_GROUPS_CUSTOMER_ID must be a Workspace customer ID beginning with C")
+	}
+	if workspace.adminEmail == "" || !strings.Contains(workspace.adminEmail, "@") {
+		return workspace, fmt.Errorf("GOOGLE_GROUPS_ADMIN_EMAIL must be a valid delegated administrator email")
+	}
+	if workspace.credentialsFile == "" {
+		return workspace, fmt.Errorf("GOOGLE_GROUPS_CREDENTIALS_FILE is required when Google Groups are enabled")
+	}
+	return workspace, nil
+}
+
+func loadGoogleGroupsConfig(ctx context.Context, deployment string) (googleGroupsConfig, error) {
+	var cfg googleGroupsConfig
+	enabledRaw := os.Getenv("AIDOCS_GOOGLE_GROUPS_ENABLED")
+	if enabledRaw == "" {
+		enabledRaw = "false"
+	}
+	if enabledRaw != "true" && enabledRaw != "false" {
+		return cfg, fmt.Errorf("AIDOCS_GOOGLE_GROUPS_ENABLED must be true or false")
+	}
+	enabled := enabledRaw == "true"
+	cfg.enabled = enabled
+	if !enabled {
+		return cfg, nil
+	}
+	if deployment != server.DeploymentOrg {
+		return cfg, fmt.Errorf("AIDOCS_GOOGLE_GROUPS_ENABLED requires AIDOCS_DEPLOYMENT=org")
+	}
+	workspace, err := readGoogleGroupsWorkspaceEnv()
+	if err != nil {
+		return cfg, err
+	}
+	credentials, err := os.ReadFile(workspace.credentialsFile)
+	if err != nil {
+		return cfg, fmt.Errorf("GOOGLE_GROUPS_CREDENTIALS_FILE must be present and readable")
+	}
+	ttl, err := positiveDurationEnv("GOOGLE_GROUPS_MEMBERSHIP_TTL", time.Minute)
+	if err != nil {
+		return cfg, err
+	}
+	requestTimeout, err := positiveDurationEnv("GOOGLE_GROUPS_REQUEST_TIMEOUT", 5*time.Second)
+	if err != nil {
+		return cfg, err
+	}
+	jwtConfig, err := google.JWTConfigFromJSON(credentials, googlegroups.ReadOnlyScope)
+	if err != nil {
+		return cfg, fmt.Errorf("GOOGLE_GROUPS_CREDENTIALS_FILE does not contain valid service-account credentials")
+	}
+	jwtConfig.Subject = workspace.adminEmail
+	directory, err := googlegroups.NewHTTPDirectory(googlegroups.HTTPDirectoryConfig{
+		Client: jwtConfig.Client(ctx), CustomerID: workspace.customerID, Timeout: requestTimeout,
+		Observer: server.ObserveGoogleGroupRequest,
+	})
+	if err != nil {
+		return cfg, err
+	}
+	cfg.membershipTTL = ttl
+	cfg.directory = directory
+	return cfg, nil
+}
+
+func positiveDurationEnv(name string, fallback time.Duration) (time.Duration, error) {
+	raw := os.Getenv(name)
+	if raw == "" {
+		return fallback, nil
+	}
+	duration, err := time.ParseDuration(raw)
+	if err != nil || duration <= 0 {
+		return 0, fmt.Errorf("%s must be a positive Go duration", name)
+	}
+	return duration, nil
 }
 
 func validateOrigin(name, value string) error {

@@ -12,6 +12,7 @@
     "e2e:typecheck": "tsc -p tsconfig.e2e.json --noEmit",
     "preview": "vite preview",
     "test": "tsc -p tsconfig.tests.json --noEmit && node --test tests/*.test.ts",
+    "test:unit": "vitest run",
     "lint": "eslint src bridge tests e2e playwright.config.ts && npm run e2e:typecheck",
     "format": "prettier --write src bridge tests \"e2e/**/*.ts\" playwright.config.ts tsconfig.e2e.json",
     "format:check": "prettier --check src bridge tests \"e2e/**/*.ts\" playwright.config.ts tsconfig.e2e.json"
@@ -43,6 +44,9 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "1.61.0",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
+    "@testing-library/user-event": "^14.6.1",
     "@types/node": "^25.9.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
@@ -52,10 +56,12 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "eslint-plugin-react-refresh": "^0.5.3",
     "globals": "^17.7.0",
+    "jsdom": "^29.1.1",
     "prettier": "^3.8.3",
     "typescript": "^6.0.3",
     "typescript-eslint": "^8.63.0",
-    "vite": "^8.0.16"
+    "vite": "^8.0.16",
+    "vitest": "^4.1.10"
   },
   "type": "module",
   "private": "true",

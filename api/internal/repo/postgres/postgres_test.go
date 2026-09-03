@@ -207,7 +207,11 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_search_folder_owner", Email: "search-folder-owner@test.com", Name: "Owner"}
 	viewer := auth.Principal{Type: auth.PrincipalUser, ID: "usr_pg_search_folder_viewer", Email: "search-folder-viewer@test.com", Name: "Viewer"}
 
-	folder, err := store.CreateFolder(ctx, owner, "SearchTestFolder", "")
+	folder, err := store.CreateFolder(ctx, owner, "Payments Platform", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := store.CreateFolder(ctx, owner, "Runbooks", folder.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -215,12 +219,15 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.MoveDocumentToFolder(ctx, owner, folder.ID, doc.ID); err != nil {
+	if _, err := store.MoveDocumentToFolder(ctx, owner, child.ID, doc.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ReplaceDocumentLabels(ctx, doc.ID, []string{"api-review", "payments"}, owner); err != nil {
 		t.Fatal(err)
 	}
 
 	// Before granting folder access, viewer cannot find the doc
-	results, err := store.SearchDocumentsByTitle(ctx, viewer, "SearchableInFolder", false, 25)
+	results, err := store.SearchDocuments(ctx, viewer, repo.DocumentSearch{TitlePattern: "SearchableInFolder"}, false, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +243,13 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 	}
 
 	// Now the viewer can find the doc via folder inheritance
-	results, err = store.SearchDocumentsByTitle(ctx, viewer, "SearchableInFolder", false, 25)
+	results, err = store.SearchDocuments(ctx, viewer, repo.DocumentSearch{
+		TitlePattern:  "Searchable.*Folder",
+		AuthorPattern: `search-folder-owner@test\.com$`,
+		LabelPatterns: []string{"^api-", "payments"},
+		FolderPattern: "Payments|Checkout",
+		IncludeLabels: true,
+	}, false, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -249,6 +262,19 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 	}
 	if !found {
 		t.Fatal("viewer cannot find doc after folder grant — folder-inherited search is broken")
+	}
+	if len(results) != 1 || len(results[0].Labels) != 2 {
+		t.Fatalf("combined search results = %+v, want one result with labels", results)
+	}
+
+	results, err = store.SearchDocuments(ctx, viewer, repo.DocumentSearch{LabelPatterns: []string{"missing"}}, false, 25)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range results {
+		if r.ID == doc.ID {
+			t.Fatal("AND label search matched a document missing the requested label")
+		}
 	}
 }
 

@@ -10,11 +10,13 @@ import (
 	docs "github.com/razorpay/aidocs/api/internal/server/docs"
 )
 
-func registerAPIDocsRoutes(r *gin.Engine) {
+func registerAPIDocsRoutes(r *gin.Engine, deps dependencies) {
 	docs.SwaggerInfo.BasePath = "/"
-	r.GET("/api-docs", func(c *gin.Context) { c.Redirect(http.StatusFound, "/api-docs/index.html") })
-	r.GET("/api-docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
-	r.GET("/openapi.json", func(c *gin.Context) {
+	require := requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver)
+	apiDocs := r.Group("", require)
+	apiDocs.GET("/api-docs", func(c *gin.Context) { c.Redirect(http.StatusFound, "/api-docs/index.html") })
+	apiDocs.GET("/api-docs/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	apiDocs.GET("/openapi.json", func(c *gin.Context) {
 		c.Data(http.StatusOK, "application/json; charset=utf-8", []byte(docs.SwaggerInfo.ReadDoc()))
 	})
 }

@@ -22,7 +22,7 @@ import (
 const folderTreeLockID int64 = 0x6169646f63735f66 // "aidocs_f"
 
 // folderMaxDepth is the deepest folder nesting the product allows.
-const folderMaxDepth = 5
+const folderMaxDepth = 15
 
 // grantRankRole maps the numeric role rank computed by ListFolderAccessChain
 // (owner=4, editor=3, commenter=2, viewer=1, none=0) back to a repo.Role.
@@ -48,9 +48,10 @@ func grantRankRole(rank int32) repo.Role {
 // principal has no access at that level.
 func (s *Store) FolderAccessChain(ctx context.Context, p auth.Principal, folderID string) ([]repo.FolderAccess, error) {
 	rows, err := s.q.ListFolderAccessChain(ctx, dbsqlc.ListFolderAccessChainParams{
-		FolderID:      folderID,
-		PrincipalType: string(p.Type),
-		PrincipalID:   p.ID,
+		FolderID:       folderID,
+		PrincipalType:  string(p.Type),
+		PrincipalID:    p.ID,
+		GoogleGroupIds: p.GoogleGroupIDs,
 	})
 	if err != nil {
 		return nil, err
@@ -144,7 +145,10 @@ func (s *Store) getFolder(ctx context.Context, q *dbsqlc.Queries, id string) (re
 		Owner:          auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Name: r.OwnerName, Email: r.OwnerEmail},
 	}
 	if f.ParentFolderID != "" {
-		anc, err := q.ListFolderAncestors(ctx, f.ParentFolderID)
+		anc, err := q.ListFolderAncestors(ctx, dbsqlc.ListFolderAncestorsParams{
+			FolderID: f.ParentFolderID,
+			MaxDepth: folderMaxDepth,
+		})
 		if err != nil {
 			return repo.Folder{}, err
 		}
@@ -277,7 +281,7 @@ func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path
 	out := []repo.FolderEntry{}
 	isRoot := parent == ""
 	if isRoot {
-		rows, err := s.q.ListRootFolderEntries(ctx, dbsqlc.ListRootFolderEntriesParams{PrincipalType: string(p.Type), PrincipalID: p.ID})
+		rows, err := s.q.ListRootFolderEntries(ctx, dbsqlc.ListRootFolderEntriesParams{PrincipalType: string(p.Type), PrincipalID: p.ID, GoogleGroupIds: p.GoogleGroupIDs})
 		if err != nil {
 			return nil, false, nil, err
 		}
@@ -331,7 +335,7 @@ func (s *Store) resolveFolderPath(ctx context.Context, p auth.Principal, folderI
 	}
 	for i, part := range strings.Split(strings.Trim(path, "/"), "/") {
 		if i == 0 && parent == "" {
-			rows, err := s.q.FindRootFoldersByTitle(ctx, dbsqlc.FindRootFoldersByTitleParams{Title: part, PrincipalType: string(p.Type), PrincipalID: p.ID})
+			rows, err := s.q.FindRootFoldersByTitle(ctx, dbsqlc.FindRootFoldersByTitleParams{Title: part, PrincipalType: string(p.Type), PrincipalID: p.ID, GoogleGroupIds: p.GoogleGroupIDs})
 			if err != nil {
 				return "", err
 			}
@@ -364,6 +368,7 @@ func (s *Store) SearchFoldersByTitle(ctx context.Context, p auth.Principal, quer
 	rows, err := s.q.SearchFoldersByTitle(ctx, dbsqlc.SearchFoldersByTitleParams{
 		PrincipalType:  string(p.Type),
 		PrincipalID:    p.ID,
+		GoogleGroupIds: p.GoogleGroupIDs,
 		IncludeOrgWide: includeOrgWide,
 		Query:          query,
 		RowLimit:       limit,

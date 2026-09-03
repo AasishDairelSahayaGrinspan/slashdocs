@@ -110,7 +110,9 @@ func (h handlers) createApprover(c *gin.Context) {
 		return
 	}
 	principal := auth.Principal{Type: in.Principal.Type, ID: in.Principal.ID, Email: in.Principal.Email, Name: in.Principal.Name}
-	resolved, err := resolveGrantPrincipal(c, h.deps.repository, in.Address, principal)
+	// Approvers are users or service accounts only; Google Groups are never
+	// resolved here regardless of server configuration.
+	resolved, err := resolveGrantPrincipal(c, h.deps.repository, nil, false, in.Address, principal)
 	if err != nil {
 		switch {
 		case errors.Is(err, errInvalidAddress):
@@ -119,6 +121,8 @@ func (h handlers) createApprover(c *gin.Context) {
 			badRequest(c, "principal id, user email, or service account name is required")
 		case errors.Is(err, errUnknownUserEmail):
 			badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
+		case errors.Is(err, errGoogleGroupsDisabled), errors.Is(err, errGoogleGroupEmailRequired):
+			badRequest(c, "approvers must be users or service accounts")
 		case errors.Is(err, repo.ErrNotFound):
 			notFound(c)
 		default:

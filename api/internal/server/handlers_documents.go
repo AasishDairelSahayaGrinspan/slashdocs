@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -103,14 +104,45 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Produce json
-// @Param q query string false "Title search query"
+// @Param q query string false "Search query; supports author:, labels:, in:, and /regex/ values"
+// @Param label query string false "Deprecated exact label filter; use q=labels:<label>"
 // @Success 200 {object} listResponse[repo.Document]
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
-	q := c.Query("q")
-	if q != "" {
+	if !requireResolvedGroupsForAggregate(c) {
+		return
+	}
+	q := strings.TrimSpace(c.Query("q"))
+	var search repo.DocumentSearch
+	var err error
+	if h.deps.searchTagsEnabled {
+		search, err = parseDocumentSearch(q)
+	} else {
+		search, err = parseDocumentTitleSearch(q)
+	}
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	search.IncludeLabels = h.deps.labelsEnabled
+	if label := strings.ToLower(strings.TrimSpace(c.Query("label"))); label != "" {
+		if !h.deps.labelsEnabled {
+			featureDisabled(c, "Document labels are temporarily disabled")
+			return
+		}
+		if !labelPattern.MatchString(label) {
+			badRequest(c, "invalid label")
+			return
+		}
+		if len(search.LabelPatterns) >= maxSearchLabels {
+			badRequest(c, fmt.Sprintf("at most %d labels are allowed", maxSearchLabels))
+			return
+		}
+		search.LabelPatterns = append(search.LabelPatterns, "^"+escapePostgresRegex(label)+"$")
+	}
+	if q != "" || len(search.LabelPatterns) > 0 {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
-		items, err := h.deps.repository.SearchDocumentsByTitle(c.Request.Context(), *current(c), q, includeOrgWide, 25)
+		items, err := h.deps.repository.SearchDocuments(c.Request.Context(), *current(c), search, includeOrgWide, 25)
 		if err != nil {
 			internalErr(c, err)
 			return
@@ -122,6 +154,11 @@ func (h handlers) listDocuments(c *gin.Context) {
 	if err != nil {
 		internalErr(c, err)
 		return
+	}
+	if h.deps.labelsEnabled {
+		for i := range items {
+			items[i].Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), items[i].ID)
+		}
 	}
 	h.annotateApprovalSummaries(c, items)
 	c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
@@ -151,6 +188,10 @@ func (h handlers) getDocument(c *gin.Context) {
 		return
 	}
 	if !atLeast(role, repo.RoleViewer) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return
+		}
 		forbidden(c, "viewer role required")
 		return
 	}
@@ -168,6 +209,9 @@ func (h handlers) getDocument(c *gin.Context) {
 				d.ParentFolder = &repo.FolderBreadcrumb{ID: f.ID, Title: f.Title}
 			}
 		}
+	}
+	if h.deps.labelsEnabled {
+		d.Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), d.ID)
 	}
 	docs := []repo.Document{d}
 	h.annotateApprovalSummaries(c, docs)

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 )
@@ -387,6 +388,39 @@ func registerMCPCommentMutationTools(server *mcpserver.MCPServer, api mcpAPIAdap
 				return invalid, nil
 			}
 			return api.json(ctx, http.MethodPatch, "/v1/documents/"+doc+"/comments/"+comment, map[string]any{"status": definition.status}, mcpParams("id", doc, "comment_id", comment), api.handlers.patchComment)
+		})
+	}
+
+	// Both verbs are idempotent and neither destroys content, so a repeated
+	// call is always safe: reacting twice leaves one reaction, and removing an
+	// absent reaction succeeds.
+	for _, definition := range []struct {
+		name, method, description string
+		handler                   gin.HandlerFunc
+	}{
+		{"react_comment", http.MethodPut, "Add your reaction to a document comment or reply.", api.handlers.putCommentReaction},
+		{"unreact_comment", http.MethodDelete, "Remove your reaction from a document comment or reply.", api.handlers.deleteCommentReaction},
+	} {
+		server.AddTool(mcp.NewTool(definition.name, mutationOptions(false, true,
+			mcp.WithDescription(definition.description), mcpDocumentID(), mcpCommentID(),
+			mcp.WithString("emoji",
+				mcp.Required(),
+				mcp.Description("Reaction slug."),
+				mcp.Enum("+1", "-1", "laugh", "hooray", "confused", "heart", "rocket", "eyes", "plus"),
+			),
+		)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			doc, comment, _, invalid := mcpCommentArguments(request, false)
+			if invalid != nil {
+				return invalid, nil
+			}
+			emoji, invalid := mcpRequired(request, "emoji")
+			if invalid != nil {
+				return invalid, nil
+			}
+			target := "/v1/documents/" + doc + "/comments/" + comment + "/reactions/" + url.PathEscape(emoji)
+			params := mcpParams("id", doc, "comment_id", comment, "emoji", emoji)
+			response, err := api.call(ctx, definition.method, target, "", nil, params, definition.handler)
+			return api.result(response, err, false)
 		})
 	}
 }

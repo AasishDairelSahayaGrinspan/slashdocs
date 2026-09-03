@@ -83,6 +83,16 @@ type CommentPlacement struct {
 	CreatedAt   pgtype.Timestamptz
 }
 
+// Lightweight acknowledgements on comments and replies. One row per (comment, principal, emoji); the primary key makes adding a reaction idempotent and removing one a primary-key delete.
+type CommentReaction struct {
+	CommentID     string
+	PrincipalType string
+	PrincipalID   string
+	// Stable ASCII slug from a fixed set, not a literal emoji character, so the value is URL-safe and each client chooses its own glyph. The CHECK keeps an old pod or a direct SQL writer from storing a slug clients cannot render.
+	Emoji     string
+	CreatedAt pgtype.Timestamptz
+}
+
 type Document struct {
 	ID               string
 	Title            string
@@ -118,6 +128,14 @@ type DocumentKvEvent struct {
 	UpdatedByName  string
 }
 
+type DocumentLabel struct {
+	DocumentID    string
+	Label         string
+	CreatedByType string
+	CreatedByID   string
+	CreatedAt     pgtype.Timestamptz
+}
+
 type DocumentWorkspaceEntry struct {
 	DocumentID    string
 	PrincipalType string
@@ -141,6 +159,39 @@ type FolderWorkspaceEntry struct {
 	PrincipalID   string
 	AddedAt       pgtype.Timestamptz
 	LastOpenedAt  pgtype.Timestamptz
+}
+
+type GithubConnection struct {
+	UserID                string
+	GithubUserID          int64
+	Login                 string
+	AvatarUrl             string
+	AccessTokenCiphertext []byte
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type GoogleGroup struct {
+	ID             string
+	CustomerID     string
+	Email          string
+	DisplayName    string
+	LastVerifiedAt pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type GoogleGroupMembership struct {
+	UserID   string
+	GroupID  string
+	SyncedAt pgtype.Timestamptz
+}
+
+type GoogleGroupSyncState struct {
+	UserID        string
+	LastAttemptAt pgtype.Timestamptz
+	LastSuccessAt pgtype.Timestamptz
+	LastErrorCode string
 }
 
 type OauthState struct {

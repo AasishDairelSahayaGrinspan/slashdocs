@@ -1,7 +1,10 @@
 import {
+  useCallback,
   type KeyboardEvent,
+  type ReactNode,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -24,8 +27,17 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
-import { api, type Anchor, type Comment, type UserPrincipal } from "@/api";
+import {
+  api,
+  REACTION_EMOJI,
+  type Anchor,
+  type Comment,
+  type ReactionEmoji,
+  type UserPrincipal,
+} from "@/api";
+import { cn } from "@/lib/cn";
 import { queryKeys } from "@/lib/queryKeys";
+import { layoutCommentRail } from "@/lib/comment-rail";
 import { samePrincipal } from "@/lib/principals";
 import {
   emptyMentionDraft,
@@ -304,62 +316,126 @@ function CommentBody({
   );
 }
 
-export function Comments() {
-  const {
-    docId,
-    version,
-    comments,
-    commentsLoading,
-    commentsError,
-    selection,
-    setSelection,
-  } = useDoc();
+// REACTION_GLYPH maps the server's stable slugs to the glyph this client
+// shows. The slug is the contract; the glyph is ours to choose.
+//
+// `satisfies` makes the literal exhaustive over REACTION_EMOJI, so adding a
+// slug there fails the build until it has a glyph. The declared type stays
+// keyed by string because reaction slugs arrive from the server unvalidated,
+// and a server that adds one before this client ships must still render.
+const REACTION_GLYPH: Record<string, string> = {
+  "+1": "👍",
+  "-1": "👎",
+  laugh: "😄",
+  hooray: "🎉",
+  confused: "😕",
+  heart: "❤️",
+  rocket: "🚀",
+  eyes: "👀",
+  plus: "➕",
+} satisfies Record<ReactionEmoji, string>;
+
+function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
   const q = useQueryClient();
-  const [filter, setFilter] = useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
-  const [quote, setQuote] = useState("");
-  const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
-  const anchorRef = useRef<Partial<Anchor> | undefined>(undefined);
-
-  useEffect(() => {
-    if (selection?.quote) {
-      setQuote(selection.quote);
-      anchorRef.current = selection.anchor;
-    }
-  }, [selection]);
-
-  const create = useMutation({
-    mutationFn: () =>
-      api.createComment(
-        docId,
-        version,
-        draft.body,
-        quote,
-        anchorRef.current,
-        draft.mentions,
-      ),
-    onSuccess: () => {
-      setDraft(emptyMentionDraft());
-      setQuote("");
-      anchorRef.current = undefined;
-      setSelection(null);
-      toast.success("Comment added.");
-      q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
-    },
-    onError: (e) => toast.error(errorMessage(e, "Could not add comment")),
+  const [picking, setPicking] = useState(false);
+  const reactions = c.reactions || [];
+  const toggle = useMutation({
+    mutationFn: ({ emoji, reacted }: { emoji: string; reacted: boolean }) =>
+      api.setCommentReaction(docId, c.id, emoji, reacted),
+    onSuccess: () => q.invalidateQueries({ queryKey: queryKeys.comments(docId) }),
+    onError: (e) => toast.error(errorMessage(e, "Reaction failed")),
   });
-
-  const clear = () => {
-    setQuote("");
-    setDraft(emptyMentionDraft());
-    anchorRef.current = undefined;
-    setSelection(null);
+  const react = (emoji: string, reacted: boolean) => {
+    setPicking(false);
+    toggle.mutate({ emoji, reacted });
   };
+  return (
+    <div className="relative mt-2 flex flex-wrap items-center gap-1">
+      {reactions.map((r) => (
+        <button
+          key={r.emoji}
+          type="button"
+          aria-pressed={r.reacted}
+          aria-label={`${r.emoji}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}`}
+          onClick={(e) => {
+            e.stopPropagation();
+            react(r.emoji, !r.reacted);
+          }}
+          className={cn(
+            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
+            r.reacted
+              ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
+              : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]",
+          )}
+        >
+          <span aria-hidden="true">{REACTION_GLYPH[r.emoji] || r.emoji}</span>
+          <span className="tabular-nums">{r.count}</span>
+        </button>
+      ))}
+      <button
+        type="button"
+        aria-label="Add reaction"
+        aria-expanded={picking}
+        onClick={(e) => {
+          e.stopPropagation();
+          setPicking((open) => !open);
+        }}
+        className="rounded-full border border-dashed border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]"
+      >
+        +
+      </button>
+      {/*
+        Anchored to the bar, not the "+" button: the button moves as reactions
+        wrap, and the bar spans the card so the picker stays inside it. w-max
+        stops the absolute box shrinking to its anchor's width.
+      */}
+      {picking && (
+        <div
+          role="menu"
+          className="absolute bottom-full left-0 z-10 mb-1 flex w-max max-w-full flex-wrap gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
+        >
+          {REACTION_EMOJI.map((emoji) => (
+            <button
+              key={emoji}
+              type="button"
+              role="menuitem"
+              aria-label={emoji}
+              title={emoji}
+              onClick={(e) => {
+                e.stopPropagation();
+                react(emoji, !reactions.some((r) => r.emoji === emoji && r.reacted));
+              }}
+              className="rounded p-1 text-sm hover:bg-[var(--color-surface-muted)]"
+            >
+              <span aria-hidden="true">{REACTION_GLYPH[emoji]}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
-  const items = comments.filter((c) => {
-    if (filter === COMMENT_FILTER_ALL) return true;
-    if (filter === COMMENT_STATUS.resolved) return c.status === COMMENT_STATUS.resolved;
-    return c.status !== COMMENT_STATUS.resolved;
-  });
+export function Comments() {
+  const { docId, comments, commentsLoading, commentsError, unanchoredComments } =
+    useDoc();
+  const [filter, setFilter] = useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
+
+  const items = useMemo(
+    () =>
+      comments
+        .filter((c) => {
+          if (filter === COMMENT_FILTER_ALL) return true;
+          if (filter === COMMENT_STATUS.resolved)
+            return c.status === COMMENT_STATUS.resolved;
+          return c.status !== COMMENT_STATUS.resolved;
+        })
+        .sort(
+          (a, b) =>
+            Number(unanchoredComments.has(b.id)) - Number(unanchoredComments.has(a.id)),
+        ),
+    [comments, filter, unanchoredComments],
+  );
 
   return (
     <div className="flex h-full flex-col">
@@ -381,44 +457,7 @@ export function Comments() {
         </div>
       </div>
       <div className="flex-1 overflow-y-auto p-4">
-        {quote && (
-          <form
-            className="mb-4 space-y-2 rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface-muted)]/50 p-3"
-            onSubmit={(e) => {
-              e.preventDefault();
-              create.mutate();
-            }}
-          >
-            <div className="border-l-2 border-[var(--color-accent)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
-              “{quote.length > 80 ? quote.slice(0, 80) + "…" : quote}”
-            </div>
-            <MentionTextarea
-              autoFocus
-              rows={3}
-              draft={draft}
-              onChange={setDraft}
-              onKeyDown={(e) => {
-                if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                  e.preventDefault();
-                  if (draft.body.trim() && !create.isPending) create.mutate();
-                }
-              }}
-              placeholder="Add a comment…"
-            />
-            <div className="flex justify-end gap-2">
-              <Button type="button" variant="ghost" size="sm" onClick={clear}>
-                Cancel
-              </Button>
-              <Button
-                size="sm"
-                type="submit"
-                disabled={!draft.body || create.isPending}
-              >
-                Comment ⌘↵
-              </Button>
-            </div>
-          </form>
-        )}
+        <CommentComposer className="mb-4" />
         {commentsLoading ? (
           <div className="space-y-3">
             <Skeleton className="h-20 w-full" />
@@ -463,15 +502,301 @@ export function Comments() {
   );
 }
 
-function CommentCard({ c, docId }: { c: Comment; docId: string }) {
+function CommentComposer({ className = "" }: { className?: string }) {
+  const { docId, version, selection, setSelection } = useDoc();
+  const q = useQueryClient();
+  const [quote, setQuote] = useState("");
+  const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
+  const anchorRef = useRef<Partial<Anchor> | undefined>(undefined);
+
+  useEffect(() => {
+    if (!selection?.quote) return;
+    setQuote(selection.quote);
+    anchorRef.current = selection.anchor;
+  }, [selection]);
+
+  const create = useMutation({
+    mutationFn: () =>
+      api.createComment(
+        docId,
+        version,
+        draft.body,
+        quote,
+        anchorRef.current,
+        draft.mentions,
+      ),
+    onSuccess: () => {
+      setDraft(emptyMentionDraft());
+      setQuote("");
+      anchorRef.current = undefined;
+      setSelection(null);
+      toast.success("Comment added.");
+      q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
+    },
+    onError: (e) => toast.error(errorMessage(e, "Could not add comment")),
+  });
+
+  const clear = () => {
+    setQuote("");
+    setDraft(emptyMentionDraft());
+    anchorRef.current = undefined;
+    setSelection(null);
+  };
+
+  if (!quote) return null;
+  return (
+    <form
+      className={`space-y-2 rounded-[14px] bg-[var(--color-surface)] p-3 shadow-lg ring-1 ring-[var(--color-border)] ${className}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        create.mutate();
+      }}
+    >
+      <div className="border-l-2 border-[var(--color-accent)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
+        “{quote.length > 80 ? quote.slice(0, 80) + "…" : quote}”
+      </div>
+      <MentionTextarea
+        autoFocus
+        rows={3}
+        draft={draft}
+        onChange={setDraft}
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            if (draft.body.trim() && !create.isPending) create.mutate();
+          }
+        }}
+        placeholder="Add a comment…"
+      />
+      <div className="flex justify-end gap-2">
+        <Button type="button" variant="ghost" size="sm" onClick={clear}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          type="submit"
+          disabled={!draft.body.trim() || create.isPending}
+        >
+          Comment ⌘↵
+        </Button>
+      </div>
+    </form>
+  );
+}
+
+const RAIL_CARD_ESTIMATE = 190;
+const RAIL_COMPOSER_ESTIMATE = 210;
+
+export function CommentRail() {
+  const {
+    docId,
+    comments,
+    commentsLoading,
+    commentsError,
+    selection,
+    unanchoredComments,
+    commentPositions,
+    commentViewport,
+    scrollDocumentTo,
+    registerCommentRailSync,
+  } = useDoc();
+  const railRef = useRef<HTMLDivElement>(null);
+  const applyingDocumentScroll = useRef(false);
+  const scrollSyncFrame = useRef(0);
+  const [railHeight, setRailHeight] = useState(0);
+  const [heights, setHeights] = useState<ReadonlyMap<string, number>>(new Map());
+
+  useLayoutEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const update = () => setRailHeight(rail.clientHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(rail);
+    return () => observer.disconnect();
+  }, []);
+
+  const timelineComments = useMemo(
+    () =>
+      comments.filter((comment) => {
+        if (comment.status === COMMENT_STATUS.resolved) return false;
+        if (unanchoredComments.has(comment.id)) return true;
+        return commentPositions.has(comment.id);
+      }),
+    [comments, commentPositions, unanchoredComments],
+  );
+
+  const layoutItems = useMemo(() => {
+    const items = timelineComments.map((comment) => ({
+      id: comment.id,
+      anchorTop: commentPositions.get(comment.id)?.top ?? 0,
+      height: heights.get(comment.id) ?? RAIL_CARD_ESTIMATE,
+      atStart: unanchoredComments.has(comment.id),
+    }));
+    if (selection?.quote) {
+      items.push({
+        id: "__composer",
+        anchorTop: selection.top ?? 0,
+        height: heights.get("__composer") ?? RAIL_COMPOSER_ESTIMATE,
+        atStart: selection.top === undefined,
+      });
+    }
+    return items;
+  }, [commentPositions, heights, selection, timelineComments, unanchoredComments]);
+
+  const timelineHeight = Math.max(commentViewport.scrollHeight, railHeight, 1);
+
+  const placements = useMemo(
+    () => layoutCommentRail(layoutItems, timelineHeight),
+    [layoutItems, timelineHeight],
+  );
+  const contentHeight = Math.max(
+    timelineHeight,
+    ...placements.map((placement) => placement.y + placement.height + 12),
+  );
+  const commentByID = useMemo(
+    () => new Map(timelineComments.map((comment) => [comment.id, comment])),
+    [timelineComments],
+  );
+  const onHeight = useCallback((id: string, height: number) => {
+    setHeights((current) => {
+      if (Math.abs((current.get(id) || 0) - height) < 1) return current;
+      const next = new Map(current);
+      next.set(id, height);
+      return next;
+    });
+  }, []);
+
+  const applyDocumentScroll = useCallback((top: number) => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const target = Math.max(0, Math.min(top, rail.scrollHeight - rail.clientHeight));
+    if (Math.abs(rail.scrollTop - target) < 0.5) return;
+    if (scrollSyncFrame.current) cancelAnimationFrame(scrollSyncFrame.current);
+    applyingDocumentScroll.current = true;
+    rail.scrollTop = target;
+    scrollSyncFrame.current = requestAnimationFrame(() => {
+      applyingDocumentScroll.current = false;
+      scrollSyncFrame.current = 0;
+    });
+  }, []);
+
+  useLayoutEffect(() => {
+    applyDocumentScroll(commentViewport.scrollTop);
+  }, [applyDocumentScroll, commentViewport.scrollTop, contentHeight]);
+
+  useEffect(() => {
+    registerCommentRailSync(applyDocumentScroll);
+    return () => registerCommentRailSync(null);
+  }, [applyDocumentScroll, registerCommentRailSync]);
+
+  useEffect(
+    () => () => {
+      if (scrollSyncFrame.current) cancelAnimationFrame(scrollSyncFrame.current);
+    },
+    [],
+  );
+
+  return (
+    <div
+      ref={railRef}
+      className="relative h-full overflow-x-hidden overflow-y-auto overscroll-contain"
+      onScroll={(event) => {
+        if (applyingDocumentScroll.current) return;
+        scrollDocumentTo(event.currentTarget.scrollTop);
+      }}
+    >
+      {commentsLoading ? (
+        <div className="sticky top-0 space-y-3 px-3 py-3">
+          <Skeleton className="h-28 w-full rounded-[14px]" />
+          <Skeleton className="h-28 w-full rounded-[14px]" />
+        </div>
+      ) : commentsError ? (
+        <div className="sticky top-0 px-3 py-3">
+          <div className="rounded-[14px] bg-[var(--color-surface)] p-3 text-sm text-[var(--color-fg-muted)] shadow-lg ring-1 ring-[var(--color-border)]">
+            Could not load comments.
+          </div>
+        </div>
+      ) : (
+        <div className="relative min-h-full" style={{ height: contentHeight }}>
+          {placements.map((placement) => {
+            const comment = commentByID.get(placement.id);
+            if (placement.id !== "__composer" && !comment) return null;
+            return (
+              <MeasuredRailItem
+                key={placement.id}
+                id={placement.id}
+                y={placement.y}
+                connected={!placement.atStart}
+                onHeight={onHeight}
+              >
+                {placement.id === "__composer" ? (
+                  <CommentComposer />
+                ) : (
+                  <CommentCard c={comment!} docId={docId} autoReveal={false} />
+                )}
+              </MeasuredRailItem>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MeasuredRailItem({
+  id,
+  y,
+  connected,
+  onHeight,
+  children,
+}: {
+  id: string;
+  y: number;
+  connected: boolean;
+  onHeight: (id: string, height: number) => void;
+  children: ReactNode;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    const update = () => onHeight(id, element.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [id, onHeight]);
+  return (
+    <div ref={ref} className="absolute inset-x-3 top-0" style={{ top: y }}>
+      {connected ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -left-3 top-5 h-px w-3 bg-[var(--color-border-strong)]"
+        />
+      ) : null}
+      {children}
+    </div>
+  );
+}
+
+function CommentCard({
+  c,
+  docId,
+  autoReveal = true,
+}: {
+  c: Comment;
+  docId: string;
+  autoReveal?: boolean;
+}) {
   const q = useQueryClient();
   const { activeComment, setActiveComment, principal, unanchoredComments } = useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
   useEffect(() => {
-    if (active)
+    if (active && autoReveal)
       cardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [active]);
+  }, [active, autoReveal]);
   const reply = useMutation({
     mutationFn: (draft: MentionDraft) =>
       api.createCommentReply(docId, c.id, draft.body, draft.mentions),
@@ -490,7 +815,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
       ref={cardRef}
       role="button"
       tabIndex={0}
-      className={`group cursor-pointer rounded-[12px] border bg-[var(--color-surface)] p-3 transition-[border-color,box-shadow,opacity] duration-200 ease-out hover:border-[var(--color-border-strong)] hover:shadow-sm ${active ? "border-[var(--color-border-strong)] shadow-sm ring-1 ring-[var(--color-border-strong)]" : "border-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
+      className={`group cursor-pointer rounded-[14px] bg-[var(--color-surface)] p-3 shadow-lg ring-1 transition-[box-shadow,opacity] duration-200 ease-out hover:shadow-xl ${active ? "ring-2 ring-[var(--color-border-strong)]" : "ring-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
       onClick={toggleActive}
       onKeyDown={(e) => {
         // Only toggle when the card itself is focused, not when typing in the
@@ -533,6 +858,7 @@ function CommentCard({ c, docId }: { c: Comment; docId: string }) {
           className="opacity-0 transition-opacity group-hover:opacity-100"
         />
       </div>
+      <ReactionBar c={c} docId={docId} />
       {(c.replies || []).length > 0 && (
         <div className="mt-3 space-y-2 border-l border-[var(--color-border)] pl-3">
           {(c.replies || []).map((r) => (
@@ -590,6 +916,7 @@ function ReplyItem({
         />
       </div>
       <CommentBody text={r.body} mentions={r.mentions} />
+      <ReactionBar c={r} docId={docId} />
     </div>
   );
 }

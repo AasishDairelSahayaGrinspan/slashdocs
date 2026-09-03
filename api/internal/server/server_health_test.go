@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -102,8 +103,9 @@ func TestDocumentCreateMetricsIncrement(t *testing.T) {
 
 func TestAPIDocsRoutes(t *testing.T) {
 	h := newTestEnv(t).h
+	authedHeaders := map[string]string{"X-Test-Principal": principalHeader(fixtureUser)}
 
-	openapi := do(t, h, http.MethodGet, "/openapi.json", "", nil)
+	openapi := do(t, h, http.MethodGet, "/openapi.json", "", authedHeaders)
 	assertStatus(t, openapi, http.StatusOK)
 	var spec map[string]any
 	if err := json.Unmarshal(openapi.Body.Bytes(), &spec); err != nil {
@@ -147,10 +149,36 @@ func TestAPIDocsRoutes(t *testing.T) {
 		t.Fatalf("openapi mention principal enum = %#v, want [user service_account]", mentionPrincipalType["enum"])
 	}
 
-	docs := do(t, h, http.MethodGet, "/api-docs", "", nil)
+	docs := do(t, h, http.MethodGet, "/api-docs", "", authedHeaders)
 	assertStatus(t, docs, http.StatusFound)
 	if loc := docs.Header().Get("Location"); loc != "/api-docs/index.html" {
 		t.Fatalf("Location = %q, want /api-docs/index.html", loc)
+	}
+}
+
+func TestAPIDocsRequireAuth(t *testing.T) {
+	h := newTestEnv(t).h
+	// An unauthenticated browser request must be redirected to the login page
+	// with a redirect back to the originally requested docs path, so that a
+	// user is routed to the docs after signing in.
+	for _, path := range []string{"/api-docs/index.html", "/openapi.json", "/api-docs"} {
+		rr := do(t, h, http.MethodGet, path, "", map[string]string{"Accept": "text/html"})
+		assertStatus(t, rr, http.StatusFound)
+		loc := rr.Header().Get("Location")
+		if !strings.HasPrefix(loc, "/v1/auth/google/start?mode=web&redirect=") {
+			t.Fatalf("%s: login Location = %q, want /v1/auth/google/start?...", path, loc)
+		}
+		redirectQuery := loc[len("/v1/auth/google/start?mode=web&redirect="):]
+		redirect, err := url.QueryUnescape(redirectQuery)
+		if err != nil || redirect != path {
+			t.Fatalf("%s: redirect back = %q, want %q", path, redirect, path)
+		}
+	}
+
+	// An unauthenticated non-browser (API/CLI) request receives 401.
+	for _, path := range []string{"/openapi.json", "/api-docs/index.html"} {
+		rr := do(t, h, http.MethodGet, path, "", nil)
+		assertStatus(t, rr, http.StatusUnauthorized)
 	}
 }
 
@@ -162,7 +190,10 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "org_name": "",
 	  "everyone_label": "Anyone with the link",
 	  "provider_name": "SSO",
-	  "default_doc_permission": "private"
+	  "default_doc_permission": "private",
+	  "google_groups_enabled": false,
+	  "labels_enabled": true,
+	  "search_tags_enabled": true
 	}`)
 
 	org := newConfiguredTestEnv(t, server.Config{Environment: "test", Deployment: "org", OrgName: "Acme", OIDCProviderName: "Google", DefaultDocPermission: repo.RoleCommenter})
@@ -173,8 +204,31 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "org_name": "Acme",
 	  "everyone_label": "Anyone in Acme",
 	  "provider_name": "Google",
-	  "default_doc_permission": "commenter"
+	  "default_doc_permission": "commenter",
+	  "google_groups_enabled": false,
+	  "labels_enabled": true,
+	  "search_tags_enabled": true
 	}`)
+}
+
+func TestConfigReportsTemporarilyDisabledDocumentFeatures(t *testing.T) {
+	e := newConfiguredTestEnv(t, server.Config{
+		Environment:       "test",
+		DisableLabels:     true,
+		DisableSearchTags: true,
+	})
+	rr := do(t, e.h, http.MethodGet, "/v1/config", "", nil)
+	assertStatus(t, rr, http.StatusOK)
+	var cfg struct {
+		LabelsEnabled     bool `json:"labels_enabled"`
+		SearchTagsEnabled bool `json:"search_tags_enabled"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.LabelsEnabled || cfg.SearchTagsEnabled {
+		t.Fatalf("config did not disable document features: %s", rr.Body.String())
+	}
 }
 
 func TestFrontendFallbackServesEmbeddedIndex(t *testing.T) {

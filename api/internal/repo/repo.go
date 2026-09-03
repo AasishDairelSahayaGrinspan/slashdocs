@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 )
@@ -94,6 +95,7 @@ type Document struct {
 	ParentFolderID   string            `json:"parent_folder_id,omitempty"`
 	ParentFolder     *FolderBreadcrumb `json:"parent_folder,omitempty"`
 	UpdatedAt        string            `json:"updated_at,omitempty"`
+	Labels           []string          `json:"labels,omitempty"`
 	// ApprovalStatus and ApprovalSummary are handler-populated (like
 	// ParentFolder) and only present when the document has assigned approvers.
 	ApprovalStatus  string           `json:"approval_status,omitempty"`
@@ -177,6 +179,19 @@ type FolderEntry struct {
 	LastActive string    `json:"last_active,omitempty"`
 }
 
+// DocumentSearch contains validated, case-insensitive PostgreSQL regular
+// expressions for each supported search dimension. Empty patterns disable a
+// dimension. LabelPatterns use AND semantics.
+type DocumentSearch struct {
+	TitlePattern  string
+	AuthorPattern string
+	LabelPatterns []string
+	FolderPattern string
+	// IncludeLabels controls response hydration only; LabelPatterns still
+	// filter regardless of this value.
+	IncludeLabels bool
+}
+
 type Pin struct {
 	ResourceType string `json:"resource_type"`
 	ResourceID   string `json:"resource_id"`
@@ -225,6 +240,21 @@ type Grant struct {
 	GrantedBy    auth.Principal `json:"granted_by"`
 }
 
+type GoogleGroup struct {
+	ID             string    `json:"id"`
+	CustomerID     string    `json:"-"`
+	Email          string    `json:"email"`
+	Name           string    `json:"name"`
+	LastVerifiedAt time.Time `json:"-"`
+}
+
+type GoogleGroupMembershipSnapshot struct {
+	GroupIDs      []string
+	LastAttemptAt time.Time
+	LastSuccessAt time.Time
+	LastErrorCode string
+}
+
 type Version struct {
 	ID            string         `json:"id"`
 	Number        int            `json:"number"`
@@ -234,7 +264,17 @@ type Version struct {
 	SHA256        string         `json:"sha256"`
 	// CarriedApprovals counts approval rows copied forward when this version
 	// was created; used for metrics only.
-	CarriedApprovals int `json:"-"`
+	CarriedApprovals int    `json:"-"`
+	CreatedAt        string `json:"created_at"`
+}
+
+type GitHubConnection struct {
+	UserID                string `json:"-"`
+	GitHubUserID          int64  `json:"github_user_id"`
+	Login                 string `json:"login"`
+	AvatarURL             string `json:"avatar_url,omitempty"`
+	AccessTokenCiphertext []byte `json:"-"`
+	UpdatedAt             string `json:"updated_at,omitempty"`
 }
 
 type Anchor struct {
@@ -252,18 +292,29 @@ type CLICredential struct {
 }
 
 type Comment struct {
-	ID              string           `json:"id"`
-	DocumentID      string           `json:"document_id"`
-	VersionID       string           `json:"version_id"`
-	Author          auth.Principal   `json:"author"`
-	Body            string           `json:"body"`
-	SelectedText    string           `json:"selected_text"`
-	Anchor          Anchor           `json:"anchor"`
-	Status          string           `json:"status"`
-	ParentCommentID string           `json:"parent_comment_id,omitempty"`
-	RootCommentID   string           `json:"root_comment_id,omitempty"`
-	Mentions        []CommentMention `json:"mentions"`
-	Replies         []Comment        `json:"replies,omitempty"`
+	ID              string            `json:"id"`
+	DocumentID      string            `json:"document_id"`
+	VersionID       string            `json:"version_id"`
+	Author          auth.Principal    `json:"author"`
+	Body            string            `json:"body"`
+	SelectedText    string            `json:"selected_text"`
+	Anchor          Anchor            `json:"anchor"`
+	Status          string            `json:"status"`
+	ParentCommentID string            `json:"parent_comment_id,omitempty"`
+	RootCommentID   string            `json:"root_comment_id,omitempty"`
+	Mentions        []CommentMention  `json:"mentions"`
+	Reactions       []CommentReaction `json:"reactions"`
+	Replies         []Comment         `json:"replies,omitempty"`
+}
+
+// CommentReaction is one principal's acknowledgement of a comment with one
+// emoji slug. The repository returns the raw rows in first-reaction order;
+// grouping them into per-emoji counts, and deciding whether the current
+// viewer is among them, is a presentation concern and happens in the API
+// layer rather than here.
+type CommentReaction struct {
+	Principal auth.Principal `json:"principal"`
+	Emoji     string         `json:"emoji"`
 }
 
 // CommentMention associates an exact UTF-16 range in a comment body with a
@@ -340,7 +391,7 @@ type Repository interface {
 	FolderAccessChain(ctx context.Context, principal auth.Principal, folderID string) ([]FolderAccess, error)
 	CreateDocument(ctx context.Context, owner auth.Principal, title string, html []byte) (Document, Version, error)
 	ListDocuments(ctx context.Context, principal auth.Principal) ([]Document, error)
-	SearchDocumentsByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Document, error)
+	SearchDocuments(ctx context.Context, principal auth.Principal, search DocumentSearch, includeOrgWide bool, limit int32) ([]Document, error)
 	// RecordDocumentOpened notes that a principal opened a document, so a
 	// broadly-shared ("anyone") document joins their workspace listing after
 	// first open. Idempotent.
@@ -348,6 +399,12 @@ type Repository interface {
 	GetDocument(ctx context.Context, id string) (Document, error)
 	UpdateDocument(ctx context.Context, id, title string) (Document, error)
 	DeleteDocument(ctx context.Context, id string) error
+	ListDocumentsByLabel(ctx context.Context, principal auth.Principal, label string) ([]Document, error)
+	ListDocumentLabels(ctx context.Context, documentID string) ([]string, error)
+	ReplaceDocumentLabels(ctx context.Context, documentID string, labels []string, actor auth.Principal) ([]string, error)
+	UpsertGitHubConnection(ctx context.Context, connection GitHubConnection) error
+	GetGitHubConnection(ctx context.Context, userID string) (GitHubConnection, error)
+	DeleteGitHubConnection(ctx context.Context, userID string) error
 	CreateServiceAccount(ctx context.Context, owner auth.Principal, name string) (ServiceAccount, error)
 	ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error)
 	GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error)
@@ -364,8 +421,13 @@ type Repository interface {
 	UserByEmail(ctx context.Context, email string) (auth.Principal, error)
 	SearchUsersByEmail(ctx context.Context, query string) ([]auth.Principal, error)
 	EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error)
+	GoogleGroupMembershipSnapshot(ctx context.Context, userID string) (GoogleGroupMembershipSnapshot, error)
+	ReplaceGoogleGroupMemberships(ctx context.Context, userID string, groups []GoogleGroup, syncedAt time.Time) error
+	RecordGoogleGroupMembershipFailure(ctx context.Context, userID, errorCode string, attemptedAt time.Time) error
+	UpsertGoogleGroup(ctx context.Context, group GoogleGroup) error
 	CreateGrant(ctx context.Context, resourceType, resourceID string, principal auth.Principal, role Role, grantedBy auth.Principal) (Grant, error)
 	ListGrants(ctx context.Context, documentID string) ([]Grant, error)
+	GetGrant(ctx context.Context, resourceID, grantID string) (Grant, error)
 	UpdateGrant(ctx context.Context, documentID, grantID string, role Role) (Grant, error)
 	DeleteGrant(ctx context.Context, documentID, grantID string) error
 	// CreateVersion writes a new immutable version. Unless resetApprovals is
@@ -381,6 +443,8 @@ type Repository interface {
 	ListComments(ctx context.Context, documentID, status, versionID string) ([]Comment, error)
 	UpdateComment(ctx context.Context, id string, update CommentUpdate) (Comment, error)
 	DeleteComment(ctx context.Context, id string) error
+	PutCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
+	DeleteCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
 	ListDocumentKV(ctx context.Context, documentID string) (DocumentKVSnapshot, error)
 	ListDocumentKVEvents(ctx context.Context, documentID string, afterRevision int64, limit int32) ([]DocumentKVEvent, error)
 	PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error)
