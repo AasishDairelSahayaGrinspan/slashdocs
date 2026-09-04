@@ -1,10 +1,12 @@
--- name: InsertComment :exec
+-- name: InsertComment :one
 INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,root_comment_id)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$1);
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$1)
+RETURNING created_at;
 
--- name: InsertCommentReply :exec
+-- name: InsertCommentReply :one
 INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,'','{}'::jsonb,'open',$9,$10);
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,'','{}'::jsonb,'open',$9,$10)
+RETURNING created_at;
 
 -- name: ListComments :many
 SELECT id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id,created_at,resolved_at
