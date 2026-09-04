@@ -243,6 +243,8 @@ type Comment struct {
 	Mentions        []CommentMention  `json:"mentions"`
 	Reactions       []CommentReaction `json:"reactions"`
 	Replies         []Comment         `json:"replies,omitempty"`
+	CreatedAt       string            `json:"created_at,omitempty"`
+	ResolvedAt      string            `json:"resolved_at,omitempty"`
 }
 
 // CommentReaction is one principal's acknowledgement of a comment with one

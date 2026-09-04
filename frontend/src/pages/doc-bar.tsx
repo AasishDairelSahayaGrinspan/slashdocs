@@ -41,6 +41,7 @@ import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
 import { canManageSharing, ROLE_RANK } from "@/lib/constants";
+import { formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
@@ -415,9 +416,7 @@ function VersionHistoryDialog({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
                     <span>Created by {principalLabel(v.created_by)}</span>
-                    {v.created_at ? (
-                      <span>{new Date(v.created_at).toLocaleString()}</span>
-                    ) : null}
+                    {v.created_at ? <span>{formatTimestamp(v.created_at)}</span> : null}
                     <span className="font-mono">{v.id}</span>
                   </div>
                 </div>
