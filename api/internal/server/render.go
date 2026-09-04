@@ -1,19 +1,114 @@
 package server
 
 import (
-	_ "embed"
+	"crypto/sha256"
+	"embed"
+	"encoding/hex"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"html/template"
+	"net/url"
 	"strings"
 )
 
-//go:embed bridge.js
-var bridgeJSSource string
+// ErrUnsafeRenderOrigin marks the one render-origin validation failure that
+// the explicit local-development escape hatch may override. Invalid origins
+// must remain fatal even when that escape hatch is set.
+var ErrUnsafeRenderOrigin = errors.New("app and render origins are not isolated by hostname")
+
+// ValidateRenderOrigin refuses an app/render origin pair that shares a
+// hostname. Uploaded HTML is untrusted; scheme and port do not isolate
+// host-scoped cookies, so rendering it on the app host lets a
+// malicious document script against the app itself (session cookies, API
+// calls). Startup code may downgrade this error to a loud warning when
+// AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN=true opts into the risk (dev/demo only).
+func ValidateRenderOrigin(appOrigin, renderOrigin string) error {
+	appCanonical, appOK := canonicalHTTPOrigin(appOrigin)
+	if !appOK {
+		return fmt.Errorf("AIDOCS_APP_ORIGIN (%q) is not a valid HTTP origin", appOrigin)
+	}
+	renderCanonical, renderOK := canonicalHTTPOrigin(renderOrigin)
+	if !renderOK {
+		return fmt.Errorf("AIDOCS_RENDER_ORIGIN (%q) is not a valid HTTP origin", renderOrigin)
+	}
+	appURL, _ := url.Parse(appCanonical)
+	renderURL, _ := url.Parse(renderCanonical)
+	appHostname := strings.TrimSuffix(appURL.Hostname(), ".")
+	renderHostname := strings.TrimSuffix(renderURL.Hostname(), ".")
+	if appHostname != renderHostname {
+		return nil
+	}
+	return fmt.Errorf("%w: AIDOCS_RENDER_ORIGIN (%q) must use a different hostname from AIDOCS_APP_ORIGIN: the server routes renders by Host, so a scheme or port difference alone cannot isolate untrusted document HTML. Serve renders from a separate hostname, or set AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN=true to accept this risk in non-production setups", ErrUnsafeRenderOrigin, renderOrigin)
+}
+
+// bridgeFS embeds a tracked placeholder so plain Go builds remain valid before
+// the frontend toolchain generates bridge_dist/bridge.js.
+//
+//go:embed all:bridge_dist
+var bridgeFS embed.FS
+
+func readEmbeddedBridgeAsset(name string) string {
+	source, err := bridgeFS.ReadFile("bridge_dist/" + name)
+	if err != nil {
+		return ""
+	}
+	return string(source)
+}
+
+var (
+	bridgeJSSource         = readEmbeddedBridgeAsset("bridge.js")
+	bridgeSourceHash       = strings.TrimSpace(readEmbeddedBridgeAsset("bridge.source.sha256"))
+	bridgeBundleHash       = strings.TrimSpace(readEmbeddedBridgeAsset("bridge.sha256"))
+	BuildBridgeSourceHash  string
+	errMissingBridgeBundle = errors.New("sandbox bridge bundle is missing; run `make frontend` before building the server")
+	errMissingBridgeHash   = errors.New("sandbox bridge integrity metadata is missing or invalid; run `make frontend` before building the server")
+	errUnlinkedBridgeBuild = errors.New("sandbox bridge source fingerprint is missing from the binary; build the server with `make backend`")
+	errStaleBridgeBundle   = errors.New("sandbox bridge bundle is stale; run `make frontend` and rebuild the server")
+	errCorruptBridgeBundle = errors.New("sandbox bridge bundle failed its integrity check; run `make frontend` and rebuild the server")
+)
+
+// ValidateEmbeddedBridge rejects production startup when the generated iframe
+// bridge is absent, stale, or corrupt. Supported server builds link
+// BuildBridgeSourceHash from a fingerprint covering every TypeScript source
+// under frontend/bridge/, so a change to any bridge module invalidates an
+// outdated bundle.
+func ValidateEmbeddedBridge() error {
+	return validateEmbeddedBridgeSource(bridgeJSSource, bridgeSourceHash, bridgeBundleHash, BuildBridgeSourceHash)
+}
+
+func validateEmbeddedBridgeSource(source, generatedSourceHash, generatedBundleHash, expectedSourceHash string) error {
+	if strings.TrimSpace(source) == "" {
+		return errMissingBridgeBundle
+	}
+	if !validSHA256(generatedSourceHash) || !validSHA256(generatedBundleHash) {
+		return errMissingBridgeHash
+	}
+	if !validSHA256(expectedSourceHash) {
+		return errUnlinkedBridgeBuild
+	}
+	if !strings.EqualFold(generatedSourceHash, expectedSourceHash) {
+		return fmt.Errorf("%w: generated from %s, building from %s", errStaleBridgeBundle, generatedSourceHash, expectedSourceHash)
+	}
+	sum := sha256.Sum256([]byte(source))
+	if !strings.EqualFold(generatedBundleHash, hex.EncodeToString(sum[:])) {
+		return errCorruptBridgeBundle
+	}
+	return nil
+}
+
+func validSHA256(value string) bool {
+	if len(value) != sha256.Size*2 {
+		return false
+	}
+	_, err := hex.DecodeString(value)
+	return err == nil
+}
 
 // wrapperTmpl renders the sandboxed iframe that hosts untrusted user HTML.
 // Using html/template ensures the srcdoc attribute value is correctly escaped
 // (including </script> sequences inside inline scripts).
-var wrapperTmpl = template.Must(template.New("wrapper").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>aidocs render</title><style>html,body{margin:0;height:100%;overflow:hidden}#aidocs-doc{border:0;width:100%;height:100vh}</style><script>try{var u=new URL(location.href);if(u.searchParams.has("token")){u.searchParams.delete("token");history.replaceState(null,"",u.pathname+(u.search||"")+u.hash)}}catch(e){}</script></head><body><iframe id="aidocs-doc" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc="{{.SrcDoc}}"></iframe><script>window.__AIDOCS_APP_ORIGIN__={{.AppOriginJS}};({{.BridgeJS}})();</script></body></html>`))
+var wrapperTmpl = template.Must(template.New("wrapper").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>aidocs render</title><style>html,body{margin:0;height:100%;overflow:hidden}#aidocs-doc{border:0;width:100%;height:100vh}</style><script>try{var u=new URL(location.href);if(u.searchParams.has("token")){u.searchParams.delete("token");history.replaceState(null,"",u.pathname+(u.search||"")+u.hash)}}catch(e){}</script></head><body><iframe id="aidocs-doc" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc="{{.SrcDoc}}"></iframe><script>window.__AIDOCS_APP_ORIGIN__={{.AppOriginJS}};{{.BridgeJS}}</script></body></html>`))
 
 type wrapperData struct {
 	// SrcDoc is the raw user HTML. html/template escapes it for the
@@ -24,7 +119,7 @@ type wrapperData struct {
 	BridgeJS    template.JS
 }
 
-const bridgePrelude = `<script id="aidocs-bootstrap">(function(){if(window.aidocs&&window.aidocs.kv)return;var q=[];var handlers={kvchange:[]};function enqueue(op,args){return new Promise(function(resolve,reject){q.push({op:op,args:Array.prototype.slice.call(args),resolve:resolve,reject:reject});});}function off(event,handler){if(event!=="kvchange")return;handlers.kvchange=handlers.kvchange.filter(function(h){return h!==handler;});}function on(event,handler){if(event==="kvchange"&&typeof handler==="function"){handlers.kvchange.push(handler);return function(){off(event,handler);};}}window.__aidocsKVQueue=q;window.__aidocsKVHandlers=handlers;window.aidocs=Object.assign(window.aidocs||{},{kv:{get:function(){return enqueue("get",arguments);},all:function(){return enqueue("all",arguments);},set:function(){return enqueue("set",arguments);},delete:function(){return enqueue("delete",arguments);},patch:function(){return enqueue("patch",arguments);},undo:function(){return enqueue("undo",arguments);},redo:function(){return enqueue("redo",arguments);}},on:on,off:off});})();</script>`
+const bridgePrelude = `<script id="aidocs-bootstrap">(function(){if(window.aidocs&&window.aidocs.kv&&window.aidocs.github&&window.aidocs.github.connect)return;var q=[],gq=[],handlers={kvchange:[]};function enqueue(op,args){return new Promise(function(resolve,reject){q.push({op:op,args:Array.prototype.slice.call(args),resolve:resolve,reject:reject});});}function github(input){return new Promise(function(resolve,reject){gq.push({input:input,resolve:resolve,reject:reject});});}function githubConnect(){window.__aidocsGitHubConnectQueued=true;}function off(event,handler){if(event!=="kvchange")return;handlers.kvchange=handlers.kvchange.filter(function(h){return h!==handler;});}function on(event,handler){if(event==="kvchange"&&typeof handler==="function"){handlers.kvchange.push(handler);return function(){off(event,handler);};}}window.__aidocsKVQueue=q;window.__aidocsGitHubQueue=gq;window.__aidocsKVHandlers=handlers;window.aidocs=Object.assign(window.aidocs||{},{kv:{get:function(){return enqueue("get",arguments);},all:function(){return enqueue("all",arguments);},set:function(){return enqueue("set",arguments);},delete:function(){return enqueue("delete",arguments);},patch:function(){return enqueue("patch",arguments);},undo:function(){return enqueue("undo",arguments);},redo:function(){return enqueue("redo",arguments);}},github:{getRawContent:github,connect:githubConnect},on:on,off:off});})();</script>`
 
 func userHTMLWithBridgePrelude(userHTML []byte) string {
 	s := string(userHTML)
@@ -69,15 +164,28 @@ func findStartTagEnd(lowerHTML, tag string) int {
 	return -1
 }
 
+func appOriginScriptValue(appOrigin string) template.JS {
+	originJSON, err := json.Marshal(appOrigin)
+	if err != nil {
+		panic(err) // encoding a string as JSON cannot fail
+	}
+	//nolint:gosec // G203: json.Marshal produces a quoted JS string literal with script-breaking characters escaped.
+	return template.JS(originJSON)
+}
+
+func embeddedBridgeScript() template.JS {
+	//nolint:gosec // G203: bridgeJSSource is a build-time embedded repository asset, never user-controlled input.
+	return template.JS(bridgeJSSource)
+}
+
 // renderWrapperHTML returns the full wrapper page that embeds userHTML inside
 // a sandboxed iframe. appOrigin is used for the Content-Security-Policy and
 // for the bridge JS postMessage target origin.
 func renderWrapperHTML(userHTML []byte, appOrigin string) []byte {
-	originJSON, _ := json.Marshal(appOrigin)
 	data := wrapperData{
 		SrcDoc:      userHTMLWithBridgePrelude(userHTML),
-		AppOriginJS: template.JS(originJSON),
-		BridgeJS:    template.JS(bridgeJSSource),
+		AppOriginJS: appOriginScriptValue(appOrigin),
+		BridgeJS:    embeddedBridgeScript(),
 	}
 	var sb strings.Builder
 	if err := wrapperTmpl.Execute(&sb, data); err != nil {
@@ -85,4 +193,14 @@ func renderWrapperHTML(userHTML []byte, appOrigin string) []byte {
 		return []byte("<!doctype html><html><body>render error</body></html>")
 	}
 	return []byte(sb.String())
+}
+
+func printableHTML(userHTML []byte) []byte {
+	const printBootstrap = `<style id="aidocs-print-style">[data-aidocs-comment-id],.aidocs-comment-highlight{background:transparent!important;box-shadow:none!important}@media print{html,body{overflow:visible!important;height:auto!important}}</style><script id="aidocs-print-bootstrap">addEventListener("load",function(){setTimeout(function(){window.print()},150)},{once:true});</script>`
+	s := string(userHTML)
+	lower := strings.ToLower(s)
+	if idx := strings.LastIndex(lower, "</body>"); idx >= 0 {
+		return []byte(s[:idx] + printBootstrap + s[idx:])
+	}
+	return []byte(s + printBootstrap)
 }

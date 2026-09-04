@@ -36,10 +36,7 @@ export function SheetContent({
     </DialogPrimitive.Portal>
   );
 }
-export function SheetHeader({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function SheetHeader({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
@@ -61,11 +58,6 @@ export function SheetTitle({
     />
   );
 }
-export function SheetBody({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={cn("flex-1 overflow-y-auto p-6", className)} {...p} />
-  );
+export function SheetBody({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("flex-1 overflow-y-auto p-6", className)} {...p} />;
 }

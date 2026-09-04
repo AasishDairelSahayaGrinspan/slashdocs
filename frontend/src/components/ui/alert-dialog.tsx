@@ -44,9 +44,7 @@ export function AlertDialogFooter({
   className,
   ...p
 }: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={cn("mt-6 flex justify-end gap-2", className)} {...p} />
-  );
+  return <div className={cn("mt-6 flex justify-end gap-2", className)} {...p} />;
 }
 export function AlertDialogCancel({
   className,

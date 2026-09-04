@@ -1,4 +1,7 @@
 {{- if .Values.ingressRoute.enabled }}
+{{- if and .Values.ingressRoute.renderHost (eq .Values.ingressRoute.renderHost .Values.ingressRoute.host) }}
+{{- fail "ingressRoute.renderHost must differ from ingressRoute.host: untrusted document HTML must be rendered on a separate origin from the authenticated app" }}
+{{- end }}
 apiVersion: traefik.containo.us/v1alpha1
 kind: IngressRoute
 metadata:
@@ -19,12 +22,10 @@ spec:
       services:
         - name: {{ include "aidocs.fullname" . }}
           port: {{ .Values.service.port }}
-    {{- if and .Values.ingressRoute.renderHost (ne .Values.ingressRoute.renderHost .Values.ingressRoute.host) }}
     # Untrusted uploaded HTML is sandbox-rendered on a separate origin.
     - kind: Rule
-      match: Host(`{{ .Values.ingressRoute.renderHost }}`)
+      match: Host(`{{ required "ingressRoute.renderHost is required (a separate origin for sandbox-rendered document HTML)" .Values.ingressRoute.renderHost }}`)
       services:
         - name: {{ include "aidocs.fullname" . }}
           port: {{ .Values.service.port }}
-    {{- end }}
 {{- end }}

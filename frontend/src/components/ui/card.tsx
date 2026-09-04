@@ -1,10 +1,7 @@
 import * as React from "react";
 import { cn } from "@/lib/cn";
 
-export function Card({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function Card({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(
@@ -15,10 +12,7 @@ export function Card({
     />
   );
 }
-export function CardHeader({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function CardHeader({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("p-5 pb-3", className)} {...p} />;
 }
 export function CardTitle({
@@ -43,16 +37,10 @@ export function CardDescription({
     />
   );
 }
-export function CardContent({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function CardContent({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return <div className={cn("p-5 pt-2", className)} {...p} />;
 }
-export function CardFooter({
-  className,
-  ...p
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function CardFooter({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       className={cn(

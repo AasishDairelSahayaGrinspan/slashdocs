@@ -10,8 +10,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/oauth2"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/googlegroups"
+	"github.com/razorpay/aidocs/api/internal/kvevents"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
@@ -20,12 +23,27 @@ type Config struct {
 	Environment         string
 	AppOrigin           string
 	RenderOrigin        string
-	GoogleOAuth         auth.GoogleOAuth
+	OIDC                auth.OIDC
+	OIDCProviderName    string
 	SessionSecret       string
 	AllowedOAuthDomains []string
 	// Deployment is "public" or "org". OrgName labels the org in UI copy.
 	Deployment string
 	OrgName    string
+	// DefaultDocPermission is the role granted to the "anyone" principal on
+	// newly created documents when the request does not override it via the
+	// default_permission form field. repo.RoleNone means private: no grant.
+	DefaultDocPermission      repo.Role
+	GitHubClientID            string
+	GitHubClientSecret        string
+	GoogleGroupsEnabled       bool
+	GoogleGroupsMembershipTTL time.Duration
+	GoogleGroupsRetryCooldown time.Duration
+	// DisableLabels and DisableSearchTags are temporary rollout switches. They
+	// default to false so programmatic users of server.New retain the existing
+	// feature set unless the application entrypoint explicitly disables them.
+	DisableLabels     bool
+	DisableSearchTags bool
 }
 
 // Server wraps the gin engine.
@@ -37,18 +55,27 @@ type readinessCheck struct {
 }
 
 type dependencies struct {
-	authenticator       auth.Authenticator
-	repository          repo.Repository
-	stateStore          auth.LoginStateStore
-	googleOAuth         auth.GoogleOAuth
-	sessionSecret       string
-	appOrigin           string
-	renderOrigin        string
-	allowedOAuthDomains []string
-	deployment          string
-	orgName             string
-	readinessChecks     []readinessCheck
-	documentKVEvents    *documentKVEventHub
+	authenticator        auth.Authenticator
+	repository           repo.Repository
+	stateStore           auth.LoginStateStore
+	oidc                 auth.OIDC
+	oidcProviderName     string
+	sessionSecret        string
+	appOrigin            string
+	renderOrigin         string
+	allowedOAuthDomains  []string
+	deployment           string
+	orgName              string
+	defaultDocPermission repo.Role
+	readinessChecks      []readinessCheck
+	documentKVEvents     kvevents.Subscriber
+	githubOAuth          *oauth2.Config
+	githubHTTPClient     *http.Client
+	googleGroupsEnabled  bool
+	googleGroupDirectory googlegroups.GoogleGroupDirectory
+	googleGroupResolver  *googlegroups.Resolver
+	labelsEnabled        bool
+	searchTagsEnabled    bool
 }
 
 // Option configures the Server.
@@ -59,6 +86,16 @@ func WithAuthenticator(a auth.Authenticator) Option {
 }
 
 func WithRepository(r repo.Repository) Option { return func(d *dependencies) { d.repository = r } }
+
+func WithGoogleGroupDirectory(directory googlegroups.GoogleGroupDirectory) Option {
+	return func(d *dependencies) { d.googleGroupDirectory = directory }
+}
+
+// WithDocumentKVEvents supplies the process-wide persisted-event broker used
+// by document KV SSE streams.
+func WithDocumentKVEvents(events kvevents.Subscriber) Option {
+	return func(d *dependencies) { d.documentKVEvents = events }
+}
 
 func WithStateStore(st auth.LoginStateStore) Option {
 	return func(d *dependencies) { d.stateStore = st }
@@ -81,71 +118,96 @@ func (denyAllAuthenticator) Authenticate(_ *http.Request) (*auth.Principal, erro
 	return nil, auth.ErrUnauthorized
 }
 
-// logFormatter formats a single gin access-log line.
-func logFormatter(param gin.LogFormatterParams) string {
-	return param.TimeStamp.Format(time.RFC3339) + " " +
-		param.Method + " " +
-		param.Path + " " +
-		param.ClientIP + " " +
-		param.StatusCodeColor() + http.StatusText(param.StatusCode) + param.ResetColor() + " " +
-		param.Latency.String() + "\n"
-}
-
 // New constructs and returns a configured Server. The authenticator defaults to
 // one that denies every request, and a repository must be supplied via
 // WithRepository outside of tests.
 func New(cfg Config, opts ...Option) *Server {
 	gin.SetMode(gin.ReleaseMode)
 	deps := dependencies{
-		authenticator:       denyAllAuthenticator{},
-		stateStore:          auth.NewStateStore(),
-		googleOAuth:         cfg.GoogleOAuth,
-		sessionSecret:       cfg.SessionSecret,
-		appOrigin:           cfg.AppOrigin,
-		renderOrigin:        cfg.RenderOrigin,
-		allowedOAuthDomains: cfg.AllowedOAuthDomains,
-		deployment:          cfg.Deployment,
-		orgName:             cfg.OrgName,
-		documentKVEvents:    newDocumentKVEventHub(),
+		authenticator:        denyAllAuthenticator{},
+		stateStore:           auth.NewStateStore(),
+		oidc:                 cfg.OIDC,
+		oidcProviderName:     cfg.OIDCProviderName,
+		sessionSecret:        cfg.SessionSecret,
+		appOrigin:            cfg.AppOrigin,
+		renderOrigin:         cfg.RenderOrigin,
+		allowedOAuthDomains:  cfg.AllowedOAuthDomains,
+		deployment:           cfg.Deployment,
+		orgName:              cfg.OrgName,
+		defaultDocPermission: cfg.DefaultDocPermission,
+		githubHTTPClient:     http.DefaultClient,
+		googleGroupsEnabled:  cfg.GoogleGroupsEnabled,
+		labelsEnabled:        !cfg.DisableLabels,
+		searchTagsEnabled:    !cfg.DisableSearchTags,
+	}
+	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
+		deps.githubOAuth = &oauth2.Config{
+			ClientID: cfg.GitHubClientID, ClientSecret: cfg.GitHubClientSecret,
+			//nolint:gosec // G101 matches on the "access_token" path segment; these are GitHub's public OAuth endpoint URLs, not credentials.
+			Endpoint:    oauth2.Endpoint{AuthURL: "https://github.com/login/oauth/authorize", TokenURL: "https://github.com/login/oauth/access_token"},
+			RedirectURL: strings.TrimRight(cfg.AppOrigin, "/") + "/v1/integrations/github/callback",
+			Scopes:      []string{"repo", "read:user"},
+		}
 	}
 	for _, opt := range opts {
 		opt(&deps)
 	}
-	// Outside tests a repository is mandatory; falling back to an in-memory
-	// store would silently discard data on restart.
+	// Missing storage is a startup wiring bug, not a recoverable request error.
 	if deps.repository == nil {
-		if cfg.Environment == envTest {
-			deps.repository = repo.NewMemory()
-		} else {
-			panic("server.New: repository is required (use server.WithRepository)")
-		}
+		panic("server.New: repository is required (use server.WithRepository)")
+	}
+	if deps.documentKVEvents == nil {
+		// Do not create an unowned background broker for programmatic callers.
+		deps.documentKVEvents = unavailableDocumentKVEvents{}
+	}
+	if deps.googleGroupsEnabled && deps.googleGroupDirectory != nil {
+		deps.googleGroupResolver = googlegroups.NewResolver(googlegroups.ResolverConfig{
+			Store: deps.repository, Directory: deps.googleGroupDirectory,
+			TTL: cfg.GoogleGroupsMembershipTTL, RetryCooldown: cfg.GoogleGroupsRetryCooldown,
+			Observer: observeGoogleGroupMembership,
+		})
 	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
+	r.Use(requestIDMiddleware())
 	if cfg.Environment != envTest {
-		r.Use(gin.LoggerWithFormatter(logFormatter))
+		r.Use(accessLogMiddleware())
 	}
-	r.Use(gin.Recovery())
+	r.Use(recoveryMiddleware())
 	r.Use(prometheusMiddleware())
 	s := &Server{engine: r}
 	s.routes(deps)
 	return s
 }
 
-func (s *Server) Handler() http.Handler { return s.engine }
+type unavailableDocumentKVEvents struct{}
 
-func (s *Server) Run(addr string) error { return s.engine.Run(addr) }
+func (unavailableDocumentKVEvents) Subscribe(context.Context, string) (<-chan repo.DocumentKVEvent, func(), error) {
+	return nil, func() {}, errors.New("repository does not support document KV event streaming")
+}
+
+func (s *Server) Handler() http.Handler { return s.engine }
 
 func (s *Server) routes(deps dependencies) {
 	h := handlers{deps: deps}
 	s.engine.GET("/.well-known/aidocs.json", h.discovery)
+	s.engine.GET("/.well-known/oauth-protected-resource", h.mcpProtectedResourceMetadata)
+	s.engine.GET("/.well-known/oauth-protected-resource/mcp", h.mcpProtectedResourceMetadata)
+	s.engine.GET("/.well-known/oauth-authorization-server", h.mcpAuthorizationServerMetadata)
+	s.engine.POST("/oauth/register", h.mcpRegisterClient)
+	s.engine.POST("/oauth/token", h.mcpToken)
+	mcpOAuth := s.engine.Group("/oauth", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))
+	mcpOAuth.GET("/authorize", h.mcpAuthorize)
+	mcpOAuth.POST("/authorize", h.mcpAuthorize)
+	registerMCPRoutes(s.engine, deps)
 	s.engine.GET("/commit.txt", h.commitTXT)
 	s.engine.GET("/version.json", h.versionJSON)
 	s.engine.GET("/install.sh", h.installScript)
 	s.engine.GET("/skills/:name/SKILL.md", h.downloadSkill)
 	s.engine.GET("/cli/:os/:arch", h.downloadCLI)
-	registerAPIDocsRoutes(s.engine)
+	registerAPIDocsRoutes(s.engine, deps)
 	s.engine.GET("/v/:id/:version_id", h.renderVersion)
+	s.engine.GET("/print/:id/:version_id", h.renderPrintVersion)
 	registerFrontendRoutes(s.engine, deps.appOrigin)
 
 	s.engine.GET("/livez", h.livez)
@@ -153,14 +215,20 @@ func (s *Server) routes(deps dependencies) {
 
 	v1 := s.engine.Group("/v1")
 	v1.GET("/config", h.config)
-	v1.GET("/auth/google/start", h.googleStart)
-	v1.GET("/auth/google/callback", h.googleCallback)
+	// The /auth/google/* paths predate generic OIDC support and stay
+	// registered so existing Google redirect URIs, CLIs, and bookmarks keep
+	// working; /auth/oidc/* is the provider-neutral spelling.
+	v1.GET("/auth/google/start", h.oauthStart)
+	v1.GET("/auth/google/callback", h.oauthCallback)
+	v1.GET("/auth/oidc/start", h.oauthStart)
+	v1.GET("/auth/oidc/callback", h.oauthCallback)
 	v1.POST("/auth/cli/exchange", h.cliExchange)
 
 	// Every route below requires authentication.
-	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin))
+	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))
 	authed.GET("/me", h.me)
 	authed.GET("/users", h.searchUsers)
+	authed.GET("/google-groups", h.searchGoogleGroups)
 	authed.GET("/auth/cli/credentials", h.listCLICredentials)
 	authed.DELETE("/auth/cli/credentials/:id", h.revokeCLICredential)
 	authed.POST("/service-accounts", h.createServiceAccount)
@@ -187,6 +255,10 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/documents/:id/versions/:version_id", h.getVersion)
 	authed.GET("/documents/:id/versions/:version_id/html", h.getVersionHTML)
 	authed.POST("/documents/:id/versions/:version_id/render-token", h.createRenderToken)
+	authed.POST("/documents/:id/versions/:version_id/print-token", h.createPrintToken)
+	authed.GET("/documents/:id/labels", h.listDocumentLabels)
+	authed.PUT("/documents/:id/labels", h.replaceDocumentLabels)
+	authed.POST("/documents/:id/github/raw", h.githubRawContent)
 	authed.POST("/documents/:id/comments", h.createComment)
 	authed.GET("/documents/:id/comments", h.listComments)
 	authed.GET("/documents/:id/kv", h.listDocumentKV)
@@ -195,6 +267,8 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)
 	authed.DELETE("/documents/:id/comments/:comment_id", h.deleteComment)
+	authed.PUT("/documents/:id/comments/:comment_id/reactions/:emoji", h.putCommentReaction)
+	authed.DELETE("/documents/:id/comments/:comment_id/reactions/:emoji", h.deleteCommentReaction)
 	authed.POST("/folders", h.createFolder)
 	authed.GET("/folders", h.listFolders)
 	authed.GET("/folders/:id", h.getFolder)
@@ -210,20 +284,35 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/pins", h.listPins)
 	authed.PUT("/pins/:resource_type/:resource_id", h.putPin)
 	authed.DELETE("/pins/:resource_type/:resource_id", h.deletePin)
+	authed.GET("/integrations/github", h.githubStatus)
+	authed.GET("/integrations/github/start", h.githubOAuthStart)
+	authed.GET("/integrations/github/callback", h.githubOAuthCallback)
+	authed.DELETE("/integrations/github", h.githubDisconnect)
 }
 
 type handlers struct{ deps dependencies }
 
+const principalContextKey = "principal"
+
 func (h handlers) needDocRole(c *gin.Context, docID string, need repo.Role) bool {
-	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
+	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
+	if err != nil {
+		// A lookup failure is a server fault, not a permission verdict.
+		internalErr(c, err)
+		return false
+	}
 	if !atLeast(role, need) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return false
+		}
 		forbidden(c, string(need)+" role required")
 		return false
 	}
 	return true
 }
 
-func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
+func requireAuth(a auth.Authenticator, appOrigin string, groups *googlegroups.Resolver) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		p, err := a.Authenticate(c.Request)
 		if err != nil {
@@ -246,10 +335,34 @@ func requireAuth(a auth.Authenticator, appOrigin string) gin.HandlerFunc {
 			forbidden(c, "csrf check failed")
 			return
 		}
+		if groups != nil {
+			p = groups.Resolve(c.Request.Context(), p)
+		}
 		incAuth("request", "success")
-		c.Set("principal", p)
+		c.Set(principalContextKey, p)
 		c.Next()
 	}
+}
+
+func groupMembershipUnavailable(p *auth.Principal) bool {
+	return p != nil && p.Type == auth.PrincipalUser && p.GoogleGroupMembershipState == auth.GoogleGroupMembershipUnavailable
+}
+
+func groupMembershipUnavailableResponse(c *gin.Context) {
+	incGoogleGroupAuthorizationFailure()
+	c.JSON(http.StatusServiceUnavailable, errorResponse(
+		"group_membership_unavailable",
+		"Google Group membership could not be refreshed; try again shortly",
+		nil,
+	))
+}
+
+func requireResolvedGroupsForAggregate(c *gin.Context) bool {
+	if groupMembershipUnavailable(current(c)) {
+		groupMembershipUnavailableResponse(c)
+		return false
+	}
+	return true
 }
 
 func allowCookieUnsafeRequest(c *gin.Context, appOrigin string) bool {
@@ -285,7 +398,7 @@ func wantsBrowserLogin(c *gin.Context) bool {
 }
 
 func current(c *gin.Context) *auth.Principal {
-	p, ok := c.Get("principal")
+	p, ok := c.Get(principalContextKey)
 	if !ok {
 		return nil
 	}
@@ -306,7 +419,9 @@ func readMultipartFile(c *gin.Context, field string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer func() {
+		_ = rc.Close()
+	}()
 	b, err := io.ReadAll(io.LimitReader(rc, maxHTMLBytes+1))
 	if err != nil {
 		return nil, err

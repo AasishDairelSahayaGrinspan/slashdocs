@@ -1,0 +1,38 @@
+# Dex configuration for the local docker-compose stack (dev/eval only).
+#
+# Dex plays the OIDC identity provider so `docker compose up` needs no Google
+# or corporate SSO credentials. Sign in with the static dev user:
+#
+#   email:    admin@example.com
+#   password: password
+#
+# Real deployments configure their own provider instead; see
+# docs/self-hosting.md ("Configure sign-in").
+
+# Browsers reach Dex at localhost:5556 (published port); the aidocs container
+# reaches it at dex:5556 via AIDOCS_OIDC_INTERNAL_ISSUER_URL.
+issuer: http://localhost:5556/dex
+
+storage:
+  type: memory
+
+web:
+  http: 0.0.0.0:5556
+
+oauth2:
+  skipApprovalScreen: true
+
+staticClients:
+  - id: aidocs
+    secret: aidocs-dev-secret
+    name: aidocs
+    redirectURIs:
+      - http://localhost:8080/v1/auth/oidc/callback
+
+enablePasswordDB: true
+staticPasswords:
+  - email: admin@example.com
+    # bcrypt of "password"
+    hash: "$2a$10$2b2cU8CPhOTaGrs1HRQuAueS7JTT5ZHsHSzYiFPm1leZck7Mc8T4W"
+    username: admin
+    userID: 08a8684b-db88-4b73-90a9-3cd1661f5466

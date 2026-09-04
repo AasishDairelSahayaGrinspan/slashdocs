@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"embed"
 	"io/fs"
-	"log"
+	"log/slog"
 	"net/http"
 	"path"
 	"strings"
@@ -70,7 +70,7 @@ func registerFrontendRoutes(r *gin.Engine, publicURL string) {
 func subOrEmpty(fsys fs.FS, dir string) fs.FS {
 	sub, err := fs.Sub(fsys, dir)
 	if err != nil {
-		log.Printf("subOrEmpty: %q not found, serving empty FS: %v", dir, err)
+		slog.Warn("frontend assets dir not found; serving empty FS", slog.String("dir", dir), slog.Any("error", err))
 		return emptyFS{}
 	}
 	return sub

@@ -5,67 +5,30 @@ import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import {
-  FileText,
-  Folder as FolderIcon,
-  MoreHorizontal,
-  Pin,
-  PinOff,
-  Plus,
-  Search,
-  Sparkles,
-  Trash2,
-  Upload,
-} from "lucide-react";
+import { MoreHorizontal, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Avatar, Center, Skeleton, EmptyState } from "@/components/ui/misc";
-import {
-  Dropdown,
-  DropdownContent,
-  DropdownItem,
-  DropdownTrigger,
-} from "@/components/ui/dropdown";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
-import { HtmlFileInput, useStagedFile } from "@/components/ui/upload";
-import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
-import {
-  api,
-  docID,
-  docTitle,
-  type Document,
-  type Folder,
-  type FolderEntry,
-  type Principal,
-} from "@/api";
+import { Skeleton, EmptyState } from "@/components/ui/misc";
+import { Dropdown, DropdownContent, DropdownTrigger } from "@/components/ui/dropdown";
+import { api, docID, docTitle, type Folder, type FolderEntry } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { createPersistentStore } from "@/lib/persistent-store";
-import { LayoutGrid, List } from "lucide-react";
+import { viewModeStore } from "@/lib/view-mode";
+import { DRAG_TYPE, type ActiveDrag } from "@/components/browse/drag";
+import { BrowseDragOverlay } from "@/components/browse/drag-overlay";
+import { UnifiedGrid } from "@/components/browse/unified-grid";
+import { UnifiedTable } from "@/components/browse/unified-table";
+import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
+import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
+import { UploadBackupItem } from "@/components/browse/upload-backup";
+import { DocumentSearchInput } from "@/components/browse/document-search-input";
+import { hasDocumentSearchOperators } from "@/lib/search-query";
 import {
   DndContext,
-  DragOverlay,
-  useDraggable,
-  useDroppable,
   PointerSensor,
   useSensor,
   useSensors,
   type DragEndEvent,
   type DragStartEvent,
 } from "@dnd-kit/core";
-
-export type ViewMode = "list" | "gallery";
-export const viewModeStore = createPersistentStore<ViewMode>(
-  "aidocs:view-mode",
-  "gallery",
-);
 
 export function DocumentsPage() {
   useTitle("Documents");
@@ -76,6 +39,8 @@ export function DocumentsPage() {
     return () => window.clearTimeout(t);
   }, [q]);
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
+  const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
+  const searchTagsEnabled = config.data?.search_tags_enabled === true;
   const docs = useQuery({
     queryKey: [...queryKeys.documents(), debouncedQ],
     queryFn: () => api.listDocuments(debouncedQ || undefined),
@@ -85,19 +50,17 @@ export function DocumentsPage() {
     queryKey: queryKeys.pins(),
     queryFn: api.listPins,
   });
+  const structuredSearch = searchTagsEnabled && hasDocumentSearchOperators(debouncedQ);
   const rootFolders = useQuery({
     queryKey: [...queryKeys.folders(), debouncedQ],
     queryFn: () => api.listFolders(undefined, undefined, debouncedQ || undefined),
     placeholderData: (prev) => prev,
+    enabled: !structuredSearch,
   });
   const { state: onb } = useOnboarding();
   const nav = useNavigate();
   useEffect(() => {
-    if (
-      onb.status === "active" &&
-      !onb.steps.cli_installed &&
-      !onb.steps.cli_authed
-    ) {
+    if (onb.status === "active" && !onb.steps.cli_installed && !onb.steps.cli_authed) {
       nav("/app/start", { replace: true });
     }
   }, [onb, nav]);
@@ -107,15 +70,14 @@ export function DocumentsPage() {
     }
   }, [docs.data]);
   const documents = useMemo(() => docs.data?.items || [], [docs.data]);
-  const pinnedItems = pins.data?.items || [];
-  const folderEntries = (rootFolders.data?.items || []).filter(
+  const folderEntries = (structuredSearch ? [] : rootFolders.data?.items || []).filter(
     (e): e is FolderEntry & { folder: Folder } => e.type === "folder" && !!e.folder,
   );
   const folders = folderEntries.map((e) => e.folder);
 
   const pinnedIds = useMemo(
-    () => new Set(pinnedItems.map((p) => p.resource_id)),
-    [pinnedItems],
+    () => new Set((pins.data?.items || []).map((p) => p.resource_id)),
+    [pins.data],
   );
 
   // Merge folders and documents into a single list sorted by pinned status, last activity, then alphabetically
@@ -147,25 +109,10 @@ export function DocumentsPage() {
 
   const viewMode = viewModeStore.useStore();
   const [newFolderOpen, setNewFolderOpen] = useState(false);
-  const [newFolderTitle, setNewFolderTitle] = useState("");
   const qc = useQueryClient();
-  const createFolder = useMutation({
-    mutationFn: () => api.createFolder(newFolderTitle),
-    onSuccess: () => {
-      setNewFolderOpen(false);
-      setNewFolderTitle("");
-      qc.invalidateQueries({ queryKey: queryKeys.folders() });
-      toast.success("Created folder.");
-    },
-    onError: (e) => toast.error(errorMessage(e, "Create failed")),
-  });
 
   // Drag and drop
-  const [activeDrag, setActiveDrag] = useState<{
-    type: string;
-    id: string;
-    title: string;
-  } | null>(null);
+  const [activeDrag, setActiveDrag] = useState<ActiveDrag | null>(null);
   const [accessWarning, setAccessWarning] = useState<string | null>(null);
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -180,14 +127,14 @@ export function DocumentsPage() {
       dragId: string;
       targetFolderId: string;
     }) => {
-      if (dragType === "folder") {
+      if (dragType === DRAG_TYPE.folder) {
         return api.updateFolder(dragId, undefined, targetFolderId);
       } else {
         return api.moveDocumentToFolder(targetFolderId, dragId);
       }
     },
     onSuccess: (data) => {
-      qc.invalidateQueries({ queryKey: ["folders"] });
+      qc.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       const warning = (data as Record<string, unknown>)?.permission_warning as
         | { message?: string }
@@ -204,10 +151,16 @@ export function DocumentsPage() {
   function handleDragStart(event: DragStartEvent) {
     const raw = event.active.id as string;
     const [type, id] = raw.split(":", 2);
-    const title =
-      type === "folder"
-        ? folders.find((f) => f.id === id)?.title || "Folder"
-        : docTitle(documents.find((d) => docID(d) === id)!);
+    const dragged =
+      type === DRAG_TYPE.folder
+        ? folders.find((f) => f.id === id)?.title
+        : (() => {
+            const doc = documents.find((d) => docID(d) === id);
+            return doc ? docTitle(doc) : undefined;
+          })();
+    // The entry can vanish mid-drag (e.g. a background refetch removed it);
+    // fall back to a generic label rather than crashing.
+    const title = dragged || (type === DRAG_TYPE.folder ? "Folder" : "Document");
     setActiveDrag({ type, id, title });
   }
   function handleDragEnd(event: DragEndEvent) {
@@ -216,7 +169,7 @@ export function DocumentsPage() {
     if (!over) return;
     const [dragType, dragId] = (active.id as string).split(":", 2);
     const targetFolderId = (over.id as string).replace("drop:", "");
-    if (dragType === "folder" && dragId === targetFolderId) return;
+    if (dragType === DRAG_TYPE.folder && dragId === targetFolderId) return;
     moveMutation.mutate({ dragType, dragId, targetFolderId });
   }
 
@@ -228,8 +181,6 @@ export function DocumentsPage() {
       </div>
     );
   }
-  if (docs.error) return <Center>Could not load documents.</Center>;
-
   const searching = debouncedQ.length > 0;
   const empty = !searching && documents.length === 0 && folders.length === 0;
 
@@ -243,35 +194,12 @@ export function DocumentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <div className="relative flex-1 sm:flex-initial">
-            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-muted)]" />
-            <Input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Search…"
-              className="w-full pl-8 sm:w-56"
-            />
-          </div>
-          <div className="flex shrink-0 rounded-md border border-[var(--color-border)]">
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`rounded-r-none ${viewMode === "gallery" ? "bg-[var(--color-surface-muted)]" : ""}`}
-              onClick={() => viewModeStore.write("gallery")}
-              aria-label="Gallery view"
-            >
-              <LayoutGrid className="h-4 w-4" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon"
-              className={`rounded-l-none border-l border-[var(--color-border)] ${viewMode === "list" ? "bg-[var(--color-surface-muted)]" : ""}`}
-              onClick={() => viewModeStore.write("list")}
-              aria-label="List view"
-            >
-              <List className="h-4 w-4" />
-            </Button>
-          </div>
+          <DocumentSearchInput
+            value={q}
+            onChange={setQ}
+            searchTagsEnabled={searchTagsEnabled}
+          />
+          <ViewModeToggle />
           <Button
             variant="outline"
             size="md"
@@ -283,7 +211,12 @@ export function DocumentsPage() {
           </Button>
           <Dropdown>
             <DropdownTrigger asChild>
-              <Button variant="outline" size="icon" className="shrink-0" aria-label="More">
+              <Button
+                variant="outline"
+                size="icon"
+                className="shrink-0"
+                aria-label="More"
+              >
                 <MoreHorizontal className="h-4 w-4" />
               </Button>
             </DropdownTrigger>
@@ -294,7 +227,12 @@ export function DocumentsPage() {
         </div>
       </div>
 
-      {empty ? (
+      {docs.error ? (
+        <EmptyState
+          title={searching ? "Search query not valid" : "Could not load documents"}
+          description={errorMessage(docs.error, "Could not search documents.")}
+        />
+      ) : empty ? (
         <EmptyDocs />
       ) : searching ? (
         documents.length === 0 && folders.length === 0 ? (
@@ -319,602 +257,18 @@ export function DocumentsPage() {
           ) : (
             <UnifiedGrid entries={merged} pinnedIds={pinnedIds} />
           )}
-          <DragOverlay dropAnimation={null}>
-            {activeDrag && viewMode === "gallery" && (
-              <div className="flex h-36 w-48 flex-col items-center justify-center rounded-lg border border-[var(--color-accent)] bg-[var(--color-surface)] opacity-30 shadow-xl">
-                {activeDrag.type === "folder" ? (
-                  <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" />
-                ) : (
-                  <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />
-                )}
-                <div className="mt-2 max-w-[10rem] truncate px-3 text-sm font-medium">
-                  {activeDrag.title}
-                </div>
-              </div>
-            )}
-            {activeDrag && viewMode === "list" && (
-              <div className="flex w-64 items-center gap-2 rounded-md border border-[var(--color-accent)] bg-[var(--color-surface)] px-3 py-2 opacity-30 shadow-xl">
-                {activeDrag.type === "folder" ? (
-                  <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
-                ) : (
-                  <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
-                )}
-                <span className="truncate text-sm font-medium">{activeDrag.title}</span>
-              </div>
-            )}
-          </DragOverlay>
+          <BrowseDragOverlay activeDrag={activeDrag} viewMode={viewMode} />
         </DndContext>
       )}
 
-      {/* New folder dialog */}
-      <Dialog open={newFolderOpen} onOpenChange={setNewFolderOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>New folder</DialogTitle>
-          </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (newFolderTitle.trim()) createFolder.mutate();
-            }}
-          >
-            <Input
-              placeholder="Folder name"
-              value={newFolderTitle}
-              onChange={(e) => setNewFolderTitle(e.target.value)}
-              autoFocus
-            />
-            <DialogFooter className="mt-4">
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => setNewFolderOpen(false)}
-              >
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                disabled={!newFolderTitle.trim() || createFolder.isPending}
-              >
-                Create
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+      <NewFolderDialog open={newFolderOpen} onOpenChange={setNewFolderOpen} />
 
-      {/* Access warning after move */}
-      <Dialog open={!!accessWarning} onOpenChange={() => setAccessWarning(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Access may change</DialogTitle>
-            <DialogDescription>{accessWarning}</DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <Button onClick={() => setAccessWarning(null)}>Got it</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
-}
-
-export function UnifiedGrid({
-  entries,
-  pinnedIds,
-}: {
-  entries: FolderEntry[];
-  pinnedIds?: Set<string>;
-}) {
-  const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
-  const qc = useQueryClient();
-  return (
-    <div className="stagger-grid grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-      {entries.map((e) => {
-        if (e.type === "folder" && e.folder) {
-          const canDelete = samePrincipal(me.data?.principal, e.folder.owner);
-          return (
-            <DraggableFolderCard
-              key={e.folder.id}
-              folder={e.folder}
-              canDelete={canDelete}
-              qc={qc}
-              pinned={pinnedIds?.has(e.folder.id)}
-            />
-          );
-        }
-        if (e.type === "document" && e.document) {
-          const canDelete = samePrincipal(me.data?.principal, e.document.owner);
-          return (
-            <DraggableDocCard
-              key={docID(e.document)}
-              doc={e.document}
-              canDelete={canDelete}
-              qc={qc}
-              pinned={pinnedIds?.has(docID(e.document))}
-            />
-          );
-        }
-        return null;
-      })}
-    </div>
-  );
-}
-
-function DraggableFolderCard({
-  folder: f,
-  canDelete,
-  qc,
-  pinned,
-}: {
-  folder: Folder;
-  canDelete: boolean;
-  qc: ReturnType<typeof useQueryClient>;
-  pinned?: boolean;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef: dragRef,
-    isDragging,
-  } = useDraggable({ id: `folder:${f.id}` });
-  const { setNodeRef: dropRef, isOver } = useDroppable({ id: `drop:${f.id}` });
-
-  return (
-    <div
-      ref={(node) => {
-        dragRef(node);
-        dropRef(node);
-      }}
-      {...listeners}
-      {...attributes}
-      className={`group relative overflow-hidden rounded-lg border bg-[var(--color-surface)] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:-translate-y-0.5 hover:shadow-md ${isOver ? "border-[var(--color-accent)] ring-2 ring-[var(--color-accent)]/30" : "border-[var(--color-border)]"} ${isDragging ? "opacity-40" : ""}`}
-    >
-      <Link
-        to={`/app/folders/${f.id}`}
-        className="relative flex h-36 cursor-default flex-col items-center justify-center px-3 pb-8"
-        draggable={false}
-      >
-        <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" />
-        <div className="absolute inset-x-3 bottom-2.5">
-          <div className="truncate text-sm font-medium">{f.title}</div>
-          <div className="truncate text-xs text-[var(--color-fg-muted)]">
-            {principalLabel(f.owner)}
-          </div>
-        </div>
-      </Link>
-      <GridCardActions
-        resourceType="folder"
-        resourceId={f.id}
-        canDelete={canDelete}
-        title={f.title}
-        qc={qc}
-        pinned={pinned}
+      <AccessWarningDialog
+        warning={accessWarning}
+        onClose={() => setAccessWarning(null)}
       />
     </div>
   );
-}
-
-function DraggableDocCard({
-  doc: d,
-  canDelete,
-  qc,
-  pinned,
-}: {
-  doc: Document;
-  canDelete: boolean;
-  qc: ReturnType<typeof useQueryClient>;
-  pinned?: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `doc:${docID(d)}`,
-  });
-
-  return (
-    <div
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={`group relative overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] transition-[background-color,box-shadow,transform] duration-200 ease-out hover:bg-[var(--color-surface-muted)] hover:-translate-y-0.5 hover:shadow-md ${isDragging ? "opacity-40" : ""}`}
-    >
-      <Link
-        to={`/app/d/${docID(d)}`}
-        className="relative flex h-36 cursor-default flex-col items-center justify-center px-3 pb-8"
-        draggable={false}
-      >
-        <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />
-        <div className="absolute inset-x-3 bottom-2.5">
-          <div className="truncate text-sm font-medium">{docTitle(d)}</div>
-          <div className="truncate text-xs text-[var(--color-fg-muted)]">
-            {principalLabel(d.owner)}
-          </div>
-        </div>
-      </Link>
-      <GridCardActions
-        resourceType="document"
-        resourceId={docID(d)}
-        canDelete={canDelete}
-        title={docTitle(d)}
-        qc={qc}
-        pinned={pinned}
-      />
-    </div>
-  );
-}
-
-export function UnifiedTable({
-  entries,
-  principal,
-  pinnedIds,
-}: {
-  entries: FolderEntry[];
-  principal?: Principal;
-  pinnedIds?: Set<string>;
-}) {
-  return (
-    <div className="overflow-hidden rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)]">
-      <table className="w-full text-sm">
-        <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
-          <tr>
-            <th className="px-4 py-2.5 text-left font-medium">Name</th>
-            <th className="px-4 py-2.5 text-left font-medium">Owner</th>
-            <th className="w-12 px-2 py-2.5"></th>
-          </tr>
-        </thead>
-        <tbody className="stagger-rows">
-          {entries.map((e) => {
-            if (e.type === "folder" && e.folder) {
-              return (
-                <DraggableFolderRow
-                  key={e.folder.id}
-                  folder={e.folder}
-                  canDelete={samePrincipal(principal, e.folder.owner)}
-                  pinned={pinnedIds?.has(e.folder.id)}
-                />
-              );
-            }
-            if (e.type === "document" && e.document) {
-              return (
-                <DraggableDocRow
-                  key={docID(e.document)}
-                  doc={e.document}
-                  canDelete={samePrincipal(principal, e.document.owner)}
-                  pinned={pinnedIds?.has(docID(e.document))}
-                />
-              );
-            }
-            return null;
-          })}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function DraggableFolderRow({
-  folder: f,
-  canDelete,
-  pinned,
-}: {
-  folder: Folder;
-  canDelete: boolean;
-  pinned?: boolean;
-}) {
-  const {
-    attributes,
-    listeners,
-    setNodeRef: dragRef,
-    isDragging,
-  } = useDraggable({ id: `folder:${f.id}` });
-  const { setNodeRef: dropRef, isOver } = useDroppable({ id: `drop:${f.id}` });
-  const q = useQueryClient();
-  const del = useMutation({
-    mutationFn: () => api.deleteFolder(f.id),
-    onSuccess: () => {
-      toast.success("Deleted.");
-      q.invalidateQueries({ queryKey: ["folders"] });
-      q.invalidateQueries({ queryKey: queryKeys.documents() });
-      q.invalidateQueries({ queryKey: queryKeys.pins() });
-    },
-    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
-  });
-
-  return (
-    <tr
-      ref={(node) => {
-        dragRef(node);
-        dropRef(node);
-      }}
-      {...listeners}
-      {...attributes}
-      className={`group border-t transition-colors ${isOver ? "bg-[var(--color-accent)]/10 border-[var(--color-accent)]" : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]/40"} ${isDragging ? "opacity-40" : ""}`}
-    >
-      <td className="px-4 py-3">
-        <Link
-          to={`/app/folders/${f.id}`}
-          className="flex cursor-default items-center gap-2 font-medium hover:underline"
-          draggable={false}
-        >
-          <FolderIcon className="h-4 w-4 text-[var(--color-accent)]" />
-          {f.title}
-        </Link>
-      </td>
-      <td className="px-4 py-3">
-        <OwnerCell owner={f.owner} />
-      </td>
-      <td className="px-2 py-3">
-        <div
-          className="flex gap-0.5"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <RowPinButton resourceType="folder" resourceId={f.id} pinned={pinned} />
-          {canDelete && (
-            <DeleteDocumentDialog
-              title={f.title}
-              description="This deletes the folder and its subfolders. Documents inside them will move to root."
-              onConfirm={() => del.mutate()}
-              trigger={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-                  aria-label="Delete folder"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
-                </Button>
-              }
-            />
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function DraggableDocRow({
-  doc,
-  canDelete,
-  pinned,
-}: {
-  doc: Document;
-  canDelete: boolean;
-  pinned?: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
-    id: `doc:${docID(doc)}`,
-  });
-  const q = useQueryClient();
-  const del = useMutation({
-    mutationFn: () => api.deleteDocument(docID(doc)),
-    onSuccess: () => {
-      toast.success("Deleted.");
-      q.invalidateQueries({ queryKey: ["folders"] });
-      q.invalidateQueries({ queryKey: queryKeys.documents() });
-      q.invalidateQueries({ queryKey: queryKeys.pins() });
-    },
-    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
-  });
-  return (
-    <tr
-      ref={setNodeRef}
-      {...listeners}
-      {...attributes}
-      className={`group border-t border-[var(--color-border)] transition-colors hover:bg-[var(--color-surface-muted)]/40 ${isDragging ? "opacity-40" : ""}`}
-    >
-      <td className="px-4 py-3">
-        <Link
-          to={`/app/d/${docID(doc)}`}
-          className="flex cursor-default items-center gap-2 font-medium hover:underline"
-          draggable={false}
-        >
-          <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
-          {docTitle(doc)}
-        </Link>
-      </td>
-      <td className="px-4 py-3">
-        <OwnerCell owner={doc.owner} />
-      </td>
-      <td className="px-2 py-3">
-        <div
-          className="flex gap-0.5"
-          onClick={(e) => e.stopPropagation()}
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <RowPinButton
-            resourceType="document"
-            resourceId={docID(doc)}
-            pinned={pinned}
-          />
-          {canDelete && (
-            <DeleteDocumentDialog
-              title={docTitle(doc)}
-              onConfirm={() => del.mutate()}
-              trigger={
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-                  aria-label="Delete document"
-                >
-                  <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
-                </Button>
-              }
-            />
-          )}
-        </div>
-      </td>
-    </tr>
-  );
-}
-
-function RowPinButton({
-  resourceType,
-  resourceId,
-  pinned,
-}: {
-  resourceType: "document" | "folder";
-  resourceId: string;
-  pinned?: boolean;
-}) {
-  const qc = useQueryClient();
-  const pins = useQuery({ queryKey: queryKeys.pins(), queryFn: api.listPins });
-  const isPinned =
-    pinned ??
-    (pins.data?.items || []).some(
-      (p) => p.resource_type === resourceType && p.resource_id === resourceId,
-    );
-  const togglePin = useMutation({
-    mutationFn: () =>
-      isPinned
-        ? api.deletePin(resourceType, resourceId)
-        : api.putPin(resourceType, resourceId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.pins() });
-      toast.success(isPinned ? "Unpinned." : "Pinned.");
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-  return (
-    <Button
-      variant="ghost"
-      size="icon"
-      className="cursor-pointer opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100"
-      aria-label={isPinned ? "Unpin" : "Pin"}
-      onClick={(e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        togglePin.mutate();
-      }}
-    >
-      {isPinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}
-    </Button>
-  );
-}
-
-function GridCardActions({
-  resourceType,
-  resourceId,
-  canDelete,
-  title,
-  qc,
-  pinned,
-}: {
-  resourceType: "document" | "folder";
-  resourceId: string;
-  canDelete: boolean;
-  title: string;
-  qc: ReturnType<typeof useQueryClient>;
-  pinned?: boolean;
-}) {
-  const pins = useQuery({ queryKey: queryKeys.pins(), queryFn: api.listPins });
-  const isPinned =
-    pinned ??
-    (pins.data?.items || []).some(
-      (p) => p.resource_type === resourceType && p.resource_id === resourceId,
-    );
-  const togglePin = useMutation({
-    mutationFn: () =>
-      isPinned
-        ? api.deletePin(resourceType, resourceId)
-        : api.putPin(resourceType, resourceId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.pins() });
-      toast.success(isPinned ? "Unpinned." : "Pinned.");
-    },
-    onError: (e) => toast.error(errorMessage(e)),
-  });
-  const del = useMutation({
-    mutationFn: () =>
-      resourceType === "folder"
-        ? api.deleteFolder(resourceId)
-        : api.deleteDocument(resourceId),
-    onSuccess: () => {
-      toast.success("Deleted.");
-      qc.invalidateQueries({ queryKey: ["folders"] });
-      qc.invalidateQueries({ queryKey: queryKeys.documents() });
-      qc.invalidateQueries({ queryKey: queryKeys.pins() });
-    },
-    onError: (e) => toast.error(errorMessage(e, "Delete failed")),
-  });
-  return (
-    <div
-      className="absolute right-2 top-2 flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [&_button]:cursor-pointer"
-      onClick={(e) => e.stopPropagation()}
-      onPointerDown={(e) => e.stopPropagation()}
-    >
-      <Button
-        variant="ghost"
-        size="icon"
-        className="h-7 w-7"
-        aria-label={isPinned ? "Unpin" : "Pin"}
-        onClick={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          togglePin.mutate();
-        }}
-      >
-        {isPinned ? (
-          <PinOff className="h-3.5 w-3.5" />
-        ) : (
-          <Pin className="h-3.5 w-3.5" />
-        )}
-      </Button>
-      {canDelete && (
-        <DeleteDocumentDialog
-          title={title}
-          description={
-            resourceType === "folder"
-              ? "This deletes the folder and its subfolders. Documents inside them will move to root."
-              : undefined
-          }
-          onConfirm={() => del.mutate()}
-          trigger={
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-7 w-7"
-              aria-label="Delete"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Trash2 className="h-3.5 w-3.5 text-[var(--color-danger)]" />
-            </Button>
-          }
-        />
-      )}
-    </div>
-  );
-}
-
-function OwnerCell({ owner }: { owner?: Principal }) {
-  const label = principalLabel(owner);
-  const detail =
-    owner?.email && owner.email !== label
-      ? owner.email
-      : owner?.type === "service_account"
-        ? "Service account"
-        : "Owner";
-  return (
-    <div className="flex min-w-0 items-center gap-2">
-      <Avatar name={label} src={owner?.picture_url} size={28} />
-      <div className="min-w-0">
-        <div className="truncate text-sm font-medium">{label}</div>
-        <div className="truncate text-xs text-[var(--color-fg-muted)]">{detail}</div>
-      </div>
-    </div>
-  );
-}
-
-function samePrincipal(a?: Principal, b?: Principal) {
-  return !!a && !!b && a.type === b.type && a.id === b.id;
-}
-
-function principalLabel(p?: Principal) {
-  if (!p) return "Unknown owner";
-  if (p.name) return p.name;
-  if (p.email) return p.email;
-  if (p.type === "service_account") return p.id || "Service account";
-  return p.id || "Unknown owner";
 }
 
 function EmptyDocs() {
@@ -936,71 +290,5 @@ function EmptyDocs() {
         </div>
       </div>
     </div>
-  );
-}
-
-function UploadBackupItem() {
-  return (
-    <UploadBackupDialog
-      trigger={
-        <DropdownItem onSelect={(e) => e.preventDefault()}>
-          <Upload className="h-4 w-4" /> Upload HTML (backup)
-        </DropdownItem>
-      }
-    />
-  );
-}
-
-function UploadBackupDialog({ trigger }: { trigger: React.ReactNode }) {
-  const q = useQueryClient();
-  const nav = useNavigate();
-  const [title, setTitle] = useState("");
-  const { file, setFile, reset } = useStagedFile();
-  const [open, setOpen] = useState(false);
-  const m = useMutation({
-    mutationFn: () => api.createDocument(title || file?.name || "Untitled", file!),
-    onSuccess: (r) => {
-      q.invalidateQueries({ queryKey: queryKeys.documents() });
-      toast.success("Document uploaded.");
-      setOpen(false);
-      reset();
-      nav(`/app/d/${r.id}`);
-    },
-    onError: (e) => toast.error(errorMessage(e, "Upload failed")),
-  });
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>Upload HTML (backup)</DialogTitle>
-          <DialogDescription>
-            Agents normally publish via the CLI. Use this only as a manual fallback.
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="space-y-3"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (file) m.mutate();
-          }}
-        >
-          <Input
-            placeholder="Title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-          />
-          <HtmlFileInput onFile={setFile} />
-          <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => setOpen(false)}>
-              Cancel
-            </Button>
-            <Button type="submit" disabled={!file || m.isPending}>
-              {m.isPending ? "Uploading…" : "Upload"}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }

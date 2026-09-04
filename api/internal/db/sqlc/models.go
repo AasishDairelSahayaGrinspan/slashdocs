@@ -36,6 +36,19 @@ type Comment struct {
 	RootCommentID      string
 }
 
+// Structured principals mentioned in comment bodies. Mention metadata grants no access; future notification delivery must re-check effective document access and apply rate limits.
+type CommentMention struct {
+	CommentID     string
+	PrincipalType string
+	PrincipalID   string
+	// Zero-based offset in UTF-16 code units, matching JavaScript string indexes.
+	OffsetUtf16 int32
+	// Mention length in UTF-16 code units, matching JavaScript string indexes.
+	LengthUtf16 int32
+	// Internal snapshot of the exact visible @label, used to preserve valid mentions across principal renames.
+	LabelText string
+}
+
 type CommentPlacement struct {
 	ID          string
 	CommentID   string
@@ -45,6 +58,16 @@ type CommentPlacement struct {
 	MatchedText pgtype.Text
 	Confidence  float64
 	CreatedAt   pgtype.Timestamptz
+}
+
+// Lightweight acknowledgements on comments and replies. One row per (comment, principal, emoji); the primary key makes adding a reaction idempotent and removing one a primary-key delete.
+type CommentReaction struct {
+	CommentID     string
+	PrincipalType string
+	PrincipalID   string
+	// Stable ASCII slug from a fixed set, not a literal emoji character, so the value is URL-safe and each client chooses its own glyph. The CHECK keeps an old pod or a direct SQL writer from storing a slug clients cannot render.
+	Emoji     string
+	CreatedAt pgtype.Timestamptz
 }
 
 type Document struct {
@@ -82,6 +105,14 @@ type DocumentKvEvent struct {
 	UpdatedByName  string
 }
 
+type DocumentLabel struct {
+	DocumentID    string
+	Label         string
+	CreatedByType string
+	CreatedByID   string
+	CreatedAt     pgtype.Timestamptz
+}
+
 type DocumentWorkspaceEntry struct {
 	DocumentID    string
 	PrincipalType string
@@ -105,6 +136,39 @@ type FolderWorkspaceEntry struct {
 	PrincipalID   string
 	AddedAt       pgtype.Timestamptz
 	LastOpenedAt  pgtype.Timestamptz
+}
+
+type GithubConnection struct {
+	UserID                string
+	GithubUserID          int64
+	Login                 string
+	AvatarUrl             string
+	AccessTokenCiphertext []byte
+	CreatedAt             pgtype.Timestamptz
+	UpdatedAt             pgtype.Timestamptz
+}
+
+type GoogleGroup struct {
+	ID             string
+	CustomerID     string
+	Email          string
+	DisplayName    string
+	LastVerifiedAt pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+	UpdatedAt      pgtype.Timestamptz
+}
+
+type GoogleGroupMembership struct {
+	UserID   string
+	GroupID  string
+	SyncedAt pgtype.Timestamptz
+}
+
+type GoogleGroupSyncState struct {
+	UserID        string
+	LastAttemptAt pgtype.Timestamptz
+	LastSuccessAt pgtype.Timestamptz
+	LastErrorCode string
 }
 
 type OauthState struct {

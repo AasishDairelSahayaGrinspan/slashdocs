@@ -1,6 +1,6 @@
 import { useTitle } from "@/lib/use-title";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useSearchParams, useParams } from "react-router-dom";
+import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
@@ -8,14 +8,21 @@ import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/lib/use-media-query";
-import { DocProvider, type PendingSelection } from "./doc-context";
+import { useTheme } from "@/lib/theme";
+import { useEscChord } from "@/lib/use-esc-chord";
+import type { ChordKey } from "@/lib/esc-chord";
+import {
+  DocProvider,
+  type CommentPosition,
+  type CommentViewport,
+  type PendingSelection,
+} from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
-import { Comments } from "./doc-comments";
+import { CommentRail, Comments } from "./doc-comments";
+import { Keycast } from "./doc-keycast";
 
-const MIN_PANEL_WIDTH = 240;
-const MAX_PANEL_WIDTH = 640;
-const DEFAULT_PANEL_WIDTH = 380;
+const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
 
 const pageStagger = {
   hidden: {},
@@ -71,7 +78,7 @@ export function DocumentPage() {
     enabled: !!id && !doc.error,
     meta: { suppressGlobalError: true },
   });
-  // One comments query feeds both the paint overlay and the side panel so they
+  // One comments query feeds both the paint overlay and the comment rail so they
   // stay in sync.
   const comments = useQuery({
     queryKey: queryKeys.comments(id),
@@ -81,12 +88,45 @@ export function DocumentPage() {
   });
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
+  const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
+    new Set(),
+  );
+  const [commentPositions, setCommentPositions] = useState<
+    ReadonlyMap<string, CommentPosition>
+  >(new Map());
+  const [commentViewport, setCommentViewport] = useState<CommentViewport>({
+    scrollTop: 0,
+    scrollHeight: 1,
+  });
+  const documentScrollerRef = useRef<((top: number) => void) | null>(null);
+  const registerDocumentScroller = useCallback(
+    (scroller: ((top: number) => void) | null) => {
+      documentScrollerRef.current = scroller;
+    },
+    [],
+  );
+  const scrollDocumentTo = useCallback((top: number) => {
+    documentScrollerRef.current?.(top);
+  }, []);
+  const commentRailSyncRef = useRef<((top: number) => void) | null>(null);
+  const registerCommentRailSync = useCallback(
+    (sync: ((top: number) => void) | null) => {
+      commentRailSyncRef.current = sync;
+    },
+    [],
+  );
+  const syncCommentRail = useCallback((top: number) => {
+    commentRailSyncRef.current?.(top);
+  }, []);
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
-  const [panelOpen, setPanelOpen] = useState(true);
+  const [commentsOpen, setCommentsOpen] = useState(true);
+  const [shareOpen, setShareOpen] = useState(false);
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
-  const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
+  const [chordLabel, setChordLabel] = useState<string>();
+  const nav = useNavigate();
+  const { theme, setTheme } = useTheme();
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
   const handleDocCommentClick = useCallback(
@@ -94,20 +134,22 @@ export function DocumentPage() {
       setActiveComment(commentId);
       if (fullscreen) return;
       if (isMobile) setMobilePanelOpen(true);
-      else setPanelOpen(true);
+      else setCommentsOpen(true);
     },
     [fullscreen, isMobile],
   );
+  const handleRenderedDocumentClick = useCallback(() => setShareOpen(false), []);
 
-  // On mobile, a text selection from the rendered doc should pop the
-  // comments sheet open so the compose flow is reachable.
+  // A text selection from the rendered doc should reveal the compose flow.
   useEffect(() => {
-    if (isMobile && !fullscreen && selection?.quote) setMobilePanelOpen(true);
+    if (fullscreen || !selection?.quote) return;
+    if (isMobile) setMobilePanelOpen(true);
+    else setCommentsOpen(true);
   }, [isMobile, fullscreen, selection]);
 
   const toggleComments = useCallback(() => {
     if (isMobile) setMobilePanelOpen((o) => !o);
-    else setPanelOpen((o) => !o);
+    else setCommentsOpen((o) => !o);
   }, [isMobile]);
 
   // On mobile the comments sheet should be dismissable with the browser/OS
@@ -138,7 +180,9 @@ export function DocumentPage() {
   // Radix Dialog's scroll-lock (react-remove-scroll) can leave the body
   // with `overflow: hidden` / `pointer-events: none` after the mobile
   // comments sheet closes, which freezes document scrolling. Restore the
-  // body once the sheet is fully closed.
+  // body once the sheet is fully closed. (`modal={false}` on the Sheet
+  // would avoid the lock, but Radix then skips the overlay and outside
+  // dismissal entirely, so we keep modal behavior and clean up after it.)
   useEffect(() => {
     if (mobilePanelOpen) return;
     const restore = () => {
@@ -160,6 +204,11 @@ export function DocumentPage() {
     versionID(versionItems[versionItems.length - 1] || {});
   const current = selectedVersion || queryVersion || latest;
 
+  useEffect(() => {
+    setCommentPositions(new Map());
+    setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
+  }, [current]);
+
   const exitFullscreen = useCallback(() => {
     setSearchParams(
       (params) => {
@@ -171,19 +220,77 @@ export function DocumentPage() {
     );
   }, [setSearchParams]);
 
+  const toggleFullscreen = useCallback(() => {
+    setSearchParams(
+      (params) => {
+        const next = new URLSearchParams(params);
+        if (next.get("fullscreen") === "1") next.delete("fullscreen");
+        else next.set("fullscreen", "1");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
+
   useEffect(() => {
     if (!fullscreen) return;
     setShowFullscreenHint(true);
     const timeout = window.setTimeout(() => setShowFullscreenHint(false), 4000);
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") exitFullscreen();
-    };
-    window.addEventListener("keydown", onKeyDown);
     return () => {
       window.clearTimeout(timeout);
-      window.removeEventListener("keydown", onKeyDown);
     };
+  }, [fullscreen]);
+
+  const chordKeys = useMemo<ChordKey[]>(
+    () => (fullscreen ? ["t", "f", "h"] : ["t", "f", "c", "h"]),
+    [fullscreen],
+  );
+  const runChord = useCallback(
+    (key: ChordKey) => {
+      if (key === "t") {
+        const nextTheme =
+          theme === "light" ? "dark" : theme === "dark" ? "system" : "light";
+        setTheme(nextTheme);
+        setChordLabel(THEME_LABELS[nextTheme]);
+        return;
+      }
+      if (key === "f") {
+        setChordLabel(fullscreen ? "Exited full screen" : "Full screen");
+        toggleFullscreen();
+        return;
+      }
+      if (key === "c") {
+        setChordLabel(
+          (isMobile ? mobilePanelOpen : commentsOpen)
+            ? "Comments hidden"
+            : "Comments shown",
+        );
+        toggleComments();
+        return;
+      }
+      setChordLabel("Documents");
+      nav("/app/documents");
+    },
+    [
+      theme,
+      setTheme,
+      fullscreen,
+      toggleFullscreen,
+      isMobile,
+      mobilePanelOpen,
+      commentsOpen,
+      toggleComments,
+      nav,
+    ],
+  );
+  const onBareEscape = useCallback(() => {
+    if (fullscreen) exitFullscreen();
   }, [fullscreen, exitFullscreen]);
+  const chord = useEscChord({
+    available: chordKeys,
+    onRun: runChord,
+    onEscape: onBareEscape,
+  });
 
   const ctx = useMemo(
     () => ({
@@ -197,7 +304,18 @@ export function DocumentPage() {
       setSelection,
       activeComment,
       setActiveComment,
+      unanchoredComments,
+      setUnanchoredComments,
+      commentPositions,
+      setCommentPositions,
+      commentViewport,
+      setCommentViewport,
+      registerDocumentScroller,
+      scrollDocumentTo,
+      registerCommentRailSync,
+      syncCommentRail,
       handleDocCommentClick,
+      handleRenderedDocumentClick,
     }),
     [
       id,
@@ -208,34 +326,18 @@ export function DocumentPage() {
       me.data,
       selection,
       activeComment,
+      unanchoredComments,
+      commentPositions,
+      commentViewport,
       setActiveComment,
+      registerDocumentScroller,
+      scrollDocumentTo,
+      registerCommentRailSync,
+      syncCommentRail,
       handleDocCommentClick,
+      handleRenderedDocumentClick,
     ],
   );
-
-  const onResizePointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
-    e.preventDefault();
-    const el = e.currentTarget;
-    el.setPointerCapture(e.pointerId);
-    const startX = e.clientX;
-    const startWidth = panelWidth;
-
-    const onMove = (ev: PointerEvent) => {
-      const delta = startX - ev.clientX;
-      setPanelWidth(
-        Math.min(MAX_PANEL_WIDTH, Math.max(MIN_PANEL_WIDTH, startWidth + delta)),
-      );
-    };
-
-    const onUp = (ev: PointerEvent) => {
-      el.releasePointerCapture(ev.pointerId);
-      el.removeEventListener("pointermove", onMove);
-      el.removeEventListener("pointerup", onUp);
-    };
-
-    el.addEventListener("pointermove", onMove);
-    el.addEventListener("pointerup", onUp);
-  };
 
   if (doc.isLoading) {
     return (
@@ -263,6 +365,14 @@ export function DocumentPage() {
           />
         );
       }
+      if (doc.error.code === "group_membership_unavailable") {
+        return (
+          <DocumentErrorState
+            title="Group access is temporarily unavailable"
+            description="Google Group membership could not be refreshed. Try again shortly; stale group access has not been used."
+          />
+        );
+      }
     }
     return (
       <DocumentErrorState
@@ -279,11 +389,14 @@ export function DocumentPage() {
         <div className="relative h-full bg-[var(--color-surface-muted)]">
           {showFullscreenHint ? (
             <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
-              <span className="hidden sm:inline">Press Esc to exit full screen</span>
+              <span className="hidden sm:inline">
+                Esc to exit · Esc t theme · Esc h home
+              </span>
               <span className="sm:hidden">Go back to exit full screen</span>
             </div>
           ) : null}
           {current ? <RenderFrame /> : <Center>No version available.</Center>}
+          <Keycast state={chord} available={chordKeys} label={chordLabel} />
         </div>
       ) : (
         <motion.div
@@ -302,31 +415,31 @@ export function DocumentPage() {
               current={current}
               latest={latest}
               versions={versions.data?.items || []}
+              labels={doc.data.labels || []}
               onSelectVersion={setSelectedVersion}
-              commentsOpen={isMobile ? mobilePanelOpen : panelOpen}
+              commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
               onToggleComments={toggleComments}
+              shareOpen={shareOpen}
+              onShareOpenChange={setShareOpen}
             />
           </motion.div>
           <motion.div variants={contentFade} className="flex flex-1 overflow-hidden">
-            <section className="relative flex-1 bg-[var(--color-surface-muted)]">
+            <section className="relative min-w-0 flex-1 bg-[var(--color-surface-muted)]">
               {current ? <RenderFrame /> : <Center>No version available.</Center>}
+              <Keycast state={chord} available={chordKeys} label={chordLabel} />
             </section>
             <AnimatePresence initial={false}>
-              {panelOpen && (
+              {commentsOpen && (
                 <motion.aside
-                  key="comments-panel"
-                  initial={{ width: 0 }}
-                  animate={{ width: panelWidth }}
-                  exit={{ width: 0 }}
+                  key="comment-rail"
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 360, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
                   transition={{ type: "spring", duration: 0.35, bounce: 0 }}
-                  className="relative hidden shrink-0 overflow-hidden border-l border-[var(--color-border)] bg-[var(--color-surface)] md:block"
+                  className="relative hidden shrink-0 overflow-hidden bg-[var(--color-surface-muted)] md:block"
                 >
-                  <div className="flex h-full flex-col" style={{ width: panelWidth }}>
-                    <div
-                      className="absolute inset-y-0 left-0 z-10 w-1 cursor-col-resize transition-colors hover:bg-[var(--color-border-strong)]/50"
-                      onPointerDown={onResizePointerDown}
-                    />
-                    <Comments />
+                  <div className="h-full w-[360px]">
+                    <CommentRail />
                   </div>
                 </motion.aside>
               )}

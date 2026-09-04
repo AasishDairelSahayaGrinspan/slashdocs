@@ -53,6 +53,41 @@ If the user is iterating on an existing aidocs document, push a new version
 instead of creating a duplicate. Use the CLI help to find the current push/update
 syntax and include a short summary of what changed.
 
+### Searching and labels
+
+Use the same structured search language as the web application:
+
+```bash
+aidocs docs list 'incident author:alice@example.com labels:api,review in:"Product Specs"'
+aidocs docs list 'author:/@razorpay\.com$/ labels:/^api-/' --json
+```
+
+`author:`, comma-separated `labels:`, and `in:` combine with AND. `in:` also
+matches ancestor folders. Literal modifier values are exact and
+case-insensitive; wrap a value in `/.../` for a primitive regular expression.
+
+Manage labels directly from the CLI:
+
+```bash
+aidocs docs labels list doc_123
+aidocs docs labels set doc_123 api review-ready
+aidocs docs labels clear doc_123
+```
+
+## MCP server (optional)
+
+The aidocs application server exposes MCP directly over Streamable HTTP at:
+
+```bash
+https://<your-aidocs-host>/mcp
+```
+
+Connect the URL from the MCP client; no aidocs CLI installation or local MCP
+process is required. Interactive clients authenticate through the server's
+browser flow. Headless clients can use a service-account bearer key created in
+the aidocs web application. If the remote aidocs MCP tools are already available
+in your session, prefer them; otherwise use the CLI commands described above.
+
 ## Authentication and setup
 
 Assume the user installed aidocs and the bundled skill via the server's

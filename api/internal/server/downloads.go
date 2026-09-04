@@ -35,6 +35,14 @@ type cliAsset struct {
 	Size   int    `json:"size,omitempty"`
 }
 
+// versionResponse is the payload of GET /version.json.
+type versionResponse struct {
+	Version string     `json:"version"`
+	Commit  string     `json:"commit"`
+	Install string     `json:"install"`
+	Assets  []cliAsset `json:"assets"`
+}
+
 var cliPlatforms = []struct{ os, arch string }{
 	{"darwin", "arm64"},
 	{"darwin", "amd64"},
@@ -60,7 +68,7 @@ func (h handlers) versionJSON(c *gin.Context) {
 		}
 		assets = append(assets, asset)
 	}
-	c.JSON(http.StatusOK, gin.H{"version": releaseVersion(), "commit": releaseCommit(), "install": "/install.sh", "assets": assets})
+	c.JSON(http.StatusOK, versionResponse{Version: releaseVersion(), Commit: releaseCommit(), Install: "/install.sh", Assets: assets})
 }
 
 func (h handlers) downloadSkill(c *gin.Context) {
@@ -230,6 +238,37 @@ install_skill_dir "$HOME/.claude/skills/aidocs"
 echo "Installed aidocs skill at:"
 echo "  $HOME/.agents/skills/aidocs/SKILL.md"
 echo "  $HOME/.claude/skills/aidocs/SKILL.md"
+
+# Point a fresh CLI at the server this installer came from, so
+# "curl <server>/install.sh | bash" ends with aidocs already configured.
+# An existing config is never touched: it may hold other contexts/credentials.
+configure_default_context() {
+  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aidocs"
+  config_path="$config_dir/config.json"
+  if [ -e "$config_path" ]; then
+    echo "Keeping existing aidocs config at $config_path"
+    return
+  fi
+  host="${BASE_URL#*://}"
+  host="${host%%/*}"
+  mkdir -p "$config_dir"
+  chmod 700 "$config_dir"
+  cat > "$config_path" <<EOF
+{
+  "active_context": "$host",
+  "contexts": {
+    "$host": {
+      "server": "$BASE_URL",
+      "pulled": {}
+    }
+  }
+}
+EOF
+  chmod 600 "$config_path"
+  echo "Configured aidocs to use $BASE_URL (run 'aidocs auth login' to sign in)."
+}
+
+configure_default_context
 
 profile_for_current_shell() {
   shell_name="$(basename "${SHELL:-}")"

@@ -69,6 +69,45 @@ var (
 		Help:    "Uploaded or downloaded HTML payload sizes.",
 		Buckets: byteBuckets,
 	}, []string{"operation"})
+	mcpRequestsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aidocs_mcp_requests_total",
+		Help: "MCP protocol requests by bounded method and outcome.",
+	}, []string{"method", "outcome"})
+	mcpRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "aidocs_mcp_request_duration_seconds",
+		Help:    "MCP protocol request latency by bounded method and outcome.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"method", "outcome"})
+	mcpToolCallsTotal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aidocs_mcp_tool_calls_total",
+		Help: "MCP tool calls by registered tool, outcome, and actor type.",
+	}, []string{"tool", "outcome", "actor_type"})
+	mcpToolCallDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "aidocs_mcp_tool_call_duration_seconds",
+		Help:    "MCP tool call latency by registered tool and outcome.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"tool", "outcome"})
+	googleGroupRequests = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aidocs_google_group_requests_total",
+		Help: "Cloud Identity requests by operation and low-cardinality outcome.",
+	}, []string{"operation", "outcome"})
+	googleGroupRequestDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{
+		Name:    "aidocs_google_group_request_duration_seconds",
+		Help:    "Cloud Identity request latency by operation.",
+		Buckets: prometheus.DefBuckets,
+	}, []string{"operation"})
+	googleGroupMembershipEvents = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aidocs_google_group_membership_events_total",
+		Help: "Membership cache and refresh events.",
+	}, []string{"event", "outcome"})
+	googleGroupAuthorizationFailures = prometheus.NewCounter(prometheus.CounterOpts{
+		Name: "aidocs_google_group_authorization_failures_total",
+		Help: "Authorization responses caused by unavailable Google Group membership.",
+	})
+	googleGroupOperations = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "aidocs_google_group_operations_total",
+		Help: "Google Group search and grant resolution outcomes.",
+	}, []string{"operation", "outcome"})
 )
 
 func init() {
@@ -87,6 +126,15 @@ func init() {
 		serviceAccountEventsTotal,
 		renderEventsTotal,
 		htmlBytes,
+		mcpRequestsTotal,
+		mcpRequestDuration,
+		mcpToolCallsTotal,
+		mcpToolCallDuration,
+		googleGroupRequests,
+		googleGroupRequestDuration,
+		googleGroupMembershipEvents,
+		googleGroupAuthorizationFailures,
+		googleGroupOperations,
 	)
 }
 
@@ -148,4 +196,28 @@ func incServiceAccount(event, actor string) {
 func incRender(event, outcome string) { renderEventsTotal.WithLabelValues(event, outcome).Inc() }
 func observeHTML(operation string, size int) {
 	htmlBytes.WithLabelValues(operation).Observe(float64(size))
+}
+
+func observeMCPRequest(method, outcome string, duration time.Duration) {
+	mcpRequestsTotal.WithLabelValues(method, outcome).Inc()
+	mcpRequestDuration.WithLabelValues(method, outcome).Observe(duration.Seconds())
+}
+
+func observeMCPToolCall(tool, outcome, actor string, duration time.Duration) {
+	mcpToolCallsTotal.WithLabelValues(tool, outcome, actor).Inc()
+	mcpToolCallDuration.WithLabelValues(tool, outcome).Observe(duration.Seconds())
+}
+
+func ObserveGoogleGroupRequest(operation, outcome string, elapsed time.Duration) {
+	googleGroupRequests.WithLabelValues(operation, outcome).Inc()
+	googleGroupRequestDuration.WithLabelValues(operation).Observe(elapsed.Seconds())
+}
+
+func observeGoogleGroupMembership(event, outcome string) {
+	googleGroupMembershipEvents.WithLabelValues(event, outcome).Inc()
+}
+
+func incGoogleGroupAuthorizationFailure() { googleGroupAuthorizationFailures.Inc() }
+func incGoogleGroupOperation(operation, outcome string) {
+	googleGroupOperations.WithLabelValues(operation, outcome).Inc()
 }
