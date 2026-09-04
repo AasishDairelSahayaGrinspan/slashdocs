@@ -332,7 +332,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 		return repo.Document{}, repo.Version{}, err
 	}
 	committed = true
-	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum}, nil
+	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 func (s *Store) GetDocument(ctx context.Context, id string) (repo.Document, error) {
 	r, err := s.q.GetDocument(ctx, id)
@@ -483,7 +483,7 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 		return repo.Version{}, err
 	}
 	committed = true
-	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum}, nil
+	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body string, anchor repo.Anchor, author auth.Principal, mentions []repo.CommentMention) (repo.Comment, error) {
 	body = repo.NormalizeCommentBody(body)
@@ -521,7 +521,7 @@ func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body s
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
-	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen, RootCommentID: id, Mentions: mentions}, nil
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen, RootCommentID: id, Mentions: mentions, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommentID, body string, author auth.Principal, mentions []repo.CommentMention) (repo.Comment, error) {
 	body = repo.NormalizeCommentBody(body)
@@ -563,7 +563,7 @@ func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommen
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
-	return repo.Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: repo.StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID, Mentions: mentions}, nil
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: repo.StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID, Mentions: mentions, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
 }
 
 type mentionPrincipalKey struct {
@@ -1146,6 +1146,11 @@ func (s *Store) UpdateComment(ctx context.Context, id string, update repo.Commen
 	comment.Body = effectiveBody
 	if update.Status != "" {
 		comment.Status = update.Status
+		if update.Status == repo.StatusResolved {
+			comment.ResolvedAt = time.Now().UTC().Format(time.RFC3339Nano)
+		} else {
+			comment.ResolvedAt = ""
+		}
 	}
 	mentions, err := commentMentionsByID(ctx, q, []string{id})
 	if err != nil {
@@ -1449,7 +1454,7 @@ func docFromSearch(r dbsqlc.SearchDocumentsRow) repo.Document {
 	return d
 }
 func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID, CreatedAt: pgTimeRFC3339(r.CreatedAt), ResolvedAt: pgTimeRFC3339(r.ResolvedAt)}
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
 	}
@@ -1459,7 +1464,7 @@ func commentFromGet(r dbsqlc.GetCommentRow) repo.Comment {
 	return c
 }
 func commentFromReply(r dbsqlc.GetCommentForReplyRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID, CreatedAt: pgTimeRFC3339(r.CreatedAt), ResolvedAt: pgTimeRFC3339(r.ResolvedAt)}
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
 	}
@@ -1467,7 +1472,7 @@ func commentFromReply(r dbsqlc.GetCommentForReplyRow) repo.Comment {
 	return c
 }
 func commentFromUpdate(r dbsqlc.GetCommentForUpdateRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID, CreatedAt: pgTimeRFC3339(r.CreatedAt), ResolvedAt: pgTimeRFC3339(r.ResolvedAt)}
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
 	}
@@ -1475,7 +1480,7 @@ func commentFromUpdate(r dbsqlc.GetCommentForUpdateRow) repo.Comment {
 	return c
 }
 func commentFromList(r dbsqlc.ListCommentsRow) repo.Comment {
-	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID}
+	c := repo.Comment{ID: r.ID, DocumentID: r.DocumentID, VersionID: r.CreatedOnVersionID, Author: auth.Principal{Type: auth.PrincipalType(r.AuthorType), ID: r.AuthorID, Email: r.AuthorEmail, Name: r.AuthorName}, Body: r.Body, SelectedText: r.SelectedText, Status: r.Status, RootCommentID: r.RootCommentID, CreatedAt: pgTimeRFC3339(r.CreatedAt), ResolvedAt: pgTimeRFC3339(r.ResolvedAt)}
 	if r.ParentCommentID.Valid {
 		c.ParentCommentID = r.ParentCommentID.String
 	}

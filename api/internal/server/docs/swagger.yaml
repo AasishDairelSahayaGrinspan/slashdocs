@@ -254,6 +254,8 @@ definitions:
         $ref: '#/definitions/server.principalResponse'
       body:
         type: string
+      created_at:
+        type: string
       created_on_version_id:
         type: string
       current_placement:
@@ -274,6 +276,8 @@ definitions:
         items:
           $ref: '#/definitions/server.commentResponse'
         type: array
+      resolved_at:
+        type: string
       selected_text:
         type: string
       status:

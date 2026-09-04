@@ -105,6 +105,8 @@ export type Comment = {
     confidence: number;
     matched_text: string;
   };
+  created_at?: string;
+  resolved_at?: string;
 };
 export type CommentPatch = {
   body?: string;
