@@ -4,7 +4,15 @@ import (
 	"fmt"
 	"net/http"
 	"testing"
+	"time"
 )
+
+func assertRFC3339Timestamp(t *testing.T, value string) {
+	t.Helper()
+	if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+		t.Fatalf("timestamp %q is not RFC3339: %v", value, err)
+	}
+}
 
 func TestCreateComment(t *testing.T) {
 	e := newTestEnv(t)
@@ -26,6 +34,8 @@ func TestCreateComment(t *testing.T) {
 
 	assertStatus(t, rr, http.StatusCreated)
 	cmtID := jsonField(t, rr.Body.Bytes(), "id")
+	createdAt := jsonField(t, rr.Body.Bytes(), "created_at")
+	assertRFC3339Timestamp(t, createdAt)
 	assertJSON(t, rr.Body.Bytes(), fmt.Sprintf(`{
 	  "id": %q,
 		  "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
@@ -42,6 +52,7 @@ func TestCreateComment(t *testing.T) {
 	    "end_offset": 7
 	  },
 	  "status": "open",
+	  "created_at": %q,
 	  "created_on_version_id": %q,
 	  "current_placement": {
 	    "version_id": %q,
@@ -57,7 +68,7 @@ func TestCreateComment(t *testing.T) {
 	    "matched_text": "fixture",
 	    "confidence": 1
 	  }
-	}`, cmtID, e.ver.ID, e.ver.ID))
+	}`, cmtID, createdAt, e.ver.ID, e.ver.ID))
 }
 
 func TestCreateCommentReplyAndListThread(t *testing.T) {
@@ -68,6 +79,8 @@ func TestCreateCommentReplyAndListThread(t *testing.T) {
 	})
 	assertStatus(t, rr, http.StatusCreated)
 	replyID := jsonField(t, rr.Body.Bytes(), "id")
+	replyCreatedAt := jsonField(t, rr.Body.Bytes(), "created_at")
+	assertRFC3339Timestamp(t, replyCreatedAt)
 	assertJSON(t, rr.Body.Bytes(), fmt.Sprintf(`{
 	  "id": %q,
 		  "author": { "type": "user", "id": "commenter_1", "email": "commenter@example.com", "name": "Commenter" },
@@ -75,9 +88,10 @@ func TestCreateCommentReplyAndListThread(t *testing.T) {
 		  "mentions": [],
 		  "reactions": [],
 		  "status": "open",
+	  "created_at": %q,
 	  "created_on_version_id": %q,
 	  "parent_comment_id": %q
-	}`, replyID, e.ver.ID, e.cmt.ID))
+	}`, replyID, replyCreatedAt, e.ver.ID, e.cmt.ID))
 
 	rr = do(t, e.h, http.MethodGet, "/v1/documents/"+e.doc.ID+"/comments", "", map[string]string{
 		"X-Test-Principal": principalHeader(fixtureCommenter),
@@ -93,6 +107,7 @@ func TestCreateCommentReplyAndListThread(t *testing.T) {
 		    "selected_text": "fixture",
 	    "anchor": { "quote": "fixture", "prefix": "", "suffix": "", "dom_path": "", "start_offset": 0, "end_offset": 0 },
 	    "status": "open",
+	    "created_at": %q,
 	    "created_on_version_id": %q,
 	    "current_placement": { "version_id": %q, "status": "attached", "anchor": { "quote": "fixture", "prefix": "", "suffix": "", "dom_path": "", "start_offset": 0, "end_offset": 0 }, "matched_text": "fixture", "confidence": 1 },
 	    "replies": [{
@@ -102,11 +117,12 @@ func TestCreateCommentReplyAndListThread(t *testing.T) {
 		      "mentions": [],
 		      "reactions": [],
 		      "status": "open",
+	      "created_at": %q,
 	      "created_on_version_id": %q,
 	      "parent_comment_id": %q
 	    }]
 	  }]
-	}`, e.cmt.ID, e.ver.ID, e.ver.ID, replyID, e.ver.ID, e.cmt.ID))
+	}`, e.cmt.ID, e.cmt.CreatedAt, e.ver.ID, e.ver.ID, replyID, replyCreatedAt, e.ver.ID, e.cmt.ID))
 }
 
 func TestViewerCannotCreateComment(t *testing.T) {

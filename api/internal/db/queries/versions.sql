@@ -1,10 +1,12 @@
--- name: InsertInitialVersion :exec
+-- name: InsertInitialVersion :one
 INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
-VALUES($1,$2,1,$3,$4,NULL,$5,$6,'');
+VALUES($1,$2,1,$3,$4,NULL,$5,$6,'')
+RETURNING created_at;
 
--- name: InsertVersion :exec
+-- name: InsertVersion :one
 INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9);
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+RETURNING created_at;
 
 -- name: ListVersions :many
 SELECT

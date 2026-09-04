@@ -36,6 +36,7 @@ import {
   type UserPrincipal,
 } from "@/api";
 import { cn } from "@/lib/cn";
+import { formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import { layoutCommentRail } from "@/lib/comment-rail";
 import { samePrincipal } from "@/lib/principals";
@@ -839,6 +840,14 @@ function CommentCard({
           <Badge variant="accent">open</Badge>
         )}
       </div>
+      {(c.created_at || (resolved && c.resolved_at)) && (
+        <div className="mb-2 flex flex-wrap gap-x-3 text-[11px] text-[var(--color-fg-muted)]">
+          {c.created_at ? <span>Added {formatTimestamp(c.created_at)}</span> : null}
+          {resolved && c.resolved_at ? (
+            <span>Resolved {formatTimestamp(c.resolved_at)}</span>
+          ) : null}
+        </div>
+      )}
       {unanchoredComments.has(c.id) && (
         <Badge variant="warning" className="mb-2">
           highlight not found
@@ -915,6 +924,11 @@ function ReplyItem({
           className="opacity-0 transition-opacity group-hover/reply:opacity-100"
         />
       </div>
+      {r.created_at ? (
+        <div className="mb-1 text-[11px] text-[var(--color-fg-muted)]">
+          {formatTimestamp(r.created_at)}
+        </div>
+      ) : null}
       <CommentBody text={r.body} mentions={r.mentions} />
       <ReactionBar c={r} docId={docId} />
     </div>

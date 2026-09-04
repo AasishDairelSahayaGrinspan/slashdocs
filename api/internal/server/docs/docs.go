@@ -2345,6 +2345,9 @@ const docTemplate = `{
                 "body": {
                     "type": "string"
                 },
+                "created_at": {
+                    "type": "string"
+                },
                 "created_on_version_id": {
                     "type": "string"
                 },
@@ -2374,6 +2377,9 @@ const docTemplate = `{
                     "items": {
                         "$ref": "#/definitions/server.commentResponse"
                     }
+                },
+                "resolved_at": {
+                    "type": "string"
                 },
                 "selected_text": {
                     "type": "string"

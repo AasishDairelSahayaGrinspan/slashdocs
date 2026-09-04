@@ -48,6 +48,7 @@ import {
 } from "@/api";
 import { ApprovalsDialog } from "./doc-approvals";
 import { canManageSharing, ROLE_RANK } from "@/lib/constants";
+import { formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
@@ -90,6 +91,7 @@ export function DocBar({
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
+  const backTo = parentFolder ? `/app/folders/${parentFolder.id}` : "/app/documents";
   const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
   const currentVersion = versions.find((v) => v.id === current);
   const isViewingOlder = !!current && !!latest && current !== latest;
@@ -110,7 +112,7 @@ export function DocBar({
     onSuccess: () => {
       toast.success("Document deleted.");
       q.invalidateQueries({ queryKey: queryKeys.documents() });
-      nav("/app/documents");
+      nav(backTo);
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
@@ -133,7 +135,10 @@ export function DocBar({
   return (
     <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
       <Button asChild variant="ghost" size="icon" className="shrink-0">
-        <Link to="/app/documents" aria-label="Back to documents">
+        <Link
+          to={backTo}
+          aria-label={parentFolder ? "Back to folder" : "Back to documents"}
+        >
           <ArrowLeft className="h-4 w-4" />
         </Link>
       </Button>
@@ -427,9 +432,7 @@ function VersionHistoryDialog({
                   </div>
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
                     <span>Created by {principalLabel(v.created_by)}</span>
-                    {v.created_at ? (
-                      <span>{new Date(v.created_at).toLocaleString()}</span>
-                    ) : null}
+                    {v.created_at ? <span>{formatTimestamp(v.created_at)}</span> : null}
                     <span className="font-mono">{v.id}</span>
                   </div>
                 </div>
