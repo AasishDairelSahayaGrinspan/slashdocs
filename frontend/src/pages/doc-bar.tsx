@@ -165,6 +165,7 @@ export function DocBar({
         status={approvalStatus}
         approved={approvalSummary?.approved}
         total={approvalSummary?.total}
+        isOwner={canManage}
       />
       {isViewingOlder ? (
         <Button

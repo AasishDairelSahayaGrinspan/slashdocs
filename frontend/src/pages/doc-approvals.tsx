@@ -72,40 +72,92 @@ export function ApprovalsDialog({
   status,
   approved,
   total,
+  isOwner,
 }: {
   status?: ApprovalStatus;
   approved?: number;
   total?: number;
+  isOwner: boolean;
 }) {
+  const { docId, version } = useDoc();
   const [open, setOpen] = useState(false);
-  if (!status) return null;
+  const doc = useQuery({
+    queryKey: queryKeys.document(docId),
+    queryFn: () => api.getDocument(docId),
+  });
+  // The props describe the document's *current* version. When an older
+  // version is on screen the dialog lists that version's decisions, so the
+  // chip has to be scoped the same way or the two contradict each other.
+  const latest = doc.data?.current_version_id;
+  const viewingOlder = !!version && !!latest && version !== latest;
+  const scoped = useQuery({
+    queryKey: queryKeys.approvals(docId, version),
+    queryFn: () => api.listApprovals(docId, version),
+    enabled: !!docId && viewingOlder,
+  });
+  // Fall back to the document-level numbers until the scoped ones land, so
+  // the chip does not blink out while an older version loads.
+  const shownStatus = (viewingOlder ? scoped.data?.status : status) ?? status;
+  const shownApproved =
+    (viewingOlder ? scoped.data?.summary.approved : approved) ?? approved;
+  const shownTotal = (viewingOlder ? scoped.data?.summary.total : total) ?? total;
+
+  // With no approvers the API omits the status entirely. The owner still
+  // needs a way in, because this dialog is the only place approvers can be
+  // assigned; without a trigger the first approver could never be added.
+  if (!shownStatus) {
+    if (!isOwner) return null;
+    return (
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogTrigger asChild>
+          <button
+            type="button"
+            aria-label="Set up approvals"
+            className="shrink-0 rounded-full transition-transform duration-150 ease-out active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
+          >
+            <Badge variant="muted" className="cursor-pointer hover:opacity-90">
+              Set up approvals
+            </Badge>
+          </button>
+        </DialogTrigger>
+        <ApprovalsDialogBody />
+      </Dialog>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <button
           type="button"
-          aria-label={`${badgeText(status, approved, total)}. Open approvals`}
+          aria-label={`${badgeText(shownStatus, shownApproved, shownTotal)}. Open approvals`}
           className="shrink-0 rounded-full transition-transform duration-150 ease-out active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
         >
           <Badge
-            variant={STATUS_BADGE[status].variant}
+            variant={STATUS_BADGE[shownStatus].variant}
             className="cursor-pointer hover:opacity-90"
           >
-            {badgeText(status, approved, total)}
+            {badgeText(shownStatus, shownApproved, shownTotal)}
           </Badge>
         </button>
       </DialogTrigger>
-      <DialogContent className="max-w-lg overflow-hidden p-0">
-        <DialogHeader className="mb-0 border-b border-[var(--color-border)] px-5 py-4">
-          <DialogTitle className="text-sm font-semibold">Approvals</DialogTitle>
-          <DialogDescription>
-            Who has signed off on the version you are viewing. Approved decisions carry
-            forward to new versions; requesting changes needs a note.
-          </DialogDescription>
-        </DialogHeader>
-        <Approvals />
-      </DialogContent>
+      <ApprovalsDialogBody />
     </Dialog>
+  );
+}
+
+function ApprovalsDialogBody() {
+  return (
+    <DialogContent className="max-w-lg overflow-hidden p-0">
+      <DialogHeader className="mb-0 border-b border-[var(--color-border)] px-5 py-4">
+        <DialogTitle className="text-sm font-semibold">Approvals</DialogTitle>
+        <DialogDescription>
+          Who has signed off on the version you are viewing. Approved decisions carry
+          forward to new versions; requesting changes needs a note.
+        </DialogDescription>
+      </DialogHeader>
+      <Approvals />
+    </DialogContent>
   );
 }
 
