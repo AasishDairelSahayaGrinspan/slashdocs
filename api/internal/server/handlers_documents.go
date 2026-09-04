@@ -147,6 +147,9 @@ func (h handlers) listDocuments(c *gin.Context) {
 			internalErr(c, err)
 			return
 		}
+		// Search hits are the same documents as the plain listing, so they
+		// carry the same approval status rather than losing it mid-query.
+		h.annotateApprovalSummaries(c, items)
 		c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
 		return
 	}

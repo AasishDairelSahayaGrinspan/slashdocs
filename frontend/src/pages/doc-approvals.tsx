@@ -8,17 +8,23 @@ import {
   type ApprovalDecision,
   type ApprovalListItem,
   type ApprovalStatus,
-  type Principal,
 } from "@/api";
 import { Avatar } from "@/components/ui/misc";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog";
+import { Input, Textarea } from "@/components/ui/input";
 import { errorMessage } from "@/lib/errors";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { useDoc } from "./doc-context";
-import { CommentRail, Comments } from "./doc-comments";
 
 const STATUS_BADGE: Record<
   ApprovalStatus,
@@ -29,8 +35,18 @@ const STATUS_BADGE: Record<
   changes_requested: { label: "Changes requested", variant: "danger" },
 };
 
-// ApprovalStatusBadge is the compact aggregate-status chip shown in the
-// document bar. Hidden entirely when the document has no assigned approvers.
+// badgeText always names the subject. A bare "Pending (0/1)" chip in the
+// document bar does not say what the count is about.
+function badgeText(status: ApprovalStatus, approved?: number, total?: number) {
+  const { label } = STATUS_BADGE[status];
+  if (status === "pending" && total) {
+    return `Approvals: ${label} ${approved ?? 0}/${total}`;
+  }
+  return `Approvals: ${label}`;
+}
+
+// ApprovalStatusBadge is the compact aggregate-status chip. Hidden entirely
+// when the document has no assigned approvers.
 export function ApprovalStatusBadge({
   status,
   approved,
@@ -41,60 +57,69 @@ export function ApprovalStatusBadge({
   total?: number;
 }) {
   if (!status) return null;
-  const badge = STATUS_BADGE[status];
-  const count = status === "pending" && total ? ` (${approved ?? 0}/${total})` : "";
   return (
-    <Badge variant={badge.variant} className="shrink-0">
-      {badge.label + count}
+    <Badge variant={STATUS_BADGE[status].variant} className="shrink-0">
+      {badgeText(status, approved, total)}
     </Badge>
   );
 }
 
-type PanelTab = "comments" | "approvals";
-
-// ReviewPanel hosts the side panel's segmented Comments / Approvals switch.
-// The Approvals tab only appears once the document has assigned approvers or
-// the viewer is the owner (who can assign the first one).
-export function ReviewPanel({
-  commentsView = "list",
+// ApprovalsDialog is the document bar's entry point into approvals: the status
+// chip is the trigger, so a reader who sees "Pending 0/1" can click straight
+// through to who still owes a decision. Approvals live here rather than in the
+// comments sidebar — they are a different concern from discussion.
+export function ApprovalsDialog({
+  status,
+  approved,
+  total,
 }: {
-  commentsView?: "rail" | "list";
+  status?: ApprovalStatus;
+  approved?: number;
+  total?: number;
 }) {
-  const { docId, principal } = useDoc();
-  const [tab, setTab] = useState<PanelTab>("comments");
-  const doc = useQuery({
-    queryKey: queryKeys.document(docId),
-    queryFn: () => api.getDocument(docId),
-  });
-  const isOwner = samePrincipal(principal, doc.data?.owner);
-  const summary = doc.data?.approval_summary;
-  const showApprovals = isOwner || !!summary;
-  useEffect(() => {
-    if (!showApprovals && tab === "approvals") setTab("comments");
-  }, [showApprovals, tab]);
-  const comments = commentsView === "rail" ? <CommentRail /> : <Comments />;
-  if (!showApprovals) return comments;
+  const [open, setOpen] = useState(false);
+  if (!status) return null;
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--color-border)] px-4 pt-3">
-        <div className="flex gap-1 rounded-md bg-[var(--color-surface-muted)] p-0.5 text-xs">
-          {(["comments", "approvals"] as const).map((t) => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`flex-1 rounded px-2 py-1 capitalize transition-colors ${tab === t ? "bg-[var(--color-surface)] text-[var(--color-fg)] shadow-sm" : "text-[var(--color-fg-muted)]"}`}
-            >
-              {t === "approvals" && summary
-                ? `Approvals (${summary.approved}/${summary.total})`
-                : t}
-            </button>
-          ))}
-        </div>
-      </div>
-      <div className="min-h-0 flex-1">
-        {tab === "comments" ? comments : <Approvals isOwner={isOwner} />}
-      </div>
-    </div>
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${badgeText(status, approved, total)}. Open approvals`}
+          className="shrink-0 rounded-full transition-transform duration-150 ease-out active:scale-[0.97] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)]"
+        >
+          <Badge
+            variant={STATUS_BADGE[status].variant}
+            className="cursor-pointer hover:opacity-90"
+          >
+            {badgeText(status, approved, total)}
+          </Badge>
+        </button>
+      </DialogTrigger>
+      <DialogContent className="max-w-lg overflow-hidden p-0">
+        <DialogHeader className="mb-0 border-b border-[var(--color-border)] px-5 py-4">
+          <DialogTitle className="text-sm font-semibold">Approvals</DialogTitle>
+          <DialogDescription>
+            Who has signed off on the version you are viewing. Approved decisions carry
+            forward to new versions; requesting changes needs a note.
+          </DialogDescription>
+        </DialogHeader>
+        <Approvals />
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// carriedSuffix names the version that received the explicit decision, so a
+// carried approval reads "Approved on v3" rather than an opaque note that
+// something was carried forward from somewhere.
+function carriedSuffix(item: ApprovalListItem) {
+  if (!item.carried_from_version_id) return null;
+  return (
+    <span className="font-normal text-[var(--color-fg-muted)]">
+      {item.carried_from_version_number
+        ? ` on v${item.carried_from_version_number}`
+        : " (carried forward)"}
+    </span>
   );
 }
 
@@ -103,11 +128,7 @@ function decisionLabel(item: ApprovalListItem) {
     return (
       <span className="flex items-center gap-1 text-xs font-medium text-green-700 dark:text-green-300">
         <Check className="h-3.5 w-3.5" /> Approved
-        {item.carried_from_version_id ? (
-          <span className="font-normal text-[var(--color-fg-muted)]">
-            (carried forward)
-          </span>
-        ) : null}
+        {carriedSuffix(item)}
       </span>
     );
   }
@@ -128,13 +149,16 @@ function decisionLabel(item: ApprovalListItem) {
 // Approvals renders the per-approver decision list for the version being
 // viewed, with decision actions for the signed-in approver and assignment
 // controls for the owner.
-export function Approvals({ isOwner }: { isOwner: boolean }) {
+export function Approvals() {
   const { docId, version, principal } = useDoc();
   const q = useQueryClient();
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [note, setNote] = useState("");
   const doc = useQuery({
     queryKey: queryKeys.document(docId),
     queryFn: () => api.getDocument(docId),
   });
+  const isOwner = samePrincipal(principal, doc.data?.owner);
   const latest = doc.data?.current_version_id;
   const isCurrentVersion = !version || !latest || version === latest;
   const approvals = useQuery({
@@ -151,10 +175,12 @@ export function Approvals({ isOwner }: { isOwner: boolean }) {
   };
 
   const decide = useMutation({
-    mutationFn: (decision: ApprovalDecision) =>
-      api.createApproval(docId, version, decision),
+    mutationFn: (input: { decision: ApprovalDecision; note?: string }) =>
+      api.createApproval(docId, version, input.decision, input.note),
     onSuccess: (a) => {
       toast.success(a.decision === "approved" ? "Approved." : "Changes requested.");
+      setNoteOpen(false);
+      setNote("");
       invalidate();
     },
     onError: (e) => toast.error(errorMessage(e, "Could not record decision")),
@@ -173,10 +199,14 @@ export function Approvals({ isOwner }: { isOwner: boolean }) {
   const own = items.find((item) => samePrincipal(item.approver, principal));
 
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--color-border)] px-4 py-3">
-        <div className="flex items-center justify-between pr-10 md:pr-0">
-          <h2 className="text-sm font-semibold">Approvals</h2>
+    <div className="flex max-h-[70vh] flex-col">
+      <div className="border-b border-[var(--color-border)] px-5 py-3">
+        <div className="flex items-center justify-between gap-2">
+          <p className="text-xs text-[var(--color-fg-muted)]">
+            {summary?.total
+              ? `${summary.approved}/${summary.total} approved`
+              : "No approvers assigned"}
+          </p>
           <ApprovalStatusBadge
             status={approvals.data?.status}
             approved={summary?.approved}
@@ -210,36 +240,79 @@ export function Approvals({ isOwner }: { isOwner: boolean }) {
         )}
       </div>
       {own && isCurrentVersion ? (
-        <div className="flex gap-2 border-t border-[var(--color-border)] p-3">
-          {own.decision !== "approved" ? (
-            <Button
-              size="sm"
-              disabled={decide.isPending}
-              onClick={() => decide.mutate("approved")}
+        <div className="border-t border-[var(--color-border)] p-3">
+          {noteOpen ? (
+            <form
+              className="space-y-2"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (note.trim()) {
+                  decide.mutate({ decision: "changes_requested", note: note.trim() });
+                }
+              }}
             >
-              <Check className="h-3.5 w-3.5" /> Approve
-            </Button>
-          ) : null}
-          {own.decision !== "changes_requested" ? (
-            <Button
-              size="sm"
-              variant="secondary"
-              disabled={decide.isPending}
-              onClick={() => decide.mutate("changes_requested")}
-            >
-              Request changes
-            </Button>
-          ) : null}
-          {own.decision && own.id ? (
-            <Button
-              size="sm"
-              variant="ghost"
-              disabled={revoke.isPending}
-              onClick={() => revoke.mutate(own.id!)}
-            >
-              Revoke
-            </Button>
-          ) : null}
+              <Textarea
+                autoFocus
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                maxLength={2000}
+                placeholder="What needs to change?"
+                className="min-h-[72px] text-xs"
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  type="submit"
+                  disabled={!note.trim() || decide.isPending}
+                >
+                  Request changes
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  type="button"
+                  onClick={() => {
+                    setNoteOpen(false);
+                    setNote("");
+                  }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          ) : (
+            <div className="flex gap-2">
+              {own.decision !== "approved" ? (
+                <Button
+                  size="sm"
+                  disabled={decide.isPending}
+                  onClick={() => decide.mutate({ decision: "approved" })}
+                >
+                  <Check className="h-3.5 w-3.5" /> Approve
+                </Button>
+              ) : null}
+              {own.decision !== "changes_requested" ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={decide.isPending}
+                  onClick={() => setNoteOpen(true)}
+                >
+                  Request changes
+                </Button>
+              ) : null}
+              {own.decision && own.id ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  disabled={revoke.isPending}
+                  onClick={() => revoke.mutate(own.id!)}
+                >
+                  Revoke
+                </Button>
+              ) : null}
+            </div>
+          )}
         </div>
       ) : null}
       {isOwner ? <AddApprover docId={docId} onAdded={invalidate} /> : null}
@@ -277,11 +350,16 @@ function ApproverRow({
   );
   const label = item.approver.name || item.approver.email || item.approver.id;
   return (
-    <div className="group flex items-center gap-2 rounded-md px-1.5 py-1.5 hover:bg-[var(--color-surface-muted)]">
+    <div className="group flex items-start gap-2 rounded-md px-1.5 py-1.5 hover:bg-[var(--color-surface-muted)]">
       <Avatar name={label} src={item.approver.picture_url} size={24} />
       <div className="min-w-0 flex-1">
         <div className="truncate text-xs font-medium">{label}</div>
         {decisionLabel(item)}
+        {item.note ? (
+          <p className="mt-1 whitespace-pre-wrap break-words text-xs text-[var(--color-fg-muted)]">
+            {item.note}
+          </p>
+        ) : null}
       </div>
       {isOwner && request ? (
         <Button
@@ -313,7 +391,7 @@ function AddApprover({ docId, onAdded }: { docId: string; onAdded: () => void })
     staleTime: 30_000,
   });
   const add = useMutation({
-    mutationFn: (p: Partial<Principal>) => api.createApprover(docId, p),
+    mutationFn: (addr: string) => api.createApprover(docId, addr),
     onSuccess: () => {
       setAddress("");
       toast.success("Approver assigned.");
@@ -327,12 +405,15 @@ function AddApprover({ docId, onAdded }: { docId: string; onAdded: () => void })
       className="border-t border-[var(--color-border)] p-3"
       onSubmit={(e) => {
         e.preventDefault();
-        if (address.trim()) add.mutate({ type: "user", email: address.trim() });
+        // Send the raw address so the server resolves either a user email or a
+        // service-account (bot) address; assuming "user" here made bot
+        // approvers impossible to assign from the UI.
+        if (address.trim()) add.mutate(address.trim());
       }}
     >
       <div className="flex gap-2">
         <Input
-          placeholder="Add approver by email…"
+          placeholder="Add approver by email or bot address…"
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           className="h-8 text-xs"

@@ -432,14 +432,16 @@ Model:
     approvers who requested changes (or never decided) reset to pending.
   - Push with --reset-approvals to force a full re-review after big changes.
   - Approvers can revoke their decision at any time.
+  - Requesting changes requires a note saying what needs to change; a note is
+    optional when approving.
 
 Commands:
   aidocs docs approvers add <doc_id> --to reviewer@org.example
   aidocs docs approvers list <doc_id>
   aidocs docs approvers remove <doc_id> <approver_id>
   aidocs docs approvals list <doc_id> [--version <version_id>]
-  aidocs docs approve <doc_id> [--version <version_id>]
-  aidocs docs request-changes <doc_id> [--version <version_id>]
+  aidocs docs approve <doc_id> [--version <version_id>] [--note "..."]
+  aidocs docs request-changes <doc_id> --note "what needs to change"
   aidocs docs revoke-approval <doc_id> [--version <version_id>]
   aidocs docs push <doc_id> <file> --reset-approvals
 

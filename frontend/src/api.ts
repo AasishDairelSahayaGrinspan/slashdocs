@@ -140,6 +140,7 @@ export type Approval = {
   version_id: string;
   approver: Principal;
   decision: ApprovalDecision;
+  note?: string;
   decided_at?: string;
   carried_from_version_id?: string;
 };
@@ -147,8 +148,10 @@ export type ApprovalListItem = {
   id?: string;
   approver: Principal;
   decision: ApprovalDecision | null;
+  note?: string;
   decided_at?: string;
   carried_from_version_id?: string;
+  carried_from_version_number?: number;
 };
 export type ApprovalsList = {
   version_id: string;
@@ -342,10 +345,10 @@ export const api = {
     ),
   listApprovers: (doc: string) =>
     request<{ items: ApprovalRequest[] }>(`/v1/documents/${doc}/approvers`),
-  createApprover: (doc: string, principal: Partial<Principal>) =>
+  createApprover: (doc: string, address: string) =>
     request<ApprovalRequest>(`/v1/documents/${doc}/approvers`, {
       method: "POST",
-      body: JSON.stringify({ principal }),
+      body: JSON.stringify({ address }),
     }),
   deleteApprover: (doc: string, approverId: string) =>
     request<undefined>(`/v1/documents/${doc}/approvers/${approverId}`, {
@@ -355,10 +358,15 @@ export const api = {
     request<ApprovalsList>(
       `/v1/documents/${doc}/approvals${version ? `?version=${encodeURIComponent(version)}` : ""}`,
     ),
-  createApproval: (doc: string, versionId: string, decision: ApprovalDecision) =>
+  createApproval: (
+    doc: string,
+    versionId: string,
+    decision: ApprovalDecision,
+    note?: string,
+  ) =>
     request<Approval>(`/v1/documents/${doc}/approvals`, {
       method: "POST",
-      body: JSON.stringify({ version_id: versionId, decision }),
+      body: JSON.stringify({ version_id: versionId, decision, note }),
     }),
   deleteApproval: (doc: string, approvalId: string) =>
     request<undefined>(`/v1/documents/${doc}/approvals/${approvalId}`, {

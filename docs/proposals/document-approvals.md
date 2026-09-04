@@ -304,17 +304,18 @@ aidocs docs push <doc_id> <file> [--reset-approvals]
 
 ### UI components
 
-1. **Status badge in DocBar** — "Approved", "Pending (1/3)", "Changes Requested", or hidden when no approvers. Clicking opens the Approvals tab.
-2. **Approvals tab in side panel** — alongside Comments. Per-approver status; action buttons for assigned approvers; add/remove controls for the owner.
-3. **Add Approver popover** — reuses the user search pattern from the share sheet.
+1. **Status badge in DocBar** — "Approvals: Approved", "Approvals: Pending 1/3", "Approvals: Changes requested", or hidden when no approvers. The badge always names its subject and is itself the button that opens the approvals dialog.
+2. **Approvals dialog** — a dedicated modal, _not_ a tab in the comments sidebar (maintainer review, 2026-09-04: approvals are a different concern from discussion). Per-approver status; action buttons for assigned approvers; add/remove controls for the owner.
+3. **Add Approver field** — reuses the user search pattern from the share sheet and submits the raw address, so a bot (service-account) address resolves the same way an email does.
+4. **Request-changes note** — requesting changes opens a short note form and will not submit while it is empty.
 
 ### Files
 
 | File                                        | Change                                       |
 | ------------------------------------------- | -------------------------------------------- |
 | `frontend/src/pages/doc-bar.tsx`            | Approval status badge                        |
-| `frontend/src/pages/doc-page.tsx`           | Fetch approvers/approvals, tab state         |
-| New: `frontend/src/pages/doc-approvals.tsx` | Approvals tab component                      |
+| `frontend/src/pages/doc-page.tsx`           | Comments sidebar left unchanged by approvals |
+| New: `frontend/src/pages/doc-approvals.tsx` | Approvals dialog and status badge            |
 | `frontend/src/pages/doc-upload-version.tsx` | "Reset approvals" checkbox on version upload |
 | `frontend/src/api.ts`                       | Approval API methods                         |
 | `frontend/src/lib/queryKeys.ts`             | Approval query keys                          |
@@ -400,6 +401,16 @@ KV satisfies ~60% of requirements (storing decisions, upsert, optional, additive
 
 Per-key write gating (a considered KV extension) closes the authorization gap but not version-scoping, response enrichment, atomicity, or carry-forward. Key insight: **KV is document-controlled state; approvals are a server-enforced contract between multiple parties.**
 
+## Review outcomes (maintainer review, 2026-09-04)
+
+Devstack review by the maintainer moved four things out of "future work" and into this change:
+
+- **Decision notes** — a `note` column on `approvals` (migration `00025`), required when requesting changes and optional when approving, surfaced through the API, CLI (`--note`) and UI. Requesting changes without saying what to change left the author guessing.
+- **Approvals live in a modal**, not the comments sidebar; the status badge is the trigger.
+- **Carried provenance names the version** — the list response carries `carried_from_version_number`, so the UI reads "Approved on v3" instead of an unattributed "carried forward".
+- **Version scoping is enforced** — `GET /approvals?version=` now 404s for an unknown or foreign version instead of returning an invented all-pending state.
+- **Search results keep approval status** — the search branch of `ListDocuments` enriches the same way the plain listing does.
+
 ## Not in Scope
 
 - Notifications — dropped per maintainer; notifications will start with comment mentions only, independent of this feature
@@ -407,5 +418,4 @@ Per-key write gating (a considered KV extension) closes the authorization gap bu
 - Document types (phase 2) and approval templates ("always require PM + Eng Lead")
 - Document locking on approval
 - Re-request review (owner nudges a specific approver to re-review, optionally clearing their carried approval) — natural follow-up
-- Approval comments (attach a note to a decision, like GitHub PR reviews)
 - Approval request note — owner states _why_ each approver's sign-off is needed (maintainer suggestion, 2026-07-22); a `note` column on `approval_requests` + optional field end to end

@@ -19,7 +19,7 @@ import {
 } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
-import { ReviewPanel } from "./doc-approvals";
+import { CommentRail, Comments } from "./doc-comments";
 import { Keycast } from "./doc-keycast";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
@@ -441,7 +441,7 @@ export function DocumentPage() {
                   className="relative hidden shrink-0 overflow-hidden bg-[var(--color-surface-muted)] md:block"
                 >
                   <div className="h-full w-[360px]">
-                    <ReviewPanel commentsView="rail" />
+                    <CommentRail />
                   </div>
                 </motion.aside>
               )}
@@ -456,9 +456,9 @@ export function DocumentPage() {
               aria-describedby={undefined}
             >
               <SheetHeader className="sr-only">
-                <SheetTitle>Review</SheetTitle>
+                <SheetTitle>Comments</SheetTitle>
               </SheetHeader>
-              <ReviewPanel />
+              <Comments />
             </SheetContent>
           </Sheet>
         </motion.div>

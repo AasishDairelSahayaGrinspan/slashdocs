@@ -115,13 +115,16 @@ type ApprovalRequest struct {
 // forward on version pushes) keep the original decision time and point at the
 // version that received the explicit decision.
 type Approval struct {
-	ID                   string         `json:"id"`
-	DocumentID           string         `json:"document_id"`
-	VersionID            string         `json:"version_id"`
-	Approver             auth.Principal `json:"approver"`
-	Decision             string         `json:"decision"`
-	DecidedAt            string         `json:"decided_at,omitempty"`
-	CarriedFromVersionID string         `json:"carried_from_version_id,omitempty"`
+	ID         string         `json:"id"`
+	DocumentID string         `json:"document_id"`
+	VersionID  string         `json:"version_id"`
+	Approver   auth.Principal `json:"approver"`
+	Decision   string         `json:"decision"`
+	// Note is the reviewer's explanation. Required for changes_requested,
+	// optional for an approval.
+	Note                 string `json:"note,omitempty"`
+	DecidedAt            string `json:"decided_at,omitempty"`
+	CarriedFromVersionID string `json:"carried_from_version_id,omitempty"`
 }
 
 // ApprovalSummary aggregates decisions from currently assigned approvers on
@@ -473,7 +476,7 @@ type Repository interface {
 	// bool reports whether a new decision row was created (false = replaced).
 	// ErrNotFound when the version is not part of the document; ErrForbidden
 	// when the principal is not an assigned approver.
-	CreateOrUpdateApproval(ctx context.Context, documentID, versionID, decision string, approver auth.Principal) (Approval, bool, error)
+	CreateOrUpdateApproval(ctx context.Context, documentID, versionID, decision, note string, approver auth.Principal) (Approval, bool, error)
 	// DeleteApproval revokes the approver's own decision; ErrForbidden when the
 	// decision belongs to someone else.
 	DeleteApproval(ctx context.Context, documentID, approvalID string, approver auth.Principal) error

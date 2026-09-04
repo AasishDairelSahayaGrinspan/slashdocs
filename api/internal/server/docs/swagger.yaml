@@ -180,11 +180,19 @@ definitions:
         $ref: '#/definitions/server.principalResponse'
       carried_from_version_id:
         type: string
+      carried_from_version_number:
+        description: |-
+          CarriedFromVersionNumber is the display number of the version that
+          received the explicit decision, so the UI can say "Approved on v3"
+          instead of an opaque ID. Zero when the decision is not carried.
+        type: integer
       decided_at:
         type: string
       decision:
         type: string
       id:
+        type: string
+      note:
         type: string
     type: object
   server.approvalRequestResponse:
@@ -211,6 +219,8 @@ definitions:
       document_id:
         type: string
       id:
+        type: string
+      note:
         type: string
       version_id:
         type: string

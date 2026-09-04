@@ -2113,6 +2113,10 @@ const docTemplate = `{
                 "carried_from_version_id": {
                     "type": "string"
                 },
+                "carried_from_version_number": {
+                    "description": "CarriedFromVersionNumber is the display number of the version that\nreceived the explicit decision, so the UI can say \"Approved on v3\"\ninstead of an opaque ID. Zero when the decision is not carried.",
+                    "type": "integer"
+                },
                 "decided_at": {
                     "type": "string"
                 },
@@ -2120,6 +2124,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "note": {
                     "type": "string"
                 }
             }
@@ -2160,6 +2167,9 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "id": {
+                    "type": "string"
+                },
+                "note": {
                     "type": "string"
                 },
                 "version_id": {

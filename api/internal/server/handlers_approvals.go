@@ -3,6 +3,7 @@ package server
 import (
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -34,6 +35,10 @@ func approvalRequestJSON(r repo.ApprovalRequest) approvalRequestResponse {
 	}
 }
 
+// maxApprovalNote bounds the reviewer note so a decision stays a short
+// explanation rather than a document of its own.
+const maxApprovalNote = 2000
+
 // approvalResponse is one decision in API responses.
 type approvalResponse struct {
 	ID                   string            `json:"id"`
@@ -41,6 +46,7 @@ type approvalResponse struct {
 	VersionID            string            `json:"version_id"`
 	Approver             principalResponse `json:"approver"`
 	Decision             string            `json:"decision"`
+	Note                 string            `json:"note,omitempty"`
 	DecidedAt            string            `json:"decided_at,omitempty"`
 	CarriedFromVersionID string            `json:"carried_from_version_id,omitempty"`
 }
@@ -52,6 +58,7 @@ func approvalJSON(a repo.Approval) approvalResponse {
 		VersionID:            a.VersionID,
 		Approver:             principalJSON(a.Approver),
 		Decision:             a.Decision,
+		Note:                 a.Note,
 		DecidedAt:            a.DecidedAt,
 		CarriedFromVersionID: a.CarriedFromVersionID,
 	}
@@ -63,8 +70,13 @@ type approvalListItem struct {
 	ID                   string            `json:"id,omitempty"`
 	Approver             principalResponse `json:"approver"`
 	Decision             *string           `json:"decision"`
+	Note                 string            `json:"note,omitempty"`
 	DecidedAt            string            `json:"decided_at,omitempty"`
 	CarriedFromVersionID string            `json:"carried_from_version_id,omitempty"`
+	// CarriedFromVersionNumber is the display number of the version that
+	// received the explicit decision, so the UI can say "Approved on v3"
+	// instead of an opaque ID. Zero when the decision is not carried.
+	CarriedFromVersionNumber int `json:"carried_from_version_number,omitempty"`
 }
 
 // approvalsListResponse is the payload of GET /v1/documents/{id}/approvals.
@@ -225,6 +237,7 @@ func (h handlers) createApproval(c *gin.Context) {
 	var in struct {
 		VersionID string `json:"version_id"`
 		Decision  string `json:"decision"`
+		Note      string `json:"note"`
 	}
 	if !requireJSON(c) {
 		return
@@ -241,7 +254,18 @@ func (h handlers) createApproval(c *gin.Context) {
 		badRequest(c, `decision must be "approved" or "changes_requested"`)
 		return
 	}
-	a, created, err := h.deps.repository.CreateOrUpdateApproval(c.Request.Context(), c.Param("id"), in.VersionID, in.Decision, *p)
+	note := strings.TrimSpace(in.Note)
+	// Requesting changes without saying what to change leaves the author
+	// guessing, so the note is mandatory for that decision only.
+	if in.Decision == repo.DecisionChangesRequested && note == "" {
+		badRequest(c, "note is required when requesting changes: say what needs to change")
+		return
+	}
+	if len(note) > maxApprovalNote {
+		badRequest(c, "note is too long")
+		return
+	}
+	a, created, err := h.deps.repository.CreateOrUpdateApproval(c.Request.Context(), c.Param("id"), in.VersionID, in.Decision, note, *p)
 	if errors.Is(err, repo.ErrNotFound) {
 		notFound(c)
 		return
@@ -284,6 +308,18 @@ func (h handlers) listApprovals(c *gin.Context) {
 			return
 		}
 		versionID = d.CurrentVersionID
+	} else {
+		// An unknown or foreign version would otherwise return 200 with an
+		// invented all-pending state, so reject it outright.
+		v, err := h.deps.repository.GetVersion(c.Request.Context(), versionID)
+		if errors.Is(err, repo.ErrNotFound) || (err == nil && v.DocumentID != c.Param("id")) {
+			notFound(c)
+			return
+		}
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
 	}
 	requests, err := h.deps.repository.ListApprovalRequests(c.Request.Context(), c.Param("id"))
 	if err != nil {
@@ -307,6 +343,7 @@ func (h handlers) listApprovals(c *gin.Context) {
 			decision := a.Decision
 			item.ID = a.ID
 			item.Decision = &decision
+			item.Note = a.Note
 			item.DecidedAt = a.DecidedAt
 			item.CarriedFromVersionID = a.CarriedFromVersionID
 			switch a.Decision {
@@ -318,6 +355,7 @@ func (h handlers) listApprovals(c *gin.Context) {
 		}
 		items = append(items, item)
 	}
+	h.annotateCarriedVersionNumbers(c, items)
 	summary.Pending = summary.Total - summary.Approved - summary.ChangesRequested
 	summary.Status = repo.DeriveApprovalStatus(summary.Total, summary.Approved, summary.ChangesRequested)
 	c.JSON(http.StatusOK, approvalsListResponse{
@@ -357,6 +395,36 @@ func (h handlers) deleteApproval(c *gin.Context) {
 	}
 	incApproval("revoked", labelUnknown, actorType(c))
 	c.Status(http.StatusNoContent)
+}
+
+// annotateCarriedVersionNumbers fills in the display number of each carried
+// decision's origin version. Best-effort: a failed lookup leaves the numbers
+// at zero and the UI falls back to a plain "carried forward" label.
+func (h handlers) annotateCarriedVersionNumbers(c *gin.Context, items []approvalListItem) {
+	needed := false
+	for _, it := range items {
+		if it.CarriedFromVersionID != "" {
+			needed = true
+			break
+		}
+	}
+	if !needed {
+		return
+	}
+	versions, err := h.deps.repository.ListVersions(c.Request.Context(), c.Param("id"))
+	if err != nil {
+		requestLogger(c).Warn("carried version numbers", "error", err)
+		return
+	}
+	numberByID := make(map[string]int, len(versions))
+	for _, v := range versions {
+		numberByID[v.ID] = v.Number
+	}
+	for i := range items {
+		if n, ok := numberByID[items[i].CarriedFromVersionID]; ok {
+			items[i].CarriedFromVersionNumber = n
+		}
+	}
 }
 
 // annotateApprovalSummaries decorates documents with their approval status.

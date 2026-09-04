@@ -46,7 +46,7 @@ import {
   type ApprovalStatus,
   type ApprovalSummary,
 } from "@/api";
-import { ApprovalStatusBadge } from "./doc-approvals";
+import { ApprovalsDialog } from "./doc-approvals";
 import { canManageSharing, ROLE_RANK } from "@/lib/constants";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
@@ -156,7 +156,7 @@ export function DocBar({
           </div>
         ) : null}
       </div>
-      <ApprovalStatusBadge
+      <ApprovalsDialog
         status={approvalStatus}
         approved={approvalSummary?.approved}
         total={approvalSummary?.total}

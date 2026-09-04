@@ -75,7 +75,7 @@ func (s *Store) DeleteApprovalRequest(ctx context.Context, documentID, requestID
 	return tx.Commit(ctx)
 }
 
-func (s *Store) CreateOrUpdateApproval(ctx context.Context, documentID, versionID, decision string, approver auth.Principal) (repo.Approval, bool, error) {
+func (s *Store) CreateOrUpdateApproval(ctx context.Context, documentID, versionID, decision, note string, approver auth.Principal) (repo.Approval, bool, error) {
 	v, err := s.q.GetVersion(ctx, versionID)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && v.DocumentID != documentID) {
 		return repo.Approval{}, false, repo.ErrNotFound
@@ -101,6 +101,7 @@ func (s *Store) CreateOrUpdateApproval(ctx context.Context, documentID, versionI
 		ApproverType: string(approver.Type),
 		ApproverID:   approver.ID,
 		Decision:     decision,
+		Note:         note,
 	})
 	if err != nil {
 		return repo.Approval{}, false, err
@@ -111,6 +112,7 @@ func (s *Store) CreateOrUpdateApproval(ctx context.Context, documentID, versionI
 		VersionID:  versionID,
 		Approver:   approver,
 		Decision:   decision,
+		Note:       note,
 		DecidedAt:  pgTimeRFC3339(row.DecidedAt),
 	}, row.Inserted, nil
 }
@@ -149,6 +151,7 @@ func (s *Store) ListApprovals(ctx context.Context, documentID, versionID string)
 			VersionID:            r.VersionID,
 			Approver:             auth.Principal{Type: auth.PrincipalType(r.ApproverType), ID: r.ApproverID, Email: r.ApproverEmail, Name: r.ApproverName, PictureURL: r.ApproverPictureUrl},
 			Decision:             r.Decision,
+			Note:                 r.Note,
 			DecidedAt:            pgTimeRFC3339(r.DecidedAt),
 			CarriedFromVersionID: r.CarriedFromVersionID,
 		})
@@ -194,6 +197,7 @@ func carryForwardApprovals(ctx context.Context, q *dbsqlc.Queries, documentID, b
 			VersionID:            newVersionID,
 			ApproverType:         r.ApproverType,
 			ApproverID:           r.ApproverID,
+			Note:                 r.Note,
 			DecidedAt:            r.DecidedAt,
 			CarriedFromVersionID: pgtype.Text{String: r.OriginVersionID, Valid: r.OriginVersionID != ""},
 		}); err != nil {

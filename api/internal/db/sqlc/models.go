@@ -18,6 +18,7 @@ type Approval struct {
 	DecidedAt            pgtype.Timestamptz
 	CarriedFromVersionID pgtype.Text
 	RevokedAt            pgtype.Timestamptz
+	Note                 string
 }
 
 type ApprovalRequest struct {

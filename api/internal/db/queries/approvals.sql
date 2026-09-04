@@ -53,10 +53,10 @@ WHERE document_id = @document_id
   AND revoked_at IS NULL;
 
 -- name: UpsertApproval :one
-INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision)
-VALUES(@id, @document_id, @version_id, @approver_type, @approver_id, @decision)
+INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision, note)
+VALUES(@id, @document_id, @version_id, @approver_type, @approver_id, @decision, @note)
 ON CONFLICT (version_id, approver_type, approver_id) WHERE revoked_at IS NULL
-DO UPDATE SET decision = EXCLUDED.decision, decided_at = now(), carried_from_version_id = NULL
+DO UPDATE SET decision = EXCLUDED.decision, note = EXCLUDED.note, decided_at = now(), carried_from_version_id = NULL
 RETURNING id, decided_at, (xmax = 0)::bool AS inserted;
 
 -- name: ListVersionApprovals :many
@@ -69,6 +69,7 @@ SELECT
   COALESCE(u.name, sa.name, '') AS approver_name,
   COALESCE(u.picture_url, '') AS approver_picture_url,
   a.decision,
+  a.note,
   a.decided_at,
   COALESCE(a.carried_from_version_id, '') AS carried_from_version_id
 FROM approvals a
@@ -92,7 +93,7 @@ UPDATE approvals SET revoked_at = now() WHERE id = @id AND revoked_at IS NULL;
 -- name: ListCarryForwardApprovals :many
 -- Active approved decisions on a version, with the origin version that
 -- received the explicit decision (so provenance survives chained pushes).
-SELECT approver_type, approver_id, decided_at,
+SELECT approver_type, approver_id, decided_at, note,
        COALESCE(carried_from_version_id, version_id) AS origin_version_id
 FROM approvals
 WHERE document_id = @document_id
@@ -101,8 +102,8 @@ WHERE document_id = @document_id
   AND revoked_at IS NULL;
 
 -- name: InsertCarriedApproval :exec
-INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision, decided_at, carried_from_version_id)
-VALUES(@id, @document_id, @version_id, @approver_type, @approver_id, 'approved', @decided_at, @carried_from_version_id);
+INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision, note, decided_at, carried_from_version_id)
+VALUES(@id, @document_id, @version_id, @approver_type, @approver_id, 'approved', @note, @decided_at, @carried_from_version_id);
 
 -- name: DocumentApprovalSummaries :many
 -- Per-document decision counts for the document's current version, counting

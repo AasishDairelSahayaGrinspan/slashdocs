@@ -146,8 +146,8 @@ func (q *Queries) InsertApprovalRequest(ctx context.Context, arg InsertApprovalR
 }
 
 const insertCarriedApproval = `-- name: InsertCarriedApproval :exec
-INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision, decided_at, carried_from_version_id)
-VALUES($1, $2, $3, $4, $5, 'approved', $6, $7)
+INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision, note, decided_at, carried_from_version_id)
+VALUES($1, $2, $3, $4, $5, 'approved', $6, $7, $8)
 `
 
 type InsertCarriedApprovalParams struct {
@@ -156,6 +156,7 @@ type InsertCarriedApprovalParams struct {
 	VersionID            string
 	ApproverType         string
 	ApproverID           string
+	Note                 string
 	DecidedAt            pgtype.Timestamptz
 	CarriedFromVersionID pgtype.Text
 }
@@ -167,6 +168,7 @@ func (q *Queries) InsertCarriedApproval(ctx context.Context, arg InsertCarriedAp
 		arg.VersionID,
 		arg.ApproverType,
 		arg.ApproverID,
+		arg.Note,
 		arg.DecidedAt,
 		arg.CarriedFromVersionID,
 	)
@@ -250,7 +252,7 @@ func (q *Queries) ListApprovalRequests(ctx context.Context, documentID string) (
 }
 
 const listCarryForwardApprovals = `-- name: ListCarryForwardApprovals :many
-SELECT approver_type, approver_id, decided_at,
+SELECT approver_type, approver_id, decided_at, note,
        COALESCE(carried_from_version_id, version_id) AS origin_version_id
 FROM approvals
 WHERE document_id = $1
@@ -268,6 +270,7 @@ type ListCarryForwardApprovalsRow struct {
 	ApproverType    string
 	ApproverID      string
 	DecidedAt       pgtype.Timestamptz
+	Note            string
 	OriginVersionID string
 }
 
@@ -286,6 +289,7 @@ func (q *Queries) ListCarryForwardApprovals(ctx context.Context, arg ListCarryFo
 			&i.ApproverType,
 			&i.ApproverID,
 			&i.DecidedAt,
+			&i.Note,
 			&i.OriginVersionID,
 		); err != nil {
 			return nil, err
@@ -308,6 +312,7 @@ SELECT
   COALESCE(u.name, sa.name, '') AS approver_name,
   COALESCE(u.picture_url, '') AS approver_picture_url,
   a.decision,
+  a.note,
   a.decided_at,
   COALESCE(a.carried_from_version_id, '') AS carried_from_version_id
 FROM approvals a
@@ -334,6 +339,7 @@ type ListVersionApprovalsRow struct {
 	ApproverName         string
 	ApproverPictureUrl   string
 	Decision             string
+	Note                 string
 	DecidedAt            pgtype.Timestamptz
 	CarriedFromVersionID string
 }
@@ -357,6 +363,7 @@ func (q *Queries) ListVersionApprovals(ctx context.Context, arg ListVersionAppro
 			&i.ApproverName,
 			&i.ApproverPictureUrl,
 			&i.Decision,
+			&i.Note,
 			&i.DecidedAt,
 			&i.CarriedFromVersionID,
 		); err != nil {
@@ -425,10 +432,10 @@ func (q *Queries) RevokeApprovalsForApprover(ctx context.Context, arg RevokeAppr
 }
 
 const upsertApproval = `-- name: UpsertApproval :one
-INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision)
-VALUES($1, $2, $3, $4, $5, $6)
+INSERT INTO approvals(id, document_id, version_id, approver_type, approver_id, decision, note)
+VALUES($1, $2, $3, $4, $5, $6, $7)
 ON CONFLICT (version_id, approver_type, approver_id) WHERE revoked_at IS NULL
-DO UPDATE SET decision = EXCLUDED.decision, decided_at = now(), carried_from_version_id = NULL
+DO UPDATE SET decision = EXCLUDED.decision, note = EXCLUDED.note, decided_at = now(), carried_from_version_id = NULL
 RETURNING id, decided_at, (xmax = 0)::bool AS inserted
 `
 
@@ -439,6 +446,7 @@ type UpsertApprovalParams struct {
 	ApproverType string
 	ApproverID   string
 	Decision     string
+	Note         string
 }
 
 type UpsertApprovalRow struct {
@@ -455,6 +463,7 @@ func (q *Queries) UpsertApproval(ctx context.Context, arg UpsertApprovalParams) 
 		arg.ApproverType,
 		arg.ApproverID,
 		arg.Decision,
+		arg.Note,
 	)
 	var i UpsertApprovalRow
 	err := row.Scan(&i.ID, &i.DecidedAt, &i.Inserted)

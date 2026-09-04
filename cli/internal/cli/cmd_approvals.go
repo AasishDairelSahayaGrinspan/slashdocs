@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/spf13/cobra"
 )
@@ -106,11 +107,17 @@ func resolveApprovalVersion(g *globals, cl *Client, docID, explicit string) (str
 // decision on the current (or given) version.
 func decisionCmd(g *globals, out io.Writer, use, short, decision, did string) *cobra.Command {
 	var ver string
+	var note string
 	cmd := &cobra.Command{
 		Use:   use + " <doc_id>",
 		Short: short,
 		Args:  exactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
+			// Requesting changes without saying what to change leaves the
+			// author guessing, so the note is mandatory for that verb.
+			if decision == "changes_requested" && strings.TrimSpace(note) == "" {
+				return errors.New("--note is required: say what needs to change")
+			}
 			cl, err := client(g)
 			if err != nil {
 				return err
@@ -119,7 +126,11 @@ func decisionCmd(g *globals, out io.Writer, use, short, decision, did string) *c
 			if err != nil {
 				return err
 			}
-			b, err := cl.doJSON("POST", apiPath("/v1/documents/%s/approvals", args[0]), map[string]any{"version_id": v, "decision": decision})
+			body := map[string]any{"version_id": v, "decision": decision}
+			if n := strings.TrimSpace(note); n != "" {
+				body["note"] = n
+			}
+			b, err := cl.doJSON("POST", apiPath("/v1/documents/%s/approvals", args[0]), body)
 			if err != nil {
 				return err
 			}
@@ -130,6 +141,11 @@ func decisionCmd(g *globals, out io.Writer, use, short, decision, did string) *c
 		},
 	}
 	cmd.Flags().StringVar(&ver, "version", "", "version ID (defaults to the current version)")
+	noteHelp := "note explaining the decision"
+	if decision == "changes_requested" {
+		noteHelp = "note explaining what needs to change (required)"
+	}
+	cmd.Flags().StringVar(&note, "note", "", noteHelp)
 	return cmd
 }
 

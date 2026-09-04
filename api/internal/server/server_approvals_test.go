@@ -1,10 +1,13 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
@@ -29,11 +32,23 @@ func mustAssignApprover(t *testing.T, e *testEnv, docID, email string, as auth.P
 	return jsonField(t, rr.Body.Bytes(), "id")
 }
 
-// submitApproval posts a decision as the given principal.
+// submitApproval posts a decision as the given principal. Requesting changes
+// requires a note, so a default one is supplied; use submitApprovalWithNote to
+// control it (including sending none).
 func submitApproval(t *testing.T, e *testEnv, docID, versionID, decision string, as auth.Principal) *httptest.ResponseRecorder {
 	t.Helper()
+	note := ""
+	if decision == "changes_requested" {
+		note = "please tighten the rollout section"
+	}
+	return submitApprovalWithNote(t, e, docID, versionID, decision, note, as)
+}
+
+// submitApprovalWithNote posts a decision with an explicit note body.
+func submitApprovalWithNote(t *testing.T, e *testEnv, docID, versionID, decision, note string, as auth.Principal) *httptest.ResponseRecorder {
+	t.Helper()
 	return do(t, e.h, http.MethodPost, "/v1/documents/"+docID+"/approvals",
-		fmt.Sprintf(`{"version_id": %q, "decision": %q}`, versionID, decision), map[string]string{
+		fmt.Sprintf(`{"version_id": %q, "decision": %q, "note": %q}`, versionID, decision, note), map[string]string{
 			"Content-Type":     "application/json",
 			"X-Test-Principal": principalHeader(as),
 		})
@@ -63,9 +78,11 @@ type approvalItem struct {
 		Email string `json:"email"`
 		Name  string `json:"name"`
 	} `json:"approver"`
-	Decision             *string `json:"decision"`
-	DecidedAt            string  `json:"decided_at"`
-	CarriedFromVersionID string  `json:"carried_from_version_id"`
+	Decision                 *string `json:"decision"`
+	Note                     string  `json:"note"`
+	DecidedAt                string  `json:"decided_at"`
+	CarriedFromVersionID     string  `json:"carried_from_version_id"`
+	CarriedFromVersionNumber int     `json:"carried_from_version_number"`
 }
 
 type approvalsListResponse struct {
@@ -619,4 +636,140 @@ func TestRevokeUnknownDecision(t *testing.T) {
 		"X-Test-Principal": principalHeader(fixtureViewer),
 	})
 	assertStatus(t, rr, http.StatusNotFound)
+}
+
+// ---------------------------------------------------------------------------
+// Decision notes
+// ---------------------------------------------------------------------------
+
+func TestRequestChangesRequiresNote(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+
+	rr := submitApprovalWithNote(t, e, e.doc.ID, e.ver.ID, "changes_requested", "", fixtureViewer)
+	assertStatus(t, rr, http.StatusBadRequest)
+
+	// Whitespace is not an explanation either.
+	rr = submitApprovalWithNote(t, e, e.doc.ID, e.ver.ID, "changes_requested", "   ", fixtureViewer)
+	assertStatus(t, rr, http.StatusBadRequest)
+
+	// The rejected decision must not have been recorded.
+	list := listApprovals(t, e, e.doc.ID, "", fixtureViewer)
+	if list.Status != "pending" {
+		t.Fatalf("status = %q, want pending after rejected decision", list.Status)
+	}
+}
+
+func TestRequestChangesStoresNote(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+
+	rr := submitApprovalWithNote(t, e, e.doc.ID, e.ver.ID, "changes_requested", "  needs a rollback plan  ", fixtureViewer)
+	assertStatus(t, rr, http.StatusCreated)
+	if got := jsonField(t, rr.Body.Bytes(), "note"); got != "needs a rollback plan" {
+		t.Fatalf("note = %q, want trimmed note", got)
+	}
+
+	list := listApprovals(t, e, e.doc.ID, "", fixtureViewer)
+	if len(list.Items) != 1 || list.Items[0].Note != "needs a rollback plan" {
+		t.Fatalf("items = %+v, want the note on the decision", list.Items)
+	}
+}
+
+func TestApproveAcceptsOptionalNote(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+
+	// No note is fine when approving.
+	assertStatus(t, submitApprovalWithNote(t, e, e.doc.ID, e.ver.ID, "approved", "", fixtureViewer), http.StatusCreated)
+
+	// And a note is kept when given.
+	assertStatus(t, submitApprovalWithNote(t, e, e.doc.ID, e.ver.ID, "approved", "ship it", fixtureViewer), http.StatusOK)
+	list := listApprovals(t, e, e.doc.ID, "", fixtureViewer)
+	if len(list.Items) != 1 || list.Items[0].Note != "ship it" {
+		t.Fatalf("items = %+v, want note on the approval", list.Items)
+	}
+}
+
+func TestApprovalNoteTooLong(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+
+	long := strings.Repeat("x", 2001)
+	assertStatus(t, submitApprovalWithNote(t, e, e.doc.ID, e.ver.ID, "changes_requested", long, fixtureViewer), http.StatusBadRequest)
+}
+
+// ---------------------------------------------------------------------------
+// Version scoping
+// ---------------------------------------------------------------------------
+
+func TestListApprovalsUnknownVersionIsNotFound(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+
+	rr := do(t, e.h, http.MethodGet, "/v1/documents/"+e.doc.ID+"/approvals?version=ver_doesnotexist", "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureViewer),
+	})
+	assertStatus(t, rr, http.StatusNotFound)
+}
+
+func TestListApprovalsForeignVersionIsNotFound(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+
+	// A real version that belongs to a different document must not be
+	// reported as an all-pending state on this one.
+	_, otherVersion, err := e.store.CreateDocument(context.Background(), fixtureOwner, "other doc", []byte("<html><body>other</body></html>"))
+	if err != nil {
+		t.Fatalf("create second document: %v", err)
+	}
+	rr := do(t, e.h, http.MethodGet, "/v1/documents/"+e.doc.ID+"/approvals?version="+otherVersion.ID, "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureViewer),
+	})
+	assertStatus(t, rr, http.StatusNotFound)
+}
+
+func TestCarriedApprovalReportsSourceVersionNumber(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+	assertStatus(t, submitApproval(t, e, e.doc.ID, e.ver.ID, "approved", fixtureViewer), http.StatusCreated)
+
+	pushApprovalTestVersion(t, e, e.doc.ID, e.ver.ID, false, fixtureEditor)
+
+	list := listApprovals(t, e, e.doc.ID, "", fixtureViewer)
+	if len(list.Items) != 1 {
+		t.Fatalf("items = %+v, want one", list.Items)
+	}
+	item := list.Items[0]
+	if item.CarriedFromVersionID != e.ver.ID {
+		t.Fatalf("carried_from_version_id = %q, want %q", item.CarriedFromVersionID, e.ver.ID)
+	}
+	if item.CarriedFromVersionNumber != 1 {
+		t.Fatalf("carried_from_version_number = %d, want 1", item.CarriedFromVersionNumber)
+	}
+}
+
+func TestSearchResultsIncludeApprovalSummary(t *testing.T) {
+	e := newTestEnv(t)
+	mustAssignApprover(t, e, e.doc.ID, "viewer@example.com", fixtureOwner)
+	assertStatus(t, submitApproval(t, e, e.doc.ID, e.ver.ID, "approved", fixtureViewer), http.StatusCreated)
+
+	// The same document must not lose its approval status just because it was
+	// reached through a search query instead of the plain listing.
+	rr := do(t, e.h, http.MethodGet, "/v1/documents?q="+url.QueryEscape(e.doc.Title), "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusOK)
+	var out struct {
+		Items []documentApprovalFields `json:"items"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &out); err != nil {
+		t.Fatalf("bad search response: %v; body=%s", err, rr.Body.String())
+	}
+	if len(out.Items) == 0 {
+		t.Fatalf("search returned no documents; body=%s", rr.Body.String())
+	}
+	if out.Items[0].ApprovalStatus != "approved" {
+		t.Fatalf("approval_status = %q, want approved in search results", out.Items[0].ApprovalStatus)
+	}
 }
