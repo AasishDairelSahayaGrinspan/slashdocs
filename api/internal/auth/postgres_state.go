@@ -62,7 +62,10 @@ func (s *PostgresStateStore) take(ctx context.Context, kind, id string) (LoginSt
 	if err != nil {
 		return LoginState{}, false, err
 	}
-	defer tx.Rollback(ctx)
+	defer func() {
+		// Rollback returns pgx.ErrTxClosed after the successful commit below.
+		_ = tx.Rollback(ctx)
+	}()
 
 	var raw []byte
 	var expiresAt time.Time

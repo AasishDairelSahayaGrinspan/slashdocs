@@ -78,7 +78,11 @@ function Nav() {
     <header className="sticky top-0 z-30 border-b border-[var(--color-border)]/50 bg-[var(--color-bg)]/70 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
         <Link to="/" className="group flex items-center gap-2 font-semibold">
-          <img src="/favicon.svg" alt="" className="h-10 w-10 transition-transform duration-300 ease-out group-hover:rotate-[-8deg] group-hover:scale-110" />
+          <img
+            src="/favicon.svg"
+            alt=""
+            className="h-10 w-10 transition-transform duration-300 ease-out group-hover:rotate-[-8deg] group-hover:scale-110"
+          />
           aidocs
         </Link>
         <nav className="flex items-center gap-2">
@@ -129,7 +133,8 @@ function Hero() {
         <div
           className="absolute inset-0 opacity-[0.35] dark:opacity-[0.15]"
           style={{
-            backgroundImage: "radial-gradient(circle, var(--color-border) 1px, transparent 1px)",
+            backgroundImage:
+              "radial-gradient(circle, var(--color-border) 1px, transparent 1px)",
             backgroundSize: "24px 24px",
           }}
         />
@@ -141,20 +146,35 @@ function Hero() {
           animate="visible"
           variants={stagger}
         >
-          <motion.div variants={fadeUp} className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
+          <motion.div
+            variants={fadeUp}
+            className="mb-6 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]"
+          >
             <Sparkles className="h-3 w-3 text-[var(--color-accent)]" />
             Review layer for AI-generated documents
           </motion.div>
-          <motion.h1 variants={fadeUp} className="text-balance text-4xl font-semibold tracking-tight md:text-6xl">
+          <motion.h1
+            variants={fadeUp}
+            className="text-balance text-4xl font-semibold tracking-tight md:text-6xl"
+          >
             Give your agents the power to publish{" "}
-            <span className="bg-gradient-to-r from-[var(--color-accent)] to-[#818cff] bg-clip-text text-transparent">reviewable</span> documents.
+            <span className="bg-gradient-to-r from-[var(--color-accent)] to-[#818cff] bg-clip-text text-transparent">
+              reviewable
+            </span>{" "}
+            documents.
           </motion.h1>
-          <motion.p variants={fadeUp} className="mx-auto mt-6 max-w-2xl text-pretty text-base text-[var(--color-fg-muted)] md:text-lg">
+          <motion.p
+            variants={fadeUp}
+            className="mx-auto mt-6 max-w-2xl text-pretty text-base text-[var(--color-fg-muted)] md:text-lg"
+          >
             aidocs is a Google-Docs-style review layer for self-contained HTML
             artifacts. Agents push reports, specs, and RCAs through a CLI. Humans review
             them in the browser with anchored comments and immutable versions.
           </motion.p>
-          <motion.div variants={fadeUp} className="mt-8 flex flex-wrap items-center justify-center gap-3">
+          <motion.div
+            variants={fadeUp}
+            className="mt-8 flex flex-wrap items-center justify-center gap-3"
+          >
             <Button asChild size="lg">
               <Link to={isSignedIn ? "/app/documents" : "/login"}>
                 {isSignedIn ? "Open app" : "Sign in"} <ArrowRight className="h-4 w-4" />
@@ -176,7 +196,7 @@ function Install() {
   // instance instead of a hard-coded host.
   const installSnippet = `curl -fsSL ${publicURL()}/install.sh | bash
 
-aidocs auth login
+aidocs auth login ${publicURL()}
 aidocs docs create report.html`;
   return (
     <motion.section
@@ -197,7 +217,10 @@ aidocs docs create report.html`;
           </p>
         </div>
         <div className="relative">
-          <div aria-hidden className="pointer-events-none absolute -inset-4 rounded-2xl bg-[var(--color-accent)] opacity-[0.04] blur-2xl" />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -inset-4 rounded-2xl bg-[var(--color-accent)] opacity-[0.04] blur-2xl"
+          />
           <CodeBlock>{installSnippet}</CodeBlock>
         </div>
         <p className="mt-4 text-center text-sm text-[var(--color-fg-muted)]">
@@ -271,7 +294,10 @@ function GithubIcon() {
 function Footer() {
   return (
     <footer className="relative py-10">
-      <div aria-hidden className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--color-border-strong)] to-transparent" />
+      <div
+        aria-hidden
+        className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--color-border-strong)] to-transparent"
+      />
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 text-sm text-[var(--color-fg-muted)] md:flex-row">
         <div className="flex items-center gap-2">
           <img src="/favicon.svg" alt="" className="h-5 w-5" />

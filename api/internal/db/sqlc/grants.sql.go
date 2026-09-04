@@ -9,66 +9,199 @@ import (
 	"context"
 )
 
-const deleteGrant = `-- name: DeleteGrant :one
-UPDATE resource_grants SET revoked_at=now() WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL
-RETURNING id
+const listDocumentInheritedGrants = `-- name: ListDocumentInheritedGrants :many
+WITH RECURSIVE ancestors(rid, rtype, depth) AS (
+  SELECT $1::text, 'document'::text, 0
+  UNION ALL
+  SELECT f.id, 'folder'::text, a.depth+1
+  FROM ancestors a
+  JOIN LATERAL (
+    SELECT CASE WHEN a.rtype='document' THEN (SELECT parent_folder_id FROM documents WHERE id=a.rid)
+                ELSE (SELECT parent_folder_id FROM folders WHERE id=a.rid) END AS pid
+  ) sub ON true
+  JOIN folders f ON f.id = sub.pid
+  WHERE sub.pid IS NOT NULL AND a.depth < 64
+)
+SELECT g.resource_id, g.principal_type, g.principal_id, g.role
+FROM resource_grants g
+WHERE g.revoked_at IS NULL
+  AND g.resource_id IN (SELECT rid FROM ancestors)
 `
 
-type DeleteGrantParams struct {
-	ID         string
-	ResourceID string
+type ListDocumentInheritedGrantsRow struct {
+	ResourceID    string
+	PrincipalType string
+	PrincipalID   string
+	Role          string
 }
 
-func (q *Queries) DeleteGrant(ctx context.Context, arg DeleteGrantParams) (string, error) {
-	row := q.db.QueryRow(ctx, deleteGrant, arg.ID, arg.ResourceID)
-	var id string
-	err := row.Scan(&id)
-	return id, err
+// All active grants on a document and on every folder above it. The caller
+// folds these (plus ownership) into the principal's effective role.
+func (q *Queries) ListDocumentInheritedGrants(ctx context.Context, documentID string) ([]ListDocumentInheritedGrantsRow, error) {
+	rows, err := q.db.Query(ctx, listDocumentInheritedGrants, documentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListDocumentInheritedGrantsRow
+	for rows.Next() {
+		var i ListDocumentInheritedGrantsRow
+		if err := rows.Scan(
+			&i.ResourceID,
+			&i.PrincipalType,
+			&i.PrincipalID,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-const getGrant = `-- name: GetGrant :one
-
-SELECT id,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id FROM resource_grants WHERE id=$1 AND resource_type='document' AND resource_id=$2 AND revoked_at IS NULL
+const listGrantsForResources = `-- name: ListGrantsForResources :many
+SELECT g.id, g.resource_id, g.resource_type, g.principal_type, g.principal_id,
+       COALESCE(u.email,gg.email,'') AS principal_email,
+       COALESCE(u.name,sa.name,gg.display_name,'') AS principal_name, g.role
+FROM resource_grants g
+LEFT JOIN users u ON g.principal_type='user' AND g.principal_id=u.id
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON g.principal_type='service_account' AND g.principal_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
+WHERE g.revoked_at IS NULL AND g.resource_id = ANY($1::text[])
 `
 
-type GetGrantParams struct {
-	ID         string
-	ResourceID string
-}
-
-type GetGrantRow struct {
-	ID              string
-	ResourceID      string
-	PrincipalType   string
-	PrincipalID     string
-	Role            string
-	GrantedByType   string
-	GrantedByUserID string
+type ListGrantsForResourcesRow struct {
+	ID             string
+	ResourceID     string
+	ResourceType   string
+	PrincipalType  string
+	PrincipalID    string
+	PrincipalEmail string
+	PrincipalName  string
+	Role           string
 }
 
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-func (q *Queries) GetGrant(ctx context.Context, arg GetGrantParams) (GetGrantRow, error) {
-	row := q.db.QueryRow(ctx, getGrant, arg.ID, arg.ResourceID)
-	var i GetGrantRow
-	err := row.Scan(
-		&i.ID,
-		&i.ResourceID,
-		&i.PrincipalType,
-		&i.PrincipalID,
-		&i.Role,
-		&i.GrantedByType,
-		&i.GrantedByUserID,
-	)
-	return i, err
+func (q *Queries) ListGrantsForResources(ctx context.Context, resourceIds []string) ([]ListGrantsForResourcesRow, error) {
+	rows, err := q.db.Query(ctx, listGrantsForResources, resourceIds)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGrantsForResourcesRow
+	for rows.Next() {
+		var i ListGrantsForResourcesRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.ResourceID,
+			&i.ResourceType,
+			&i.PrincipalType,
+			&i.PrincipalID,
+			&i.PrincipalEmail,
+			&i.PrincipalName,
+			&i.Role,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
-const listGrants = `-- name: ListGrants :many
+const listResourceAncestors = `-- name: ListResourceAncestors :many
+WITH RECURSIVE ancestors(rid, rtype, depth) AS (
+  SELECT $1::text, $2::text, 0
+  UNION ALL
+  SELECT CASE WHEN a.rtype='document' THEN (SELECT parent_folder_id FROM documents WHERE id=a.rid)
+              ELSE (SELECT parent_folder_id FROM folders WHERE id=a.rid) END,
+         'folder', a.depth+1
+  FROM ancestors a WHERE a.depth < 64
+)
+SELECT a.rid::text AS ancestor_id, a.rtype::text AS ancestor_type,
+       COALESCE(f.title, d.title, '') AS title,
+       COALESCE(f.owner_type, d.owner_type, '') AS owner_type,
+       COALESCE(f.owner_id, d.owner_id, '') AS owner_id,
+       COALESCE(ou.email, '') AS owner_email,
+       COALESCE(ou.name, osa.name, '') AS owner_name,
+       COALESCE(ou.picture_url, '') AS owner_picture_url
+FROM ancestors a
+LEFT JOIN folders f ON a.rtype='folder' AND f.id=a.rid
+LEFT JOIN documents d ON a.rtype='document' AND d.id=a.rid
+LEFT JOIN users ou
+  ON COALESCE(f.owner_type, d.owner_type)='user'
+ AND COALESCE(f.owner_id, d.owner_id)=ou.id
+LEFT JOIN service_accounts osa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON COALESCE(f.owner_type, d.owner_type)='service_account'
+ AND COALESCE(f.owner_id, d.owner_id)=osa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+WHERE a.rid IS NOT NULL
+`
+
+type ListResourceAncestorsParams struct {
+	ResourceID   string
+	ResourceType string
+}
+
+type ListResourceAncestorsRow struct {
+	AncestorID      string
+	AncestorType    string
+	Title           string
+	OwnerType       string
+	OwnerID         string
+	OwnerEmail      string
+	OwnerName       string
+	OwnerPictureUrl string
+}
+
+// The resource itself plus every folder above it, with titles and owners, for
+// the effective-access report.
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+func (q *Queries) ListResourceAncestors(ctx context.Context, arg ListResourceAncestorsParams) ([]ListResourceAncestorsRow, error) {
+	rows, err := q.db.Query(ctx, listResourceAncestors, arg.ResourceID, arg.ResourceType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListResourceAncestorsRow
+	for rows.Next() {
+		var i ListResourceAncestorsRow
+		if err := rows.Scan(
+			&i.AncestorID,
+			&i.AncestorType,
+			&i.Title,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.OwnerEmail,
+			&i.OwnerName,
+			&i.OwnerPictureUrl,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listResourceGrants = `-- name: ListResourceGrants :many
 SELECT
   g.id,
+  g.resource_type,
+  g.resource_id,
   g.principal_type,
   g.principal_id,
-  COALESCE(u.email, '') AS principal_email,
-  COALESCE(u.name, sa.name, '') AS principal_name,
+  COALESCE(u.email, gg.email, '') AS principal_email,
+  COALESCE(u.name, sa.name, gg.display_name, '') AS principal_name,
   COALESCE(u.picture_url, '') AS principal_picture_url,
   g.role,
   g.granted_by_type,
@@ -81,16 +214,20 @@ LEFT JOIN users u
 LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.principal_type = 'service_account' AND g.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN google_groups gg
+  ON g.principal_type = 'google_group' AND g.principal_id = gg.id
 LEFT JOIN users gu
   ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
 LEFT JOIN service_accounts gsa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-WHERE g.resource_type='document' AND g.resource_id=$1 AND g.revoked_at IS NULL
+WHERE g.resource_id= $1 AND g.revoked_at IS NULL
 `
 
-type ListGrantsRow struct {
+type ListResourceGrantsRow struct {
 	ID                  string
+	ResourceType        string
+	ResourceID          string
 	PrincipalType       string
 	PrincipalID         string
 	PrincipalEmail      string
@@ -105,17 +242,19 @@ type ListGrantsRow struct {
 
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-func (q *Queries) ListGrants(ctx context.Context, resourceID string) ([]ListGrantsRow, error) {
-	rows, err := q.db.Query(ctx, listGrants, resourceID)
+func (q *Queries) ListResourceGrants(ctx context.Context, resourceID string) ([]ListResourceGrantsRow, error) {
+	rows, err := q.db.Query(ctx, listResourceGrants, resourceID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []ListGrantsRow
+	var items []ListResourceGrantsRow
 	for rows.Next() {
-		var i ListGrantsRow
+		var i ListResourceGrantsRow
 		if err := rows.Scan(
 			&i.ID,
+			&i.ResourceType,
+			&i.ResourceID,
 			&i.PrincipalType,
 			&i.PrincipalID,
 			&i.PrincipalEmail,
@@ -137,91 +276,38 @@ func (q *Queries) ListGrants(ctx context.Context, resourceID string) ([]ListGran
 	return items, nil
 }
 
-const updateGrantRole = `-- name: UpdateGrantRole :one
-WITH updated AS (
-  UPDATE resource_grants
-  SET role=$1
-  WHERE resource_grants.id=$2 AND resource_type='document' AND resource_id=$3 AND revoked_at IS NULL
-  RETURNING id, resource_type, resource_id, principal_type, principal_id, role, granted_by_user_id, created_at, revoked_at, granted_by_type
-)
-SELECT
-  g.id,
-  g.resource_id,
-  g.principal_type,
-  g.principal_id,
-  COALESCE(u.email, '') AS principal_email,
-  COALESCE(u.name, sa.name, '') AS principal_name,
-  COALESCE(u.picture_url, '') AS principal_picture_url,
-  g.role,
-  g.granted_by_type,
-  g.granted_by_user_id,
-  COALESCE(gu.email, '') AS granted_by_email,
-  COALESCE(gu.name, gsa.name, '') AS granted_by_name
-FROM updated g
-LEFT JOIN users u
-  ON g.principal_type = 'user' AND g.principal_id = u.id
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.principal_type = 'service_account' AND g.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-LEFT JOIN users gu
-  ON g.granted_by_type = 'user' AND g.granted_by_user_id = gu.id
-LEFT JOIN service_accounts gsa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON g.granted_by_type = 'service_account' AND g.granted_by_user_id = gsa.id
+const revokeResourceGrant = `-- name: RevokeResourceGrant :execrows
+UPDATE resource_grants SET revoked_at=now() WHERE id= $1 AND resource_id= $2 AND revoked_at IS NULL
 `
 
-type UpdateGrantRoleParams struct {
-	Role       string
-	ID         string
+type RevokeResourceGrantParams struct {
+	GrantID    string
 	ResourceID string
 }
 
-type UpdateGrantRoleRow struct {
-	ID                  string
-	ResourceID          string
-	PrincipalType       string
-	PrincipalID         string
-	PrincipalEmail      string
-	PrincipalName       string
-	PrincipalPictureUrl string
-	Role                string
-	GrantedByType       string
-	GrantedByUserID     string
-	GrantedByEmail      string
-	GrantedByName       string
+func (q *Queries) RevokeResourceGrant(ctx context.Context, arg RevokeResourceGrantParams) (int64, error) {
+	result, err := q.db.Exec(ctx, revokeResourceGrant, arg.GrantID, arg.ResourceID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-func (q *Queries) UpdateGrantRole(ctx context.Context, arg UpdateGrantRoleParams) (UpdateGrantRoleRow, error) {
-	row := q.db.QueryRow(ctx, updateGrantRole, arg.Role, arg.ID, arg.ResourceID)
-	var i UpdateGrantRoleRow
-	err := row.Scan(
-		&i.ID,
-		&i.ResourceID,
-		&i.PrincipalType,
-		&i.PrincipalID,
-		&i.PrincipalEmail,
-		&i.PrincipalName,
-		&i.PrincipalPictureUrl,
-		&i.Role,
-		&i.GrantedByType,
-		&i.GrantedByUserID,
-		&i.GrantedByEmail,
-		&i.GrantedByName,
-	)
-	return i, err
-}
-
-const upsertResourceGrant = `-- name: UpsertResourceGrant :one
-INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id)
-VALUES($1,'document',$2,$3,$4,$5,$6,$7)
-ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id
-RETURNING id
+const updateResourceGrantRole = `-- name: UpdateResourceGrantRole :one
+UPDATE resource_grants SET role= $1
+WHERE id= $2 AND resource_id= $3 AND revoked_at IS NULL
+RETURNING id, resource_type, resource_id, principal_type, principal_id, role, granted_by_type, granted_by_user_id
 `
 
-type UpsertResourceGrantParams struct {
+type UpdateResourceGrantRoleParams struct {
+	Role       string
+	GrantID    string
+	ResourceID string
+}
+
+type UpdateResourceGrantRoleRow struct {
 	ID              string
+	ResourceType    string
 	ResourceID      string
 	PrincipalType   string
 	PrincipalID     string
@@ -230,9 +316,47 @@ type UpsertResourceGrantParams struct {
 	GrantedByUserID string
 }
 
+func (q *Queries) UpdateResourceGrantRole(ctx context.Context, arg UpdateResourceGrantRoleParams) (UpdateResourceGrantRoleRow, error) {
+	row := q.db.QueryRow(ctx, updateResourceGrantRole, arg.Role, arg.GrantID, arg.ResourceID)
+	var i UpdateResourceGrantRoleRow
+	err := row.Scan(
+		&i.ID,
+		&i.ResourceType,
+		&i.ResourceID,
+		&i.PrincipalType,
+		&i.PrincipalID,
+		&i.Role,
+		&i.GrantedByType,
+		&i.GrantedByUserID,
+	)
+	return i, err
+}
+
+const upsertResourceGrant = `-- name: UpsertResourceGrant :one
+INSERT INTO resource_grants(id,resource_type,resource_id,principal_type,principal_id,role,granted_by_type,granted_by_user_id)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+ON CONFLICT(resource_type,resource_id,principal_type,principal_id) DO UPDATE SET role=EXCLUDED.role, revoked_at=NULL, granted_by_type=EXCLUDED.granted_by_type, granted_by_user_id=EXCLUDED.granted_by_user_id
+RETURNING id
+`
+
+type UpsertResourceGrantParams struct {
+	ID              string
+	ResourceType    string
+	ResourceID      string
+	PrincipalType   string
+	PrincipalID     string
+	Role            string
+	GrantedByType   string
+	GrantedByUserID string
+}
+
+// A revoked grant for the same (resource, principal) is resurrected by the
+// conflict clause, keeping its ORIGINAL id; return the persisted id so
+// callers never hand out an id that was never written.
 func (q *Queries) UpsertResourceGrant(ctx context.Context, arg UpsertResourceGrantParams) (string, error) {
 	row := q.db.QueryRow(ctx, upsertResourceGrant,
 		arg.ID,
+		arg.ResourceType,
 		arg.ResourceID,
 		arg.PrincipalType,
 		arg.PrincipalID,

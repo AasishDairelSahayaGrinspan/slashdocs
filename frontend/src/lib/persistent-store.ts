@@ -16,7 +16,7 @@ export function createPersistentStore<T>(
   let cached: T = initial;
 
   function read(): T {
-    let raw: string | null = null;
+    let raw: string | null;
     try {
       raw = localStorage.getItem(key);
     } catch {

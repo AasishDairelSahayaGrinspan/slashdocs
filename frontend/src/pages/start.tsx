@@ -1,6 +1,5 @@
 import { useTitle } from "@/lib/use-title";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
@@ -12,7 +11,6 @@ import {
   Sparkles,
   X,
 } from "lucide-react";
-import { api } from "@/api";
 import { publicURL } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -29,17 +27,7 @@ type StepKey = keyof OnboardingState["steps"];
 export function StartPage() {
   useTitle("Get started");
   const { state, setStep, skip } = useOnboarding();
-  const config = useQuery({
-    queryKey: ["config"],
-    queryFn: () => api.getConfig(),
-    staleTime: Infinity,
-  });
-  // Self-hosted/org instances aren't the CLI's hosted default, so the login
-  // command must name this server.
-  const loginCmd =
-    config.data?.deployment === "org"
-      ? `aidocs auth login ${publicURL()}`
-      : "aidocs auth login";
+  const loginCmd = `aidocs auth login ${publicURL()}`;
   const { done, total } = onboardingProgress(state);
   const nav = useNavigate();
 
@@ -99,7 +87,10 @@ export function StartPage() {
             className="relative h-full overflow-hidden bg-[var(--color-accent)] transition-all"
             style={{ width: `${(done / total) * 100}%` }}
           >
-            <div aria-hidden className="absolute inset-0 animate-[pill-shimmer_2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent" />
+            <div
+              aria-hidden
+              className="absolute inset-0 animate-[pill-shimmer_2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent"
+            />
           </div>
         </div>
         <span className="font-mono">
@@ -116,9 +107,9 @@ export function StartPage() {
           setStep={setStep}
         >
           <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time, on the machine where your agent runs. This installs the aidocs
-            CLI plus the bundled agent skill, so your agent knows when to publish docs
-            to aidocs.
+            One-time, on the machine where your agent runs. This installs the aidocs CLI
+            plus the bundled agent skill, so your agent knows when to publish docs to
+            aidocs.
           </p>
           <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
@@ -177,11 +168,7 @@ function Step({
 }) {
   const done = state.steps[stepKey];
   // Find the first incomplete step among required ones to default-expand.
-  const requiredOrder: StepKey[] = [
-    "cli_installed",
-    "cli_authed",
-    "first_doc_seen",
-  ];
+  const requiredOrder: StepKey[] = ["cli_installed", "cli_authed", "first_doc_seen"];
   const firstIncomplete = requiredOrder.find((k) => !state.steps[k]);
   const [forced, setForced] = useState<boolean | null>(null);
   const expanded = forced ?? (done ? false : firstIncomplete === stepKey);

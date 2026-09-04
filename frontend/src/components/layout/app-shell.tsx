@@ -30,7 +30,11 @@ export function AppShell() {
   return (
     <div className="flex h-full flex-col">
       {!fullscreenDocument && <TopBar user={user} />}
-      <main className={fullscreenDocument ? "flex-1 overflow-hidden" : "flex-1 overflow-auto"}>
+      <main
+        className={
+          fullscreenDocument ? "flex-1 overflow-hidden" : "flex-1 overflow-auto"
+        }
+      >
         <Outlet />
       </main>
     </div>

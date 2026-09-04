@@ -31,7 +31,7 @@ jobs:
       github.event_name == 'push')
     uses: razorpay/actions/.github/workflows/rcore-suite.yml@rcore-v2
     with:
-      runner_name: "self-hosted"
+      runner_name: "ubuntu-latest"
       disabled_checks: ""
       run_on_label: "AI-PR-Review"
     secrets: inherit

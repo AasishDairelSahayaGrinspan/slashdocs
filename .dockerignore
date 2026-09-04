@@ -1,5 +1,6 @@
 .git
 .github
+.pi
 bin
 
 # Non-build inputs: keep these out of the build context so changing them never
@@ -15,11 +16,21 @@ LICENSE
 .env.example
 Dockerfile
 .dockerignore
+docker-compose.yml
+dev
+scripts
 
 frontend/node_modules
 frontend/dist
 frontend/*.tsbuildinfo
+frontend/e2e
+frontend/playwright.config.ts
+frontend/playwright-report
+frontend/test-results
+frontend/tsconfig.e2e.json
 api/internal/server/frontend_dist
+api/internal/server/bridge_dist
+api/internal/server/download_dist
 .DS_Store
 .env
 .env.*

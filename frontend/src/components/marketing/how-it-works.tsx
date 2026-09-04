@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
-import { Terminal, usePrefersReducedMotion } from "./terminal";
+import { Terminal } from "./terminal";
 import { MockDocViewer } from "./mock-viewer";
 import { MockDocsTable } from "./mock-table";
 
@@ -21,12 +21,11 @@ function useSceneIntersection() {
     const io = new IntersectionObserver(
       ([entry]) => {
         if (entry.intersectionRatio > 0.35) {
-          setState((s) => (s.cmdStarted ? s : { cmdStarted: true, uiActivated: false }));
-          // trigger UI after a brief delay so the terminal runs first
-          window.setTimeout(
-            () => setState((s) => ({ ...s, uiActivated: true })),
-            1400,
+          setState((s) =>
+            s.cmdStarted ? s : { cmdStarted: true, uiActivated: false },
           );
+          // trigger UI after a brief delay so the terminal runs first
+          window.setTimeout(() => setState((s) => ({ ...s, uiActivated: true })), 1400);
         }
       },
       { threshold: [0, 0.35, 0.7] },
@@ -58,8 +57,7 @@ export function HowItWorks() {
           Agents push. Humans review.
         </h2>
         <p className="mt-3 text-[var(--color-fg-muted)]">
-          Three steps from a generated HTML file to a reviewed, versioned
-          document.
+          Three steps from a generated HTML file to a reviewed, versioned document.
         </p>
       </motion.div>
 
@@ -163,7 +161,9 @@ function SceneHumanReviews() {
       <div className="relative">
         <MockDocViewer
           version={1}
-          commentState={phase === "none" ? "none" : phase === "selecting" ? "selecting" : "open"}
+          commentState={
+            phase === "none" ? "none" : phase === "selecting" ? "selecting" : "open"
+          }
           highlight={phase !== "none"}
         />
       </div>
@@ -214,13 +214,7 @@ function SceneAgentResponds() {
           { kind: "out", text: "ok" },
         ]}
       />
-      <MockDocViewer
-        version={version}
-        commentState={resolved ? "resolved" : "open"}
-      />
+      <MockDocViewer version={version} commentState={resolved ? "resolved" : "open"} />
     </SceneFrame>
   );
 }
-
-// re-export so consumers can probe
-export { usePrefersReducedMotion };

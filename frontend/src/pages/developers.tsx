@@ -1,5 +1,5 @@
 import { useTitle } from "@/lib/use-title";
-import { Bot, ExternalLink, KeyRound, Rocket } from "lucide-react";
+import { Bot, Cable, ExternalLink, KeyRound, Rocket } from "lucide-react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,9 +18,12 @@ export function DevelopersPage() {
   return (
     <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold tracking-tight">Developers</h1>
-        <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
-          API reference and authentication model for building against aidocs directly.
+        <h1 className="text-balance text-2xl font-semibold tracking-tight">
+          Developers
+        </h1>
+        <p className="mt-1 text-pretty text-sm text-[var(--color-fg-muted)]">
+          Connect an agent over MCP, use aidocs from a terminal, or build directly
+          against the API.
         </p>
       </div>
 
@@ -28,16 +31,37 @@ export function DevelopersPage() {
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
-              <Rocket className="h-4 w-4" /> Looking to set up your agent?
+              <Cable className="h-4 w-4" /> Connect an MCP client
             </CardTitle>
             <CardDescription>
-              The CLI install and agent skill setup live in the setup guide, not here.
+              Connect directly to this aidocs server. There is no CLI, local bridge, or
+              separate MCP process to install.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <CodeBlock>{`${url}/mcp`}</CodeBlock>
+            <p className="text-pretty text-xs text-[var(--color-fg-muted)]">
+              Paste this URL into a remote MCP client. Interactive clients open the
+              normal aidocs sign-in flow automatically; unattended agents can use a
+              service-account token.
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Rocket className="h-4 w-4" /> Set up the CLI
+            </CardTitle>
+            <CardDescription>
+              Prefer working from a terminal or letting a local agent run aidocs
+              commands? Install the CLI and bundled agent skill.
             </CardDescription>
           </CardHeader>
           <CardContent>
             <Button asChild>
               <Link to="/app/start">
-                Open setup guide <ExternalLink className="h-3.5 w-3.5" />
+                Open CLI setup guide <ExternalLink className="h-3.5 w-3.5" />
               </Link>
             </Button>
           </CardContent>
@@ -48,20 +72,22 @@ export function DevelopersPage() {
             <CardTitle className="flex items-center gap-2">
               <KeyRound className="h-4 w-4" /> Authentication model
             </CardTitle>
-            <CardDescription>Two ways to authenticate against the API.</CardDescription>
+            <CardDescription>
+              Interactive sign-in for people, bearer tokens for unattended agents.
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <div className="text-sm font-medium">User session</div>
-              <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
-                Google OAuth via the browser. The CLI uses this when you run{" "}
-                <code className="font-mono">aidocs auth login</code>. Best for
-                interactive use and any agent running locally on your machine.
+              <div className="text-sm font-medium">Interactive sign-in</div>
+              <p className="mt-1 text-pretty text-xs text-[var(--color-fg-muted)]">
+                OpenID Connect through this server's configured identity provider.
+                Remote MCP clients open the sign-in flow automatically; the CLI uses it
+                when you run <code className="font-mono">aidocs auth login</code>.
               </p>
             </div>
             <div>
               <div className="text-sm font-medium">Service account token</div>
-              <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
+              <p className="mt-1 text-pretty text-xs text-[var(--color-fg-muted)]">
                 Bearer token for headless agents that can't run OAuth — n8n, scheduled
                 jobs, CI. Mint a key under{" "}
                 <Link
@@ -84,8 +110,8 @@ export function DevelopersPage() {
             </CardTitle>
             <CardDescription>
               Headless identities for agents that can’t run OAuth (n8n, CI, scheduled
-              jobs). Mint bearer tokens here. Most users should ignore this — the CLI
-              handles auth automatically when an agent runs it on your machine.
+              jobs). Mint bearer tokens here. Most users should ignore this — remote MCP
+              clients and the CLI both handle interactive sign-in automatically.
             </CardDescription>
           </CardHeader>
           <CardContent>

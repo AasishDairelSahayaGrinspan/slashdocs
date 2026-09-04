@@ -17,7 +17,8 @@ SELECT
   COALESCE(u.name, sa.name, '') AS created_by_name,
   COALESCE(u.picture_url, '') AS created_by_picture_url,
   v.change_summary,
-  v.sha256
+  v.sha256,
+  v.created_at
 FROM versions v
 LEFT JOIN users u
   ON v.created_by_type = 'user' AND v.created_by_id = u.id
@@ -39,7 +40,8 @@ SELECT
   COALESCE(u.name, sa.name, '') AS created_by_name,
   COALESCE(u.picture_url, '') AS created_by_picture_url,
   v.change_summary,
-  v.sha256
+  v.sha256,
+  v.created_at
 FROM versions v
 LEFT JOIN users u
   ON v.created_by_type = 'user' AND v.created_by_id = u.id

@@ -1,5 +1,7 @@
 import { useTitle } from "@/lib/use-title";
 import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { useQuery } from "@tanstack/react-query";
+import { queryKeys } from "@/lib/queryKeys";
 import { motion } from "framer-motion";
 import { ArrowLeft, MessageSquareText, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -45,6 +47,12 @@ export function LoginPage() {
   const next = params.get("next") || "/app/documents";
   const me = useMe();
   const frontendSignedOut = useFrontendSignedOut();
+  const config = useQuery({
+    queryKey: queryKeys.config(),
+    queryFn: () => api.getConfig(),
+    staleTime: Infinity,
+  });
+  const provider = config.data?.provider_name ?? "SSO";
   const url = api.loginURL(next);
   if (me.data && !me.unauth && !frontendSignedOut) {
     return <Navigate to={next} replace />;
@@ -68,7 +76,10 @@ export function LoginPage() {
         animate="visible"
         variants={loginStagger}
       >
-        <motion.div variants={loginFadeUp} className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 elevate-subtle">
+        <motion.div
+          variants={loginFadeUp}
+          className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 elevate-subtle"
+        >
           <div className="mb-7 flex flex-col items-center text-center">
             <img src="/favicon.svg" alt="" className="mb-4 h-14 w-14" />
             <h1 className="text-2xl font-semibold tracking-tight">Sign in to aidocs</h1>
@@ -79,13 +90,20 @@ export function LoginPage() {
           <Button asChild size="lg" className="w-full">
             {/* nosemgrep: typescript.react.react-href-url.react-href-url - api.loginURL always returns a same-origin relative path and URL-encodes next as a query parameter. */}
             <a href={url} onClick={() => setFrontendSignedOut(false)}>
-              <GoogleIcon /> Continue with Google
+              {provider === "Google" && <GoogleIcon />} Continue with {provider}
             </a>
           </Button>
         </motion.div>
-        <motion.ul className="mt-6 space-y-3" variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}>
+        <motion.ul
+          className="mt-6 space-y-3"
+          variants={{ hidden: {}, visible: { transition: { staggerChildren: 0.08 } } }}
+        >
           {HIGHLIGHTS.map((h) => (
-            <motion.li key={h.title} variants={loginFadeUp} className="flex items-start gap-3">
+            <motion.li
+              key={h.title}
+              variants={loginFadeUp}
+              className="flex items-start gap-3"
+            >
               <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
                 <h.icon className="h-3.5 w-3.5" />
               </span>

@@ -2,13 +2,35 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
+
+// createDocumentResponse is the payload of POST /v1/documents.
+type createDocumentResponse struct {
+	ID               string        `json:"id"`
+	CurrentVersionID string        `json:"current_version_id"`
+	DefaultGrant     *defaultGrant `json:"default_grant,omitempty"`
+}
+
+// defaultGrant reports the server-applied default "anyone" grant so clients
+// can explain the exposure to their users and revoke it by id.
+type defaultGrant struct {
+	GrantID   string                `json:"grant_id"`
+	Principal defaultGrantPrincipal `json:"principal"`
+	Role      repo.Role             `json:"role"`
+}
+
+type defaultGrantPrincipal struct {
+	Type auth.PrincipalType `json:"type"`
+}
 
 // CreateDocument godoc
 // @Summary Create document
@@ -19,11 +41,24 @@ import (
 // @Produce json
 // @Param title formData string true "Document title"
 // @Param file formData file true "Single-file HTML"
-// @Success 201 {object} map[string]interface{}
+// @Param default_permission formData string false "Default sharing applied at create: viewer, commenter, editor or private. Overrides the server-wide default."
+// @Success 201 {object} createDocumentResponse
 // @Router /v1/documents [post]
 func (h handlers) createDocument(c *gin.Context) {
 	p := current(c)
 	title := c.PostForm("title")
+	// The request override beats the server-wide default regardless of
+	// deployment mode: only the server env is org-gated (at startup), because
+	// a caller who sets the field makes an explicit per-document choice.
+	permission := h.deps.defaultDocPermission
+	if raw, ok := c.GetPostForm("default_permission"); ok {
+		role, valid := ParseDefaultDocPermission(raw)
+		if !valid {
+			badRequest(c, "default_permission must be viewer, commenter, editor or private")
+			return
+		}
+		permission = role
+	}
 	html, err := readMultipartFile(c, "file")
 	if errors.Is(err, errPayloadTooLarge) {
 		c.JSON(http.StatusRequestEntityTooLarge, errorResponse("payload_too_large", "HTML file exceeds 10 MiB", nil))
@@ -45,7 +80,22 @@ func (h handlers) createDocument(c *gin.Context) {
 	}
 	incDocument("created", actorType(c))
 	incVersion("created_initial", actorType(c))
-	c.JSON(http.StatusCreated, gin.H{"id": d.ID, "current_version_id": d.CurrentVersionID})
+	var granted *defaultGrant
+	if permission != repo.RoleNone {
+		g, err := h.deps.repository.CreateGrant(c.Request.Context(), "document", d.ID, auth.Principal{Type: auth.PrincipalAnyone}, permission, *p)
+		if err != nil {
+			// Rare storage fault. The document already exists at this point;
+			// erroring beats returning a document that is silently less shared
+			// than the effective default promised. Name the orphan so an
+			// operator can find it and a retrying client's duplicate is
+			// explainable.
+			internalErr(c, fmt.Errorf("default grant for created document %s: %w", d.ID, err))
+			return
+		}
+		incGrant("created", string(g.Role), string(g.Principal.Type), actorType(c))
+		granted = &defaultGrant{GrantID: g.ID, Principal: defaultGrantPrincipal{Type: auth.PrincipalAnyone}, Role: g.Role}
+	}
+	c.JSON(http.StatusCreated, createDocumentResponse{ID: d.ID, CurrentVersionID: d.CurrentVersionID, DefaultGrant: granted})
 }
 
 // ListDocuments godoc
@@ -54,19 +104,50 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Produce json
-// @Param q query string false "Title search query"
-// @Success 200 {object} map[string]interface{}
+// @Param q query string false "Search query; supports author:, labels:, in:, and /regex/ values"
+// @Param label query string false "Deprecated exact label filter; use q=labels:<label>"
+// @Success 200 {object} listResponse[repo.Document]
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
-	q := c.Query("q")
-	if q != "" {
+	if !requireResolvedGroupsForAggregate(c) {
+		return
+	}
+	q := strings.TrimSpace(c.Query("q"))
+	var search repo.DocumentSearch
+	var err error
+	if h.deps.searchTagsEnabled {
+		search, err = parseDocumentSearch(q)
+	} else {
+		search, err = parseDocumentTitleSearch(q)
+	}
+	if err != nil {
+		badRequest(c, err.Error())
+		return
+	}
+	search.IncludeLabels = h.deps.labelsEnabled
+	if label := strings.ToLower(strings.TrimSpace(c.Query("label"))); label != "" {
+		if !h.deps.labelsEnabled {
+			featureDisabled(c, "Document labels are temporarily disabled")
+			return
+		}
+		if !labelPattern.MatchString(label) {
+			badRequest(c, "invalid label")
+			return
+		}
+		if len(search.LabelPatterns) >= maxSearchLabels {
+			badRequest(c, fmt.Sprintf("at most %d labels are allowed", maxSearchLabels))
+			return
+		}
+		search.LabelPatterns = append(search.LabelPatterns, "^"+escapePostgresRegex(label)+"$")
+	}
+	if q != "" || len(search.LabelPatterns) > 0 {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
-		items, err := h.deps.repository.SearchDocumentsByTitle(c.Request.Context(), *current(c), q, includeOrgWide, 25)
+		items, err := h.deps.repository.SearchDocuments(c.Request.Context(), *current(c), search, includeOrgWide, 25)
 		if err != nil {
 			internalErr(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, gin.H{"items": items})
+		c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
 		return
 	}
 	items, err := h.deps.repository.ListDocuments(c.Request.Context(), *current(c))
@@ -74,7 +155,12 @@ func (h handlers) listDocuments(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"items": items})
+	if h.deps.labelsEnabled {
+		for i := range items {
+			items[i].Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), items[i].ID)
+		}
+	}
+	c.JSON(http.StatusOK, listResponse[repo.Document]{Items: items})
 }
 
 // GetDocument godoc
@@ -88,26 +174,43 @@ func (h handlers) listDocuments(c *gin.Context) {
 func (h handlers) getDocument(c *gin.Context) {
 	d, err := h.deps.repository.GetDocument(c.Request.Context(), c.Param("id"))
 	if err != nil {
-		notFound(c)
+		if errors.Is(err, repo.ErrNotFound) {
+			notFound(c)
+			return
+		}
+		internalErr(c, err)
 		return
 	}
-	role, _ := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), d.ID)
+	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), d.ID)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
 	if !atLeast(role, repo.RoleViewer) {
+		if groupMembershipUnavailable(current(c)) {
+			groupMembershipUnavailableResponse(c)
+			return
+		}
 		forbidden(c, "viewer role required")
 		return
 	}
 	p := current(c)
-	if !(p.Type == d.Owner.Type && p.ID == d.Owner.ID) {
+	if p.Type != d.Owner.Type || p.ID != d.Owner.ID {
 		_ = h.deps.repository.RecordDocumentOpened(c.Request.Context(), d.ID, *p)
 	}
-	// Show parent folder in breadcrumb only if viewer has access to it.
+	// Show parent folder in breadcrumb only if viewer has access to it. The
+	// breadcrumb is decorative, so a failed role lookup omits it rather than
+	// failing the whole request.
 	if d.ParentFolderID != "" {
-		if r, _ := h.deps.repository.RoleForFolder(c.Request.Context(), *p, d.ParentFolderID); atLeast(r, repo.RoleViewer) {
+		if r, err := h.deps.repository.RoleForFolder(c.Request.Context(), *p, d.ParentFolderID); err == nil && atLeast(r, repo.RoleViewer) {
 			f, err := h.deps.repository.GetFolder(c.Request.Context(), d.ParentFolderID)
 			if err == nil {
 				d.ParentFolder = &repo.FolderBreadcrumb{ID: f.ID, Title: f.Title}
 			}
 		}
+	}
+	if h.deps.labelsEnabled {
+		d.Labels, _ = h.deps.repository.ListDocumentLabels(c.Request.Context(), d.ID)
 	}
 	c.JSON(http.StatusOK, d)
 }

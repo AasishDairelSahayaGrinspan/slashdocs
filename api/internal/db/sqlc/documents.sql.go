@@ -11,13 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-const deleteDocument = `-- name: DeleteDocument :exec
+const deleteDocument = `-- name: DeleteDocument :execrows
 DELETE FROM documents WHERE id=$1
 `
 
-func (q *Queries) DeleteDocument(ctx context.Context, id string) error {
-	_, err := q.db.Exec(ctx, deleteDocument, id)
-	return err
+func (q *Queries) DeleteDocument(ctx context.Context, id string) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteDocument, id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
 
 const getDocument = `-- name: GetDocument :one
@@ -59,23 +62,6 @@ func (q *Queries) GetDocument(ctx context.Context, id string) (GetDocumentRow, e
 		&i.ParentFolderID,
 	)
 	return i, err
-}
-
-const getDocumentGrantRole = `-- name: GetDocumentGrantRole :one
-SELECT role FROM resource_grants WHERE resource_type='document' AND resource_id=$1 AND principal_type=$2 AND principal_id=$3 AND revoked_at IS NULL
-`
-
-type GetDocumentGrantRoleParams struct {
-	ResourceID    string
-	PrincipalType string
-	PrincipalID   string
-}
-
-func (q *Queries) GetDocumentGrantRole(ctx context.Context, arg GetDocumentGrantRoleParams) (string, error) {
-	row := q.db.QueryRow(ctx, getDocumentGrantRole, arg.ResourceID, arg.PrincipalType, arg.PrincipalID)
-	var role string
-	err := row.Scan(&role)
-	return role, err
 }
 
 const getDocumentOwner = `-- name: GetDocumentOwner :one
@@ -150,7 +136,8 @@ WHERE d.parent_folder_id IS NULL
        WHERE g.resource_type='document'
          AND g.resource_id=d.id
          AND g.revoked_at IS NULL
-         AND g.principal_type=$2 AND g.principal_id=$1
+	 AND ((g.principal_type=$2 AND g.principal_id=$1)
+	      OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[])))
    )
    OR (
        EXISTS (
@@ -174,6 +161,7 @@ LIMIT 25
 type ListDocumentsParams struct {
 	OwnerID   string
 	OwnerType string
+	Column3   []string
 }
 
 type ListDocumentsRow struct {
@@ -198,7 +186,7 @@ type ListDocumentsRow struct {
 // workspace until they open it.
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]ListDocumentsRow, error) {
-	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.OwnerType)
+	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.OwnerType, arg.Column3)
 	if err != nil {
 		return nil, err
 	}
@@ -226,6 +214,92 @@ func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([
 	return items, nil
 }
 
+const listFolderDocuments = `-- name: ListFolderDocuments :many
+SELECT d.id, d.title, d.owner_type, d.owner_id,
+       COALESCE(d.current_version_id,'') AS current_version_id,
+       COALESCE(d.parent_folder_id,'') AS parent_folder_id,
+       COALESCE(u.name,sa.name,'') AS owner_name,
+       COALESCE(u.email,'') AS owner_email
+FROM documents d
+LEFT JOIN users u ON d.owner_type='user' AND d.owner_id=u.id
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND d.owner_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+WHERE d.parent_folder_id= $1::text
+`
+
+type ListFolderDocumentsRow struct {
+	ID               string
+	Title            string
+	OwnerType        string
+	OwnerID          string
+	CurrentVersionID string
+	ParentFolderID   string
+	OwnerName        string
+	OwnerEmail       string
+}
+
+// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+func (q *Queries) ListFolderDocuments(ctx context.Context, folderID string) ([]ListFolderDocumentsRow, error) {
+	rows, err := q.db.Query(ctx, listFolderDocuments, folderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFolderDocumentsRow
+	for rows.Next() {
+		var i ListFolderDocumentsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.OwnerType,
+			&i.OwnerID,
+			&i.CurrentVersionID,
+			&i.ParentFolderID,
+			&i.OwnerName,
+			&i.OwnerEmail,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const moveDocumentToFolder = `-- name: MoveDocumentToFolder :execrows
+UPDATE documents SET parent_folder_id= $1::text, updated_at=now() WHERE id= $2
+`
+
+type MoveDocumentToFolderParams struct {
+	FolderID   string
+	DocumentID string
+}
+
+func (q *Queries) MoveDocumentToFolder(ctx context.Context, arg MoveDocumentToFolderParams) (int64, error) {
+	result, err := q.db.Exec(ctx, moveDocumentToFolder, arg.FolderID, arg.DocumentID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
+const moveDocumentToRoot = `-- name: MoveDocumentToRoot :exec
+UPDATE documents SET parent_folder_id=NULL, updated_at=now() WHERE id= $1 AND parent_folder_id= $2::text
+`
+
+type MoveDocumentToRootParams struct {
+	DocumentID string
+	FolderID   string
+}
+
+func (q *Queries) MoveDocumentToRoot(ctx context.Context, arg MoveDocumentToRootParams) error {
+	_, err := q.db.Exec(ctx, moveDocumentToRoot, arg.DocumentID, arg.FolderID)
+	return err
+}
+
 const recordWorkspaceEntry = `-- name: RecordWorkspaceEntry :exec
 INSERT INTO document_workspace_entries(document_id,principal_type,principal_id)
 VALUES($1,$2,$3)
@@ -245,7 +319,7 @@ func (q *Queries) RecordWorkspaceEntry(ctx context.Context, arg RecordWorkspaceE
 	return err
 }
 
-const searchDocumentsByTitle = `-- name: SearchDocumentsByTitle :many
+const searchDocuments = `-- name: SearchDocuments :many
 WITH RECURSIVE folder_ancestors(doc_id, fid, depth) AS (
   SELECT d2.id, d2.parent_folder_id, 1
   FROM documents d2
@@ -259,40 +333,71 @@ docs_via_folder AS (
   SELECT DISTINCT fa.doc_id
   FROM folder_ancestors fa
   JOIN resource_grants g ON g.resource_type='folder' AND g.resource_id=fa.fid AND g.revoked_at IS NULL
-  WHERE (g.principal_type=$3 AND g.principal_id=$2) OR ($4::boolean AND g.principal_type='anyone')
+  WHERE (g.principal_type= $5 AND g.principal_id= $6)
+     OR (g.principal_type='google_group' AND g.principal_id=ANY($7::text[]))
+     OR ($8::boolean AND g.principal_type='anyone')
 )
 SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(u.email,'') AS owner_email,
-       COALESCE(u.name,sa.name,'') AS owner_name
+       COALESCE(u.name,sa.name,'') AS owner_name,
+       d.updated_at
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
 LEFT JOIN service_accounts sa
   ON d.owner_type='service_account' AND sa.id=d.owner_id
-WHERE d.title ILIKE '%' || $1 || '%'
+WHERE ($1::text = '' OR d.title ~* $1::text)
   AND (
-    (d.owner_type=$3 AND d.owner_id=$2)
+    $2::text = ''
+    OR COALESCE(NULLIF(u.email,''), NULLIF(sa.name,''), d.owner_id) ~* $2::text
+  )
+  AND (
+    $3::text = ''
+    OR EXISTS (
+      SELECT 1
+      FROM folder_ancestors search_folder_ancestor
+      JOIN folders search_folder ON search_folder.id=search_folder_ancestor.fid
+      WHERE search_folder_ancestor.doc_id=d.id
+        AND search_folder.title ~* $3::text
+    )
+  )
+  AND NOT EXISTS (
+    SELECT 1
+    FROM unnest($4::text[]) AS requested_label(pattern)
+    WHERE NOT EXISTS (
+      SELECT 1 FROM document_labels dl
+      WHERE dl.document_id=d.id AND dl.label ~* requested_label.pattern
+    )
+  )
+  AND (
+    (d.owner_type= $5 AND d.owner_id= $6)
     OR EXISTS (
       SELECT 1 FROM resource_grants g
       WHERE g.resource_type='document'
         AND g.resource_id=d.id
         AND g.revoked_at IS NULL
-        AND ((g.principal_type=$3 AND g.principal_id=$2) OR ($4::boolean AND g.principal_type='anyone'))
+        AND ((g.principal_type= $5 AND g.principal_id= $6)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY($7::text[]))
+          OR ($8::boolean AND g.principal_type='anyone'))
     )
     OR d.id IN (SELECT doc_id FROM docs_via_folder)
   )
-ORDER BY d.title
-LIMIT $5
+ORDER BY d.updated_at DESC, d.title
+LIMIT $9
 `
 
-type SearchDocumentsByTitleParams struct {
-	Column1   pgtype.Text
-	OwnerID   string
-	OwnerType string
-	Column4   bool
-	Limit     int32
+type SearchDocumentsParams struct {
+	TitlePattern   string
+	AuthorPattern  string
+	FolderPattern  string
+	LabelPatterns  []string
+	OwnerType      string
+	OwnerID        string
+	GoogleGroupIds []string
+	IncludeOrgWide bool
+	RowLimit       int32
 }
 
-type SearchDocumentsByTitleRow struct {
+type SearchDocumentsRow struct {
 	ID               string
 	Title            string
 	CurrentVersionID pgtype.Text
@@ -300,23 +405,28 @@ type SearchDocumentsByTitleRow struct {
 	OwnerID          string
 	OwnerEmail       string
 	OwnerName        string
+	UpdatedAt        pgtype.Timestamptz
 }
 
-func (q *Queries) SearchDocumentsByTitle(ctx context.Context, arg SearchDocumentsByTitleParams) ([]SearchDocumentsByTitleRow, error) {
-	rows, err := q.db.Query(ctx, searchDocumentsByTitle,
-		arg.Column1,
-		arg.OwnerID,
+func (q *Queries) SearchDocuments(ctx context.Context, arg SearchDocumentsParams) ([]SearchDocumentsRow, error) {
+	rows, err := q.db.Query(ctx, searchDocuments,
+		arg.TitlePattern,
+		arg.AuthorPattern,
+		arg.FolderPattern,
+		arg.LabelPatterns,
 		arg.OwnerType,
-		arg.Column4,
-		arg.Limit,
+		arg.OwnerID,
+		arg.GoogleGroupIds,
+		arg.IncludeOrgWide,
+		arg.RowLimit,
 	)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	var items []SearchDocumentsByTitleRow
+	var items []SearchDocumentsRow
 	for rows.Next() {
-		var i SearchDocumentsByTitleRow
+		var i SearchDocumentsRow
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
@@ -325,6 +435,7 @@ func (q *Queries) SearchDocumentsByTitle(ctx context.Context, arg SearchDocument
 			&i.OwnerID,
 			&i.OwnerEmail,
 			&i.OwnerName,
+			&i.UpdatedAt,
 		); err != nil {
 			return nil, err
 		}
