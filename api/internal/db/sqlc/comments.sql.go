@@ -218,9 +218,10 @@ func (q *Queries) GetMentionUser(ctx context.Context, id string) (GetMentionUser
 	return i, err
 }
 
-const insertComment = `-- name: InsertComment :exec
+const insertComment = `-- name: InsertComment :one
 INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,root_comment_id)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'open',$1)
+RETURNING created_at
 `
 
 type InsertCommentParams struct {
@@ -236,8 +237,8 @@ type InsertCommentParams struct {
 	AnchorJson         []byte
 }
 
-func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) error {
-	_, err := q.db.Exec(ctx, insertComment,
+func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, insertComment,
 		arg.ID,
 		arg.DocumentID,
 		arg.CreatedOnVersionID,
@@ -249,7 +250,9 @@ func (q *Queries) InsertComment(ctx context.Context, arg InsertCommentParams) er
 		arg.SelectedText,
 		arg.AnchorJson,
 	)
-	return err
+	var created_at pgtype.Timestamptz
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
 const insertCommentMention = `-- name: InsertCommentMention :exec
@@ -285,9 +288,10 @@ func (q *Queries) InsertCommentMention(ctx context.Context, arg InsertCommentMen
 	return err
 }
 
-const insertCommentReply = `-- name: InsertCommentReply :exec
+const insertCommentReply = `-- name: InsertCommentReply :one
 INSERT INTO comments(id,document_id,created_on_version_id,author_type,author_id,author_email,author_name,body,selected_text,anchor_json,status,parent_comment_id,root_comment_id)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,'','{}'::jsonb,'open',$9,$10)
+RETURNING created_at
 `
 
 type InsertCommentReplyParams struct {
@@ -303,8 +307,8 @@ type InsertCommentReplyParams struct {
 	RootCommentID      string
 }
 
-func (q *Queries) InsertCommentReply(ctx context.Context, arg InsertCommentReplyParams) error {
-	_, err := q.db.Exec(ctx, insertCommentReply,
+func (q *Queries) InsertCommentReply(ctx context.Context, arg InsertCommentReplyParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, insertCommentReply,
 		arg.ID,
 		arg.DocumentID,
 		arg.CreatedOnVersionID,
@@ -316,7 +320,9 @@ func (q *Queries) InsertCommentReply(ctx context.Context, arg InsertCommentReply
 		arg.ParentCommentID,
 		arg.RootCommentID,
 	)
-	return err
+	var created_at pgtype.Timestamptz
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
 const listCommentMentions = `-- name: ListCommentMentions :many

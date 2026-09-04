@@ -75,7 +75,6 @@ func (e *AmbiguousPathError) Is(target error) bool { return target == ErrAmbiguo
 // Comment / transfer status values.
 const (
 	StatusOpen     = "open"
-	StatusResolved = "resolved"
 	StatusPending  = "pending"
 	StatusAccepted = "accepted"
 	StatusDeclined = "declined"

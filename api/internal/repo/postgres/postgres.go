@@ -322,7 +322,8 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 	if err := q.InsertDocument(ctx, dbsqlc.InsertDocumentParams{ID: docID, Title: title, OwnerType: string(owner.Type), OwnerID: owner.ID}); err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
-	if err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID}); err != nil {
+	createdAt, err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID})
+	if err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
 	if err := q.UpdateDocumentCurrentVersion(ctx, dbsqlc.UpdateDocumentCurrentVersionParams{CurrentVersionID: pgtype.Text{String: verID, Valid: true}, ID: docID}); err != nil {
@@ -332,7 +333,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 		return repo.Document{}, repo.Version{}, err
 	}
 	committed = true
-	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	return repo.Document{ID: docID, Title: title, Owner: owner, CurrentVersionID: verID}, repo.Version{ID: verID, Number: 1, DocumentID: docID, CreatedBy: owner, SHA256: sum, CreatedAt: pgTimeRFC3339(createdAt)}, nil
 }
 func (s *Store) GetDocument(ctx context.Context, id string) (repo.Document, error) {
 	r, err := s.q.GetDocument(ctx, id)
@@ -473,7 +474,8 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 			_ = s.blobs.Delete(context.WithoutCancel(ctx), blobKey)
 		}
 	}()
-	if err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: cur.NextNumber, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary}); err != nil {
+	createdAt, err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: cur.NextNumber, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary})
+	if err != nil {
 		return repo.Version{}, err
 	}
 	if err := q.UpdateDocumentCurrentVersion(ctx, dbsqlc.UpdateDocumentCurrentVersionParams{CurrentVersionID: pgtype.Text{String: id, Valid: true}, ID: documentID}); err != nil {
@@ -483,7 +485,7 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 		return repo.Version{}, err
 	}
 	committed = true
-	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	return repo.Version{ID: id, Number: int(cur.NextNumber), DocumentID: documentID, CreatedBy: createdBy, ChangeSummary: changeSummary, SHA256: sum, CreatedAt: pgTimeRFC3339(createdAt)}, nil
 }
 func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body string, anchor repo.Anchor, author auth.Principal, mentions []repo.CommentMention) (repo.Comment, error) {
 	body = repo.NormalizeCommentBody(body)
@@ -512,7 +514,8 @@ func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body s
 		return repo.Comment{}, err
 	}
 	id := newID("cmt")
-	if err := q.InsertComment(ctx, dbsqlc.InsertCommentParams{ID: id, DocumentID: documentID, CreatedOnVersionID: versionID, AuthorType: string(author.Type), AuthorID: author.ID, AuthorEmail: author.Email, AuthorName: author.Name, Body: body, SelectedText: anchor.Quote, AnchorJson: b}); err != nil {
+	createdAt, err := q.InsertComment(ctx, dbsqlc.InsertCommentParams{ID: id, DocumentID: documentID, CreatedOnVersionID: versionID, AuthorType: string(author.Type), AuthorID: author.ID, AuthorEmail: author.Email, AuthorName: author.Name, Body: body, SelectedText: anchor.Quote, AnchorJson: b})
+	if err != nil {
 		return repo.Comment{}, err
 	}
 	if err := insertCommentMentions(ctx, q, id, mentions); err != nil {
@@ -521,7 +524,7 @@ func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body s
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
-	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen, RootCommentID: id, Mentions: mentions, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: versionID, Author: author, Body: body, SelectedText: anchor.Quote, Anchor: anchor, Status: repo.StatusOpen, RootCommentID: id, Mentions: mentions, CreatedAt: pgTimeRFC3339(createdAt)}, nil
 }
 func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommentID, body string, author auth.Principal, mentions []repo.CommentMention) (repo.Comment, error) {
 	body = repo.NormalizeCommentBody(body)
@@ -554,7 +557,8 @@ func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommen
 		rootID = parent.ID
 	}
 	id := newID("cmt")
-	if err := q.InsertCommentReply(ctx, dbsqlc.InsertCommentReplyParams{ID: id, DocumentID: documentID, CreatedOnVersionID: parent.VersionID, AuthorType: string(author.Type), AuthorID: author.ID, AuthorEmail: author.Email, AuthorName: author.Name, Body: body, ParentCommentID: pgtype.Text{String: parent.ID, Valid: true}, RootCommentID: rootID}); err != nil {
+	createdAt, err := q.InsertCommentReply(ctx, dbsqlc.InsertCommentReplyParams{ID: id, DocumentID: documentID, CreatedOnVersionID: parent.VersionID, AuthorType: string(author.Type), AuthorID: author.ID, AuthorEmail: author.Email, AuthorName: author.Name, Body: body, ParentCommentID: pgtype.Text{String: parent.ID, Valid: true}, RootCommentID: rootID})
+	if err != nil {
 		return repo.Comment{}, err
 	}
 	if err := insertCommentMentions(ctx, q, id, mentions); err != nil {
@@ -563,7 +567,7 @@ func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommen
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
-	return repo.Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: repo.StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID, Mentions: mentions, CreatedAt: time.Now().UTC().Format(time.RFC3339Nano)}, nil
+	return repo.Comment{ID: id, DocumentID: documentID, VersionID: parent.VersionID, Author: author, Body: body, Status: repo.StatusOpen, ParentCommentID: parent.ID, RootCommentID: rootID, Mentions: mentions, CreatedAt: pgTimeRFC3339(createdAt)}, nil
 }
 
 type mentionPrincipalKey struct {
@@ -1145,12 +1149,11 @@ func (s *Store) UpdateComment(ctx context.Context, id string, update repo.Commen
 	}
 	comment.Body = effectiveBody
 	if update.Status != "" {
-		comment.Status = update.Status
-		if update.Status == repo.StatusResolved {
-			comment.ResolvedAt = time.Now().UTC().Format(time.RFC3339Nano)
-		} else {
-			comment.ResolvedAt = ""
+		updated, err := q.GetComment(ctx, id)
+		if err != nil {
+			return repo.Comment{}, err
 		}
+		comment = commentFromGet(updated)
 	}
 	mentions, err := commentMentionsByID(ctx, q, []string{id})
 	if err != nil {

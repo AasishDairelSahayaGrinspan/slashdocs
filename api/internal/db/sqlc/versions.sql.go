@@ -78,9 +78,10 @@ func (q *Queries) GetVersionBlobKey(ctx context.Context, id string) (string, err
 	return html_blob_key, err
 }
 
-const insertInitialVersion = `-- name: InsertInitialVersion :exec
+const insertInitialVersion = `-- name: InsertInitialVersion :one
 INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
 VALUES($1,$2,1,$3,$4,NULL,$5,$6,'')
+RETURNING created_at
 `
 
 type InsertInitialVersionParams struct {
@@ -92,8 +93,8 @@ type InsertInitialVersionParams struct {
 	CreatedByID   string
 }
 
-func (q *Queries) InsertInitialVersion(ctx context.Context, arg InsertInitialVersionParams) error {
-	_, err := q.db.Exec(ctx, insertInitialVersion,
+func (q *Queries) InsertInitialVersion(ctx context.Context, arg InsertInitialVersionParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, insertInitialVersion,
 		arg.ID,
 		arg.DocumentID,
 		arg.HtmlBlobKey,
@@ -101,12 +102,15 @@ func (q *Queries) InsertInitialVersion(ctx context.Context, arg InsertInitialVer
 		arg.CreatedByType,
 		arg.CreatedByID,
 	)
-	return err
+	var created_at pgtype.Timestamptz
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
-const insertVersion = `-- name: InsertVersion :exec
+const insertVersion = `-- name: InsertVersion :one
 INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
 VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+RETURNING created_at
 `
 
 type InsertVersionParams struct {
@@ -121,8 +125,8 @@ type InsertVersionParams struct {
 	ChangeSummary   string
 }
 
-func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) error {
-	_, err := q.db.Exec(ctx, insertVersion,
+func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) (pgtype.Timestamptz, error) {
+	row := q.db.QueryRow(ctx, insertVersion,
 		arg.ID,
 		arg.DocumentID,
 		arg.Number,
@@ -133,7 +137,9 @@ func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) er
 		arg.CreatedByID,
 		arg.ChangeSummary,
 	)
-	return err
+	var created_at pgtype.Timestamptz
+	err := row.Scan(&created_at)
+	return created_at, err
 }
 
 const listVersions = `-- name: ListVersions :many
