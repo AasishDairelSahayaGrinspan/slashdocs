@@ -79,6 +79,7 @@ export function DocBar({
 }) {
   const nav = useNavigate();
   const q = useQueryClient();
+  const backTo = parentFolder ? `/app/folders/${parentFolder.id}` : "/app/documents";
   const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
   const currentVersion = versions.find((v) => v.id === current);
   const isViewingOlder = !!current && !!latest && current !== latest;
@@ -99,7 +100,7 @@ export function DocBar({
     onSuccess: () => {
       toast.success("Document deleted.");
       q.invalidateQueries({ queryKey: queryKeys.documents() });
-      nav("/app/documents");
+      nav(backTo);
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
@@ -122,7 +123,10 @@ export function DocBar({
   return (
     <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
       <Button asChild variant="ghost" size="icon" className="shrink-0">
-        <Link to="/app/documents" aria-label="Back to documents">
+        <Link
+          to={backTo}
+          aria-label={parentFolder ? "Back to folder" : "Back to documents"}
+        >
           <ArrowLeft className="h-4 w-4" />
         </Link>
       </Button>
