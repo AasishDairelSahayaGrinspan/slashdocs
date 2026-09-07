@@ -212,7 +212,7 @@ export function DocumentsPage() {
             size="md"
             onClick={() => setOnlyMine((v) => !v)}
             aria-pressed={onlyMine}
-            className={`shrink-0 px-3 sm:px-4 ${onlyMine ? "bg-[var(--color-surface-muted)]" : ""}`}
+            className={`shrink-0 px-3 sm:px-4 ${onlyMine ? "border-[var(--color-accent)] bg-[var(--color-accent-muted)] text-[var(--color-accent)]" : ""}`}
           >
             Only my doc
           </Button>
