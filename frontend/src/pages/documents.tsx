@@ -38,6 +38,7 @@ export function DocumentsPage() {
     const t = window.setTimeout(() => setDebouncedQ(q.trim()), 250);
     return () => window.clearTimeout(t);
   }, [q]);
+  const [onlyMine, setOnlyMine] = useState(false);
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
   const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
   const searchTagsEnabled = config.data?.search_tags_enabled === true;
@@ -80,18 +81,25 @@ export function DocumentsPage() {
     [pins.data],
   );
 
+  const myId = me.data?.principal.id;
+
   // Merge folders and documents into a single list sorted by pinned status, last activity, then alphabetically
   const merged = useMemo(() => {
-    const folderItems: FolderEntry[] = folderEntries.map((e) => ({
-      type: "folder" as const,
-      folder: e.folder,
-      last_active: e.last_active,
-    }));
-    const docItems: FolderEntry[] = documents.map((d) => ({
-      type: "document" as const,
-      document: d,
-      last_active: d.updated_at,
-    }));
+    // "Only my doc": show only documents owned by the logged-in user; hide folders.
+    const folderItems: FolderEntry[] = onlyMine
+      ? []
+      : folderEntries.map((e) => ({
+          type: "folder" as const,
+          folder: e.folder,
+          last_active: e.last_active,
+        }));
+    const docItems: FolderEntry[] = documents
+      .filter((d) => !onlyMine || d.owner?.id === myId)
+      .map((d) => ({
+        type: "document" as const,
+        document: d,
+        last_active: d.updated_at,
+      }));
     return [...folderItems, ...docItems].sort((a, b) => {
       const ap = pinnedIds.has(a.folder?.id || docID(a.document!));
       const bp = pinnedIds.has(b.folder?.id || docID(b.document!));
@@ -105,7 +113,7 @@ export function DocumentsPage() {
       const nb = (b.folder?.title || b.document?.title || "").toLowerCase();
       return na.localeCompare(nb);
     });
-  }, [folderEntries, documents, pinnedIds]);
+  }, [folderEntries, documents, pinnedIds, onlyMine, myId]);
 
   const viewMode = viewModeStore.useStore();
   const [newFolderOpen, setNewFolderOpen] = useState(false);
@@ -199,6 +207,15 @@ export function DocumentsPage() {
             onChange={setQ}
             searchTagsEnabled={searchTagsEnabled}
           />
+          <Button
+            variant="outline"
+            size="md"
+            onClick={() => setOnlyMine((v) => !v)}
+            aria-pressed={onlyMine}
+            className={`shrink-0 px-3 sm:px-4 ${onlyMine ? "bg-[var(--color-surface-muted)]" : ""}`}
+          >
+            Only my doc
+          </Button>
           <ViewModeToggle />
           <Button
             variant="outline"
@@ -242,6 +259,11 @@ export function DocumentsPage() {
         ) : (
           <UnifiedGrid entries={merged} />
         )
+      ) : onlyMine && merged.length === 0 ? (
+        <EmptyState
+          title="No documents"
+          description="You don't own any documents yet."
+        />
       ) : (
         <DndContext
           sensors={sensors}
