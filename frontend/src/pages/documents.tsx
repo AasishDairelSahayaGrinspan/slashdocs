@@ -214,7 +214,7 @@ export function DocumentsPage() {
             aria-pressed={onlyMine}
             className={`shrink-0 px-3 sm:px-4 ${onlyMine ? "border-[var(--color-accent)] bg-[var(--color-accent-muted)] text-[var(--color-accent)]" : ""}`}
           >
-            Only my doc
+            Show only my docs
           </Button>
           <ViewModeToggle />
           <Button
