@@ -115,6 +115,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	workerCtx, cancelWorker := context.WithCancel(ctx)
+	workerDone := make(chan struct{})
+	go func() { defer close(workerDone); srv.RunCommentNotifications(workerCtx) }()
+	defer func() { cancelWorker(); <-workerDone }()
 	return serve(ctx, srv.Handler(), ":"+envOrDefault("AIDOCS_PORT", "8080"), ":"+envOrDefault("AIDOCS_METRICS_PORT", "9090"))
 }
 
@@ -277,7 +281,10 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
+	sender := loadSlackSender(os.Getenv("AIDOCS_SLACK_BOT_TOKEN"))
+	store.SetCommentNotificationsEnabled(sender != nil)
 	options := []server.Option{
+		server.WithCommentNotificationSender(sender),
 		server.WithRepository(store),
 		server.WithDocumentKVEvents(kvEvents),
 		server.WithAuthenticator(auth.DBAuthenticator{Resolver: store, SessionSecret: origins.sessionSecret}),

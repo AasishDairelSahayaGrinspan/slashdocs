@@ -69,9 +69,17 @@ func TestMCPMetricsClassifyProtocolTransportAndToolOutcomes(t *testing.T) {
 		return rawMCPRequest(t, e, http.MethodPost, token, "https://attacker.example", "{}", "application/json", true)
 	}, http.StatusForbidden)
 	assertTransportMetric(t, e, "payload_too_large", func() *responseRecorderAlias {
-		// The server caps MCP bodies at 64 MiB (10 MiB HTML cap x worst-case
-		// JSON escaping); one byte over must be rejected before parsing.
-		return rawMCPRequest(t, e, http.MethodPost, token, "", strings.Repeat("x", (64<<20)+1), "application/json", true)
+		// The server caps MCP bodies at 301 MiB (50 MiB HTML cap x worst-case
+		// JSON escaping plus envelope); one byte over must be rejected before parsing.
+		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("{}"))
+		req.ContentLength = (301 << 20) + 1
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Accept", "application/json, text/event-stream")
+		req.Header.Set("Mcp-Protocol-Version", mcp.LATEST_PROTOCOL_VERSION)
+		rr := httptest.NewRecorder()
+		e.h.ServeHTTP(rr, req)
+		return rr
 	}, http.StatusRequestEntityTooLarge)
 
 	unknownMethod := "attacker/method/3b17"

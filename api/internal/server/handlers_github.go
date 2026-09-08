@@ -190,13 +190,13 @@ func (h handlers) githubRawContent(c *gin.Context) {
 		c.JSON(res.StatusCode, errorResponse("github_error", "GitHub could not return that file", nil))
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(res.Body, (10<<20)+1))
+	body, err := io.ReadAll(io.LimitReader(res.Body, maxHTMLBytes+1))
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-	if len(body) > 10<<20 {
-		c.JSON(http.StatusRequestEntityTooLarge, errorResponse("github_file_too_large", "GitHub files must be 10 MiB or smaller", nil))
+	if len(body) > maxHTMLBytes {
+		c.JSON(http.StatusRequestEntityTooLarge, errorResponse("github_file_too_large", "GitHub files must be 50 MiB or smaller", nil))
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"owner": in.Owner, "repo": in.Repo, "path": in.Path, "content": string(body), "content_type": res.Header.Get("Content-Type"), "etag": res.Header.Get("ETag"), "ref": in.Ref})

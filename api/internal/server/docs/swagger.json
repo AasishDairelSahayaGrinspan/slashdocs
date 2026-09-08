@@ -974,6 +974,174 @@
                 }
             }
         },
+        "/v1/documents/{id}/headings": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Lists headings in stored HTML. Explicit HTML IDs are preserved. JavaScript-only headings appear in the viewer when created.",
+                "tags": [
+                    "documents"
+                ],
+                "summary": "List document headings and shareable links",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Version ID (pins links to this version)",
+                        "name": "version",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.listResponse-server_headingResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/documents/{id}/link": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "documents"
+                ],
+                "summary": "Get a shareable link to a document, comment, or heading",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Comment or reply ID",
+                        "name": "comment",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Heading ID, including an ID created by document JavaScript",
+                        "name": "heading",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Version ID for a heading or document link",
+                        "name": "version",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.documentLinkResponse"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/documents/{id}/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Read your notification preferences for a document",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.NotificationPreferences"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Personal preference only. Global disable overrides this preference.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Enable or mute your document notifications",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Notification preference",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.notificationPreferencesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.NotificationPreferences"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/documents/{id}/versions": {
             "get": {
                 "security": [
@@ -1304,6 +1472,67 @@
                         "description": "Unauthorized",
                         "schema": {
                             "$ref": "#/definitions/server.errorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/me/notifications": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Read your notification preferences",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.NotificationPreferences"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Applies only to the authenticated principal. Document preferences never change access or other users' notifications. Global disable overrides document preferences.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "notifications"
+                ],
+                "summary": "Set your notification preferences",
+                "parameters": [
+                    {
+                        "description": "Notification preference",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.notificationPreferencesRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/repo.NotificationPreferences"
                         }
                     }
                 }
@@ -1754,6 +1983,17 @@
                 },
                 "role": {
                     "$ref": "#/definitions/repo.Role"
+                }
+            }
+        },
+        "repo.NotificationPreferences": {
+            "type": "object",
+            "properties": {
+                "effective_enabled": {
+                    "type": "boolean"
+                },
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },
@@ -2228,6 +2468,14 @@
                 }
             }
         },
+        "server.documentLinkResponse": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "server.errorBody": {
             "type": "object",
             "properties": {
@@ -2363,6 +2611,23 @@
                 }
             }
         },
+        "server.headingResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "level": {
+                    "type": "integer"
+                },
+                "text": {
+                    "type": "string"
+                },
+                "url": {
+                    "type": "string"
+                }
+            }
+        },
         "server.listResponse-repo_CLICredential": {
             "type": "object",
             "properties": {
@@ -2440,6 +2705,17 @@
                 }
             }
         },
+        "server.listResponse-server_headingResponse": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.headingResponse"
+                    }
+                }
+            }
+        },
         "server.meResponse": {
             "type": "object",
             "properties": {
@@ -2482,6 +2758,14 @@
                 },
                 "name": {
                     "type": "string"
+                }
+            }
+        },
+        "server.notificationPreferencesRequest": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean"
                 }
             }
         },

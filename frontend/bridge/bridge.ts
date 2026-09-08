@@ -1,3 +1,4 @@
+import { snapshotForPrint } from "./document-export.ts";
 import type { RenderedTextWithBrPositions } from "./anchoring/rendered-text.ts";
 import { renderedTextOf } from "./anchoring/rendered-text.ts";
 import { describeAnchor, resolveAnchor } from "./anchoring/index.ts";
@@ -60,6 +61,8 @@ type GitHubFunction = (input: {
 type GitHubConnectFunction = () => void;
 
 interface AidocsPublicAPI {
+  print?: () => void;
+  download?: (input: { blob: Blob; filename: string }) => Promise<void>;
   kv?: Record<string, KVFunction>;
   github?: {
     getRawContent: GitHubFunction;
@@ -458,6 +461,45 @@ type Theme = "dark" | "light";
     });
   }
 
+  let printPreparing = false;
+  const exportPending = new Map<string, { resolve: () => void; reject: () => void }>();
+  let exportID = 0;
+  function requestPrint(): void {
+    parent.postMessage({ type: "aidocs:print-request" }, targetOrigin());
+  }
+  function requestDownload(input: { blob: Blob; filename: string }): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const requestId = `export-${++exportID}`;
+      const timer = setTimeout(() => {
+        exportPending.delete(requestId);
+        reject(new Error("Download request timed out."));
+      }, 5000);
+      exportPending.set(requestId, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: () => {
+          clearTimeout(timer);
+          reject(
+            new Error(
+              "Download needs a click, a valid filename, and a file no larger than 20 MB. Please try again.",
+            ),
+          );
+        },
+      });
+      parent.postMessage(
+        {
+          type: "aidocs:download-request",
+          requestId,
+          blob: input.blob,
+          filename: input.filename,
+        },
+        targetOrigin(),
+      );
+    });
+  }
+
   function installAidocsAPI(): void {
     const w = innerWindow();
     if (!w) return;
@@ -503,6 +545,9 @@ type Theme = "dark" | "light";
         return kvRedo();
       },
     };
+    existing.print = requestPrint;
+    existing.download = requestDownload;
+    w.print = requestPrint;
     existing.kv = kv;
     existing.github = {
       getRawContent: githubRawContent,
@@ -1039,7 +1084,7 @@ type Theme = "dark" | "light";
           d.defaultView!.history.replaceState(null, "", href);
         } catch (err) {}
         parent.postMessage(
-          { type: "aidocs:heading", id: decodeURIComponent(href.slice(1)) },
+          { type: "aidocs:heading", id: t.id || href.slice(1) },
           targetOrigin(),
         );
       }
@@ -1114,11 +1159,40 @@ type Theme = "dark" | "light";
     return range.collapsed ? null : range;
   }
 
+  let selectionAction: HTMLButtonElement | null = null;
+  let actionRange: Range | null = null;
+  let selectionDismissed = false;
+
+  function dismissSelectionAction(): void {
+    selectionAction?.remove();
+    selectionAction = null;
+    selectionDismissed = true;
+  }
+
+  function commitSelection(range: Range): void {
+    const d = doc();
+    if (!d?.body) return;
+    const anchor = describeAnchor(d.body, range);
+    if (!anchor) return;
+    const rect = range.getBoundingClientRect();
+    const scrollTop = d.defaultView?.scrollY || d.documentElement.scrollTop || 0;
+    dismissSelectionAction();
+    parent.postMessage(
+      { type: "aidocs:selection", anchor, top: rect.top + scrollTop },
+      targetOrigin(),
+    );
+  }
+
   function selection(): void {
     const d = doc();
     if (!d || !d.body) return;
     const range = selectedRange(d.getSelection());
-    if (!range) return;
+    if (!range || isTextEditingTarget(d.activeElement)) {
+      dismissSelectionAction();
+      actionRange = null;
+      return;
+    }
+    if (selectionGestureActive) return;
     // A selection this bridge just restored after a repaint is not a new
     // user gesture: re-emitting it would re-open the comment composer.
     if (restoredSelection && Date.now() < restoredSelectionExpiry) {
@@ -1134,17 +1208,49 @@ type Theme = "dark" | "light";
       }
     }
     restoredSelection = null;
-    const anchor = describeAnchor(d.body, range);
-    if (!anchor) return;
+    let unchanged = false;
+    try {
+      unchanged =
+        !!actionRange &&
+        range.compareBoundaryPoints(Range.START_TO_START, actionRange) === 0 &&
+        range.compareBoundaryPoints(Range.END_TO_END, actionRange) === 0;
+    } catch {
+      /* The document replaced the previously selected nodes. */
+    }
+    if (!unchanged) selectionDismissed = false;
+    actionRange = range.cloneRange();
+    if (selectionDismissed) return;
+    if (!selectionAction?.isConnected) {
+      selectionAction = d.createElement("button");
+      selectionAction.type = "button";
+      selectionAction.className = "aidocs-selection-action";
+      selectionAction.setAttribute("aria-label", "Comment on selected text");
+      selectionAction.title = "Comment (⌘⌥M / Ctrl+Alt+M)";
+      selectionAction.addEventListener("mousedown", (e) => e.preventDefault());
+      selectionAction.addEventListener("click", (e) => {
+        e.stopPropagation();
+        if (actionRange) commitSelection(actionRange);
+      });
+      const style = d.createElement("style");
+      if (!d.getElementById("aidocs-selection-style")) {
+        style.id = "aidocs-selection-style";
+        style.textContent =
+          '.aidocs-selection-action{all:initial!important;position:fixed!important;z-index:2147483647!important;display:flex!important;align-items:center!important;justify-content:center!important;min-width:88px!important;height:40px!important;border-radius:10px!important;background:#fff!important;color:#4338ca!important;box-shadow:0 0 0 1px #0001,0 4px 16px #0002!important;font:500 13px system-ui,sans-serif!important;cursor:pointer!important}.aidocs-selection-action::before{content:"+ Comment"}.aidocs-selection-action:focus-visible{outline:2px solid #6366f1!important;outline-offset:2px!important}@media print{.aidocs-selection-action{display:none!important}}';
+        d.head.appendChild(style);
+      }
+      d.body.appendChild(selectionAction);
+    }
     const rect = range.getBoundingClientRect();
-    const scrollTop = d.defaultView?.scrollY || d.documentElement.scrollTop || 0;
-    parent.postMessage(
-      {
-        type: "aidocs:selection",
-        anchor,
-        top: Number.isFinite(rect.top) ? rect.top + scrollTop : undefined,
-      },
-      targetOrigin(),
+    const view = d.defaultView!;
+    selectionAction.style.setProperty(
+      "left",
+      `${Math.max(8, Math.min(rect.right - 88, view.innerWidth - 96))}px`,
+      "important",
+    );
+    selectionAction.style.setProperty(
+      "top",
+      `${Math.max(8, rect.bottom + 8 + 40 < view.innerHeight ? rect.bottom + 8 : rect.top - 48)}px`,
+      "important",
     );
   }
 
@@ -1199,28 +1305,77 @@ type Theme = "dark" | "light";
   curTheme = initialTheme();
   let setupDoc: Document | null = null;
 
+  let pendingHeading = "";
+  let headingFlash: Animation | undefined;
   function prepareHeadings(d: Document): void {
-    const used: Record<string, number> = {};
+    const used = new Set(Array.from(d.querySelectorAll("[id]")).map((el) => el.id));
+    if (!d.getElementById("aidocs-heading-link-style")) {
+      const style = d.createElement("style");
+      style.id = "aidocs-heading-link-style";
+      style.textContent = `.aidocs-heading-link{display:inline-flex!important;vertical-align:middle;width:40px;height:40px;margin:0 0 0 4px;padding:0;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font:20px sans-serif;opacity:0;cursor:pointer;transition:opacity .15s}.aidocs-heading-link::before{content:"#"}h1:hover>.aidocs-heading-link,h2:hover>.aidocs-heading-link,h3:hover>.aidocs-heading-link,h4:hover>.aidocs-heading-link,h5:hover>.aidocs-heading-link,h6:hover>.aidocs-heading-link,.aidocs-heading-link:focus-visible{opacity:.65}.aidocs-heading-link:focus-visible{outline:2px solid currentColor}@media(pointer:coarse){.aidocs-heading-link{opacity:.5}}@media print{.aidocs-heading-link{display:none!important}}`;
+      d.head.appendChild(style);
+    }
     Array.from(d.querySelectorAll("h1,h2,h3,h4,h5,h6")).forEach((heading) => {
-      const base =
-        heading.id ||
-        (heading.textContent || "section")
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "") ||
-        "section";
-      const count = used[base] || 0;
-      used[base] = count + 1;
-      if (!heading.id) heading.id = count ? `${base}-${count + 1}` : base;
+      if (!heading.id) {
+        const base =
+          (heading.textContent || "section")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "section";
+        let id = base;
+        for (let suffix = 2; used.has(id); suffix++) id = `${base}-${suffix}`;
+        heading.id = id;
+        used.add(id);
+      }
+      if (!heading.querySelector(":scope > .aidocs-heading-link")) {
+        const button = d.createElement("button");
+        button.type = "button";
+        button.className = "aidocs-heading-link";
+        button.setAttribute(
+          "aria-label",
+          `Copy link to ${heading.textContent?.trim() || "heading"}`,
+        );
+        button.title = "Copy link to heading";
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          parent.postMessage(
+            { type: "aidocs:copy-heading", id: heading.id },
+            targetOrigin(),
+          );
+        });
+        heading.appendChild(button);
+      }
     });
+    if (pendingHeading) navigateHeading(pendingHeading);
   }
 
   function navigateHeading(id: string): void {
+    pendingHeading = id;
     const d = doc();
     if (!d || !id) return;
     const target = d.getElementById(id);
-    if (target) target.scrollIntoView({ block: "start" });
+    if (!target) return;
+    for (let el = target.parentElement; el; el = el.parentElement) {
+      if (el.tagName === "DETAILS") (el as HTMLDetailsElement).open = true;
+    }
+    if (!(target as HTMLElement).getClientRects().length) return;
+    pendingHeading = "";
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+    headingFlash?.cancel();
+    const highlight = { backgroundColor: "rgba(129, 140, 248, 0.25)" };
+    const resting = {
+      backgroundColor: d.defaultView!.getComputedStyle(target).backgroundColor,
+    };
+    const reducedMotion = d.defaultView!.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    // A single arrival cue, with no layout changes or persistent author styles.
+    headingFlash = target.animate(
+      [highlight, { ...highlight, offset: 0.25 }, resting],
+      { duration: 1400, easing: reducedMotion ? "steps(1, end)" : "ease-out" },
+    );
   }
   function setupFrame(): void {
     const d = doc();
@@ -1244,6 +1399,12 @@ type Theme = "dark" | "light";
     resetKVHistory();
     injectStyles();
     installAidocsAPI();
+    dismissSelectionAction();
+    actionRange = null;
+    selectionDismissed = false;
+    d.defaultView?.addEventListener("scroll", dismissSelectionAction, {
+      passive: true,
+    });
     prepareHeadings(d);
     prepareLinks();
     applyTheme(curTheme);
@@ -1308,31 +1469,48 @@ type Theme = "dark" | "light";
     const runVimScroll = (action: VimScrollAction, repeat = false) => {
       const view = d.defaultView;
       if (!view) return;
+      const behavior = view.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth";
       if (action === "line-down")
         view.scrollBy({
           top: vimLineScrollDistance(repeat),
-          behavior: repeat ? "instant" : "auto",
+          behavior,
         });
       else if (action === "line-up")
         view.scrollBy({
           top: -vimLineScrollDistance(repeat),
-          behavior: repeat ? "instant" : "auto",
+          behavior,
         });
       else if (action === "half-page-down")
-        view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior: "auto" });
+        view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior });
       else if (action === "half-page-up")
         view.scrollBy({
           top: -Math.max(160, view.innerHeight * 0.5),
-          behavior: "auto",
+          behavior,
         });
-      else if (action === "top") view.scrollTo({ top: 0, behavior: "auto" });
+      else if (action === "top") view.scrollTo({ top: 0, behavior });
       else
         view.scrollTo({
           top: d.documentElement.scrollHeight,
-          behavior: "auto",
+          behavior,
         });
     };
     d.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") dismissSelectionAction();
+      if (
+        (ev.metaKey || ev.ctrlKey) &&
+        ev.altKey &&
+        ev.key.toLowerCase() === "m" &&
+        !isTextEditingTarget(ev.target)
+      ) {
+        const range = selectedRange(d.getSelection());
+        if (range) {
+          ev.preventDefault();
+          commitSelection(range);
+          return;
+        }
+      }
       const target = ev.target as Element | null;
       const textEditing = !!target?.closest?.(
         'input,textarea,select,[contenteditable="true"]',
@@ -1423,6 +1601,46 @@ type Theme = "dark" | "light";
   window.addEventListener("message", (e) => {
     if (!e.data) return;
     if (!isParentMessage(e)) return;
+    if (
+      e.data.type === "aidocs:print-snapshot" &&
+      typeof e.data.requestId === "string"
+    ) {
+      const d = doc();
+      if (!d || printPreparing) return;
+      printPreparing = true;
+      void snapshotForPrint(d)
+        .then((html) => {
+          parent.postMessage(
+            {
+              type: "aidocs:print-snapshot-result",
+              requestId: e.data.requestId,
+              html,
+              title: d.title,
+            },
+            targetOrigin(),
+          );
+        })
+        .catch(() => {
+          parent.postMessage(
+            { type: "aidocs:print-snapshot-result", requestId: e.data.requestId },
+            targetOrigin(),
+          );
+        });
+      return;
+    }
+    if (e.data.type === "aidocs:print-finished") {
+      printPreparing = false;
+      innerWindow()?.dispatchEvent(new Event("afterprint"));
+      innerWindow()?.dispatchEvent(new CustomEvent("aidocs:afterprint"));
+      return;
+    }
+    if (e.data.type === "aidocs:export-response") {
+      const pending = exportPending.get(e.data.requestId);
+      exportPending.delete(e.data.requestId);
+      if (e.data.ok === true) pending?.resolve();
+      else pending?.reject();
+      return;
+    }
     if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
     else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
     else if (e.data.type === "aidocs:kv-response") {

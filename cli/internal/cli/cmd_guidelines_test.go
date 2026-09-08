@@ -46,7 +46,7 @@ func TestGuidelinesGitHubAliasDocumentsPrimitive(t *testing.T) {
 		"Every reader loads the file using their own connected GitHub account",
 		"Content added after the fetch remains commentable",
 		"Do not eval source code",
-		"Files are limited to 10 MiB",
+		"Files are limited to 50 MiB",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("GitHub output missing %q:\n%s", want, got)

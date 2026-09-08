@@ -49,6 +49,15 @@ type CommentMention struct {
 	LabelText string
 }
 
+type CommentNotificationOutbox struct {
+	CommentID   string
+	RecipientID string
+	Reason      string
+	Attempts    int32
+	AvailableAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+}
+
 type CommentPlacement struct {
 	ID          string
 	CommentID   string
@@ -113,6 +122,12 @@ type DocumentLabel struct {
 	CreatedAt     pgtype.Timestamptz
 }
 
+type DocumentNotificationMute struct {
+	PrincipalType string
+	PrincipalID   string
+	DocumentID    string
+}
+
 type DocumentWorkspaceEntry struct {
 	DocumentID    string
 	PrincipalType string
@@ -169,6 +184,12 @@ type GoogleGroupSyncState struct {
 	LastAttemptAt pgtype.Timestamptz
 	LastSuccessAt pgtype.Timestamptz
 	LastErrorCode string
+}
+
+type NotificationPreference struct {
+	PrincipalType string
+	PrincipalID   string
+	Enabled       bool
 }
 
 type OauthState struct {
@@ -230,12 +251,13 @@ type ServiceAccountKey struct {
 }
 
 type User struct {
-	ID         string
-	Email      string
-	Name       string
-	PictureUrl string
-	GoogleSub  pgtype.Text
-	CreatedAt  pgtype.Timestamptz
+	ID                 string
+	Email              string
+	Name               string
+	PictureUrl         string
+	GoogleSub          pgtype.Text
+	CreatedAt          pgtype.Timestamptz
+	NextNotificationAt pgtype.Timestamptz
 }
 
 type Version struct {

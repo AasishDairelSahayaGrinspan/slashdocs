@@ -107,14 +107,21 @@ test("creates a structured mention with a clean API body", async ({ page, aidocs
   await selectedText.selectText();
 
   const composer = page.getByPlaceholder("Add a comment…");
+  await expect(composer).not.toBeVisible();
+  await renderedDocument(page)
+    .getByRole("button", { name: "Comment on selected text" })
+    .click();
   await expect(composer).toBeVisible();
   await composer.fill("Please review @ad");
-  await page.getByRole("button", { name: /admin@example\.com/ }).click();
+  await page.getByRole("option", { name: /admin@example\.com/ }).click();
   await expect(composer).toHaveValue("Please review @admin ");
   // Accepting a suggestion focuses the composer and places the caret after
   // the inserted mention in the same commit (layout effect), so once the
   // value assertion above passes it is safe to keep typing.
   await composer.pressSequentially("when you can");
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
+  await page.evaluate(() => navigator.clipboard.writeText(" + pasted text"));
+  await composer.press(process.platform === "darwin" ? "Meta+V" : "Control+V");
 
   const commentResponsePromise = page.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -123,7 +130,7 @@ test("creates a structured mention with a clean API body", async ({ page, aidocs
       url.pathname === `/v1/documents/${document.id}/comments`
     );
   });
-  await page.getByRole("button", { name: "Comment ⌘↵" }).click();
+  await page.getByRole("button", { name: "Post comment" }).click();
   const commentResponse = await commentResponsePromise;
   expect(commentResponse.ok()).toBeTruthy();
   const comment = (await commentResponse.json()) as {
@@ -134,7 +141,7 @@ test("creates a structured mention with a clean API body", async ({ page, aidocs
       length: number;
     }>;
   };
-  expect(comment.body).toBe("Please review @admin when you can");
+  expect(comment.body).toBe("Please review @admin when you can + pasted text");
   expect(comment.body).not.toContain("\u2063");
   expect(comment.mentions).toHaveLength(1);
   expect(

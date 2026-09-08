@@ -9,6 +9,7 @@ import {
   ExternalLink,
   FileDown,
   FolderIcon,
+  ArrowUpToLine,
   Maximize2,
   GitBranch,
   MoreHorizontal,
@@ -18,6 +19,7 @@ import {
   Tag,
   Trash2,
 } from "lucide-react";
+import { AccountMenu } from "@/components/layout/topbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -45,6 +47,7 @@ import { formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
+import { useDoc } from "./doc-context";
 import { UploadVersionItem } from "./doc-upload-version";
 
 export function DocBar({
@@ -52,6 +55,7 @@ export function DocBar({
   docId,
   owner,
   principal,
+  accountUser,
   parentFolder,
   current,
   latest,
@@ -67,6 +71,7 @@ export function DocBar({
   docId: string;
   owner?: Principal;
   principal?: Principal;
+  accountUser?: Principal;
   parentFolder?: { id: string; title: string };
   current: string;
   latest: string;
@@ -105,60 +110,69 @@ export function DocBar({
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
   });
-  const exportPDF = async () => {
-    const popup = window.open("about:blank", "_blank");
-    if (!popup) {
-      toast.error("Allow popups to export this document as PDF.");
-      return;
-    }
-    popup.opener = null;
-    try {
-      const result = await api.printToken(docId, current);
-      popup.location.replace(result.url);
-      toast.success('Print dialog opened — choose "Save as PDF" to export.');
-    } catch (e) {
-      popup.close();
-      toast.error(errorMessage(e, "Could not prepare PDF export"));
-    }
-  };
+  const { printDocument: exportPDF } = useDoc();
   return (
-    <div className="flex h-16 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-3 sm:px-4">
+    <header className="flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-2 sm:px-3">
       <Button asChild variant="ghost" size="icon" className="shrink-0">
         <Link
           to={backTo}
+          title={parentFolder ? "Back to folder" : "Back to documents"}
           aria-label={parentFolder ? "Back to folder" : "Back to documents"}
         >
           <ArrowLeft className="h-4 w-4" />
         </Link>
       </Button>
-      <div className="min-w-0 flex-1">
+      <Link
+        to="/app/documents"
+        aria-label="aidocs home"
+        title="All documents"
+        className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-[10px] hover:bg-[var(--color-surface-muted)] sm:flex"
+      >
+        <img src="/favicon.svg" alt="" className="h-8 w-8" />
+      </Link>
+      <div className="flex min-w-0 flex-1 items-center gap-2">
         {parentFolder ? (
-          <div className="flex items-center gap-1 text-xs text-[var(--color-fg-muted)]">
-            <FolderIcon className="h-3 w-3 shrink-0" />
+          <>
             <Link
               to={`/app/folders/${parentFolder.id}`}
-              className="hover:text-[var(--color-fg)] hover:underline"
+              title={parentFolder.title}
+              aria-label={`Folder: ${parentFolder.title}`}
+              className="hidden h-10 max-w-32 shrink items-center gap-1 text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] lg:flex"
             >
-              {parentFolder.title}
+              <FolderIcon className="h-4 w-4 shrink-0" />
+              <span className="truncate">{parentFolder.title}</span>
             </Link>
-          </div>
+            <span
+              aria-hidden="true"
+              className="hidden text-[var(--color-fg-muted)] lg:inline"
+            >
+              /
+            </span>
+          </>
         ) : null}
-        <div className="truncate text-base font-semibold leading-tight">{title}</div>
-        {isViewingOlder && currentVersion ? (
-          <div className="truncate text-[11px] text-amber-600 dark:text-amber-300">
-            {`Viewing older version - version ${currentVersion.number}`}
-          </div>
-        ) : null}
+        <div title={title} className="truncate text-sm font-semibold">
+          {title}
+        </div>
+        {currentVersion && (
+          <span
+            className={`hidden shrink-0 text-xs tabular-nums sm:inline ${isViewingOlder ? "text-amber-600 dark:text-amber-300" : "text-[var(--color-fg-muted)]"}`}
+            title={isViewingOlder ? "Viewing an older version" : "Latest version"}
+          >
+            v{currentVersion.number}
+            {isViewingOlder ? " · older" : ""}
+          </span>
+        )}
       </div>
       {isViewingOlder ? (
         <Button
-          variant="secondary"
-          size="sm"
-          className="shrink-0 px-2 sm:px-3"
+          variant="ghost"
+          size="icon"
+          title="Back to latest version"
+          aria-label="Back to latest version"
+          className="shrink-0"
           onClick={() => onSelectVersion(latest)}
         >
-          <span className="hidden sm:inline">Back to latest</span>
-          <span className="sm:hidden">Latest</span>
+          <ArrowUpToLine className="h-4 w-4" />
         </Button>
       ) : null}
       <VersionHistoryDialog
@@ -170,17 +184,27 @@ export function DocBar({
       {config.data?.labels_enabled === true ? (
         <LabelsDialog docId={docId} labels={labels} canEdit={canEdit} />
       ) : null}
-      <Button asChild variant="outline" size="sm" className="hidden sm:inline-flex">
-        <Link to={`/app/d/${docId}?fullscreen=1&version=${current}`}>
-          <Maximize2 className="h-4 w-4" /> Full screen
+      <Button
+        asChild
+        variant="ghost"
+        size="icon"
+        className="hidden shrink-0 sm:inline-flex"
+      >
+        <Link
+          to={`/app/d/${docId}?fullscreen=1&version=${current}`}
+          title="Full screen"
+          aria-label="Full screen"
+        >
+          <Maximize2 className="h-4 w-4" />
         </Link>
       </Button>
       <Sheet modal={false} open={shareOpen} onOpenChange={onShareOpenChange}>
         <SheetTrigger asChild>
           <Button
-            variant="outline"
-            size="sm"
-            className="shrink-0 px-2.5 sm:px-3"
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            title="Share"
             aria-label="Share"
             onPointerDown={() => {
               const active = document.activeElement;
@@ -192,7 +216,6 @@ export function DocBar({
             }}
           >
             <Share2 className="h-4 w-4" />
-            <span className="hidden sm:inline">Share</span>
           </Button>
         </SheetTrigger>
         <ShareSheet
@@ -222,6 +245,8 @@ export function DocBar({
         size="icon"
         onClick={onToggleComments}
         aria-label={commentsOpen ? "Hide comments" : "Show comments"}
+        title={commentsOpen ? "Hide comments" : "Show comments"}
+        aria-pressed={commentsOpen}
         className="shrink-0"
       >
         {commentsOpen ? (
@@ -232,7 +257,13 @@ export function DocBar({
       </Button>
       <Dropdown>
         <DropdownTrigger asChild>
-          <Button variant="ghost" size="icon" className="shrink-0" aria-label="More">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0"
+            aria-label="More"
+            title="More document actions"
+          >
             <MoreHorizontal className="h-4 w-4" />
           </Button>
         </DropdownTrigger>
@@ -277,7 +308,12 @@ export function DocBar({
           ) : null}
         </DropdownContent>
       </Dropdown>
-    </div>
+      {accountUser && (
+        <div className="shrink-0 border-l border-[var(--color-border)] pl-2">
+          <AccountMenu user={accountUser} />
+        </div>
+      )}
+    </header>
   );
 }
 
@@ -319,9 +355,14 @@ function LabelsDialog({
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="hidden lg:inline-flex">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden shrink-0 lg:inline-flex"
+          aria-label="Document labels"
+          title={labels.length ? `Labels: ${labels.join(", ")}` : "Document labels"}
+        >
           <Tag className="h-4 w-4" />
-          {labels.length ? labels.join(", ") : "Labels"}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
@@ -362,13 +403,17 @@ function VersionHistoryDialog({
   onSelectVersion: (versionID: string) => void;
 }) {
   const sorted = [...versions].sort((a, b) => b.number - a.number);
-  const currentVersion = versions.find((v) => v.id === current);
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="hidden sm:inline-flex">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="hidden shrink-0 sm:inline-flex"
+          aria-label="Version history"
+          title="Version history"
+        >
           <GitBranch className="h-4 w-4" />
-          {currentVersion ? `v${currentVersion.number}` : "Versions"}
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-2xl">

@@ -1,5 +1,6 @@
 import { createContext, useContext } from "react";
 import type { Anchor, Comment, Principal } from "@/api";
+import type { CommentFilter } from "@/lib/constants";
 
 // A text selection captured from the render bridge that a new comment will
 // anchor to. `anchor` is present only when the bridge supplies real offsets.
@@ -23,6 +24,8 @@ export type DocContextValue = {
   docId: string;
   version: string;
   comments: Comment[];
+  commentFilter: CommentFilter;
+  setCommentFilter: (filter: CommentFilter) => void;
   commentsLoading: boolean;
   commentsError: boolean;
   principal?: Principal;
@@ -38,6 +41,8 @@ export type DocContextValue = {
   setCommentPositions: (positions: ReadonlyMap<string, CommentPosition>) => void;
   commentViewport: CommentViewport;
   setCommentViewport: (viewport: CommentViewport) => void;
+  registerDocumentPrinter: (print: (() => void) | null) => void;
+  printDocument: () => void;
   registerDocumentScroller: (scroller: ((top: number) => void) | null) => void;
   scrollDocumentTo: (top: number) => void;
   registerCommentRailSync: (sync: ((top: number) => void) | null) => void;

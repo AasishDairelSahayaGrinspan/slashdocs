@@ -50,7 +50,7 @@ frames may be served from separate origins.
 
 The document decides how to render the returned raw content. DOM inserted
 after the fetch is monitored by the existing annotation bridge, so readers can
-select it and attach comments normally. Files are limited to 10 MiB.
+select it and attach comments normally. Files are limited to 50 MiB.
 
 The first implementation uses a GitHub OAuth App and requests the `repo` scope,
 because OAuth Apps cannot request read-only access to private repository

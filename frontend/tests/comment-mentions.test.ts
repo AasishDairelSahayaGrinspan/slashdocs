@@ -4,6 +4,7 @@ import test from "node:test";
 import type { CommentMention, CommentMentionPrincipal } from "../src/api.ts";
 import {
   inferTextareaEdit,
+  getMentionTarget,
   insertMention,
   mentionTextSegments,
   reconcileMentionDraft,
@@ -131,4 +132,18 @@ test("rendering preserves structured ranges before terminal punctuation", () => 
       body.slice(6),
     );
   }
+});
+
+test("mention search accepts full names and Unicode without reopening accepted tags", () => {
+  assert.deepEqual(getMentionTarget("Review @Anurag Rao", 18), {
+    start: 7,
+    end: 18,
+    query: "Anurag Rao",
+  });
+  assert.equal(getMentionTarget("me@example.com", 14), null);
+  assert.equal(
+    getMentionTarget("@Alice please review", 20, [mention(alice, 0, 6)]),
+    null,
+  );
+  assert.deepEqual(getMentionTarget("@José", 5), { start: 0, end: 5, query: "José" });
 });

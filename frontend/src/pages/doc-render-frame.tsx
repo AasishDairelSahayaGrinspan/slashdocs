@@ -1,12 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { COMMENT_STATUS } from "@/lib/constants";
+import { matchesCommentFilter } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
 import { errorMessage } from "@/lib/errors";
 import { CHORD_KEYS } from "@/lib/esc-chord";
+import { useDocumentExport } from "./use-document-export";
 import { useDoc } from "./doc-context";
 
 const FORWARDED_KEYS = new Set<string>([
@@ -23,6 +26,7 @@ export function RenderFrame() {
     docId,
     version,
     comments,
+    commentFilter,
     activeComment,
     setSelection,
     handleDocCommentClick,
@@ -30,9 +34,11 @@ export function RenderFrame() {
     setCommentPositions,
     setCommentViewport,
     registerDocumentScroller,
+    registerDocumentPrinter,
     syncCommentRail,
     handleRenderedDocumentClick,
   } = useDoc();
+  const location = useLocation();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
   const theme = useResolvedTheme();
@@ -62,15 +68,15 @@ export function RenderFrame() {
   const paintPayload = useMemo(
     () =>
       comments
-        // Resolved comments keep their anchor server-side (in case a resolve
-        // is reversed) but should not be highlighted in the rendered doc.
-        .filter((c) => c.status !== COMMENT_STATUS.resolved)
+        // Match the sidebar filter so resolved threads can also be positioned
+        // beside their text when browsing All or Resolved.
+        .filter((c) => matchesCommentFilter(c.status, commentFilter))
         .map((c) => ({
           id: c.id,
           quote: c.selected_text || c.anchor?.quote,
           anchor: c.anchor,
         })),
-    [comments],
+    [comments, commentFilter],
   );
 
   const frameOrigin = useMemo(() => {
@@ -81,6 +87,8 @@ export function RenderFrame() {
       return null;
     }
   }, [token.data]);
+
+  useDocumentExport(ref, frameOrigin, ready, registerDocumentPrinter);
 
   const rememberKVRevision = useCallback((revision: unknown) => {
     if (typeof revision !== "number" || !Number.isFinite(revision)) return;
@@ -122,6 +130,17 @@ export function RenderFrame() {
     // theme is intentionally excluded: changing it must not reload the frame.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token.data?.url]);
+
+  useEffect(() => {
+    if (!ready || !location.hash) return;
+    let heading = location.hash.slice(1);
+    try {
+      heading = decodeURIComponent(heading);
+    } catch {
+      /* Keep literal malformed fragments. */
+    }
+    postToCurrentFrame({ type: "aidocs:navigate-heading", id: heading });
+  }, [location.hash, ready, postToCurrentFrame]);
 
   const paint = useCallback(() => {
     if (!ready || !frameOrigin) return;
@@ -400,8 +419,27 @@ export function RenderFrame() {
           ),
         );
       }
-      if (e.data?.type === "aidocs:heading" && typeof e.data.id === "string") {
+      if (
+        e.data?.type === "aidocs:copy-heading" &&
+        typeof e.data.id === "string" &&
+        e.data.id.length <= 1024
+      ) {
         const url = new URL(window.location.href);
+        url.searchParams.delete("comment");
+        url.searchParams.delete("fullscreen");
+        url.hash = e.data.id;
+        void navigator.clipboard.writeText(url.toString()).then(
+          () => toast.success("Heading link copied."),
+          () => toast.error("Could not copy the heading link."),
+        );
+      }
+      if (
+        e.data?.type === "aidocs:heading" &&
+        typeof e.data.id === "string" &&
+        e.data.id.length <= 1024
+      ) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete("comment");
         url.hash = e.data.id;
         window.history.replaceState(window.history.state, "", url);
       }
@@ -504,13 +542,6 @@ export function RenderFrame() {
           { type: "aidocs:theme", theme: themeRef.current },
           frameOrigin,
         );
-        const heading = decodeURIComponent(window.location.hash.slice(1));
-        if (heading) {
-          ref.current?.contentWindow?.postMessage(
-            { type: "aidocs:navigate-heading", id: heading },
-            frameOrigin,
-          );
-        }
       }
     };
     window.addEventListener("message", onMsg);

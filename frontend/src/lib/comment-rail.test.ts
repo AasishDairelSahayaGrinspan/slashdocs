@@ -38,4 +38,40 @@ describe("layoutCommentRail", () => {
 
     expect(result.y).toBe(528);
   });
+  it("gives the focused item its anchor and moves colliding earlier cards aside", () => {
+    const result = layoutCommentRail(
+      [
+        { id: "lost", anchorTop: 0, height: 300, atStart: true },
+        { id: "existing", anchorTop: 400, height: 400 },
+        { id: "composer", anchorTop: 420, height: 220 },
+        { id: "later", anchorTop: 450, height: 200 },
+      ],
+      1800,
+      { priorityId: "composer", viewport: { top: 300, height: 600 } },
+    );
+    expect(result.find((item) => item.id === "composer")?.y).toBe(420);
+    for (let i = 1; i < result.length; i++) {
+      expect(result[i].y).toBeGreaterThanOrEqual(
+        result[i - 1].y + result[i - 1].height + 12,
+      );
+    }
+    expect(result.find((item) => item.id === "existing")!.y).toBeGreaterThan(420);
+  });
+
+  it("fits a focused box above the viewport bottom without moving offscreen highlights", () => {
+    const items = [{ id: "composer", anchorTop: 850, height: 220 }];
+    const [focused] = layoutCommentRail(items, 2000, {
+      priorityId: "composer",
+      viewport: { top: 300, height: 600 },
+    });
+    expect(focused.y + focused.height).toBeLessThanOrEqual(888);
+    expect(focused.y).toBeLessThanOrEqual(850);
+    const [scrolledAway] = layoutCommentRail(items, 2000, {
+      priorityId: "composer",
+      viewport: { top: 1100, height: 600 },
+    });
+    expect(scrolledAway.y).toBe(850);
+    const [released] = layoutCommentRail(items, 2000);
+    expect(released.y).toBe(850);
+  });
 });
