@@ -76,7 +76,9 @@ export async function snapshotForPrint(d: Document): Promise<string> {
     }
   }
   copy
-    .querySelectorAll(".aidocs-selection-action,.aidocs-heading-link,script")
+    .querySelectorAll(
+      ".aidocs-selection-action,.aidocs-heading-link,.aidocs-text-flash,script",
+    )
     .forEach((node) => node.remove());
   return "<!doctype html>" + copy.outerHTML;
 }

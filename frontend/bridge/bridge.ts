@@ -1,3 +1,5 @@
+import { textLinkAnchor } from "./text-link.ts";
+import { renderedTextFromRange } from "./anchoring/rendered-text.ts";
 import { snapshotForPrint } from "./document-export.ts";
 import type { RenderedTextWithBrPositions } from "./anchoring/rendered-text.ts";
 import { renderedTextOf } from "./anchoring/rendered-text.ts";
@@ -938,6 +940,7 @@ type Theme = "dark" | "light";
     if (mutationObserver) mutationObserver.disconnect();
     mutationObserver = new MutationObserver(() => {
       prepareHeadings(d);
+      scheduleTextNavigation();
       scheduleMutationScan();
       scheduleCommentPositions();
     });
@@ -1159,7 +1162,7 @@ type Theme = "dark" | "light";
     return range.collapsed ? null : range;
   }
 
-  let selectionAction: HTMLButtonElement | null = null;
+  let selectionAction: HTMLDivElement | null = null;
   let actionRange: Range | null = null;
   let selectionDismissed = false;
 
@@ -1221,21 +1224,66 @@ type Theme = "dark" | "light";
     actionRange = range.cloneRange();
     if (selectionDismissed) return;
     if (!selectionAction?.isConnected) {
-      selectionAction = d.createElement("button");
-      selectionAction.type = "button";
+      selectionAction = d.createElement("div");
       selectionAction.className = "aidocs-selection-action";
-      selectionAction.setAttribute("aria-label", "Comment on selected text");
-      selectionAction.title = "Comment (⌘⌥M / Ctrl+Alt+M)";
+      selectionAction.setAttribute("role", "group");
+      selectionAction.setAttribute("aria-label", "Selected text actions");
       selectionAction.addEventListener("mousedown", (e) => e.preventDefault());
-      selectionAction.addEventListener("click", (e) => {
-        e.stopPropagation();
-        if (actionRange) commitSelection(actionRange);
-      });
-      const style = d.createElement("style");
+      selectionAction.addEventListener("click", (e) => e.stopPropagation());
+      const addAction = (
+        label: string,
+        title: string,
+        path: string,
+        click: () => void,
+      ) => {
+        const button = d.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-label", label);
+        button.title = title;
+        const svg = d.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+        const shape = d.createElementNS("http://www.w3.org/2000/svg", "path");
+        shape.setAttribute("d", path);
+        svg.appendChild(shape);
+        button.appendChild(svg);
+        button.addEventListener("click", click);
+        selectionAction!.appendChild(button);
+        return button;
+      };
+      addAction(
+        "Comment on selected text",
+        "Comment (⌘⌥M / Ctrl+Alt+M)",
+        "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9H13a8.48 8.48 0 0 1 8 8v.5Z",
+        () => {
+          if (actionRange) commitSelection(actionRange);
+        },
+      );
+      addAction(
+        "Copy link to selected text",
+        "Copy link to text",
+        "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+        () => {
+          if (!actionRange) return;
+          const anchor = describeAnchor(d.body, actionRange);
+          parent.postMessage({ type: "aidocs:copy-text", anchor }, targetOrigin());
+        },
+      );
       if (!d.getElementById("aidocs-selection-style")) {
+        const style = d.createElement("style");
         style.id = "aidocs-selection-style";
-        style.textContent =
-          '.aidocs-selection-action{all:initial!important;position:fixed!important;z-index:2147483647!important;display:flex!important;align-items:center!important;justify-content:center!important;min-width:88px!important;height:40px!important;border-radius:10px!important;background:#fff!important;color:#4338ca!important;box-shadow:0 0 0 1px #0001,0 4px 16px #0002!important;font:500 13px system-ui,sans-serif!important;cursor:pointer!important}.aidocs-selection-action::before{content:"+ Comment"}.aidocs-selection-action:focus-visible{outline:2px solid #6366f1!important;outline-offset:2px!important}@media print{.aidocs-selection-action{display:none!important}}';
+        style.textContent = `
+          .aidocs-selection-action{all:initial!important;position:fixed!important;z-index:2147483647!important;display:flex!important;padding:2px!important;border-radius:10px!important;background:#fff!important;color:#52525b!important;box-shadow:0 0 0 1px #0001,0 4px 16px #0002!important}
+          .aidocs-selection-action button{all:initial!important;box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;width:40px!important;height:40px!important;border-radius:8px!important;color:inherit!important;cursor:pointer!important;transition:background-color .15s,transform .15s!important}
+          .aidocs-selection-action button:hover{background:#f4f4f5!important;color:#18181b!important}
+          .aidocs-selection-action button:active{transform:scale(.96)!important}
+          .aidocs-selection-action button:focus-visible{outline:2px solid #6366f1!important;outline-offset:-2px!important}
+          .aidocs-selection-action svg{all:initial!important;color:inherit!important;width:17px!important;height:17px!important;fill:none!important;stroke:currentColor!important;stroke-width:1.8!important;stroke-linecap:round!important;stroke-linejoin:round!important;pointer-events:none!important}
+          .aidocs-selection-action path{fill:none!important;stroke:inherit!important;stroke-width:inherit!important}
+          [data-aidocs-theme=dark] .aidocs-selection-action{background:#27272a!important;color:#d4d4d8!important;box-shadow:0 0 0 1px #fff2,0 4px 16px #0004!important}
+          [data-aidocs-theme=dark] .aidocs-selection-action button:hover{background:#3f3f46!important;color:#fff!important}
+          @media(prefers-reduced-motion:reduce){.aidocs-selection-action button{transition:none!important}}
+          @media print{.aidocs-selection-action,.aidocs-text-flash{display:none!important}}`;
         d.head.appendChild(style);
       }
       d.body.appendChild(selectionAction);
@@ -1244,12 +1292,12 @@ type Theme = "dark" | "light";
     const view = d.defaultView!;
     selectionAction.style.setProperty(
       "left",
-      `${Math.max(8, Math.min(rect.right - 88, view.innerWidth - 96))}px`,
+      `${Math.max(8, Math.min(rect.right - 84, view.innerWidth - 92))}px`,
       "important",
     );
     selectionAction.style.setProperty(
       "top",
-      `${Math.max(8, rect.bottom + 8 + 40 < view.innerHeight ? rect.bottom + 8 : rect.top - 48)}px`,
+      `${Math.max(8, rect.bottom + 8 + 44 < view.innerHeight ? rect.bottom + 8 : rect.top - 52)}px`,
       "important",
     );
   }
@@ -1352,6 +1400,9 @@ type Theme = "dark" | "light";
   }
 
   function navigateHeading(id: string): void {
+    pendingText = null;
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textNoticeTimer);
     pendingHeading = id;
     const d = doc();
     if (!d || !id) return;
@@ -1377,10 +1428,109 @@ type Theme = "dark" | "light";
       { duration: 1400, easing: reducedMotion ? "steps(1, end)" : "ease-out" },
     );
   }
+  let textVisibilityObserver: MutationObserver | undefined;
+  function scheduleTextNavigation(): void {
+    if (pendingText && !textRetryTimer) {
+      textRetryTimer = setTimeout(() => {
+        textRetryTimer = undefined;
+        tryNavigateText();
+      }, 200);
+    }
+  }
+
+  let textFlashStarted = 0;
+  let pendingText: CommentAnchor | null = null;
+  let textRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let textNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function navigateText(value: unknown): void {
+    pendingHeading = "";
+    pendingText = textLinkAnchor(value);
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textNoticeTimer);
+    doc()
+      ?.querySelectorAll(".aidocs-text-flash")
+      .forEach((el) => el.remove());
+    if (!pendingText) return;
+    tryNavigateText();
+    if (pendingText) {
+      // Attribute-only tab/panel reveals do not trigger the comment text observer.
+      textVisibilityObserver = new MutationObserver(scheduleTextNavigation);
+      const root = doc()?.documentElement;
+      if (root)
+        textVisibilityObserver.observe(root, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["hidden", "class", "style", "open"],
+        });
+      textNoticeTimer = setTimeout(() => {
+        if (pendingText)
+          parent.postMessage({ type: "aidocs:text-unavailable" }, targetOrigin());
+      }, 2000);
+    }
+  }
+
+  function tryNavigateText(): void {
+    const d = doc();
+    if (!pendingText || !d?.body) return;
+    // Deep links must target the quoted text, never an approximate replacement.
+    const rendered = renderedTextOf(d.body);
+    if (!rendered.text.includes(pendingText.quote!)) return;
+    const range = resolveAnchor(d.body, pendingText, () => rendered);
+    if (!range || renderedTextFromRange(range) !== pendingText.quote) return;
+    const start =
+      range.startContainer.nodeType === 1
+        ? (range.startContainer as Element)
+        : range.startContainer.parentElement;
+    for (let el = start; el; el = el.parentElement) {
+      if (el.tagName === "DETAILS") (el as HTMLDetailsElement).open = true;
+    }
+    if (!Array.from(range.getClientRects()).some((r) => r.width && r.height)) return;
+    pendingText = null;
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textNoticeTimer);
+    start?.scrollIntoView({ block: "center", behavior: "instant" });
+    const rect = range.getBoundingClientRect();
+    if (rect.top < 0 || rect.top > d.defaultView!.innerHeight - 40) {
+      d.defaultView!.scrollBy({
+        top: rect.top - d.defaultView!.innerHeight / 2,
+        behavior: "instant",
+      });
+    }
+    textFlashStarted = Date.now();
+    // Non-interactive overlays avoid splitting text nodes or disturbing comments.
+    Array.from(range.getClientRects())
+      .slice(0, 200)
+      .forEach((r) => {
+        if (!r.width || !r.height) return;
+        const flash = d.createElement("span");
+        flash.className = "aidocs-text-flash";
+        flash.setAttribute("aria-hidden", "true");
+        flash.style.cssText = `all:initial!important;position:fixed!important;pointer-events:none!important;z-index:2147483646!important;left:${r.left}px!important;top:${r.top}px!important;width:${r.width}px!important;height:${r.height}px!important;background:rgba(250,204,21,.35)!important;border-radius:3px!important`;
+        d.body.appendChild(flash);
+        const animation = flash.animate(
+          [{ opacity: 1 }, { opacity: 1, offset: 0.6 }, { opacity: 0 }],
+          {
+            duration: 1800,
+            easing: d.defaultView!.matchMedia("(prefers-reduced-motion: reduce)")
+              .matches
+              ? "steps(1, end)"
+              : "linear",
+          },
+        );
+        animation.onfinish = () => flash.remove();
+      });
+  }
+
   function setupFrame(): void {
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
     setupDoc = d;
+    pendingText = null;
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textRetryTimer);
+    textRetryTimer = undefined;
+    clearTimeout(textNoticeTimer);
     // A freshly loaded document has no highlights; the parent repaints after
     // the ready signal below. Dropping the previous document's payload — and
     // any repaint already scheduled for it — keeps its comments from being
@@ -1402,6 +1552,14 @@ type Theme = "dark" | "light";
     dismissSelectionAction();
     actionRange = null;
     selectionDismissed = false;
+    d.defaultView?.addEventListener(
+      "scroll",
+      () => {
+        if (Date.now() - textFlashStarted > 100)
+          d.querySelectorAll(".aidocs-text-flash").forEach((el) => el.remove());
+      },
+      { passive: true },
+    );
     d.defaultView?.addEventListener("scroll", dismissSelectionAction, {
       passive: true,
     });
@@ -1663,6 +1821,8 @@ type Theme = "dark" | "light";
         pending.reject(
           new Error((e.data.error && e.data.error.message) || "GitHub request failed"),
         );
+    } else if (e.data.type === "aidocs:navigate-text") {
+      navigateText(e.data.anchor);
     } else if (e.data.type === "aidocs:navigate-heading") {
       navigateHeading(String(e.data.id || ""));
     } else if (e.data.type === "aidocs:request-comment-positions") {

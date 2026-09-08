@@ -163,3 +163,24 @@ Applied Seezo guidance: `validation/notifications`,
 `validation/third-party-services`, `secrets/credstash`, `secrets/handling`,
 `authorization/access-control`, `authorization/state-changing-operations`,
 `data-protection/sensitive-data`, `validation/untrusted-input`, `api/security`.
+
+### Links to selected text
+
+Selecting text shows two compact actions: comment and copy link. Copying a text
+link preserves the viewed version. Opening it scrolls to the exact passage and
+briefly highlights it, without creating a comment. Enclosing `<details>` sections
+open automatically; content behind a custom tab is highlighted when that tab is
+opened. If the passage is unavailable, the viewer shows a notice.
+
+Agents can create the same links:
+
+```sh
+aidocs docs link doc_123 --text "The selected passage" --version ver_123
+aidocs docs link doc_123 --text "Approved" --prefix "Launch: " --suffix " by the team"
+```
+
+`--prefix` and `--suffix` disambiguate repeated text. `--version` is optional in the
+CLI; omitting it follows the latest version. Text is limited to 4,096 characters
+and each context string to 64. The quote and context stay in the URL fragment,
+not in requests to the server, and document access rules still apply. These are
+AIDocs links (`#text=...`); native Chromium text fragments do not target iframes.

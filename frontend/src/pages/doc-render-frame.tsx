@@ -1,3 +1,8 @@
+import {
+  parseTextLink,
+  textLinkFragment,
+  TEXT_LINK_PREFIX,
+} from "../../bridge/text-link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "react-router-dom";
@@ -38,6 +43,8 @@ export function RenderFrame() {
     syncCommentRail,
     handleRenderedDocumentClick,
   } = useDoc();
+  const versionRef = useRef(version);
+  versionRef.current = version;
   const location = useLocation();
   const ref = useRef<HTMLIFrameElement>(null);
   const [ready, setReady] = useState(false);
@@ -132,7 +139,13 @@ export function RenderFrame() {
   }, [token.data?.url]);
 
   useEffect(() => {
-    if (!ready || !location.hash) return;
+    if (!ready) return;
+    if (location.hash.startsWith(TEXT_LINK_PREFIX)) {
+      const anchor = parseTextLink(location.hash);
+      if (anchor) postToCurrentFrame({ type: "aidocs:navigate-text", anchor });
+      else toast.error("This text link is invalid.");
+      return;
+    }
     let heading = location.hash.slice(1);
     try {
       heading = decodeURIComponent(heading);
@@ -399,6 +412,29 @@ export function RenderFrame() {
           });
         }
       };
+      if (e.data?.type === "aidocs:copy-text") {
+        const fragment = textLinkFragment(e.data.anchor);
+        if (!fragment) {
+          toast.error(
+            "Select a shorter passage to copy a text link (up to 4,096 characters).",
+          );
+          return;
+        }
+        const url = new URL(window.location.href);
+        url.searchParams.delete("comment");
+        url.searchParams.delete("fullscreen");
+        if (versionRef.current) url.searchParams.set("version", versionRef.current);
+        url.hash = fragment;
+        void navigator.clipboard.writeText(url.toString()).then(
+          () => toast.success("Link to text copied."),
+          () => toast.error("Could not copy the text link."),
+        );
+      }
+      if (e.data?.type === "aidocs:text-unavailable") {
+        toast.info(
+          "Linked text isn't visible yet. It may be inside a tab or section you need to open.",
+        );
+      }
       if (e.data?.type === "aidocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;

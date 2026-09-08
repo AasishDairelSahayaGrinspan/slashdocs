@@ -94,6 +94,45 @@ test("highlights a selection spanning inline markup end to end", async ({
     .toBe(paragraphText);
 });
 
+test("copies a text link without opening a comment and reveals the selected occurrence", async ({
+  page,
+  aidocs,
+  context,
+}) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  const title = uniqueName("Text link");
+  const quote = "A linked passage with inline formatting & punctuation.";
+  const document = await aidocs.createDocument(
+    title,
+    documentHTML(
+      title,
+      `<p>${quote}</p><div style="height:1400px"></div><details><summary>More</summary><p id="linked">A linked passage with <b>inline formatting</b> &amp; punctuation.</p></details>`,
+    ),
+  );
+  await page.goto(`/app/d/${document.id}`);
+  const doc = renderedDocument(page);
+  await doc.locator("summary").click();
+  await doc.locator("#linked").selectText();
+  const copy = doc.getByRole("button", { name: "Copy link to selected text" });
+  await expect(copy).toBeVisible();
+  await expect(
+    doc.getByRole("button", { name: "Comment on selected text" }),
+  ).toHaveText("");
+  await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
+  await copy.click();
+  await expect(page.getByText("Link to text copied.", { exact: true })).toBeVisible();
+  const link = await page.evaluate(() => navigator.clipboard.readText());
+  expect(new URL(link).searchParams.get("version")).toBe(document.current_version_id);
+  expect(new URLSearchParams(new URL(link).hash.slice(1)).get("text")).toBe(quote);
+  await page.goto("/app/documents");
+  await page.goto(link);
+  await expect(doc.locator("details")).toHaveAttribute("open", "");
+  await expect(doc.locator("#linked")).toBeInViewport();
+  await expect(doc.locator(".aidocs-text-flash").first()).toBeVisible();
+  await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
+  await expect(doc.locator(".aidocs-text-flash")).toHaveCount(0, { timeout: 4000 });
+});
+
 test("re-anchors a comment on content rendered by script after load", async ({
   page,
   aidocs,
@@ -171,8 +210,28 @@ test("flags a comment whose text vanished from the new version", async ({
     .getByRole("button")
     .filter({ hasText: "This anchor is about to be orphaned." });
   await expect(card).toBeVisible();
-  await expect(card.getByText("Highlight not currently visible", { exact: true })).toBeVisible({
+  await expect(
+    card.getByText("Highlight not currently visible", { exact: true }),
+  ).toBeVisible({
     timeout: 20_000,
   });
   await expect(renderedDocument(page).locator("mark.aidocs-mark")).toHaveCount(0);
+});
+
+test("text links wait for a custom panel to be revealed", async ({ page, aidocs }) => {
+  const title = uniqueName("Hidden text link");
+  const document = await aidocs.createDocument(
+    title,
+    documentHTML(
+      title,
+      `<button onclick="document.getElementById('panel').hidden=false">Reveal</button>` +
+        '<div id="panel" hidden><p>Hidden linked passage</p></div>',
+    ),
+  );
+  await page.goto(`/app/d/${document.id}#text=Hidden+linked+passage`);
+  const doc = renderedDocument(page);
+  await expect(page.getByText(/Linked text isn.t visible yet/)).toBeVisible();
+  await doc.getByRole("button", { name: "Reveal", exact: true }).click();
+  await expect(doc.locator(".aidocs-text-flash").first()).toBeVisible();
+  await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
 });
