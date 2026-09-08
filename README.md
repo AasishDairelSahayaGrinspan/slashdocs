@@ -21,6 +21,7 @@ Instead of pasting giant reports into chat, let agents push a document, iterate 
 - One self-contained HTML file per document
 - Browser review UI with sandboxed rendering
 - Anchored comments and resolve/reopen workflow
+- [Slack notifications, personal mute controls, and comment/heading links](docs/comment-notifications.md)
 - Immutable versions with optimistic concurrency
 - OpenID Connect for human users (Google, Okta, Entra ID, Keycloak, Dex, ...)
 - Native service accounts for headless/agent workflows

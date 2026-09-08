@@ -10,6 +10,13 @@ export type CommentFilter = (typeof COMMENT_FILTERS)[number];
 export const COMMENT_FILTER_ALL: CommentFilter = "all";
 export const DEFAULT_COMMENT_FILTER: CommentFilter = "open";
 
+export function matchesCommentFilter(status: string, filter: CommentFilter): boolean {
+  if (filter === COMMENT_FILTER_ALL) return true;
+  return filter === COMMENT_STATUS.resolved
+    ? status === COMMENT_STATUS.resolved
+    : status !== COMMENT_STATUS.resolved;
+}
+
 export const ROLES = [
   { value: "viewer", label: "Viewer" },
   { value: "commenter", label: "Commenter" },

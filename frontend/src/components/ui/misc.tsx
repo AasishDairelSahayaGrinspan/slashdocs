@@ -39,7 +39,9 @@ export function CodeBlock({
       </pre>
       {copy && (
         <>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             onClick={onCopy}
             className="absolute right-2 top-2 min-h-10 min-w-10 rounded-md p-1.5 text-[var(--color-fg-muted)] opacity-0 transition-[background-color,color,opacity,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-border)] hover:text-[var(--color-fg)] group-hover:opacity-100 focus:opacity-100"
             aria-label={copied ? "Copied" : "Copy"}
@@ -49,7 +51,7 @@ export function CodeBlock({
             ) : (
               <Copy className="h-3.5 w-3.5" />
             )}
-          </button>
+          </Button>
           <span className="sr-only" role="status" aria-live="polite">
             {copied ? "Copied to clipboard" : ""}
           </span>

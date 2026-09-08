@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { Tooltip } from "./tooltip";
 import { cn } from "@/lib/cn";
 
 export const Sheet = DialogPrimitive.Root;
@@ -29,9 +30,14 @@ export function SheetContent({
         {...p}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-2 top-0 inline-flex h-14 w-12 items-center justify-center rounded-md text-[var(--color-fg-muted)] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]">
-          <X className="h-4 w-4" />
-        </DialogPrimitive.Close>
+        <Tooltip label="Close panel">
+          <DialogPrimitive.Close
+            aria-label="Close panel"
+            className="absolute right-2 top-0 inline-flex h-14 w-12 items-center justify-center rounded-md text-[var(--color-fg-muted)] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+          >
+            <X className="h-4 w-4" />
+          </DialogPrimitive.Close>
+        </Tooltip>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );

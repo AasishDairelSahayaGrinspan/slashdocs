@@ -2,6 +2,7 @@ import * as React from "react";
 import { Slot } from "@radix-ui/react-slot";
 import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/cn";
+import { Tooltip } from "./tooltip";
 
 const buttonVariants = cva(
   "inline-flex min-h-10 items-center justify-center gap-2 whitespace-nowrap rounded-[10px] font-medium transition-[background-color,color,opacity,transform,box-shadow] duration-150 ease-out active:scale-[0.96] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-bg)] disabled:pointer-events-none disabled:scale-100 disabled:opacity-50",
@@ -35,18 +36,39 @@ export interface ButtonProps
     React.ButtonHTMLAttributes<HTMLButtonElement>,
     VariantProps<typeof buttonVariants> {
   asChild?: boolean;
+  tooltip?: string | false;
 }
 
 export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
-  ({ className, variant, size, asChild, ...props }, ref) => {
+  ({ className, variant, size, asChild, tooltip, title, children, ...props }, ref) => {
     const Comp = asChild ? Slot : "button";
-    return (
+    const child =
+      asChild &&
+      React.isValidElement<Pick<ButtonProps, "title" | "aria-label">>(children)
+        ? children
+        : null;
+    const label =
+      tooltip === false
+        ? undefined
+        : tooltip ||
+          title ||
+          child?.props.title ||
+          (size === "icon"
+            ? props["aria-label"] || child?.props["aria-label"]
+            : undefined);
+    const button = (
       <Comp
         ref={ref}
         className={cn(buttonVariants({ variant, size }), className)}
         {...props}
-      />
+        title={label || tooltip === false ? undefined : title}
+      >
+        {child && (label || tooltip === false)
+          ? React.cloneElement(child, { title: undefined })
+          : children}
+      </Comp>
     );
+    return label ? <Tooltip label={label}>{button}</Tooltip> : button;
   },
 );
 Button.displayName = "Button";

@@ -164,16 +164,26 @@ func TestServiceAccountCanCreateDocument(t *testing.T) {
 	}
 }
 
-func TestUploadRejectsPayloadOver10MiB(t *testing.T) {
-	largeHTML := "<html>" + strings.Repeat("x", 10*1024*1024+1) + "</html>"
-	body, contentType := multipartBody(t, map[string]string{"title": "Too large"}, "file", "large.html", largeHTML)
-
-	rr := doRaw(t, newTestEnv(t).h, http.MethodPost, "/v1/documents", body, map[string]string{
-		"Content-Type":     contentType,
-		"X-Test-Principal": principalHeader(fixtureUser),
-	})
-
-	assertStatus(t, rr, http.StatusRequestEntityTooLarge)
+func TestUpload50MiBLimit(t *testing.T) {
+	e := newTestEnv(t)
+	for _, test := range []struct {
+		name   string
+		bytes  int
+		status int
+	}{
+		{"at limit", 50 * 1024 * 1024, http.StatusCreated},
+		{"one byte over", 50*1024*1024 + 1, http.StatusRequestEntityTooLarge},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			html := "<html>" + strings.Repeat("x", test.bytes-len("<html></html>")) + "</html>"
+			body, contentType := multipartBody(t, map[string]string{"title": "Upload boundary"}, "file", "large.html", html)
+			rr := doRaw(t, e.h, http.MethodPost, "/v1/documents", body, map[string]string{
+				"Content-Type":     contentType,
+				"X-Test-Principal": principalHeader(fixtureUser),
+			})
+			assertStatus(t, rr, test.status)
+		})
+	}
 }
 
 func TestAnyoneGrantGivesStrangerAccess(t *testing.T) {

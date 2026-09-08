@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router-dom";
 import { QueryCache, QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster, toast } from "sonner";
-import { TooltipProvider } from "@radix-ui/react-tooltip";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import "./styles.css";
 import { APIError } from "@/api";
 import { errorMessage } from "@/lib/errors";
@@ -41,7 +41,7 @@ function App() {
   return (
     <ThemeProvider>
       <QueryClientProvider client={qc}>
-        <TooltipProvider delayDuration={150}>
+        <TooltipProvider>
           <BrowserRouter>
             <Routes>
               <Route path="/" element={<LandingPage />} />

@@ -55,7 +55,12 @@ export function ServiceAccountsPage() {
             runs without you.
           </p>
         </div>
-        <Button onClick={() => setCreating(true)} className="shrink-0 px-3 sm:px-4">
+        <Button
+          onClick={() => setCreating(true)}
+          className="shrink-0 px-3 sm:px-4"
+          aria-label="New bot"
+          tooltip="New bot"
+        >
           <Plus className="h-4 w-4 sm:mr-1" />
           <span className="hidden sm:inline">New bot</span>
         </Button>

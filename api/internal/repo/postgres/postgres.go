@@ -25,9 +25,10 @@ import (
 const htmlContentType = "text/html; charset=utf-8"
 
 type Store struct {
-	db    *pgxpool.Pool
-	q     *dbsqlc.Queries
-	blobs blob.Store
+	commentNotifications bool
+	db                   *pgxpool.Pool
+	q                    *dbsqlc.Queries
+	blobs                blob.Store
 }
 
 // rollback closes a transaction on every early-return path. pgx returns
@@ -521,6 +522,9 @@ func (s *Store) CreateComment(ctx context.Context, documentID, versionID, body s
 	if err := insertCommentMentions(ctx, q, id, mentions); err != nil {
 		return repo.Comment{}, err
 	}
+	if err := s.enqueueCommentNotifications(ctx, tx, id); err != nil {
+		return repo.Comment{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Comment{}, err
 	}
@@ -562,6 +566,9 @@ func (s *Store) CreateCommentReply(ctx context.Context, documentID, parentCommen
 		return repo.Comment{}, err
 	}
 	if err := insertCommentMentions(ctx, q, id, mentions); err != nil {
+		return repo.Comment{}, err
+	}
+	if err := s.enqueueCommentNotifications(ctx, tx, id); err != nil {
 		return repo.Comment{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
@@ -711,8 +718,10 @@ func commentReactionsByID(ctx context.Context, q *dbsqlc.Queries, commentIDs []s
 	for _, row := range rows {
 		byID[row.CommentID] = append(byID[row.CommentID], repo.CommentReaction{
 			Principal: auth.Principal{
-				Type: auth.PrincipalType(row.PrincipalType),
-				ID:   row.PrincipalID,
+				Type:  auth.PrincipalType(row.PrincipalType),
+				ID:    row.PrincipalID,
+				Name:  row.PrincipalName,
+				Email: row.PrincipalEmail,
 			},
 			Emoji: row.Emoji,
 		})

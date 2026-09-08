@@ -137,8 +137,7 @@ export function DocumentsPage() {
       qc.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       const warning = (data as Record<string, unknown>)?.permission_warning as
-        | { message?: string }
-        | undefined;
+        { message?: string } | undefined;
       if (warning?.message) {
         setAccessWarning(warning.message);
       } else {
@@ -203,6 +202,8 @@ export function DocumentsPage() {
           <Button
             variant="outline"
             size="md"
+            aria-label="New folder"
+            tooltip="New folder"
             onClick={() => setNewFolderOpen(true)}
             className="shrink-0 px-3 sm:px-4"
           >

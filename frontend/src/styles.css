@@ -452,3 +452,67 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* A short, anchored entrance; Radix keeps the menu mounted for its softer exit. */
+@keyframes reaction-picker-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+@keyframes reaction-picker-out {
+  from {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+.comment-reaction-picker {
+  transform-origin: var(--radix-dropdown-menu-content-transform-origin);
+}
+.comment-reaction-picker[data-state="open"] {
+  animation: reaction-picker-in 140ms ease-out;
+}
+.comment-reaction-picker[data-state="closed"] {
+  animation: reaction-picker-out 90ms ease-in;
+}
+
+/* Tooltips wait for deliberate hover, then settle gently beside their trigger. */
+.icon-tooltip {
+  --tooltip-enter-y: -3px;
+}
+.icon-tooltip[data-side="top"] {
+  --tooltip-enter-y: 3px;
+}
+.icon-tooltip[data-state="delayed-open"],
+.icon-tooltip[data-state="instant-open"] {
+  animation: icon-tooltip-in 140ms ease-out;
+}
+.icon-tooltip[data-state="closed"] {
+  animation: icon-tooltip-out 100ms ease-in;
+}
+@keyframes icon-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translateY(var(--tooltip-enter-y));
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes icon-tooltip-out {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}

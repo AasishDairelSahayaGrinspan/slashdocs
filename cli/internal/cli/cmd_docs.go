@@ -22,6 +22,9 @@ func docsCmd(g *globals, out io.Writer) *cobra.Command {
 	del := mutate(g, out, "delete <doc_id>", "Delete a document", "DELETE", "/v1/documents/%s", 1, func(a []string) string { return "Deleted document " + a[0] + "." })
 	c.AddCommand(
 		documentListCmd(g, out),
+		notificationsCmd(g, out, true),
+		documentHeadingsCmd(g, out),
+		documentLinkCmd(g, out),
 		documentCreateCmd(g, out),
 		simplePath(g, out, "show", "GET", "/v1/documents/%s"),
 		documentUpdateCmd(g, out),
@@ -516,16 +519,25 @@ func commentsCmd(g *globals, out io.Writer) *cobra.Command {
 	list.Flags().StringVar(&listVersion, "version", "", "filter by version ID")
 
 	var createBody, createQuote, createPrefix, createSuffix, createVersion string
+	var createMentions []string
+	var createBodyFile string
 	create := &cobra.Command{Use: "create <doc_id>", Short: "Create a document comment", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		var err error
+		createBody, err = commentBody(cmd, createBody, createBodyFile)
+		if err != nil {
+			return err
+		}
 		if createBody == "" || createVersion == "" || createQuote == "" {
-			return errors.New("--body, --version, and --quote are required")
+			return errors.New("--body (or --body-file), --version, and --quote are required")
 		}
 		return action(g, out, func(c *Client) ([]byte, error) {
-			return c.doJSON("POST", apiPath("/v1/documents/%s/comments", args[0]), map[string]any{"body": createBody, "version_id": createVersion, "anchor": map[string]any{"quote": createQuote, "prefix": createPrefix, "suffix": createSuffix}})
+			return c.commentJSON("POST", apiPath("/v1/documents/%s/comments", args[0]), map[string]any{"body": createBody, "version_id": createVersion, "anchor": map[string]any{"quote": createQuote, "prefix": createPrefix, "suffix": createSuffix}}, createMentions, false)
 		}, func(m map[string]any) string {
 			return "Added comment " + fmt.Sprint(value(m, "id")) + " on " + args[0] + "."
 		})
 	}}
+	create.Flags().StringVar(&createBodyFile, "body-file", "", "read comment text from a file, or - for stdin")
+	create.Flags().StringArrayVar(&createMentions, "mention", nil, "tag email, user:<id>, or sa:<id> (repeatable; appends tag if absent)")
 	create.Flags().StringVar(&createBody, "body", "", "comment body text")
 	create.Flags().StringVar(&createQuote, "quote", "", "anchor: the exact quoted text")
 	create.Flags().StringVar(&createPrefix, "prefix", "", "anchor: text immediately before the quote")
@@ -533,41 +545,28 @@ func commentsCmd(g *globals, out io.Writer) *cobra.Command {
 	create.Flags().StringVar(&createVersion, "version", "", "version ID the comment anchors to")
 
 	var replyBody string
+	var replyMentions []string
+	var replyBodyFile string
 	reply := &cobra.Command{Use: "reply <doc_id> <comment_id>", Short: "Create a reply in a comment thread", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		var err error
+		replyBody, err = commentBody(cmd, replyBody, replyBodyFile)
+		if err != nil {
+			return err
+		}
 		if replyBody == "" {
 			return errors.New("--body is required")
 		}
 		return action(g, out, func(c *Client) ([]byte, error) {
-			return c.doJSON("POST", apiPath("/v1/documents/%s/comments/%s/replies", args[0], args[1]), map[string]any{"body": replyBody})
+			return c.commentJSON("POST", apiPath("/v1/documents/%s/comments/%s/replies", args[0], args[1]), map[string]any{"body": replyBody}, replyMentions, false)
 		}, func(m map[string]any) string {
 			return "Created reply " + fmt.Sprint(value(m, "id")) + " on comment " + args[1] + "."
 		})
 	}}
+	reply.Flags().StringVar(&replyBodyFile, "body-file", "", "read reply text from a file, or - for stdin")
+	reply.Flags().StringArrayVar(&replyMentions, "mention", nil, "tag email, user:<id>, or sa:<id> (repeatable; appends tag if absent)")
 	reply.Flags().StringVar(&replyBody, "body", "", "reply body text")
 
-	var updateBody, updateStatus string
-	update := &cobra.Command{Use: "update <doc_id> <comment_id>", Short: "Update a document comment", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
-		body := map[string]any{}
-		if cmd.Flags().Changed("body") {
-			if updateBody == "" {
-				return errors.New("--body cannot be empty")
-			}
-			body["body"] = updateBody
-		}
-		if cmd.Flags().Changed("status") {
-			body["status"] = updateStatus
-		}
-		if len(body) == 0 {
-			return errors.New("nothing to update; pass --body and/or --status")
-		}
-		return action(g, out, func(c *Client) ([]byte, error) {
-			return c.doJSON("PATCH", apiPath("/v1/documents/%s/comments/%s", args[0], args[1]), body)
-		}, func(map[string]any) string { return "Updated comment " + args[1] + "." })
-	}}
-	update.Flags().StringVar(&updateBody, "body", "", "new comment body text")
-	update.Flags().StringVar(&updateStatus, "status", "", "new status: open or resolved")
-
-	c.AddCommand(list, create, reply, update, deleteCommentCmd(g, out),
+	c.AddCommand(list, create, reply, updateCommentCmd(g, out), deleteCommentCmd(g, out),
 		resolveCmd(g, out, "resolve", "resolved"), resolveCmd(g, out, "reopen", "open"),
 		reactionCmd(g, out, "react", "Add a reaction to a document comment", "PUT",
 			func(a []string) string { return "Reacted " + a[2] + " on comment " + a[1] + "." }),
@@ -638,4 +637,42 @@ func openCmd(g *globals, out io.Writer) *cobra.Command {
 		}
 		return confirm(out, g, "Opened "+args[0]+" in your browser: "+u)
 	}}
+}
+
+func updateCommentCmd(g *globals, out io.Writer) *cobra.Command {
+	var updateBody, updateStatus string
+	var updateMentions []string
+	var updateBodyFile string
+	var clearMentions bool
+	update := &cobra.Command{Use: "update <doc_id> <comment_id>", Short: "Update a document comment", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
+		var err error
+		updateBody, err = commentBody(cmd, updateBody, updateBodyFile)
+		if err != nil {
+			return err
+		}
+		body := map[string]any{}
+		if cmd.Flags().Changed("body") || cmd.Flags().Changed("body-file") {
+			if updateBody == "" {
+				return errors.New("--body cannot be empty")
+			}
+			body["body"] = updateBody
+		}
+		if cmd.Flags().Changed("status") {
+			body["status"] = updateStatus
+		}
+		if len(body) == 0 && !clearMentions {
+			return errors.New("nothing to update; pass --body, --status, or --clear-mentions")
+		}
+		return action(g, out, func(c *Client) ([]byte, error) {
+			return c.commentJSON("PATCH", apiPath("/v1/documents/%s/comments/%s", args[0], args[1]), body, updateMentions, clearMentions)
+		}, func(map[string]any) string { return "Updated comment " + args[1] + "." })
+	}}
+	update.Flags().StringVar(&updateBodyFile, "body-file", "", "read updated text from a file, or - for stdin")
+	update.Flags().StringArrayVar(&updateMentions, "mention", nil, "tag email, user:<id>, or sa:<id> (requires body; replaces mention metadata)")
+	update.Flags().BoolVar(&clearMentions, "clear-mentions", false, "remove all structured mentions")
+	update.MarkFlagsMutuallyExclusive("mention", "clear-mentions")
+	update.Flags().StringVar(&updateBody, "body", "", "new comment body text")
+	update.Flags().StringVar(&updateStatus, "status", "", "new status: open or resolved")
+
+	return update
 }

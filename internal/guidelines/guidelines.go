@@ -183,6 +183,44 @@ Interactive documents are allowed.
   - For documents that render files from GitHub at read time, use the GitHub
     bridge rather than embedding credentials or fetching private URLs directly:
       aidocs guidelines interactivity github
+  - For live-state printing and generated file downloads:
+      aidocs guidelines interactivity exports
+`,
+	},
+	{
+		Path:    []string{"interactivity", "exports"},
+		Summary: "Print live document state and download generated files safely.",
+		Aliases: [][]string{{"print"}, {"downloads"}},
+		Body: `aidocs guidelines: interactivity exports
+
+Print and download buttons:
+  - Call window.print() or window.aidocs.print() directly from a click handler.
+    Export as PDF in the document toolbar uses the same live-document snapshot.
+  - Call window.aidocs.download({ filename: "report.txt", blob: new Blob([text],
+    { type: "text/plain" }) }) from a click handler. It returns a Promise.
+    Prepare large or asynchronous exports before the user clicks Download.
+  - Downloads accept file bytes, not a remote URL or filesystem path, and are
+    limited to 20 MB. Names are normalized. Requests need browser user activation
+    and are limited to one document-initiated export per five seconds.
+  - Native download links remain sandboxed. Use the download API for generated
+    files. No file is automatically opened or executed by aidocs.
+
+Print preparation is optional:
+  - Existing synchronous beforeprint listeners can reveal collapsed sections.
+  - For asynchronous preparation, register:
+      window.addEventListener("aidocs:beforeprint", event => {
+        event.detail.waitUntil(revealSectionsForPrint());
+      });
+  - Register before printing, and call waitUntil synchronously in the listener.
+    The platform waits up to 1.5 seconds, then snapshots the current DOM even if
+    preparation rejects, hangs, or has no listener.
+  - Use afterprint or aidocs:afterprint to restore temporary document changes.
+  - The preview preserves live form values, open details, and readable canvases.
+    Password/file inputs are excluded. The snapshot has scripts disabled;
+    embedded frames, inaccessible cross-origin canvases, and unmounted content
+    cannot be captured. Render that content into the DOM during preparation.
+  - Use @media print for pagination and print-only styling. Users can retry with
+    the Print / Save as PDF button in the preview if their browser blocks auto-print.
 `,
 	},
 	{
@@ -327,7 +365,7 @@ Access and security:
   - Treat repository content as untrusted input. Parse known formats and build DOM
     with textContent. Do not eval source code or assign arbitrary repository
     content to innerHTML.
-  - Files are limited to 10 MiB.
+  - Files are limited to 50 MiB.
 
 Connection fallback:
   If loading fails because the reader may not have connected GitHub, offer a

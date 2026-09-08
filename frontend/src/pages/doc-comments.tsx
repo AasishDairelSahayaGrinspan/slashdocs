@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useId,
   type KeyboardEvent,
   type ReactNode,
   useEffect,
@@ -8,11 +9,12 @@ import {
   useRef,
   useState,
 } from "react";
-import { motion } from "framer-motion";
+import { createPortal } from "react-dom";
+import { useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import { CheckCircle2, Trash2 } from "lucide-react";
+import { CheckCircle2, Trash2, Link2, Reply, RotateCcw, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -27,14 +29,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Center, EmptyState, Skeleton } from "@/components/ui/misc";
 import { Textarea } from "@/components/ui/input";
-import {
-  api,
-  REACTION_EMOJI,
-  type Anchor,
-  type Comment,
-  type ReactionEmoji,
-  type UserPrincipal,
-} from "@/api";
+import { api, type Anchor, type Comment, type UserPrincipal } from "@/api";
 import { cn } from "@/lib/cn";
 import { formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
@@ -42,6 +37,8 @@ import { layoutCommentRail } from "@/lib/comment-rail";
 import { samePrincipal } from "@/lib/principals";
 import {
   emptyMentionDraft,
+  getMentionTarget,
+  type MentionTarget,
   inferTextareaEdit,
   insertMention,
   MAX_COMMENT_MENTIONS,
@@ -53,26 +50,13 @@ import {
 } from "@/lib/comment-mentions";
 import {
   COMMENT_FILTERS,
-  COMMENT_FILTER_ALL,
   COMMENT_STATUS,
-  DEFAULT_COMMENT_FILTER,
   type CommentFilter,
+  matchesCommentFilter,
 } from "@/lib/constants";
+import { NotificationToggle } from "@/components/notification-toggle";
 import { useDoc } from "./doc-context";
-
-type MentionTarget = {
-  start: number;
-  end: number;
-  query: string;
-};
-
-function getMentionTarget(value: string, caret: number): MentionTarget | null {
-  const beforeCaret = value.slice(0, caret);
-  const match = /(^|\p{White_Space}|[([{])@([A-Za-z0-9._%+-]*)$/u.exec(beforeCaret);
-  if (!match) return null;
-  const start = match.index + match[1].length;
-  return { start, end: caret, query: match[2] };
-}
+import { ReactionBar } from "./doc-comment-reactions";
 
 function MentionTextarea({
   draft,
@@ -102,16 +86,65 @@ function MentionTextarea({
   const [suggestions, setSuggestions] = useState<UserPrincipal[]>([]);
   const [activeIndex, setActiveIndex] = useState(0);
   const [open, setOpen] = useState(false);
+  const listID = useId();
+  const [suggestionQuery, setSuggestionQuery] = useState("");
+  const [position, setPosition] = useState({ left: 0, top: 0, width: 0 });
+  const visible =
+    open && suggestions.length > 0 && suggestionQuery === target?.query.trim();
+
+  // Use the browser event: React's synthetic beforeinput omits paste and some
+  // native edits, which previously cleared every accepted mention on change.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const capture = () => {
+      beforeInputSelection.current = { start: el.selectionStart, end: el.selectionEnd };
+    };
+    el.addEventListener("beforeinput", capture);
+    return () => el.removeEventListener("beforeinput", capture);
+  }, []);
+
+  useLayoutEffect(() => {
+    if (!visible) return;
+    const place = () => {
+      const rect = ref.current?.getBoundingClientRect();
+      if (!rect) return;
+      const height = Math.min(240, suggestions.length * 64);
+      setPosition({
+        left: rect.left,
+        width: rect.width,
+        top:
+          rect.bottom + height + 8 > window.innerHeight
+            ? Math.max(8, rect.top - height - 4)
+            : rect.bottom + 4,
+      });
+    };
+    place();
+    window.addEventListener("scroll", place, true);
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("scroll", place, true);
+      window.removeEventListener("resize", place);
+    };
+  }, [visible, suggestions.length]);
+
+  useLayoutEffect(() => {
+    if (autoFocus) ref.current?.focus({ preventScroll: true });
+  }, [autoFocus]);
 
   const syncTarget = (el: HTMLTextAreaElement) => {
     const nextCaret = el.selectionStart ?? 0;
     setCaret(nextCaret);
-    setTarget(getMentionTarget(el.value, nextCaret));
+    setTarget(
+      el.selectionStart === el.selectionEnd
+        ? getMentionTarget(el.value, nextCaret, draft.mentions)
+        : null,
+    );
   };
 
   useEffect(() => {
-    setTarget(getMentionTarget(draft.body, caret));
-  }, [draft.body, caret]);
+    setTarget(getMentionTarget(draft.body, caret, draft.mentions));
+  }, [draft.body, draft.mentions, caret]);
 
   useEffect(() => {
     const query = target?.query.trim() || "";
@@ -125,6 +158,7 @@ function MentionTextarea({
       try {
         const result = await api.searchUsers(query);
         if (cancelled) return;
+        setSuggestionQuery(query);
         setSuggestions(result.items || []);
         setActiveIndex(0);
         setOpen((result.items || []).length > 0);
@@ -145,7 +179,7 @@ function MentionTextarea({
     if (caretRestore.current === null) return;
     const el = ref.current;
     if (el) {
-      el.focus();
+      el.focus({ preventScroll: true });
       el.setSelectionRange(caretRestore.current, caretRestore.current);
     }
     caretRestore.current = null;
@@ -168,7 +202,8 @@ function MentionTextarea({
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (open && suggestions.length > 0) {
+    if (event.nativeEvent.isComposing) return;
+    if (visible) {
       if (event.key === "ArrowDown") {
         event.preventDefault();
         setActiveIndex((index) => (index + 1) % suggestions.length);
@@ -199,95 +234,91 @@ function MentionTextarea({
     <div className="relative min-w-0 flex-1">
       <Textarea
         ref={ref}
-        autoFocus={autoFocus}
         rows={rows}
         value={draft.body}
-        onBeforeInput={(event) => {
-          beforeInputSelection.current = {
-            start: event.currentTarget.selectionStart ?? 0,
-            end: event.currentTarget.selectionEnd ?? 0,
-          };
-        }}
-        // React's synthetic onChange may suppress an input event whose final
-        // value is unchanged (for example, pasting the same label over a
-        // selection). Native onInput still lets that exact replacement clear
-        // an overlapping structured mention.
+        onChange={() => {}}
         onInput={(event) => {
-          if (event.currentTarget.value !== draft.body) return;
+          const el = event.currentTarget;
           const before = beforeInputSelection.current;
           beforeInputSelection.current = null;
-          if (!before) {
-            onChange({ body: event.currentTarget.value, mentions: [] });
-            syncTarget(event.currentTarget);
-            return;
-          }
-          const after = {
-            start: event.currentTarget.selectionStart ?? 0,
-            end: event.currentTarget.selectionEnd ?? 0,
-          };
-          const edit = inferTextareaEdit(
-            draft.body,
-            event.currentTarget.value,
-            before,
-            after,
-          );
-          onChange(
-            edit
-              ? reconcileMentionDraft(draft, event.currentTarget.value, edit)
-              : { body: event.currentTarget.value, mentions: [] },
-          );
-          syncTarget(event.currentTarget);
-        }}
-        onChange={(event) => {
-          if (event.target.value === draft.body) return;
-          const before = beforeInputSelection.current;
-          beforeInputSelection.current = null;
-          const after = {
-            start: event.target.selectionStart ?? 0,
-            end: event.target.selectionEnd ?? 0,
-          };
+          const after = { start: el.selectionStart, end: el.selectionEnd };
           const edit = before
-            ? inferTextareaEdit(draft.body, event.target.value, before, after)
+            ? inferTextareaEdit(draft.body, el.value, before, after)
             : null;
-          onChange(reconcileMentionDraft(draft, event.target.value, edit));
-          syncTarget(event.target);
+          onChange(reconcileMentionDraft(draft, el.value, edit));
+          syncTarget(el);
         }}
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={visible}
+        aria-controls={visible ? listID : undefined}
+        aria-activedescendant={visible ? `${listID}-${activeIndex}` : undefined}
         onClick={(event) => syncTarget(event.currentTarget)}
-        onBlur={() => window.setTimeout(() => setOpen(false), 100)}
+        onBlur={() => setOpen(false)}
         onKeyUp={(event) => syncTarget(event.currentTarget)}
         onSelect={(event) => syncTarget(event.currentTarget)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
         className={className}
       />
-      {open && suggestions.length > 0 ? (
-        <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg">
-          {suggestions.map((user, index) => {
-            const active = index === activeIndex;
-            return (
-              <button
-                key={user.id || user.email}
-                type="button"
-                className={`block w-full px-3 py-2 text-left text-sm transition-colors ${active ? "bg-[var(--color-surface-muted)] text-[var(--color-fg)]" : "text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]"}`}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={(event) => {
-                  event.stopPropagation();
-                  accept(user);
-                }}
-              >
-                <span className="block truncate font-medium">
-                  {mentionPrincipalLabel(user)}
-                </span>
-                {user.email && user.email !== mentionPrincipalLabel(user) ? (
-                  <span className="block truncate text-xs text-[var(--color-fg-muted)]">
-                    {user.email}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
-      ) : null}
+      {visible
+        ? createPortal(
+            <div
+              id={listID}
+              role="listbox"
+              aria-label="Mention people"
+              style={position}
+              className="fixed z-[100] max-h-60 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] py-1 shadow-lg"
+            >
+              {suggestions.map((user, index) => {
+                const active = index === activeIndex;
+                return (
+                  <button
+                    key={user.id || user.email}
+                    id={`${listID}-${index}`}
+                    role="option"
+                    aria-selected={active}
+                    type="button"
+                    className={`block min-h-10 w-full px-3 py-2 text-left text-sm transition-colors ${active ? "bg-[var(--color-surface-muted)] text-[var(--color-fg)]" : "text-[var(--color-fg)] hover:bg-[var(--color-surface-muted)]"}`}
+                    onPointerDown={(event) => event.preventDefault()}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      accept(user);
+                    }}
+                  >
+                    <span className="block truncate font-medium">
+                      {mentionPrincipalLabel(user)}
+                    </span>
+                    {user.email && user.email !== mentionPrincipalLabel(user) ? (
+                      <span className="block truncate text-xs text-[var(--color-fg-muted)]">
+                        {user.email}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
+            </div>,
+            document.body,
+          )
+        : null}
+      {draft.mentions.length > 0 && (
+        <p className="mt-1 text-xs text-[var(--color-accent)]" aria-live="polite">
+          Mentioned:{" "}
+          {[
+            ...new Map(
+              draft.mentions.map((m) => [
+                m.principal.id,
+                mentionPrincipalLabel(m.principal),
+              ]),
+            ).values(),
+          ].join(", ")}
+        </p>
+      )}
+      {target && !visible && (
+        <p className="mt-1 text-xs text-[var(--color-fg-muted)]">
+          Choose a person from suggestions to notify them.
+        </p>
+      )}
     </div>
   );
 }
@@ -300,7 +331,7 @@ function CommentBody({
   mentions: Comment["mentions"];
 }) {
   return (
-    <p className="whitespace-pre-wrap break-words text-sm">
+    <p className="min-w-0 flex-1 whitespace-pre-wrap text-sm leading-relaxed [overflow-wrap:anywhere]">
       {mentionTextSegments(text, mentions || []).map((segment, index) =>
         segment.mention ? (
           <span
@@ -310,201 +341,201 @@ function CommentBody({
             {segment.text}
           </span>
         ) : (
-          <span key={`text-${index}`}>{segment.text}</span>
+          <CommentText key={`text-${index}`} text={segment.text} />
         ),
       )}
     </p>
   );
 }
 
-// REACTION_GLYPH maps the server's stable slugs to the glyph this client
-// shows. The slug is the contract; the glyph is ours to choose.
-//
-// `satisfies` makes the literal exhaustive over REACTION_EMOJI, so adding a
-// slug there fails the build until it has a glyph. The declared type stays
-// keyed by string because reaction slugs arrive from the server unvalidated,
-// and a server that adds one before this client ships must still render.
-const REACTION_GLYPH: Record<string, string> = {
-  "+1": "👍",
-  "-1": "👎",
-  laugh: "😄",
-  hooray: "🎉",
-  confused: "😕",
-  heart: "❤️",
-  rocket: "🚀",
-  eyes: "👀",
-  plus: "➕",
-} satisfies Record<ReactionEmoji, string>;
-
-function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
-  const q = useQueryClient();
-  const [picking, setPicking] = useState(false);
-  const reactions = c.reactions || [];
-  const toggle = useMutation({
-    mutationFn: ({ emoji, reacted }: { emoji: string; reacted: boolean }) =>
-      api.setCommentReaction(docId, c.id, emoji, reacted),
-    onSuccess: () => q.invalidateQueries({ queryKey: queryKeys.comments(docId) }),
-    onError: (e) => toast.error(errorMessage(e, "Reaction failed")),
+// Only web URLs become links; comment text always goes through React escaping.
+function CommentText({ text }: { text: string }) {
+  return text.split(/(https?:\/\/[^\s<>"]+)/gi).map((part, index) => {
+    if (!/^https?:\/\//i.test(part)) return part;
+    let href = part.replace(/[.,!?;:]+$/, "");
+    for (const [open, close] of [
+      ["(", ")"],
+      ["[", "]"],
+      ["{", "}"],
+    ]) {
+      let extra = href.split(close).length - href.split(open).length;
+      while (extra > 0 && href.endsWith(close)) {
+        href = href.slice(0, -1);
+        extra--;
+      }
+    }
+    try {
+      if (!["http:", "https:"].includes(new URL(href).protocol)) return part;
+    } catch {
+      return part;
+    }
+    return (
+      <span key={index}>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[var(--color-accent)] underline decoration-[var(--color-accent)]/40 underline-offset-2 hover:decoration-current"
+          onClick={(event) => event.stopPropagation()}
+        >
+          {href}
+        </a>
+        {part.slice(href.length)}
+      </span>
+    );
   });
-  const react = (emoji: string, reacted: boolean) => {
-    setPicking(false);
-    toggle.mutate({ emoji, reacted });
-  };
-  return (
-    <div className="relative mt-2 flex flex-wrap items-center gap-1">
-      {reactions.map((r) => (
-        <button
-          key={r.emoji}
-          type="button"
-          aria-pressed={r.reacted}
-          aria-label={`${r.emoji}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}`}
-          onClick={(e) => {
-            e.stopPropagation();
-            react(r.emoji, !r.reacted);
-          }}
-          className={cn(
-            "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-xs transition-colors",
-            r.reacted
-              ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-accent)]"
-              : "border-[var(--color-border)] text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]",
-          )}
-        >
-          <span aria-hidden="true">{REACTION_GLYPH[r.emoji] || r.emoji}</span>
-          <span className="tabular-nums">{r.count}</span>
-        </button>
-      ))}
-      <button
-        type="button"
-        aria-label="Add reaction"
-        aria-expanded={picking}
-        onClick={(e) => {
-          e.stopPropagation();
-          setPicking((open) => !open);
-        }}
-        className="rounded-full border border-dashed border-[var(--color-border)] px-2 py-0.5 text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)]"
-      >
-        +
-      </button>
-      {/*
-        Anchored to the bar, not the "+" button: the button moves as reactions
-        wrap, and the bar spans the card so the picker stays inside it. w-max
-        stops the absolute box shrinking to its anchor's width.
-      */}
-      {picking && (
-        <div
-          role="menu"
-          className="absolute bottom-full left-0 z-10 mb-1 flex w-max max-w-full flex-wrap gap-0.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-md"
-        >
-          {REACTION_EMOJI.map((emoji) => (
-            <button
-              key={emoji}
-              type="button"
-              role="menuitem"
-              aria-label={emoji}
-              title={emoji}
-              onClick={(e) => {
-                e.stopPropagation();
-                react(emoji, !reactions.some((r) => r.emoji === emoji && r.reacted));
-              }}
-              className="rounded p-1 text-sm hover:bg-[var(--color-surface-muted)]"
-            >
-              <span aria-hidden="true">{REACTION_GLYPH[emoji]}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  );
 }
 
-export function Comments() {
-  const { docId, comments, commentsLoading, commentsError, unanchoredComments } =
-    useDoc();
-  const [filter, setFilter] = useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
+export function Comments({ mobile = false }: { mobile?: boolean }) {
+  const {
+    docId,
+    comments,
+    commentsLoading,
+    commentsError,
+    selection,
+    commentFilter: filter,
+    setCommentFilter: setFilter,
+    activeComment,
+    setActiveComment,
+    unanchoredComments,
+    scrollDocumentTo,
+    syncCommentRail,
+  } = useDoc();
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerHeight, setHeaderHeight] = useState(0);
+
+  useLayoutEffect(() => {
+    const header = headerRef.current;
+    if (!header) return;
+    const update = () => setHeaderHeight(header.offsetHeight);
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(header);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    if (!selection?.quote) return;
+    setFilter(COMMENT_STATUS.open);
+    setActiveComment(undefined);
+  }, [selection, setFilter, setActiveComment]);
+
+  useEffect(() => {
+    if (!activeComment || !unanchoredComments.has(activeComment)) return;
+    scrollDocumentTo(0);
+    syncCommentRail(0);
+  }, [activeComment, unanchoredComments, scrollDocumentTo, syncCommentRail]);
 
   const items = useMemo(
-    () =>
-      comments
-        .filter((c) => {
-          if (filter === COMMENT_FILTER_ALL) return true;
-          if (filter === COMMENT_STATUS.resolved)
-            return c.status === COMMENT_STATUS.resolved;
-          return c.status !== COMMENT_STATUS.resolved;
-        })
-        .sort(
-          (a, b) =>
-            Number(unanchoredComments.has(b.id)) - Number(unanchoredComments.has(a.id)),
-        ),
-    [comments, filter, unanchoredComments],
+    () => comments.filter((c) => matchesCommentFilter(c.status, filter)),
+    [comments, filter],
   );
 
+  const chooseFilter = (next: CommentFilter) => {
+    if (next === filter) return;
+    setFilter(next);
+    // Let the bridge reveal the first matching highlight after repainting.
+    // Sending a scroll-to-top here would interrupt that reveal.
+    const first = comments.find((c) => matchesCommentFilter(c.status, next));
+    if (!first) scrollDocumentTo(0);
+    setActiveComment(first?.id);
+  };
+
   return (
-    <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--color-border)] px-4 py-3">
-        <div className="mb-3 flex items-center justify-between pr-10 md:pr-0">
+    <div
+      className="flex h-full min-h-0 flex-col border-l border-[var(--color-border)]"
+      aria-label="Document comments"
+    >
+      <div
+        ref={headerRef}
+        className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 pt-3"
+      >
+        <div className="flex items-center gap-2 pr-10 md:pr-0">
           <h2 className="text-sm font-semibold">Comments</h2>
-          <Badge variant="muted">{comments.length}</Badge>
+          {!commentsLoading && !commentsError && (
+            <span
+              className="text-xs text-[var(--color-fg-muted)] tabular-nums"
+              aria-label={`${comments.length} comment threads total`}
+            >
+              {comments.length}
+            </span>
+          )}
+          <div className="ml-auto">
+            <NotificationToggle documentId={docId} />
+          </div>
         </div>
-        <div className="flex gap-1 rounded-md bg-[var(--color-surface-muted)] p-0.5 text-xs">
+        <div
+          role="group"
+          aria-label="Filter comments"
+          className="mt-1 flex gap-4 text-xs"
+        >
           {COMMENT_FILTERS.map((f) => (
             <button
               key={f}
-              onClick={() => setFilter(f)}
-              className={`flex-1 rounded px-2 py-1 capitalize transition-colors ${filter === f ? "bg-[var(--color-surface)] text-[var(--color-fg)] shadow-sm" : "text-[var(--color-fg-muted)]"}`}
+              type="button"
+              aria-pressed={filter === f}
+              onClick={() => chooseFilter(f)}
+              className={cn(
+                "min-h-10 min-w-10 border-b-2 px-1 capitalize transition-colors focus-visible:outline-2 focus-visible:outline-[var(--color-accent)]",
+                filter === f
+                  ? "border-[var(--color-accent)] font-medium text-[var(--color-accent)]"
+                  : "border-transparent text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]",
+              )}
             >
               {f}
             </button>
           ))}
         </div>
       </div>
-      <div className="flex-1 overflow-y-auto p-4">
-        <CommentComposer className="mb-4" />
-        {commentsLoading ? (
-          <div className="space-y-3">
-            <Skeleton className="h-20 w-full" />
-            <Skeleton className="h-20 w-full" />
-          </div>
-        ) : commentsError ? (
-          <Center>Could not load comments.</Center>
-        ) : items.length === 0 ? (
-          <EmptyState
-            title={filter === COMMENT_STATUS.open ? "No open comments" : "Nothing here"}
-            description="Select text inside the rendered document to start a thread."
-          />
-        ) : (
-          <motion.div
-            className="space-y-3"
-            initial="hidden"
-            animate="visible"
-            variants={{
-              hidden: {},
-              visible: { transition: { staggerChildren: 0.06 } },
-            }}
-          >
-            {items.map((c) => (
-              <motion.div
-                key={c.id}
-                variants={{
-                  hidden: { opacity: 0, x: 12 },
-                  visible: {
-                    opacity: 1,
-                    x: 0,
-                    transition: { duration: 0.3, ease: [0.25, 0.4, 0.25, 1] as const },
-                  },
-                }}
-              >
-                <CommentCard c={c} docId={docId} />
-              </motion.div>
-            ))}
-          </motion.div>
-        )}
-      </div>
+      {mobile ? (
+        <div
+          data-comment-scroll
+          className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4"
+        >
+          <CommentComposer />
+          {commentsLoading ? (
+            <>
+              <Skeleton className="h-28 w-full rounded-xl" />
+              <Skeleton className="h-28 w-full rounded-xl" />
+            </>
+          ) : commentsError ? (
+            <Center>Could not load comments.</Center>
+          ) : items.length === 0 ? (
+            <CommentsEmptyState filter={filter} />
+          ) : (
+            items.map((c) => <CommentCard key={c.id} c={c} docId={docId} />)
+          )}
+        </div>
+      ) : (
+        <div className="min-h-0 flex-1">
+          <CommentRail comments={items} filter={filter} topInset={headerHeight} />
+        </div>
+      )}
     </div>
   );
 }
 
+function CommentsEmptyState({ filter }: { filter: CommentFilter }) {
+  return (
+    <EmptyState
+      title={
+        filter === COMMENT_STATUS.resolved
+          ? "No resolved comments yet"
+          : filter === COMMENT_STATUS.open
+            ? "No open comments"
+            : "No comments yet"
+      }
+      description={
+        filter === COMMENT_STATUS.resolved
+          ? "Resolved conversations will appear here."
+          : "Select text in the document to start a thread."
+      }
+    />
+  );
+}
+
 function CommentComposer({ className = "" }: { className?: string }) {
-  const { docId, version, selection, setSelection } = useDoc();
+  const { docId, version, selection, setSelection, setActiveComment } = useDoc();
   const q = useQueryClient();
   const [quote, setQuote] = useState("");
   const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
@@ -547,6 +578,7 @@ function CommentComposer({ className = "" }: { className?: string }) {
   if (!quote) return null;
   return (
     <form
+      onFocusCapture={() => setActiveComment(undefined)}
       className={`space-y-2 rounded-[14px] bg-[var(--color-surface)] p-3 shadow-lg ring-1 ring-[var(--color-border)] ${className}`}
       onSubmit={(event) => {
         event.preventDefault();
@@ -570,15 +602,25 @@ function CommentComposer({ className = "" }: { className?: string }) {
         placeholder="Add a comment…"
       />
       <div className="flex justify-end gap-2">
-        <Button type="button" variant="ghost" size="sm" onClick={clear}>
-          Cancel
+        <Button
+          type="button"
+          variant="ghost"
+          size="icon"
+          onClick={clear}
+          aria-label="Cancel comment"
+          title="Cancel comment"
+        >
+          <X className="h-4 w-4" />
         </Button>
         <Button
-          size="sm"
+          size="icon"
           type="submit"
+          aria-label="Post comment"
+          title="Post comment (⌘Enter / Ctrl+Enter)"
+          aria-keyshortcuts="Meta+Enter Control+Enter"
           disabled={!draft.body.trim() || create.isPending}
         >
-          Comment ⌘↵
+          <Send className="h-4 w-4" />
         </Button>
       </div>
     </form>
@@ -588,14 +630,21 @@ function CommentComposer({ className = "" }: { className?: string }) {
 const RAIL_CARD_ESTIMATE = 190;
 const RAIL_COMPOSER_ESTIMATE = 210;
 
-export function CommentRail() {
+function CommentRail({
+  comments: timelineComments,
+  filter,
+  topInset,
+}: {
+  comments: Comment[];
+  filter: CommentFilter;
+  topInset: number;
+}) {
   const {
     docId,
-    comments,
     commentsLoading,
     commentsError,
     selection,
-    unanchoredComments,
+    activeComment,
     commentPositions,
     commentViewport,
     scrollDocumentTo,
@@ -617,39 +666,44 @@ export function CommentRail() {
     return () => observer.disconnect();
   }, []);
 
-  const timelineComments = useMemo(
-    () =>
-      comments.filter((comment) => {
-        if (comment.status === COMMENT_STATUS.resolved) return false;
-        if (unanchoredComments.has(comment.id)) return true;
-        return commentPositions.has(comment.id);
-      }),
-    [comments, commentPositions, unanchoredComments],
-  );
+  const priorityId = timelineComments.some((comment) => comment.id === activeComment)
+    ? activeComment
+    : selection?.quote
+      ? "__composer"
+      : undefined;
+  const priorityMaxHeight = Math.max(1, railHeight - 24);
 
   const layoutItems = useMemo(() => {
     const items = timelineComments.map((comment) => ({
       id: comment.id,
-      anchorTop: commentPositions.get(comment.id)?.top ?? 0,
+      anchorTop: (commentPositions.get(comment.id)?.top ?? 0) - topInset,
       height: heights.get(comment.id) ?? RAIL_CARD_ESTIMATE,
-      atStart: unanchoredComments.has(comment.id),
+      atStart: !commentPositions.has(comment.id),
     }));
     if (selection?.quote) {
       items.push({
         id: "__composer",
-        anchorTop: selection.top ?? 0,
+        anchorTop: (selection.top ?? 0) - topInset,
         height: heights.get("__composer") ?? RAIL_COMPOSER_ESTIMATE,
         atStart: selection.top === undefined,
       });
     }
     return items;
-  }, [commentPositions, heights, selection, timelineComments, unanchoredComments]);
+  }, [commentPositions, heights, selection, timelineComments, topInset]);
 
-  const timelineHeight = Math.max(commentViewport.scrollHeight, railHeight, 1);
+  const timelineHeight = Math.max(
+    commentViewport.scrollHeight - topInset,
+    railHeight,
+    1,
+  );
 
   const placements = useMemo(
-    () => layoutCommentRail(layoutItems, timelineHeight),
-    [layoutItems, timelineHeight],
+    () =>
+      layoutCommentRail(layoutItems, timelineHeight, {
+        priorityId,
+        viewport: { top: commentViewport.scrollTop, height: railHeight },
+      }),
+    [layoutItems, timelineHeight, priorityId, commentViewport.scrollTop, railHeight],
   );
   const contentHeight = Math.max(
     timelineHeight,
@@ -701,7 +755,7 @@ export function CommentRail() {
   return (
     <div
       ref={railRef}
-      className="relative h-full overflow-x-hidden overflow-y-auto overscroll-contain"
+      className="relative h-full overflow-x-hidden overflow-y-auto overscroll-contain [overflow-anchor:none]"
       onScroll={(event) => {
         if (applyingDocumentScroll.current) return;
         scrollDocumentTo(event.currentTarget.scrollTop);
@@ -720,6 +774,11 @@ export function CommentRail() {
         </div>
       ) : (
         <div className="relative min-h-full" style={{ height: contentHeight }}>
+          {timelineComments.length === 0 && !selection?.quote && (
+            <div className="sticky top-0 p-4">
+              <CommentsEmptyState filter={filter} />
+            </div>
+          )}
           {placements.map((placement) => {
             const comment = commentByID.get(placement.id);
             if (placement.id !== "__composer" && !comment) return null;
@@ -729,6 +788,15 @@ export function CommentRail() {
                 id={placement.id}
                 y={placement.y}
                 connected={!placement.atStart}
+                priority={placement.id === priorityId}
+                maxHeight={railHeight > 0 ? priorityMaxHeight : undefined}
+                connectorOffset={Math.max(
+                  12,
+                  Math.min(
+                    placement.height - 12,
+                    placement.anchorTop - placement.y + 9,
+                  ),
+                )}
                 onHeight={onHeight}
               >
                 {placement.id === "__composer" ? (
@@ -749,16 +817,37 @@ function MeasuredRailItem({
   id,
   y,
   connected,
+  priority,
+  maxHeight,
+  connectorOffset,
   onHeight,
   children,
 }: {
   id: string;
   y: number;
   connected: boolean;
+  priority: boolean;
+  maxHeight?: number;
+  connectorOffset: number;
   onHeight: (id: string, height: number) => void;
   children: ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [linkParams] = useSearchParams();
+  const linkedComment = linkParams.get("comment");
+  useLayoutEffect(() => {
+    const container = contentRef.current;
+    if (!priority || !container || !linkedComment) return;
+    const target = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-comment-id]"),
+    ).find((element) => element.dataset.commentId === linkedComment);
+    if (target) {
+      // Scroll only the thread, keeping its document highlight in place.
+      container.scrollTop +=
+        target.getBoundingClientRect().top - container.getBoundingClientRect().top;
+    }
+  }, [priority, linkedComment, maxHeight]);
   useLayoutEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -769,14 +858,31 @@ function MeasuredRailItem({
     return () => observer.disconnect();
   }, [id, onHeight]);
   return (
-    <div ref={ref} className="absolute inset-x-3 top-0" style={{ top: y }}>
+    <div
+      ref={ref}
+      className={cn(
+        "absolute inset-x-3 top-0",
+        !priority &&
+          "transition-[top] duration-200 ease-out motion-reduce:transition-none",
+      )}
+      style={{ top: y }}
+    >
       {connected ? (
         <span
           aria-hidden="true"
-          className="pointer-events-none absolute -left-3 top-5 h-px w-3 bg-[var(--color-border-strong)]"
+          className="pointer-events-none absolute -left-3 h-px w-3 bg-[var(--color-border-strong)]"
+          style={{ top: priority ? connectorOffset : 20 }}
         />
       ) : null}
-      {children}
+      <div
+        ref={contentRef}
+        className={
+          priority ? "overflow-y-auto overscroll-contain rounded-[14px]" : undefined
+        }
+        style={{ maxHeight: priority ? maxHeight : undefined }}
+      >
+        {children}
+      </div>
     </div>
   );
 }
@@ -794,10 +900,21 @@ function CommentCard({
   const { activeComment, setActiveComment, principal, unanchoredComments } = useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
+  const [replying, setReplying] = useState(false);
+  const [linkParams] = useSearchParams();
+  const linkedComment = linkParams.get("comment");
   useEffect(() => {
-    if (active && autoReveal)
-      cardRef.current?.scrollIntoView({ block: "center", behavior: "smooth" });
-  }, [active, autoReveal]);
+    const card = cardRef.current;
+    if (!active || !autoReveal || !card) return;
+    const container = card.closest<HTMLElement>("[data-comment-scroll]");
+    if (!container) return;
+    const target =
+      Array.from(card.querySelectorAll<HTMLElement>("[data-comment-id]")).find(
+        (element) => element.dataset.commentId === linkedComment,
+      ) || card;
+    container.scrollTop +=
+      target.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
+  }, [active, autoReveal, linkedComment]);
   const reply = useMutation({
     mutationFn: (draft: MentionDraft) =>
       api.createCommentReply(docId, c.id, draft.body, draft.mentions),
@@ -814,10 +931,14 @@ function CommentCard({
   return (
     <article
       ref={cardRef}
+      data-comment-id={c.id}
       role="button"
       tabIndex={0}
-      className={`group cursor-pointer rounded-[14px] bg-[var(--color-surface)] p-3 shadow-lg ring-1 transition-[box-shadow,opacity] duration-200 ease-out hover:shadow-xl ${active ? "ring-2 ring-[var(--color-border-strong)]" : "ring-[var(--color-border)]"} ${resolved ? "opacity-70" : ""}`}
+      className={`group cursor-pointer rounded-[14px] bg-[var(--color-surface)] p-3 shadow-sm ring-1 transition-shadow duration-200 ease-out hover:shadow-md ${active ? "ring-2 ring-[var(--color-border-strong)]" : "ring-[var(--color-border)]"}`}
       onClick={toggleActive}
+      onFocusCapture={(event) => {
+        if (event.target instanceof HTMLTextAreaElement) setActiveComment(c.id);
+      }}
       onKeyDown={(e) => {
         // Only toggle when the card itself is focused, not when typing in the
         // reply composer or activating a nested button.
@@ -828,8 +949,8 @@ function CommentCard({
         }
       }}
     >
-      <div className="mb-1 flex items-center justify-between">
-        <span className="text-xs font-semibold">
+      <div className="mb-1 flex items-center justify-between gap-2">
+        <span className="min-w-0 break-words text-xs font-semibold">
           {c.author.name || c.author.email || c.author.id}
         </span>
         {resolved ? (
@@ -841,7 +962,7 @@ function CommentCard({
         )}
       </div>
       {(c.created_at || (resolved && c.resolved_at)) && (
-        <div className="mb-2 flex flex-wrap gap-x-3 text-[11px] text-[var(--color-fg-muted)]">
+        <div className="mb-1 flex flex-wrap gap-x-3 text-[11px] text-[var(--color-fg-muted)]">
           {c.created_at ? <span>Added {formatTimestamp(c.created_at)}</span> : null}
           {resolved && c.resolved_at ? (
             <span>Resolved {formatTimestamp(c.resolved_at)}</span>
@@ -850,26 +971,67 @@ function CommentCard({
       )}
       {unanchoredComments.has(c.id) && (
         <Badge variant="warning" className="mb-2">
-          highlight not found
+          Highlight not currently visible
         </Badge>
       )}
       {c.selected_text && (
-        <blockquote className="mb-2 border-l-2 border-[var(--color-border-strong)] pl-2 text-xs italic text-[var(--color-fg-muted)]">
+        <blockquote className="mb-2 rounded-r-md border-l-2 border-[var(--color-border-strong)] bg-[var(--color-surface-muted)] py-1.5 pl-2 pr-2 text-xs leading-relaxed break-words text-[var(--color-fg-muted)]">
           {c.selected_text}
         </blockquote>
       )}
-      <div className="flex items-start justify-between gap-2">
-        <CommentBody text={c.body} mentions={c.mentions} />
-        <DeleteCommentButton
-          c={c}
-          docId={docId}
-          canDelete={samePrincipal(principal, c.author)}
-          className="opacity-0 transition-opacity group-hover:opacity-100"
-        />
+      <CommentBody text={c.body} mentions={c.mentions} />
+      <div className="mt-1">
+        <ReactionBar c={c} docId={docId}>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="shrink-0 text-[var(--color-fg-muted)]"
+            aria-label="Reply"
+            title="Reply"
+            onClick={(event) => {
+              event.stopPropagation();
+              setReplying(true);
+              cardRef.current
+                ?.querySelector("textarea")
+                ?.focus({ preventScroll: true });
+            }}
+            aria-expanded={replying}
+          >
+            <Reply className="h-4 w-4" />
+          </Button>
+
+          <CopyCommentLink docId={docId} commentId={c.id} />
+          <DeleteCommentButton
+            c={c}
+            docId={docId}
+            canDelete={samePrincipal(principal, c.author)}
+          />
+          <Button
+            variant="ghost"
+            size="icon"
+            className={
+              resolved
+                ? "shrink-0 text-[var(--color-fg-muted)]"
+                : "shrink-0 text-emerald-600 hover:bg-emerald-50 dark:text-emerald-400 dark:hover:bg-emerald-950/40"
+            }
+            title={resolved ? "Reopen comment" : "Resolve comment"}
+            aria-label={resolved ? "Reopen comment" : "Resolve comment"}
+            disabled={m.isPending}
+            onClick={(e) => {
+              e.stopPropagation();
+              m.mutate(resolved ? COMMENT_STATUS.open : COMMENT_STATUS.resolved);
+            }}
+          >
+            {resolved ? (
+              <RotateCcw className="h-4 w-4" />
+            ) : (
+              <CheckCircle2 className="h-4 w-4" />
+            )}
+          </Button>
+        </ReactionBar>
       </div>
-      <ReactionBar c={c} docId={docId} />
       {(c.replies || []).length > 0 && (
-        <div className="mt-3 space-y-2 border-l border-[var(--color-border)] pl-3">
+        <div className="mt-1 space-y-1 border-l border-[var(--color-border)] pl-3">
           {(c.replies || []).map((r) => (
             <ReplyItem
               key={r.id}
@@ -880,24 +1042,15 @@ function CommentCard({
           ))}
         </div>
       )}
-      <ReplyComposer
-        onReply={async (draft) => {
-          await reply.mutateAsync(draft);
-        }}
-        pending={reply.isPending}
-      />
-      <div className="mt-2 flex justify-end">
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={(e) => {
-            e.stopPropagation();
-            m.mutate(resolved ? COMMENT_STATUS.open : COMMENT_STATUS.resolved);
+      {replying && (
+        <ReplyComposer
+          onReply={async (draft) => {
+            await reply.mutateAsync(draft);
+            setReplying(false);
           }}
-        >
-          {resolved ? "Reopen" : "Resolve"}
-        </Button>
-      </div>
+          pending={reply.isPending}
+        />
+      )}
     </article>
   );
 }
@@ -912,17 +1065,14 @@ function ReplyItem({
   canDelete: boolean;
 }) {
   return (
-    <div className="group/reply rounded-md bg-[var(--color-surface-muted)]/50 p-2">
+    <div
+      data-comment-id={r.id}
+      className="group/reply rounded-md bg-[var(--color-surface-muted)]/50 p-2"
+    >
       <div className="mb-1 flex items-center justify-between gap-2">
-        <span className="text-xs font-semibold">
+        <span className="min-w-0 break-words text-xs font-semibold">
           {r.author.name || r.author.email || r.author.id}
         </span>
-        <DeleteCommentButton
-          c={r}
-          docId={docId}
-          canDelete={canDelete}
-          className="opacity-0 transition-opacity group-hover/reply:opacity-100"
-        />
       </div>
       {r.created_at ? (
         <div className="mb-1 text-[11px] text-[var(--color-fg-muted)]">
@@ -930,7 +1080,12 @@ function ReplyItem({
         </div>
       ) : null}
       <CommentBody text={r.body} mentions={r.mentions} />
-      <ReactionBar c={r} docId={docId} />
+      <div className="mt-1">
+        <ReactionBar c={r} docId={docId}>
+          <CopyCommentLink docId={docId} commentId={r.id} />
+          <DeleteCommentButton c={r} docId={docId} canDelete={canDelete} />
+        </ReactionBar>
+      </div>
     </div>
   );
 }
@@ -945,7 +1100,7 @@ function ReplyComposer({
   const [draft, setDraft] = useState<MentionDraft>(emptyMentionDraft);
   return (
     <form
-      className="mt-3 flex gap-2"
+      className="mt-1 flex gap-2"
       onSubmit={(e) => {
         e.preventDefault();
         if (!draft.body.trim() || pending) return;
@@ -961,19 +1116,29 @@ function ReplyComposer({
       }}
     >
       <MentionTextarea
+        autoFocus
         rows={1}
         draft={draft}
         onChange={setDraft}
         placeholder="Reply…"
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.form?.requestSubmit();
+          }
+        }}
         className="min-h-9 text-sm"
       />
       <Button
-        size="sm"
+        size="icon"
         type="submit"
+        aria-label="Post reply"
         disabled={!draft.body.trim() || pending}
+        title="Post reply (⌘Enter / Ctrl+Enter)"
+        aria-keyshortcuts="Meta+Enter Control+Enter"
         className="shrink-0"
       >
-        Reply
+        <Send className="h-4 w-4" />
       </Button>
     </form>
   );
@@ -1006,11 +1171,12 @@ function DeleteCommentButton({
         <Button
           variant="ghost"
           size="icon"
-          className={`h-7 w-7 shrink-0 ${className}`}
+          className={`shrink-0 text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-950/40 ${className}`}
           aria-label="Delete comment"
+          title="Delete comment"
           onClick={(e) => e.stopPropagation()}
         >
-          <Trash2 className="h-3.5 w-3.5" />
+          <Trash2 className="h-4 w-4" />
         </Button>
       </AlertDialogTrigger>
       <AlertDialogContent onClick={(e) => e.stopPropagation()}>
@@ -1027,5 +1193,32 @@ function DeleteCommentButton({
         </AlertDialogFooter>
       </AlertDialogContent>
     </AlertDialog>
+  );
+}
+
+function CopyCommentLink({ docId, commentId }: { docId: string; commentId: string }) {
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      type="button"
+      aria-label="Copy comment link"
+      title="Copy comment link"
+      className="shrink-0 text-[var(--color-fg-muted)]"
+      onClick={(event) => {
+        event.stopPropagation();
+        const url = new URL(
+          `/app/d/${encodeURIComponent(docId)}`,
+          window.location.origin,
+        );
+        url.searchParams.set("comment", commentId);
+        void navigator.clipboard.writeText(url.toString()).then(
+          () => toast.success("Comment link copied."),
+          () => toast.error("Could not copy the comment link."),
+        );
+      }}
+    >
+      <Link2 className="h-4 w-4" />
+    </Button>
   );
 }

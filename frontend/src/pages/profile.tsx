@@ -1,3 +1,4 @@
+import { NotificationToggle } from "@/components/notification-toggle";
 import { useNavigate } from "react-router-dom";
 import { useTitle } from "@/lib/use-title";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -57,6 +58,11 @@ export function ProfilePage() {
         <h1 className="text-2xl font-semibold tracking-tight">Profile</h1>
       </div>
       <div className="space-y-4">
+        <Card>
+          <CardContent className="pt-5">
+            <NotificationToggle />
+          </CardContent>
+        </Card>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2 text-sm">

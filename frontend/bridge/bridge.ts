@@ -1,3 +1,6 @@
+import { textLinkAnchor } from "./text-link.ts";
+import { renderedTextFromRange } from "./anchoring/rendered-text.ts";
+import { snapshotForPrint } from "./document-export.ts";
 import type { RenderedTextWithBrPositions } from "./anchoring/rendered-text.ts";
 import { renderedTextOf } from "./anchoring/rendered-text.ts";
 import { describeAnchor, resolveAnchor } from "./anchoring/index.ts";
@@ -60,6 +63,8 @@ type GitHubFunction = (input: {
 type GitHubConnectFunction = () => void;
 
 interface AidocsPublicAPI {
+  print?: () => void;
+  download?: (input: { blob: Blob; filename: string }) => Promise<void>;
   kv?: Record<string, KVFunction>;
   github?: {
     getRawContent: GitHubFunction;
@@ -458,6 +463,45 @@ type Theme = "dark" | "light";
     });
   }
 
+  let printPreparing = false;
+  const exportPending = new Map<string, { resolve: () => void; reject: () => void }>();
+  let exportID = 0;
+  function requestPrint(): void {
+    parent.postMessage({ type: "aidocs:print-request" }, targetOrigin());
+  }
+  function requestDownload(input: { blob: Blob; filename: string }): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const requestId = `export-${++exportID}`;
+      const timer = setTimeout(() => {
+        exportPending.delete(requestId);
+        reject(new Error("Download request timed out."));
+      }, 5000);
+      exportPending.set(requestId, {
+        resolve: () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        reject: () => {
+          clearTimeout(timer);
+          reject(
+            new Error(
+              "Download needs a click, a valid filename, and a file no larger than 20 MB. Please try again.",
+            ),
+          );
+        },
+      });
+      parent.postMessage(
+        {
+          type: "aidocs:download-request",
+          requestId,
+          blob: input.blob,
+          filename: input.filename,
+        },
+        targetOrigin(),
+      );
+    });
+  }
+
   function installAidocsAPI(): void {
     const w = innerWindow();
     if (!w) return;
@@ -503,6 +547,9 @@ type Theme = "dark" | "light";
         return kvRedo();
       },
     };
+    existing.print = requestPrint;
+    existing.download = requestDownload;
+    w.print = requestPrint;
     existing.kv = kv;
     existing.github = {
       getRawContent: githubRawContent,
@@ -893,6 +940,7 @@ type Theme = "dark" | "light";
     if (mutationObserver) mutationObserver.disconnect();
     mutationObserver = new MutationObserver(() => {
       prepareHeadings(d);
+      scheduleTextNavigation();
       scheduleMutationScan();
       scheduleCommentPositions();
     });
@@ -1039,7 +1087,7 @@ type Theme = "dark" | "light";
           d.defaultView!.history.replaceState(null, "", href);
         } catch (err) {}
         parent.postMessage(
-          { type: "aidocs:heading", id: decodeURIComponent(href.slice(1)) },
+          { type: "aidocs:heading", id: t.id || href.slice(1) },
           targetOrigin(),
         );
       }
@@ -1114,11 +1162,79 @@ type Theme = "dark" | "light";
     return range.collapsed ? null : range;
   }
 
+  function labelIcon(button: HTMLButtonElement, label: string): void {
+    button.dataset.aidocsTooltip = label;
+    const align = () => {
+      const rect = button.getBoundingClientRect();
+      const width = button.ownerDocument.defaultView!.innerWidth;
+      button.style.setProperty("--aidocs-tip-enter-y", rect.top < 48 ? "-3px" : "3px");
+      button.style.setProperty(
+        "--aidocs-tip-top",
+        rect.top < 48 ? "calc(100% + 6px)" : "auto",
+      );
+      button.style.setProperty(
+        "--aidocs-tip-bottom",
+        rect.top < 48 ? "auto" : "calc(100% + 6px)",
+      );
+      button.style.setProperty(
+        "--aidocs-tip-left",
+        rect.left < 120 ? "0%" : rect.right > width - 120 ? "100%" : "50%",
+      );
+      button.style.setProperty(
+        "--aidocs-tip-shift",
+        rect.left < 120 ? "0%" : rect.right > width - 120 ? "-100%" : "-50%",
+      );
+    };
+    button.addEventListener("pointerenter", align);
+    button.addEventListener("focus", align);
+    const d = button.ownerDocument;
+    if (!d.getElementById("aidocs-icon-tooltip-style")) {
+      const style = d.createElement("style");
+      style.id = "aidocs-icon-tooltip-style";
+      style.textContent = `
+        [data-aidocs-tooltip]::after{all:initial!important;content:attr(data-aidocs-tooltip)!important;position:absolute!important;z-index:2147483647!important;top:var(--aidocs-tip-top,auto)!important;bottom:var(--aidocs-tip-bottom,calc(100% + 6px))!important;left:var(--aidocs-tip-left,50%)!important;transform:translate(var(--aidocs-tip-shift,-50%),var(--aidocs-tip-enter-y,3px))!important;width:max-content!important;max-width:min(220px,calc(100vw - 16px))!important;box-sizing:border-box!important;padding:6px 10px!important;border-radius:6px!important;background:#18181b!important;color:#fff!important;font:500 12px/1.4 system-ui,sans-serif!important;white-space:normal!important;text-align:center!important;box-shadow:0 2px 8px #0003!important;pointer-events:none!important;visibility:hidden!important;opacity:0!important;transition:opacity .1s ease-out,transform .14s ease-out,visibility 0s linear .1s!important}
+        [data-aidocs-tooltip]:hover::after,[data-aidocs-tooltip]:focus-visible::after{visibility:visible!important;opacity:1!important;transform:translate(var(--aidocs-tip-shift,-50%),0)!important;transition:opacity .14s ease-out .5s,transform .14s ease-out .5s,visibility 0s linear .5s!important}
+        [data-aidocs-tooltip]:focus-visible::after{transition-delay:0s!important}
+        @media(prefers-reduced-motion:reduce){[data-aidocs-tooltip]::after{transition-duration:0s!important;transform:translateX(var(--aidocs-tip-shift,-50%))!important}}
+        @media print{[data-aidocs-tooltip]::after{display:none!important}}`;
+      d.head.appendChild(style);
+    }
+  }
+
+  let selectionAction: HTMLDivElement | null = null;
+  let actionRange: Range | null = null;
+  let selectionDismissed = false;
+
+  function dismissSelectionAction(): void {
+    selectionAction?.remove();
+    selectionAction = null;
+    selectionDismissed = true;
+  }
+
+  function commitSelection(range: Range): void {
+    const d = doc();
+    if (!d?.body) return;
+    const anchor = describeAnchor(d.body, range);
+    if (!anchor) return;
+    const rect = range.getBoundingClientRect();
+    const scrollTop = d.defaultView?.scrollY || d.documentElement.scrollTop || 0;
+    dismissSelectionAction();
+    parent.postMessage(
+      { type: "aidocs:selection", anchor, top: rect.top + scrollTop },
+      targetOrigin(),
+    );
+  }
+
   function selection(): void {
     const d = doc();
     if (!d || !d.body) return;
     const range = selectedRange(d.getSelection());
-    if (!range) return;
+    if (!range || isTextEditingTarget(d.activeElement)) {
+      dismissSelectionAction();
+      actionRange = null;
+      return;
+    }
+    if (selectionGestureActive) return;
     // A selection this bridge just restored after a repaint is not a new
     // user gesture: re-emitting it would re-open the comment composer.
     if (restoredSelection && Date.now() < restoredSelectionExpiry) {
@@ -1134,17 +1250,94 @@ type Theme = "dark" | "light";
       }
     }
     restoredSelection = null;
-    const anchor = describeAnchor(d.body, range);
-    if (!anchor) return;
+    let unchanged = false;
+    try {
+      unchanged =
+        !!actionRange &&
+        range.compareBoundaryPoints(Range.START_TO_START, actionRange) === 0 &&
+        range.compareBoundaryPoints(Range.END_TO_END, actionRange) === 0;
+    } catch {
+      /* The document replaced the previously selected nodes. */
+    }
+    if (!unchanged) selectionDismissed = false;
+    actionRange = range.cloneRange();
+    if (selectionDismissed) return;
+    if (!selectionAction?.isConnected) {
+      selectionAction = d.createElement("div");
+      selectionAction.className = "aidocs-selection-action";
+      selectionAction.setAttribute("role", "group");
+      selectionAction.setAttribute("aria-label", "Selected text actions");
+      selectionAction.addEventListener("mousedown", (e) => e.preventDefault());
+      selectionAction.addEventListener("click", (e) => e.stopPropagation());
+      const addAction = (
+        label: string,
+        title: string,
+        path: string,
+        click: () => void,
+      ) => {
+        const button = d.createElement("button");
+        button.type = "button";
+        button.setAttribute("aria-label", label);
+        labelIcon(button, title);
+        const svg = d.createElementNS("http://www.w3.org/2000/svg", "svg");
+        svg.setAttribute("viewBox", "0 0 24 24");
+        svg.setAttribute("aria-hidden", "true");
+        const shape = d.createElementNS("http://www.w3.org/2000/svg", "path");
+        shape.setAttribute("d", path);
+        svg.appendChild(shape);
+        button.appendChild(svg);
+        button.addEventListener("click", click);
+        selectionAction!.appendChild(button);
+        return button;
+      };
+      addAction(
+        "Comment on selected text",
+        "Comment (⌘⌥M / Ctrl+Alt+M)",
+        "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9H13a8.48 8.48 0 0 1 8 8v.5Z",
+        () => {
+          if (actionRange) commitSelection(actionRange);
+        },
+      );
+      addAction(
+        "Copy link to selected text",
+        "Copy link to text",
+        "M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71",
+        () => {
+          if (!actionRange) return;
+          const anchor = describeAnchor(d.body, actionRange);
+          parent.postMessage({ type: "aidocs:copy-text", anchor }, targetOrigin());
+        },
+      );
+      if (!d.getElementById("aidocs-selection-style")) {
+        const style = d.createElement("style");
+        style.id = "aidocs-selection-style";
+        style.textContent = `
+          .aidocs-selection-action{all:initial!important;position:fixed!important;z-index:2147483647!important;display:flex!important;padding:2px!important;border-radius:10px!important;background:#fff!important;color:#52525b!important;box-shadow:0 0 0 1px #0001,0 4px 16px #0002!important}
+          .aidocs-selection-action button{all:initial!important;position:relative!important;box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;width:40px!important;height:40px!important;border-radius:8px!important;color:inherit!important;cursor:pointer!important;transition:background-color .15s,transform .15s!important}
+          .aidocs-selection-action button:hover{background:#f4f4f5!important;color:#18181b!important}
+          .aidocs-selection-action button:active{transform:scale(.96)!important}
+          .aidocs-selection-action button:focus-visible{outline:2px solid #6366f1!important;outline-offset:-2px!important}
+          .aidocs-selection-action svg{all:initial!important;color:inherit!important;width:17px!important;height:17px!important;fill:none!important;stroke:currentColor!important;stroke-width:1.8!important;stroke-linecap:round!important;stroke-linejoin:round!important;pointer-events:none!important}
+          .aidocs-selection-action path{fill:none!important;stroke:inherit!important;stroke-width:inherit!important}
+          [data-aidocs-theme=dark] .aidocs-selection-action{background:#27272a!important;color:#d4d4d8!important;box-shadow:0 0 0 1px #fff2,0 4px 16px #0004!important}
+          [data-aidocs-theme=dark] .aidocs-selection-action button:hover{background:#3f3f46!important;color:#fff!important}
+          @media(prefers-reduced-motion:reduce){.aidocs-selection-action button{transition:none!important}}
+          @media print{.aidocs-selection-action,.aidocs-text-flash{display:none!important}}`;
+        d.head.appendChild(style);
+      }
+      d.body.appendChild(selectionAction);
+    }
     const rect = range.getBoundingClientRect();
-    const scrollTop = d.defaultView?.scrollY || d.documentElement.scrollTop || 0;
-    parent.postMessage(
-      {
-        type: "aidocs:selection",
-        anchor,
-        top: Number.isFinite(rect.top) ? rect.top + scrollTop : undefined,
-      },
-      targetOrigin(),
+    const view = d.defaultView!;
+    selectionAction.style.setProperty(
+      "left",
+      `${Math.max(8, Math.min(rect.right - 84, view.innerWidth - 92))}px`,
+      "important",
+    );
+    selectionAction.style.setProperty(
+      "top",
+      `${Math.max(8, rect.bottom + 8 + 44 < view.innerHeight ? rect.bottom + 8 : rect.top - 52)}px`,
+      "important",
     );
   }
 
@@ -1199,33 +1392,191 @@ type Theme = "dark" | "light";
   curTheme = initialTheme();
   let setupDoc: Document | null = null;
 
+  let pendingHeading = "";
+  let headingFlash: Animation | undefined;
   function prepareHeadings(d: Document): void {
-    const used: Record<string, number> = {};
+    const used = new Set(Array.from(d.querySelectorAll("[id]")).map((el) => el.id));
+    if (!d.getElementById("aidocs-heading-link-style")) {
+      const style = d.createElement("style");
+      style.id = "aidocs-heading-link-style";
+      style.textContent = `.aidocs-heading-link{position:relative!important;display:inline-flex!important;vertical-align:middle;width:40px;height:40px;margin:0 0 0 4px;padding:0;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font:20px sans-serif;opacity:0;cursor:pointer;transition:opacity .15s}.aidocs-heading-link::before{content:"#"}h1:hover>.aidocs-heading-link,h2:hover>.aidocs-heading-link,h3:hover>.aidocs-heading-link,h4:hover>.aidocs-heading-link,h5:hover>.aidocs-heading-link,h6:hover>.aidocs-heading-link,.aidocs-heading-link:focus-visible{opacity:.65}.aidocs-heading-link:focus-visible{outline:2px solid currentColor}@media(pointer:coarse){.aidocs-heading-link{opacity:.5}}@media print{.aidocs-heading-link{display:none!important}}`;
+      d.head.appendChild(style);
+    }
     Array.from(d.querySelectorAll("h1,h2,h3,h4,h5,h6")).forEach((heading) => {
-      const base =
-        heading.id ||
-        (heading.textContent || "section")
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "") ||
-        "section";
-      const count = used[base] || 0;
-      used[base] = count + 1;
-      if (!heading.id) heading.id = count ? `${base}-${count + 1}` : base;
+      if (!heading.id) {
+        const base =
+          (heading.textContent || "section")
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") || "section";
+        let id = base;
+        for (let suffix = 2; used.has(id); suffix++) id = `${base}-${suffix}`;
+        heading.id = id;
+        used.add(id);
+      }
+      if (!heading.querySelector(":scope > .aidocs-heading-link")) {
+        const button = d.createElement("button");
+        button.type = "button";
+        button.className = "aidocs-heading-link";
+        button.setAttribute(
+          "aria-label",
+          `Copy link to ${heading.textContent?.trim() || "heading"}`,
+        );
+        labelIcon(button, "Copy link to heading");
+        button.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          parent.postMessage(
+            { type: "aidocs:copy-heading", id: heading.id },
+            targetOrigin(),
+          );
+        });
+        heading.appendChild(button);
+      }
     });
+    if (pendingHeading) navigateHeading(pendingHeading);
   }
 
   function navigateHeading(id: string): void {
+    pendingText = null;
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textNoticeTimer);
+    pendingHeading = id;
     const d = doc();
     if (!d || !id) return;
     const target = d.getElementById(id);
-    if (target) target.scrollIntoView({ block: "start" });
+    if (!target) return;
+    for (let el = target.parentElement; el; el = el.parentElement) {
+      if (el.tagName === "DETAILS") (el as HTMLDetailsElement).open = true;
+    }
+    if (!(target as HTMLElement).getClientRects().length) return;
+    pendingHeading = "";
+    target.scrollIntoView({ block: "start", behavior: "instant" });
+    headingFlash?.cancel();
+    const highlight = { backgroundColor: "rgba(129, 140, 248, 0.25)" };
+    const resting = {
+      backgroundColor: d.defaultView!.getComputedStyle(target).backgroundColor,
+    };
+    const reducedMotion = d.defaultView!.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    // A single arrival cue, with no layout changes or persistent author styles.
+    headingFlash = target.animate(
+      [highlight, { ...highlight, offset: 0.25 }, resting],
+      { duration: 1400, easing: reducedMotion ? "steps(1, end)" : "ease-out" },
+    );
   }
+  let textVisibilityObserver: MutationObserver | undefined;
+  function scheduleTextNavigation(): void {
+    if (pendingText && !textRetryTimer) {
+      textRetryTimer = setTimeout(() => {
+        textRetryTimer = undefined;
+        tryNavigateText();
+      }, 200);
+    }
+  }
+
+  let textFlashStarted = 0;
+  let pendingText: CommentAnchor | null = null;
+  let textRetryTimer: ReturnType<typeof setTimeout> | undefined;
+  let textNoticeTimer: ReturnType<typeof setTimeout> | undefined;
+
+  function navigateText(value: unknown): void {
+    pendingHeading = "";
+    pendingText = textLinkAnchor(value);
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textNoticeTimer);
+    doc()
+      ?.querySelectorAll(".aidocs-text-flash")
+      .forEach((el) => el.remove());
+    if (!pendingText) return;
+    tryNavigateText();
+    if (pendingText) {
+      // Attribute-only tab/panel reveals do not trigger the comment text observer.
+      textVisibilityObserver = new MutationObserver(scheduleTextNavigation);
+      const root = doc()?.documentElement;
+      if (root)
+        textVisibilityObserver.observe(root, {
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["hidden", "class", "style", "open"],
+        });
+      textNoticeTimer = setTimeout(() => {
+        if (pendingText)
+          parent.postMessage({ type: "aidocs:text-unavailable" }, targetOrigin());
+      }, 2000);
+    }
+  }
+
+  function tryNavigateText(): void {
+    const d = doc();
+    if (!pendingText || !d?.body) return;
+    // Deep links must target the quoted text, never an approximate replacement.
+    const rendered = renderedTextOf(d.body);
+    if (!rendered.text.includes(pendingText.quote!)) return;
+    const range = resolveAnchor(d.body, pendingText, () => rendered);
+    if (!range || renderedTextFromRange(range) !== pendingText.quote) return;
+    const start =
+      range.startContainer.nodeType === 1
+        ? (range.startContainer as Element)
+        : range.startContainer.parentElement;
+    for (let el = start; el; el = el.parentElement) {
+      if (el.tagName === "DETAILS") (el as HTMLDetailsElement).open = true;
+    }
+    if (!Array.from(range.getClientRects()).some((r) => r.width && r.height)) return;
+    pendingText = null;
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textNoticeTimer);
+    start?.scrollIntoView({ block: "center", behavior: "instant" });
+    const rect = range.getBoundingClientRect();
+    if (rect.top < 0 || rect.top > d.defaultView!.innerHeight - 40) {
+      d.defaultView!.scrollBy({
+        top: rect.top - d.defaultView!.innerHeight / 2,
+        behavior: "instant",
+      });
+    }
+    textFlashStarted = Date.now();
+    const reducedMotion = d.defaultView!.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    // Non-interactive overlays avoid splitting text nodes or disturbing comments.
+    Array.from(range.getClientRects())
+      .slice(0, 200)
+      .forEach((r) => {
+        if (!r.width || !r.height) return;
+        const flash = d.createElement("span");
+        flash.className = "aidocs-text-flash";
+        flash.setAttribute("aria-hidden", "true");
+        // Keep opacity animatable: an important `all` reset overrides animation values.
+        flash.style.cssText = `all:initial;position:fixed!important;pointer-events:none!important;z-index:2147483646!important;left:${r.left}px!important;top:${r.top}px!important;width:${r.width}px!important;height:${r.height}px!important;background:rgba(56,189,248,.32)!important;box-shadow:0 0 0 1px rgba(14,165,233,.65)!important;border-radius:3px!important`;
+        d.body.appendChild(flash);
+        const animation = flash.animate(
+          reducedMotion
+            ? [{ opacity: 1 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }]
+            : [
+                { opacity: 0.2 },
+                { opacity: 1, offset: 0.12 },
+                { opacity: 0.25, offset: 0.25 },
+                { opacity: 1, offset: 0.38 },
+                { opacity: 1, offset: 0.72 },
+                { opacity: 0 },
+              ],
+          { duration: 2200, easing: reducedMotion ? "steps(1, end)" : "ease-in-out" },
+        );
+        animation.onfinish = () => flash.remove();
+      });
+  }
+
   function setupFrame(): void {
     const d = doc();
     if (!d || !d.documentElement || !d.body || setupDoc === d) return;
     setupDoc = d;
+    pendingText = null;
+    textVisibilityObserver?.disconnect();
+    clearTimeout(textRetryTimer);
+    textRetryTimer = undefined;
+    clearTimeout(textNoticeTimer);
     // A freshly loaded document has no highlights; the parent repaints after
     // the ready signal below. Dropping the previous document's payload — and
     // any repaint already scheduled for it — keeps its comments from being
@@ -1244,6 +1595,20 @@ type Theme = "dark" | "light";
     resetKVHistory();
     injectStyles();
     installAidocsAPI();
+    dismissSelectionAction();
+    actionRange = null;
+    selectionDismissed = false;
+    d.defaultView?.addEventListener(
+      "scroll",
+      () => {
+        if (Date.now() - textFlashStarted > 100)
+          d.querySelectorAll(".aidocs-text-flash").forEach((el) => el.remove());
+      },
+      { passive: true },
+    );
+    d.defaultView?.addEventListener("scroll", dismissSelectionAction, {
+      passive: true,
+    });
     prepareHeadings(d);
     prepareLinks();
     applyTheme(curTheme);
@@ -1308,31 +1673,48 @@ type Theme = "dark" | "light";
     const runVimScroll = (action: VimScrollAction, repeat = false) => {
       const view = d.defaultView;
       if (!view) return;
+      const behavior = view.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "instant"
+        : "smooth";
       if (action === "line-down")
         view.scrollBy({
           top: vimLineScrollDistance(repeat),
-          behavior: repeat ? "instant" : "auto",
+          behavior,
         });
       else if (action === "line-up")
         view.scrollBy({
           top: -vimLineScrollDistance(repeat),
-          behavior: repeat ? "instant" : "auto",
+          behavior,
         });
       else if (action === "half-page-down")
-        view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior: "auto" });
+        view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior });
       else if (action === "half-page-up")
         view.scrollBy({
           top: -Math.max(160, view.innerHeight * 0.5),
-          behavior: "auto",
+          behavior,
         });
-      else if (action === "top") view.scrollTo({ top: 0, behavior: "auto" });
+      else if (action === "top") view.scrollTo({ top: 0, behavior });
       else
         view.scrollTo({
           top: d.documentElement.scrollHeight,
-          behavior: "auto",
+          behavior,
         });
     };
     d.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape") dismissSelectionAction();
+      if (
+        (ev.metaKey || ev.ctrlKey) &&
+        ev.altKey &&
+        ev.key.toLowerCase() === "m" &&
+        !isTextEditingTarget(ev.target)
+      ) {
+        const range = selectedRange(d.getSelection());
+        if (range) {
+          ev.preventDefault();
+          commitSelection(range);
+          return;
+        }
+      }
       const target = ev.target as Element | null;
       const textEditing = !!target?.closest?.(
         'input,textarea,select,[contenteditable="true"]',
@@ -1423,6 +1805,46 @@ type Theme = "dark" | "light";
   window.addEventListener("message", (e) => {
     if (!e.data) return;
     if (!isParentMessage(e)) return;
+    if (
+      e.data.type === "aidocs:print-snapshot" &&
+      typeof e.data.requestId === "string"
+    ) {
+      const d = doc();
+      if (!d || printPreparing) return;
+      printPreparing = true;
+      void snapshotForPrint(d)
+        .then((html) => {
+          parent.postMessage(
+            {
+              type: "aidocs:print-snapshot-result",
+              requestId: e.data.requestId,
+              html,
+              title: d.title,
+            },
+            targetOrigin(),
+          );
+        })
+        .catch(() => {
+          parent.postMessage(
+            { type: "aidocs:print-snapshot-result", requestId: e.data.requestId },
+            targetOrigin(),
+          );
+        });
+      return;
+    }
+    if (e.data.type === "aidocs:print-finished") {
+      printPreparing = false;
+      innerWindow()?.dispatchEvent(new Event("afterprint"));
+      innerWindow()?.dispatchEvent(new CustomEvent("aidocs:afterprint"));
+      return;
+    }
+    if (e.data.type === "aidocs:export-response") {
+      const pending = exportPending.get(e.data.requestId);
+      exportPending.delete(e.data.requestId);
+      if (e.data.ok === true) pending?.resolve();
+      else pending?.reject();
+      return;
+    }
     if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
     else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
     else if (e.data.type === "aidocs:kv-response") {
@@ -1445,6 +1867,8 @@ type Theme = "dark" | "light";
         pending.reject(
           new Error((e.data.error && e.data.error.message) || "GitHub request failed"),
         );
+    } else if (e.data.type === "aidocs:navigate-text") {
+      navigateText(e.data.anchor);
     } else if (e.data.type === "aidocs:navigate-heading") {
       navigateHeading(String(e.data.id || ""));
     } else if (e.data.type === "aidocs:request-comment-positions") {

@@ -83,6 +83,8 @@ export type CommentReaction = {
   emoji: string;
   count: number;
   reacted: boolean;
+  // Optional when reading from a server that predates reactor identities.
+  reactors?: Principal[];
 };
 export type Comment = {
   id: string;
@@ -244,7 +246,20 @@ function mentionPayload(mentions: CommentMention[]) {
   }));
 }
 
+export type NotificationPreferences = { enabled: boolean; effective_enabled: boolean };
+const notificationPath = (docId?: string) =>
+  docId
+    ? `/v1/documents/${encodeURIComponent(docId)}/notifications`
+    : "/v1/me/notifications";
+
 export const api = {
+  notificationPreferences: (docId?: string) =>
+    request<NotificationPreferences>(notificationPath(docId)),
+  setNotificationPreferences: (enabled: boolean, docId?: string) =>
+    request<NotificationPreferences>(notificationPath(docId), {
+      method: "PUT",
+      body: JSON.stringify({ enabled }),
+    }),
   me: () =>
     request<{
       principal: Principal;

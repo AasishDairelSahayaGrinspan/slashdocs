@@ -279,6 +279,8 @@ export function FolderPage() {
               variant="outline"
               size="md"
               onClick={() => setNewFolderOpen(true)}
+              aria-label="New folder"
+              tooltip="New folder"
               className="shrink-0 px-3 sm:px-4"
             >
               <Plus className="h-3.5 w-3.5 sm:mr-1.5" />
@@ -286,7 +288,13 @@ export function FolderPage() {
             </Button>
             <Sheet>
               <SheetTrigger asChild>
-                <Button variant="outline" size="sm" className="shrink-0 px-2.5 sm:px-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  aria-label="Share folder"
+                  tooltip="Share folder"
+                  className="shrink-0 px-2.5 sm:px-3"
+                >
                   <Share2 className="h-3.5 w-3.5 sm:mr-1.5" />
                   <span className="hidden sm:inline">Share</span>
                 </Button>
@@ -300,7 +308,7 @@ export function FolderPage() {
             </Sheet>
             <Dropdown>
               <DropdownTrigger asChild>
-                <Button variant="ghost" size="icon">
+                <Button variant="ghost" size="icon" aria-label="More folder actions">
                   <MoreHorizontal className="h-4 w-4" />
                 </Button>
               </DropdownTrigger>

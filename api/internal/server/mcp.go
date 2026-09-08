@@ -23,11 +23,11 @@ import (
 	"github.com/razorpay/aidocs/api/internal/auth"
 )
 
-// JSON string escaping can expand a valid 10 MiB HTML document by up to 6x
+// JSON string escaping can expand a valid HTML document by up to 6x
 // before the MCP envelope reaches the server (for example, for control bytes
 // or clients that escape HTML characters). Keep enough authenticated
 // transport headroom to preserve parity with the REST and CLI HTML limit.
-const maxMCPRequestBytes int64 = 64 << 20
+const maxMCPRequestBytes int64 = maxHTMLBytes*6 + (1 << 20)
 
 type mcpPrincipalContextKey struct{}
 

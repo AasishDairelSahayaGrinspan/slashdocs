@@ -1,6 +1,7 @@
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
+import { Tooltip } from "./tooltip";
 import { cn } from "@/lib/cn";
 
 export const Dialog = DialogPrimitive.Root;
@@ -23,9 +24,14 @@ export function DialogContent({
         {...p}
       >
         {children}
-        <DialogPrimitive.Close className="absolute right-4 top-4 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md p-1 text-[var(--color-fg-muted)] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]">
-          <X className="h-4 w-4" />
-        </DialogPrimitive.Close>
+        <Tooltip label="Close dialog">
+          <DialogPrimitive.Close
+            aria-label="Close dialog"
+            className="absolute right-4 top-4 inline-flex min-h-10 min-w-10 items-center justify-center rounded-md p-1 text-[var(--color-fg-muted)] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+          >
+            <X className="h-4 w-4" />
+          </DialogPrimitive.Close>
+        </Tooltip>
       </DialogPrimitive.Content>
     </DialogPrimitive.Portal>
   );

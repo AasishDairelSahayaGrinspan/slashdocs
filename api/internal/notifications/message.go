@@ -1,0 +1,91 @@
+package notifications
+
+import (
+	"regexp"
+	"strings"
+)
+
+// Mask recognizable sensitive fields before truncating, including in fallback
+// text used by screen readers and push notifications. This is not a DLP scanner.
+var sensitiveField = regexp.MustCompile(`(?i)\b(otp|one[ -]time (?:password|code)|verification code|password|api[ _-]?key|access[ _-]?token|cvv|cvc)\b(\s*[:=]\s*)([^\s,;]+)`)
+var oneTimeCode = regexp.MustCompile(`(?i)\b(otp|one[ -]time (?:password|code)|verification code)(\s+(?:is\s+)?)([0-9]{4,10})\b`)
+var cardNumber = regexp.MustCompile(`\b(?:[0-9][ -]?){12,18}[0-9]\b`)
+
+func notificationPreview(text string, limit int) string {
+	text = sensitiveField.ReplaceAllString(text, "$1$2[redacted]")
+	text = oneTimeCode.ReplaceAllString(text, "$1$2[redacted]")
+	text = cardNumber.ReplaceAllStringFunc(text, func(value string) string {
+		digits := strings.NewReplacer(" ", "", "-", "").Replace(value)
+		sum := 0
+		for i := len(digits) - 1; i >= 0; i-- {
+			n := int(digits[i] - '0')
+			if (len(digits)-1-i)%2 == 1 {
+				n *= 2
+				if n > 9 {
+					n -= 9
+				}
+			}
+			sum += n
+		}
+		if sum > 0 && sum%10 == 0 {
+			return "[redacted card number]"
+		}
+		return value
+	})
+	chars := []rune(strings.TrimSpace(text))
+	if len(chars) > limit {
+		return string(chars[:limit-1]) + "…"
+	}
+	return string(chars)
+}
+
+func slackMessage(channel string, message Message) map[string]any {
+	title := notificationPreview(message.DocumentTitle, 150)
+	if title == "" {
+		title = "Untitled document"
+	}
+	highlight := notificationPreview(message.Highlight, 600)
+	body := notificationPreview(message.Body, 2200)
+	activity := "💬 Someone commented on your doc"
+	if message.Reply {
+		activity = "💬 Someone replied to a comment on your doc"
+	}
+	if message.Reason == "mention" {
+		activity = "🔔 Someone mentioned you in a comment"
+	}
+	text := func(value string) map[string]any {
+		return map[string]any{"type": "text", "text": value}
+	}
+	bold := func(value string) map[string]any {
+		return map[string]any{"type": "text", "text": value, "style": map[string]bool{"bold": true}}
+	}
+	// Structured rich text gives the highlight a real quote rail while keeping
+	// user content literal: angle brackets and @tags cannot become Slack mentions.
+	elements := []any{
+		map[string]any{"type": "rich_text_section", "elements": []any{
+			text("Document: "), map[string]any{"type": "link", "url": message.Link, "text": title, "style": map[string]bool{"bold": true}}, text("\n\n"),
+		}},
+	}
+	fallback := []string{activity, "Document: " + title}
+	if highlight != "" {
+		elements = append(elements, map[string]any{"type": "rich_text_quote", "elements": []any{map[string]any{"type": "text", "text": highlight, "style": map[string]bool{"italic": true}}}})
+		fallback = append(fallback, "> "+strings.ReplaceAll(highlight, "\n", "\n> "))
+	}
+	elements = append(elements, map[string]any{"type": "rich_text_section", "elements": []any{text("\n" + body)}})
+	blocks := []any{
+		map[string]any{"type": "rich_text", "elements": []any{
+			map[string]any{"type": "rich_text_section", "elements": []any{bold(activity)}},
+		}},
+		map[string]any{"type": "rich_text", "elements": elements},
+		map[string]any{"type": "actions", "elements": []any{
+			map[string]any{"type": "button", "text": map[string]any{"type": "plain_text", "text": "View comment", "emoji": false}, "url": message.Link, "style": "primary"},
+		}},
+	}
+	fallback = append(fallback, body, message.Link)
+	return map[string]any{
+		"channel": channel, "text": strings.Join(fallback, "\n\n"),
+		"blocks": blocks,
+		"mrkdwn": false, "parse": "none", "link_names": false,
+		"unfurl_links": false, "unfurl_media": false,
+	}
+}

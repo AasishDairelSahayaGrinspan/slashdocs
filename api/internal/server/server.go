@@ -15,6 +15,7 @@ import (
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
+	"github.com/razorpay/aidocs/api/internal/notifications"
 	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
@@ -47,7 +48,10 @@ type Config struct {
 }
 
 // Server wraps the gin engine.
-type Server struct{ engine *gin.Engine }
+type Server struct {
+	engine             *gin.Engine
+	notificationWorker *notifications.Worker
+}
 
 type readinessCheck struct {
 	name string
@@ -55,27 +59,28 @@ type readinessCheck struct {
 }
 
 type dependencies struct {
-	authenticator        auth.Authenticator
-	repository           repo.Repository
-	stateStore           auth.LoginStateStore
-	oidc                 auth.OIDC
-	oidcProviderName     string
-	sessionSecret        string
-	appOrigin            string
-	renderOrigin         string
-	allowedOAuthDomains  []string
-	deployment           string
-	orgName              string
-	defaultDocPermission repo.Role
-	readinessChecks      []readinessCheck
-	documentKVEvents     kvevents.Subscriber
-	githubOAuth          *oauth2.Config
-	githubHTTPClient     *http.Client
-	googleGroupsEnabled  bool
-	googleGroupDirectory googlegroups.GoogleGroupDirectory
-	googleGroupResolver  *googlegroups.Resolver
-	labelsEnabled        bool
-	searchTagsEnabled    bool
+	commentNotificationSender notifications.Sender
+	authenticator             auth.Authenticator
+	repository                repo.Repository
+	stateStore                auth.LoginStateStore
+	oidc                      auth.OIDC
+	oidcProviderName          string
+	sessionSecret             string
+	appOrigin                 string
+	renderOrigin              string
+	allowedOAuthDomains       []string
+	deployment                string
+	orgName                   string
+	defaultDocPermission      repo.Role
+	readinessChecks           []readinessCheck
+	documentKVEvents          kvevents.Subscriber
+	githubOAuth               *oauth2.Config
+	githubHTTPClient          *http.Client
+	googleGroupsEnabled       bool
+	googleGroupDirectory      googlegroups.GoogleGroupDirectory
+	googleGroupResolver       *googlegroups.Resolver
+	labelsEnabled             bool
+	searchTagsEnabled         bool
 }
 
 // Option configures the Server.
@@ -83,6 +88,16 @@ type Option func(*dependencies)
 
 func WithAuthenticator(a auth.Authenticator) Option {
 	return func(d *dependencies) { d.authenticator = a }
+}
+
+func WithCommentNotificationSender(sender notifications.Sender) Option {
+	return func(d *dependencies) { d.commentNotificationSender = sender }
+}
+
+func (s *Server) RunCommentNotifications(ctx context.Context) {
+	if s.notificationWorker != nil {
+		s.notificationWorker.Run(ctx)
+	}
 }
 
 func WithRepository(r repo.Repository) Option { return func(d *dependencies) { d.repository = r } }
@@ -176,6 +191,16 @@ func New(cfg Config, opts ...Option) *Server {
 	r.Use(recoveryMiddleware())
 	r.Use(prometheusMiddleware())
 	s := &Server{engine: r}
+	if deps.commentNotificationSender != nil {
+		store, ok := deps.repository.(notifications.Store)
+		if !ok {
+			panic("notification sender requires an outbox store")
+		}
+		s.notificationWorker = &notifications.Worker{Store: store, Sender: deps.commentNotificationSender, AppOrigin: deps.appOrigin}
+		if deps.googleGroupResolver != nil {
+			s.notificationWorker.ResolvePrincipal = deps.googleGroupResolver.Resolve
+		}
+	}
 	s.routes(deps)
 	return s
 }
@@ -261,6 +286,13 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/github/raw", h.githubRawContent)
 	authed.POST("/documents/:id/comments", h.createComment)
 	authed.GET("/documents/:id/comments", h.listComments)
+	activityLimit := activityRateLimit()
+	authed.GET("/me/notifications", activityLimit, h.notificationPreferences)
+	authed.PUT("/me/notifications", activityLimit, h.setNotificationPreferences)
+	authed.GET("/documents/:id/notifications", activityLimit, h.documentNotificationPreferences)
+	authed.GET("/documents/:id/headings", activityLimit, h.documentHeadings)
+	authed.GET("/documents/:id/link", activityLimit, h.documentLink)
+	authed.PUT("/documents/:id/notifications", activityLimit, h.setDocumentNotificationPreferences)
 	authed.GET("/documents/:id/kv", h.listDocumentKV)
 	authed.GET("/documents/:id/kv/events", h.streamDocumentKVEvents)
 	authed.PATCH("/documents/:id/kv", h.patchDocumentKV)
@@ -408,7 +440,7 @@ func current(c *gin.Context) *auth.Principal {
 
 var errPayloadTooLarge = errors.New("payload too large")
 
-const maxHTMLBytes = 10 * 1024 * 1024
+const maxHTMLBytes = 50 * 1024 * 1024
 
 func readMultipartFile(c *gin.Context, field string) ([]byte, error) {
 	f, err := c.FormFile(field)

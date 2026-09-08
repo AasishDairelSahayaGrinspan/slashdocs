@@ -19,7 +19,8 @@ import {
 } from "./doc-context";
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
-import { CommentRail, Comments } from "./doc-comments";
+import { Comments } from "./doc-comments";
+import { DEFAULT_COMMENT_FILTER, type CommentFilter } from "@/lib/constants";
 import { Keycast } from "./doc-keycast";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
@@ -86,6 +87,8 @@ export function DocumentPage() {
     enabled: !!id && !doc.error,
     meta: { suppressGlobalError: true },
   });
+  const [commentFilter, setCommentFilter] =
+    useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
   const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
   const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
@@ -98,6 +101,13 @@ export function DocumentPage() {
     scrollTop: 0,
     scrollHeight: 1,
   });
+  const documentPrinterRef = useRef<(() => void) | null>(null);
+  const registerDocumentPrinter = useCallback((print: (() => void) | null) => {
+    documentPrinterRef.current = print;
+  }, []);
+  const printDocument = useCallback(() => {
+    documentPrinterRef.current?.();
+  }, []);
   const documentScrollerRef = useRef<((top: number) => void) | null>(null);
   const registerDocumentScroller = useCallback(
     (scroller: ((top: number) => void) | null) => {
@@ -138,7 +148,29 @@ export function DocumentPage() {
     },
     [fullscreen, isMobile],
   );
-  const handleRenderedDocumentClick = useCallback(() => setShareOpen(false), []);
+  const linkedComment = searchParams.get("comment");
+  const handledCommentLink = useRef("");
+  useEffect(() => {
+    if (!linkedComment) {
+      handledCommentLink.current = "";
+      return;
+    }
+    if (!comments.data?.items) return;
+    const key = `${id}:${linkedComment}`;
+    if (handledCommentLink.current === key) return;
+    const root = comments.data.items.find(
+      (c) => c.id === linkedComment || c.replies?.some((r) => r.id === linkedComment),
+    );
+    if (!root) return;
+    handledCommentLink.current = key;
+    setCommentFilter("all");
+    handleDocCommentClick(root.id);
+  }, [id, linkedComment, comments.data, handleDocCommentClick]);
+
+  const handleRenderedDocumentClick = useCallback(() => {
+    setShareOpen(false);
+    setActiveComment(undefined);
+  }, []);
 
   // A text selection from the rendered doc should reveal the compose flow.
   useEffect(() => {
@@ -285,6 +317,7 @@ export function DocumentPage() {
   );
   const onBareEscape = useCallback(() => {
     if (fullscreen) exitFullscreen();
+    else setActiveComment(undefined);
   }, [fullscreen, exitFullscreen]);
   const chord = useEscChord({
     available: chordKeys,
@@ -297,6 +330,8 @@ export function DocumentPage() {
       docId: id,
       version: current,
       comments: comments.data?.items || [],
+      commentFilter,
+      setCommentFilter,
       commentsLoading: comments.isLoading,
       commentsError: !!comments.error,
       principal: me.data?.principal,
@@ -310,6 +345,8 @@ export function DocumentPage() {
       setCommentPositions,
       commentViewport,
       setCommentViewport,
+      registerDocumentPrinter,
+      printDocument,
       registerDocumentScroller,
       scrollDocumentTo,
       registerCommentRailSync,
@@ -321,6 +358,7 @@ export function DocumentPage() {
       id,
       current,
       comments.data,
+      commentFilter,
       comments.isLoading,
       comments.error,
       me.data,
@@ -330,6 +368,8 @@ export function DocumentPage() {
       commentPositions,
       commentViewport,
       setActiveComment,
+      registerDocumentPrinter,
+      printDocument,
       registerDocumentScroller,
       scrollDocumentTo,
       registerCommentRailSync,
@@ -411,6 +451,7 @@ export function DocumentPage() {
               docId={id}
               owner={doc.data.owner}
               principal={me.data?.principal}
+              accountUser={me.data?.user || me.data?.principal}
               parentFolder={doc.data.parent_folder}
               current={current}
               latest={latest}
@@ -429,7 +470,7 @@ export function DocumentPage() {
               <Keycast state={chord} available={chordKeys} label={chordLabel} />
             </section>
             <AnimatePresence initial={false}>
-              {commentsOpen && (
+              {commentsOpen && !isMobile && (
                 <motion.aside
                   key="comment-rail"
                   initial={{ width: 0, opacity: 0 }}
@@ -439,7 +480,7 @@ export function DocumentPage() {
                   className="relative hidden shrink-0 overflow-hidden bg-[var(--color-surface-muted)] md:block"
                 >
                   <div className="h-full w-[360px]">
-                    <CommentRail />
+                    <Comments />
                   </div>
                 </motion.aside>
               )}
@@ -456,7 +497,7 @@ export function DocumentPage() {
               <SheetHeader className="sr-only">
                 <SheetTitle>Comments</SheetTitle>
               </SheetHeader>
-              <Comments />
+              <Comments mobile />
             </SheetContent>
           </Sheet>
         </motion.div>

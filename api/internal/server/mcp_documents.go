@@ -67,7 +67,7 @@ func registerMCPDocumentCRUDTools(server *mcpserver.MCPServer, api mcpAPIAdapter
 	server.AddTool(mcp.NewTool("create_document", mutationOptions(false, false,
 		mcp.WithDescription("Create an aidocs document from complete self-contained HTML. Returns its document and initial version IDs. The server applies its configured default sharing at create; when a default grant was applied, the result carries default_grant (grant_id, principal, role) plus a warning describing who can access the document and how to revoke the grant."),
 		mcp.WithString("title", mcp.Required(), mcp.Description("Human-readable document title.")),
-		mcp.WithString("html", mcp.Required(), mcp.Description("Complete self-contained HTML, up to 10 MiB.")),
+		mcp.WithString("html", mcp.Required(), mcp.Description("Complete self-contained HTML, up to 50 MiB.")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		title, invalid := mcpRequired(request, "title")
 		if invalid != nil {
@@ -251,7 +251,7 @@ func registerMCPVersionTools(server *mcpserver.MCPServer, api mcpAPIAdapter) {
 		mcp.WithDescription("Publish complete HTML as a new document version using optimistic concurrency."),
 		mcpDocumentID(),
 		mcp.WithString("base_version_id", mcp.Required(), mcp.Description("Version on which these edits are based.")),
-		mcp.WithString("html", mcp.Required(), mcp.Description("Complete replacement HTML, up to 10 MiB.")),
+		mcp.WithString("html", mcp.Required(), mcp.Description("Complete replacement HTML, up to 50 MiB.")),
 		mcp.WithString("change_summary", mcp.Description("Short summary of the changes.")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		doc, invalid := mcpRequired(request, "document_id")

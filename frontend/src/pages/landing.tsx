@@ -12,6 +12,7 @@ import {
   Terminal as TerminalIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { CodeBlock } from "@/components/ui/misc";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 import { useFrontendSignedOut } from "@/lib/auth-state";
@@ -86,15 +87,17 @@ function Nav() {
           aidocs
         </Link>
         <nav className="flex items-center gap-2">
-          <a
-            href="https://github.com/razorpay/aidocs"
-            target="_blank"
-            rel="noreferrer"
-            aria-label="GitHub"
-            className="rounded-md p-2 text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
-          >
-            <GithubIcon />
-          </a>
+          <Tooltip label="GitHub">
+            <a
+              href="https://github.com/razorpay/aidocs"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="GitHub"
+              className="rounded-md p-2 text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
+            >
+              <GithubIcon />
+            </a>
+          </Tooltip>
           <Button asChild variant="ghost" size="sm">
             <a href="#install">Install</a>
           </Button>

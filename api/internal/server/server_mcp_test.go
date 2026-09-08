@@ -269,7 +269,7 @@ func TestMCPHTTPTransportSecurityAndMalformedInput(t *testing.T) {
 
 	t.Run("oversized body is rejected before the MCP library", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader("{}"))
-		req.ContentLength = (64 << 20) + 1
+		req.ContentLength = (301 << 20) + 1
 		req.Header.Set("Authorization", "Bearer "+token)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Accept", "application/json, text/event-stream")
