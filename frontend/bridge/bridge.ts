@@ -1498,6 +1498,9 @@ type Theme = "dark" | "light";
       });
     }
     textFlashStarted = Date.now();
+    const reducedMotion = d.defaultView!.matchMedia(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
     // Non-interactive overlays avoid splitting text nodes or disturbing comments.
     Array.from(range.getClientRects())
       .slice(0, 200)
@@ -1506,17 +1509,21 @@ type Theme = "dark" | "light";
         const flash = d.createElement("span");
         flash.className = "aidocs-text-flash";
         flash.setAttribute("aria-hidden", "true");
-        flash.style.cssText = `all:initial!important;position:fixed!important;pointer-events:none!important;z-index:2147483646!important;left:${r.left}px!important;top:${r.top}px!important;width:${r.width}px!important;height:${r.height}px!important;background:rgba(250,204,21,.35)!important;border-radius:3px!important`;
+        // Keep opacity animatable: an important `all` reset overrides animation values.
+        flash.style.cssText = `all:initial;position:fixed!important;pointer-events:none!important;z-index:2147483646!important;left:${r.left}px!important;top:${r.top}px!important;width:${r.width}px!important;height:${r.height}px!important;background:rgba(56,189,248,.32)!important;box-shadow:0 0 0 1px rgba(14,165,233,.65)!important;border-radius:3px!important`;
         d.body.appendChild(flash);
         const animation = flash.animate(
-          [{ opacity: 1 }, { opacity: 1, offset: 0.6 }, { opacity: 0 }],
-          {
-            duration: 1800,
-            easing: d.defaultView!.matchMedia("(prefers-reduced-motion: reduce)")
-              .matches
-              ? "steps(1, end)"
-              : "linear",
-          },
+          reducedMotion
+            ? [{ opacity: 1 }, { opacity: 1, offset: 0.85 }, { opacity: 0 }]
+            : [
+                { opacity: 0.2 },
+                { opacity: 1, offset: 0.12 },
+                { opacity: 0.25, offset: 0.25 },
+                { opacity: 1, offset: 0.38 },
+                { opacity: 1, offset: 0.72 },
+                { opacity: 0 },
+              ],
+          { duration: 2200, easing: reducedMotion ? "steps(1, end)" : "ease-in-out" },
         );
         animation.onfinish = () => flash.remove();
       });
