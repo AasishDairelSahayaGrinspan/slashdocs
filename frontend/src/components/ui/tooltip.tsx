@@ -16,15 +16,17 @@ export function TooltipProvider({ children }: { children: React.ReactNode }) {
 export function Tooltip({
   label,
   children,
+  delayDuration,
 }: {
-  label: string;
+  label: React.ReactNode;
   children: React.ReactElement<{ title?: string; disabled?: boolean }>;
+  delayDuration?: number;
 }) {
   const hasProvider = React.useContext(HasTooltipProvider);
   // Native titles otherwise appear on top of the custom tooltip after a delay.
   const child = React.cloneElement(children, { title: undefined });
   const content = (
-    <Primitive.Root>
+    <Primitive.Root delayDuration={delayDuration}>
       <Primitive.Trigger asChild>
         {children.props.disabled ? (
           <span className="inline-flex shrink-0">{child}</span>

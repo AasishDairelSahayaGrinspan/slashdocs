@@ -718,8 +718,10 @@ func commentReactionsByID(ctx context.Context, q *dbsqlc.Queries, commentIDs []s
 	for _, row := range rows {
 		byID[row.CommentID] = append(byID[row.CommentID], repo.CommentReaction{
 			Principal: auth.Principal{
-				Type: auth.PrincipalType(row.PrincipalType),
-				ID:   row.PrincipalID,
+				Type:  auth.PrincipalType(row.PrincipalType),
+				ID:    row.PrincipalID,
+				Name:  row.PrincipalName,
+				Email: row.PrincipalEmail,
 			},
 			Emoji: row.Emoji,
 		})

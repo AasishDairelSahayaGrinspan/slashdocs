@@ -252,6 +252,10 @@ definitions:
         type: string
       reacted:
         type: boolean
+      reactors:
+        items:
+          $ref: '#/definitions/server.principalResponse'
+        type: array
     type: object
   server.commentResponse:
     properties:

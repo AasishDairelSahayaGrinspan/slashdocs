@@ -83,6 +83,8 @@ export type CommentReaction = {
   emoji: string;
   count: number;
   reacted: boolean;
+  // Optional when reading from a server that predates reactor identities.
+  reactors?: Principal[];
 };
 export type Comment = {
   id: string;

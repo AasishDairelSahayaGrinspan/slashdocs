@@ -980,9 +980,8 @@ function CommentCard({
         </blockquote>
       )}
       <CommentBody text={c.body} mentions={c.mentions} />
-      <div className="mt-1 flex flex-wrap items-center justify-between gap-x-1">
-        <ReactionBar c={c} docId={docId} />
-        <div className="ml-auto flex items-center">
+      <div className="mt-1">
+        <ReactionBar c={c} docId={docId}>
           <Button
             variant="ghost"
             size="icon"
@@ -1029,7 +1028,7 @@ function CommentCard({
               <CheckCircle2 className="h-4 w-4" />
             )}
           </Button>
-        </div>
+        </ReactionBar>
       </div>
       {(c.replies || []).length > 0 && (
         <div className="mt-1 space-y-1 border-l border-[var(--color-border)] pl-3">
@@ -1081,12 +1080,11 @@ function ReplyItem({
         </div>
       ) : null}
       <CommentBody text={r.body} mentions={r.mentions} />
-      <div className="flex items-center justify-between">
-        <ReactionBar c={r} docId={docId} />
-        <div className="ml-auto flex items-center">
+      <div className="mt-1">
+        <ReactionBar c={r} docId={docId}>
           <CopyCommentLink docId={docId} commentId={r.id} />
           <DeleteCommentButton c={r} docId={docId} canDelete={canDelete} />
-        </div>
+        </ReactionBar>
       </div>
     </div>
   );

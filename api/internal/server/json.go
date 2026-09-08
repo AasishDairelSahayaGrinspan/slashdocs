@@ -77,9 +77,10 @@ type commentResponse struct {
 // whether the principal making the request is among the reactors, which is why
 // rendering a comment needs a viewer.
 type commentReactionResponse struct {
-	Emoji   string `json:"emoji"`
-	Count   int    `json:"count"`
-	Reacted bool   `json:"reacted"`
+	Emoji    string              `json:"emoji"`
+	Count    int                 `json:"count"`
+	Reacted  bool                `json:"reacted"`
+	Reactors []principalResponse `json:"reactors"`
 }
 
 func commentsJSON(items []repo.Comment, placementVersionID string, placementHTML []byte, viewer auth.Principal) []commentResponse {
@@ -215,6 +216,7 @@ func commentReactionsJSON(items []repo.CommentReaction, viewer auth.Principal) [
 			out = append(out, commentReactionResponse{Emoji: reaction.Emoji})
 		}
 		out[i].Count++
+		out[i].Reactors = append(out[i].Reactors, principalJSON(reaction.Principal))
 		// Compare type as well as id: principal ids are only unique within a
 		// principal type, so id alone would conflate a user with a service
 		// account that happens to share it.

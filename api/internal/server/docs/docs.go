@@ -2228,6 +2228,12 @@ const docTemplate = `{
                 },
                 "reacted": {
                     "type": "boolean"
+                },
+                "reactors": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/server.principalResponse"
+                    }
                 }
             }
         },
