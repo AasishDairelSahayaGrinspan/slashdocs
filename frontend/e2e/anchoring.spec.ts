@@ -130,7 +130,7 @@ test("re-anchors a comment on content rendered by script after load", async ({
     .filter({ hasText: "Anchor survives late rendering." });
   await expect(card).toBeVisible();
   await expect(
-    card.getByText("highlight not found", { exact: true }),
+    card.getByText("Highlight not currently visible", { exact: true }),
   ).not.toBeVisible();
 });
 
@@ -171,7 +171,7 @@ test("flags a comment whose text vanished from the new version", async ({
     .getByRole("button")
     .filter({ hasText: "This anchor is about to be orphaned." });
   await expect(card).toBeVisible();
-  await expect(card.getByText("highlight not found", { exact: true })).toBeVisible({
+  await expect(card.getByText("Highlight not currently visible", { exact: true })).toBeVisible({
     timeout: 20_000,
   });
   await expect(renderedDocument(page).locator("mark.aidocs-mark")).toHaveCount(0);
