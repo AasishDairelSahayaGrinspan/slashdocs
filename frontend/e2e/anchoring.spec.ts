@@ -38,6 +38,9 @@ async function postComment(
   body: string,
 ): Promise<CommentRecord> {
   const composer = page.getByPlaceholder("Add a comment…");
+  await renderedDocument(page)
+    .getByRole("button", { name: "Comment on selected text" })
+    .click();
   await expect(composer).toBeVisible();
   await composer.fill(body);
   const responsePromise = page.waitForResponse((response) => {
@@ -47,7 +50,7 @@ async function postComment(
       url.pathname === `/v1/documents/${documentID}/comments`
     );
   });
-  await page.getByRole("button", { name: "Comment ⌘↵" }).click();
+  await page.getByRole("button", { name: "Post comment" }).click();
   const response = await responsePromise;
   expect(response.ok()).toBeTruthy();
   return (await response.json()) as CommentRecord;
