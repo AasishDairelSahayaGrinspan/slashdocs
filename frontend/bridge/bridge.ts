@@ -1162,6 +1162,45 @@ type Theme = "dark" | "light";
     return range.collapsed ? null : range;
   }
 
+  function labelIcon(button: HTMLButtonElement, label: string): void {
+    button.dataset.aidocsTooltip = label;
+    const align = () => {
+      const rect = button.getBoundingClientRect();
+      const width = button.ownerDocument.defaultView!.innerWidth;
+      button.style.setProperty("--aidocs-tip-enter-y", rect.top < 48 ? "-3px" : "3px");
+      button.style.setProperty(
+        "--aidocs-tip-top",
+        rect.top < 48 ? "calc(100% + 6px)" : "auto",
+      );
+      button.style.setProperty(
+        "--aidocs-tip-bottom",
+        rect.top < 48 ? "auto" : "calc(100% + 6px)",
+      );
+      button.style.setProperty(
+        "--aidocs-tip-left",
+        rect.left < 120 ? "0%" : rect.right > width - 120 ? "100%" : "50%",
+      );
+      button.style.setProperty(
+        "--aidocs-tip-shift",
+        rect.left < 120 ? "0%" : rect.right > width - 120 ? "-100%" : "-50%",
+      );
+    };
+    button.addEventListener("pointerenter", align);
+    button.addEventListener("focus", align);
+    const d = button.ownerDocument;
+    if (!d.getElementById("aidocs-icon-tooltip-style")) {
+      const style = d.createElement("style");
+      style.id = "aidocs-icon-tooltip-style";
+      style.textContent = `
+        [data-aidocs-tooltip]::after{all:initial!important;content:attr(data-aidocs-tooltip)!important;position:absolute!important;z-index:2147483647!important;top:var(--aidocs-tip-top,auto)!important;bottom:var(--aidocs-tip-bottom,calc(100% + 6px))!important;left:var(--aidocs-tip-left,50%)!important;transform:translate(var(--aidocs-tip-shift,-50%),var(--aidocs-tip-enter-y,3px))!important;width:max-content!important;max-width:min(220px,calc(100vw - 16px))!important;box-sizing:border-box!important;padding:6px 10px!important;border-radius:6px!important;background:#18181b!important;color:#fff!important;font:500 12px/1.4 system-ui,sans-serif!important;white-space:normal!important;text-align:center!important;box-shadow:0 2px 8px #0003!important;pointer-events:none!important;visibility:hidden!important;opacity:0!important;transition:opacity .1s ease-out,transform .14s ease-out,visibility 0s linear .1s!important}
+        [data-aidocs-tooltip]:hover::after,[data-aidocs-tooltip]:focus-visible::after{visibility:visible!important;opacity:1!important;transform:translate(var(--aidocs-tip-shift,-50%),0)!important;transition:opacity .14s ease-out .5s,transform .14s ease-out .5s,visibility 0s linear .5s!important}
+        [data-aidocs-tooltip]:focus-visible::after{transition-delay:0s!important}
+        @media(prefers-reduced-motion:reduce){[data-aidocs-tooltip]::after{transition-duration:0s!important;transform:translateX(var(--aidocs-tip-shift,-50%))!important}}
+        @media print{[data-aidocs-tooltip]::after{display:none!important}}`;
+      d.head.appendChild(style);
+    }
+  }
+
   let selectionAction: HTMLDivElement | null = null;
   let actionRange: Range | null = null;
   let selectionDismissed = false;
@@ -1239,7 +1278,7 @@ type Theme = "dark" | "light";
         const button = d.createElement("button");
         button.type = "button";
         button.setAttribute("aria-label", label);
-        button.title = title;
+        labelIcon(button, title);
         const svg = d.createElementNS("http://www.w3.org/2000/svg", "svg");
         svg.setAttribute("viewBox", "0 0 24 24");
         svg.setAttribute("aria-hidden", "true");
@@ -1274,7 +1313,7 @@ type Theme = "dark" | "light";
         style.id = "aidocs-selection-style";
         style.textContent = `
           .aidocs-selection-action{all:initial!important;position:fixed!important;z-index:2147483647!important;display:flex!important;padding:2px!important;border-radius:10px!important;background:#fff!important;color:#52525b!important;box-shadow:0 0 0 1px #0001,0 4px 16px #0002!important}
-          .aidocs-selection-action button{all:initial!important;box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;width:40px!important;height:40px!important;border-radius:8px!important;color:inherit!important;cursor:pointer!important;transition:background-color .15s,transform .15s!important}
+          .aidocs-selection-action button{all:initial!important;position:relative!important;box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;width:40px!important;height:40px!important;border-radius:8px!important;color:inherit!important;cursor:pointer!important;transition:background-color .15s,transform .15s!important}
           .aidocs-selection-action button:hover{background:#f4f4f5!important;color:#18181b!important}
           .aidocs-selection-action button:active{transform:scale(.96)!important}
           .aidocs-selection-action button:focus-visible{outline:2px solid #6366f1!important;outline-offset:-2px!important}
@@ -1360,7 +1399,7 @@ type Theme = "dark" | "light";
     if (!d.getElementById("aidocs-heading-link-style")) {
       const style = d.createElement("style");
       style.id = "aidocs-heading-link-style";
-      style.textContent = `.aidocs-heading-link{display:inline-flex!important;vertical-align:middle;width:40px;height:40px;margin:0 0 0 4px;padding:0;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font:20px sans-serif;opacity:0;cursor:pointer;transition:opacity .15s}.aidocs-heading-link::before{content:"#"}h1:hover>.aidocs-heading-link,h2:hover>.aidocs-heading-link,h3:hover>.aidocs-heading-link,h4:hover>.aidocs-heading-link,h5:hover>.aidocs-heading-link,h6:hover>.aidocs-heading-link,.aidocs-heading-link:focus-visible{opacity:.65}.aidocs-heading-link:focus-visible{outline:2px solid currentColor}@media(pointer:coarse){.aidocs-heading-link{opacity:.5}}@media print{.aidocs-heading-link{display:none!important}}`;
+      style.textContent = `.aidocs-heading-link{position:relative!important;display:inline-flex!important;vertical-align:middle;width:40px;height:40px;margin:0 0 0 4px;padding:0;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font:20px sans-serif;opacity:0;cursor:pointer;transition:opacity .15s}.aidocs-heading-link::before{content:"#"}h1:hover>.aidocs-heading-link,h2:hover>.aidocs-heading-link,h3:hover>.aidocs-heading-link,h4:hover>.aidocs-heading-link,h5:hover>.aidocs-heading-link,h6:hover>.aidocs-heading-link,.aidocs-heading-link:focus-visible{opacity:.65}.aidocs-heading-link:focus-visible{outline:2px solid currentColor}@media(pointer:coarse){.aidocs-heading-link{opacity:.5}}@media print{.aidocs-heading-link{display:none!important}}`;
       d.head.appendChild(style);
     }
     Array.from(d.querySelectorAll("h1,h2,h3,h4,h5,h6")).forEach((heading) => {
@@ -1384,7 +1423,7 @@ type Theme = "dark" | "light";
           "aria-label",
           `Copy link to ${heading.textContent?.trim() || "heading"}`,
         );
-        button.title = "Copy link to heading";
+        labelIcon(button, "Copy link to heading");
         button.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();

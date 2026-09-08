@@ -1,3 +1,5 @@
+import { Tooltip } from "@/components/ui/tooltip";
+import { Button } from "@/components/ui/button";
 import { useRef, useState } from "react";
 import * as Menu from "@radix-ui/react-dropdown-menu";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -83,33 +85,36 @@ export function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
             label: r.emoji,
           };
           return (
-            <button
+            <Tooltip
               key={r.emoji}
-              type="button"
-              aria-pressed={r.reacted}
-              aria-disabled={toggle.isPending}
-              aria-label={`${label}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}${r.reacted ? ", including you" : ""}`}
-              title={`${r.reacted ? "Remove" : "Add"} ${label.toLowerCase()} reaction`}
-              onClick={() => react(r.emoji, !r.reacted)}
-              className={cn(
-                "group/sticker inline-flex h-10 min-w-10 items-center justify-center rounded-md text-[11px] font-medium",
-                feedback,
-              )}
+              label={`${r.reacted ? "Remove" : "Add"} ${label.toLowerCase()} reaction`}
             >
-              <span
+              <button
+                type="button"
+                aria-pressed={r.reacted}
+                aria-disabled={toggle.isPending}
+                aria-label={`${label}, ${r.count} ${r.count === 1 ? "reaction" : "reactions"}${r.reacted ? ", including you" : ""}`}
+                onClick={() => react(r.emoji, !r.reacted)}
                 className={cn(
-                  "inline-flex h-6 items-center gap-1 rounded-md px-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.08)] ring-1 ring-inset transition-[background-color,box-shadow] duration-150",
-                  r.reacted
-                    ? "bg-amber-100 text-amber-900 ring-amber-300/70 group-hover/sticker:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-600/50 dark:group-hover/sticker:bg-amber-900/60"
-                    : "bg-amber-50 text-amber-800 ring-amber-200/70 group-hover/sticker:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-800/50 dark:group-hover/sticker:bg-amber-900/40",
+                  "group/sticker inline-flex h-10 min-w-10 items-center justify-center rounded-md text-[11px] font-medium",
+                  feedback,
                 )}
               >
-                <span aria-hidden="true" className="text-[13px] leading-none">
-                  {glyph}
+                <span
+                  className={cn(
+                    "inline-flex h-6 items-center gap-1 rounded-md px-1.5 shadow-[0_1px_2px_rgba(0,0,0,0.08)] ring-1 ring-inset transition-[background-color,box-shadow] duration-150",
+                    r.reacted
+                      ? "bg-amber-100 text-amber-900 ring-amber-300/70 group-hover/sticker:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-200 dark:ring-amber-600/50 dark:group-hover/sticker:bg-amber-900/60"
+                      : "bg-amber-50 text-amber-800 ring-amber-200/70 group-hover/sticker:bg-amber-100 dark:bg-amber-950/30 dark:text-amber-300 dark:ring-amber-800/50 dark:group-hover/sticker:bg-amber-900/40",
+                  )}
+                >
+                  <span aria-hidden="true" className="text-[13px] leading-none">
+                    {glyph}
+                  </span>
+                  <span className="min-w-[1ch] tabular-nums">{r.count}</span>
                 </span>
-                <span className="min-w-[1ch] tabular-nums">{r.count}</span>
-              </span>
-            </button>
+              </button>
+            </Tooltip>
           );
         })}
       <Menu.Root
@@ -123,7 +128,9 @@ export function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
         }}
       >
         <Menu.Trigger asChild>
-          <button
+          <Button
+            variant="ghost"
+            size="icon"
             ref={trigger}
             type="button"
             aria-label="Add reaction"
@@ -135,7 +142,7 @@ export function ReactionBar({ c, docId }: { c: Comment; docId: string }) {
             )}
           >
             <SmilePlus className="h-4 w-4" aria-hidden="true" />
-          </button>
+          </Button>
         </Menu.Trigger>
         <Menu.Portal>
           <Menu.Content

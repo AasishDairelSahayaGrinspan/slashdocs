@@ -19,6 +19,7 @@ import {
   DropdownSeparator,
   DropdownTrigger,
 } from "@/components/ui/dropdown";
+import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/misc";
 import { setFrontendSignedOut } from "@/lib/auth-state";
 import { useTheme } from "@/lib/theme";
@@ -50,12 +51,14 @@ export function AccountMenu({ user }: { user: Principal }) {
   return (
     <Dropdown>
       <DropdownTrigger asChild>
-        <button
+        <Button
+          variant="ghost"
+          size="icon"
           className="min-h-10 min-w-10 rounded-full transition-transform duration-150 ease-out active:scale-[0.96] outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
           aria-label="Account menu"
         >
           <Avatar src={user.picture_url} name={user.name || user.email || user.id} />
-        </button>
+        </Button>
       </DropdownTrigger>
       <DropdownContent>
         <div className="px-2 py-2">

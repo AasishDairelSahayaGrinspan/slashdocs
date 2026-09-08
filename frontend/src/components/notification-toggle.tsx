@@ -3,6 +3,7 @@ import { Bell, BellOff } from "lucide-react";
 import { toast } from "sonner";
 import { api } from "@/api";
 import { errorMessage } from "@/lib/errors";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/cn";
 
 export function NotificationToggle({ documentId }: { documentId?: string }) {
@@ -31,7 +32,9 @@ export function NotificationToggle({ documentId }: { documentId?: string }) {
   if (documentId) {
     const Icon = prefs.data?.effective_enabled ? Bell : BellOff;
     return (
-      <button
+      <Button
+        variant="ghost"
+        size="icon"
         type="button"
         role="switch"
         aria-checked={enabled}
@@ -42,7 +45,7 @@ export function NotificationToggle({ documentId }: { documentId?: string }) {
         className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-[var(--color-fg-muted)] transition-colors hover:bg-[var(--color-surface-muted)] disabled:opacity-50"
       >
         <Icon className="h-4 w-4" />
-      </button>
+      </Button>
     );
   }
   return (

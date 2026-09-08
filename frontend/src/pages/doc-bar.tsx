@@ -1,3 +1,4 @@
+import { Tooltip } from "@/components/ui/tooltip";
 import { useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -122,14 +123,16 @@ export function DocBar({
           <ArrowLeft className="h-4 w-4" />
         </Link>
       </Button>
-      <Link
-        to="/app/documents"
-        aria-label="aidocs home"
-        title="All documents"
-        className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-[10px] hover:bg-[var(--color-surface-muted)] sm:flex"
-      >
-        <img src="/favicon.svg" alt="" className="h-8 w-8" />
-      </Link>
+      <Tooltip label="All documents">
+        <Link
+          to="/app/documents"
+          aria-label="aidocs home"
+          title="All documents"
+          className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-[10px] hover:bg-[var(--color-surface-muted)] sm:flex"
+        >
+          <img src="/favicon.svg" alt="" className="h-8 w-8" />
+        </Link>
+      </Tooltip>
       <div className="flex min-w-0 flex-1 items-center gap-2">
         {parentFolder ? (
           <>
@@ -245,7 +248,7 @@ export function DocBar({
         size="icon"
         onClick={onToggleComments}
         aria-label={commentsOpen ? "Hide comments" : "Show comments"}
-        title={commentsOpen ? "Hide comments" : "Show comments"}
+        tooltip={commentsOpen ? false : "Show comments"}
         aria-pressed={commentsOpen}
         className="shrink-0"
       >
