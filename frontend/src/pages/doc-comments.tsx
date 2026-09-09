@@ -395,11 +395,8 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
     selection,
     commentFilter: filter,
     setCommentFilter: setFilter,
-    activeComment,
     setActiveComment,
-    unanchoredComments,
     scrollDocumentTo,
-    syncCommentRail,
   } = useDoc();
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
@@ -419,12 +416,6 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
     setFilter(COMMENT_STATUS.open);
     setActiveComment(undefined);
   }, [selection, setFilter, setActiveComment]);
-
-  useEffect(() => {
-    if (!activeComment || !unanchoredComments.has(activeComment)) return;
-    scrollDocumentTo(0);
-    syncCommentRail(0);
-  }, [activeComment, unanchoredComments, scrollDocumentTo, syncCommentRail]);
 
   const items = useMemo(
     () => comments.filter((c) => matchesCommentFilter(c.status, filter)),
@@ -666,11 +657,14 @@ function CommentRail({
     return () => observer.disconnect();
   }, []);
 
-  const priorityId = timelineComments.some((comment) => comment.id === activeComment)
-    ? activeComment
-    : selection?.quote
-      ? "__composer"
-      : undefined;
+  const priorityId =
+    activeComment &&
+    commentPositions.has(activeComment) &&
+    timelineComments.some((comment) => comment.id === activeComment)
+      ? activeComment
+      : selection?.quote
+        ? "__composer"
+        : undefined;
   const priorityMaxHeight = Math.max(1, railHeight - 24);
 
   const layoutItems = useMemo(() => {
@@ -739,6 +733,55 @@ function CommentRail({
   useLayoutEffect(() => {
     applyDocumentScroll(commentViewport.scrollTop);
   }, [applyDocumentScroll, commentViewport.scrollTop, contentHeight]);
+
+  const revealedComment = useRef<string | undefined>(undefined);
+  const [linkParams] = useSearchParams();
+  const linkedComment = linkParams.get("comment");
+  useLayoutEffect(() => {
+    if (revealedComment.current === activeComment) return;
+    if (!activeComment) {
+      revealedComment.current = undefined;
+      return;
+    }
+    const rail = railRef.current;
+    const placement = placements.find((item) => item.id === activeComment);
+    if (!rail || !placement || !heights.has(activeComment)) return;
+    revealedComment.current = activeComment;
+    if (!placement.atStart) return;
+    // Reveal unanchored threads where they already are. Clicking a visible
+    // card must not reorder the stack or reset the document's scroll position.
+    const card = Array.from(
+      rail.querySelectorAll<HTMLElement>("article[data-comment-id]"),
+    ).find((element) => element.dataset.commentId === activeComment);
+    if (!card) return;
+    const target =
+      Array.from(card.querySelectorAll<HTMLElement>("[data-comment-id]")).find(
+        (element) => element.dataset.commentId === linkedComment,
+      ) || card;
+    const bounds = target.getBoundingClientRect();
+    const viewport = rail.getBoundingClientRect();
+    const delta =
+      bounds.top < viewport.top
+        ? bounds.top - viewport.top - 12
+        : bounds.top >= viewport.bottom
+          ? bounds.top -
+            viewport.bottom +
+            Math.min(bounds.height, rail.clientHeight - 24) +
+            12
+          : 0;
+    if (delta) {
+      const top = rail.scrollTop + delta;
+      applyDocumentScroll(top);
+      scrollDocumentTo(top);
+    }
+  }, [
+    activeComment,
+    placements,
+    heights,
+    linkedComment,
+    applyDocumentScroll,
+    scrollDocumentTo,
+  ]);
 
   useEffect(() => {
     registerCommentRailSync(applyDocumentScroll);

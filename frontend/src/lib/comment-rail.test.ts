@@ -17,6 +17,24 @@ describe("layoutCommentRail", () => {
     ]);
   });
 
+  it("keeps unanchored cards in place as selection moves between them", () => {
+    const items = [
+      { id: "first", anchorTop: 0, height: 100, atStart: true },
+      { id: "second", anchorTop: 0, height: 180, atStart: true },
+      { id: "third", anchorTop: 0, height: 80, atStart: true },
+      { id: "anchored", anchorTop: 600, height: 100 },
+    ];
+    const initial = layoutCommentRail(items, 1200);
+    for (const priorityId of ["third", "second", "first", "third"]) {
+      expect(
+        layoutCommentRail(items, 1200, {
+          priorityId,
+          viewport: { top: 0, height: 400 },
+        }),
+      ).toEqual(initial);
+    }
+  });
+
   it("keeps cards ordered and separated when highlights are close together", () => {
     const result = layoutCommentRail(
       [
