@@ -28,11 +28,11 @@ export function layoutCommentRail(
     .filter((item) => !item.atStart)
     .sort((a, b) => a.anchorTop - b.anchorTop || a.id.localeCompare(b.id));
   const ordered = [...atStart, ...anchored];
-  const priority = ordered.find((item) => item.id === options.priorityId);
+  const priority = anchored.find((item) => item.id === options.priorityId);
   let reserved: CommentRailPlacement | undefined;
   if (priority) {
     const height = Math.max(1, priority.height);
-    let y = Math.max(padding, priority.atStart ? padding : priority.anchorTop);
+    let y = Math.max(padding, priority.anchorTop);
     const viewport = options.viewport;
     // Keep the active box beside a visible highlight, shifting it upward only
     // enough to fit. It should still scroll away when its highlight does.
