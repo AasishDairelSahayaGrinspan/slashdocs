@@ -446,9 +446,9 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
           {!commentsLoading && !commentsError && (
             <span
               className="text-xs text-[var(--color-fg-muted)] tabular-nums"
-              aria-label={`${comments.length} comment threads total`}
+              aria-label={`${items.length} comment threads (${filter})`}
             >
-              {comments.length}
+              {items.length}
             </span>
           )}
           <div className="ml-auto">
