@@ -20,7 +20,11 @@ import {
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
 import { Comments } from "./doc-comments";
-import { DEFAULT_COMMENT_FILTER, type CommentFilter } from "@/lib/constants";
+import {
+  COMMENT_STATUS,
+  DEFAULT_COMMENT_FILTER,
+  type CommentFilter,
+} from "@/lib/constants";
 import { Keycast } from "./doc-keycast";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
@@ -148,6 +152,10 @@ export function DocumentPage() {
     },
     [fullscreen, isMobile],
   );
+  useEffect(() => {
+    setCommentFilter(DEFAULT_COMMENT_FILTER);
+  }, [id]);
+
   const linkedComment = searchParams.get("comment");
   const handledCommentLink = useRef("");
   useEffect(() => {
@@ -163,7 +171,11 @@ export function DocumentPage() {
     );
     if (!root) return;
     handledCommentLink.current = key;
-    setCommentFilter("all");
+    setCommentFilter(
+      root.status === COMMENT_STATUS.resolved
+        ? COMMENT_STATUS.resolved
+        : DEFAULT_COMMENT_FILTER,
+    );
     handleDocCommentClick(root.id);
   }, [id, linkedComment, comments.data, handleDocCommentClick]);
 
