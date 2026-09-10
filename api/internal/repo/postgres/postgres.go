@@ -25,7 +25,7 @@ import (
 const htmlContentType = "text/html; charset=utf-8"
 
 type Store struct {
-	commentNotifications bool
+	notificationsEnabled bool
 	db                   *pgxpool.Pool
 	q                    *dbsqlc.Queries
 	blobs                blob.Store
@@ -424,6 +424,10 @@ func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string
 			return repo.Grant{}, err
 		}
 	}
+	before, err := documentGrantAccessSnapshot(ctx, tx, resourceType, resourceID, principal)
+	if err != nil {
+		return repo.Grant{}, err
+	}
 	// A revoked grant for this (resource, principal) is resurrected under its
 	// original id by the upsert's conflict clause; use the persisted id, not
 	// the candidate, or revoking the returned grant 404s.
@@ -440,10 +444,41 @@ func (s *Store) CreateGrant(ctx context.Context, resourceType, resourceID string
 	if err != nil {
 		return repo.Grant{}, err
 	}
+	after, err := documentGrantAccessSnapshot(ctx, tx, resourceType, resourceID, principal)
+	if err != nil {
+		return repo.Grant{}, err
+	}
+	if err := s.enqueueDocumentAccessChanges(ctx, tx, resourceID, accessNotificationSource(principal), grantedBy, before, after); err != nil {
+		return repo.Grant{}, err
+	}
+	if err := clearGrantedAccessRequests(ctx, tx, resourceType, resourceID, principal); err != nil {
+		return repo.Grant{}, err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return repo.Grant{}, err
 	}
 	return repo.Grant{ID: persistedID, DocumentID: resourceID, ResourceType: resourceType, ResourceID: resourceID, Principal: principal, Role: role, GrantedBy: grantedBy}, nil
+}
+
+func clearGrantedAccessRequests(ctx context.Context, tx pgx.Tx, resourceType, resourceID string, principal auth.Principal) error {
+	if resourceType != "document" {
+		return nil
+	}
+	if principal.Type == auth.PrincipalAnyone {
+		if _, err := tx.Exec(ctx, `DELETE FROM document_access_request_notification_outbox WHERE document_id=$1`, resourceID); err != nil {
+			return err
+		}
+		_, err := tx.Exec(ctx, `DELETE FROM document_access_requests WHERE document_id=$1`, resourceID)
+		return err
+	}
+	if principal.Type != auth.PrincipalUser && principal.Type != auth.PrincipalServiceAccount {
+		return nil
+	}
+	if _, err := tx.Exec(ctx, `DELETE FROM document_access_request_notification_outbox WHERE document_id=$1 AND requester_type=$2 AND requester_id=$3`, resourceID, principal.Type, principal.ID); err != nil {
+		return err
+	}
+	_, err := tx.Exec(ctx, `DELETE FROM document_access_requests WHERE document_id=$1 AND requester_type=$2 AND requester_id=$3`, resourceID, principal.Type, principal.ID)
+	return err
 }
 
 func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, changeSummary string, html []byte, createdBy auth.Principal) (repo.Version, error) {
@@ -983,8 +1018,13 @@ func (s *Store) ListGrants(ctx context.Context, resourceID string) ([]repo.Grant
 	}
 	return out, nil
 }
-func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.Grant, error) {
-	row := s.db.QueryRow(ctx, `
+
+type grantQueryRower interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID string, forUpdate bool) (repo.Grant, error) {
+	query := `
 		SELECT g.id,g.resource_type,g.resource_id,g.principal_type,g.principal_id,
 		       COALESCE(u.email,gg.email,''),COALESCE(u.name,sa.name,gg.display_name,''),
 		       g.role,g.granted_by_type,g.granted_by_user_id,
@@ -995,7 +1035,11 @@ func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.
 		LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
 		LEFT JOIN users gu ON g.granted_by_type='user' AND g.granted_by_user_id=gu.id
 		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`, grantID, resourceID)
+		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`
+	if forUpdate {
+		query += ` FOR UPDATE OF g`
+	}
+	row := db.QueryRow(ctx, query, grantID, resourceID)
 	var g repo.Grant
 	var principalType, grantedByType string
 	err := row.Scan(&g.ID, &g.ResourceType, &g.ResourceID, &principalType, &g.Principal.ID,
@@ -1013,23 +1057,69 @@ func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.
 	return g, nil
 }
 
-func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role) (repo.Grant, error) {
-	if _, err := s.q.UpdateResourceGrantRole(ctx, dbsqlc.UpdateResourceGrantRoleParams{Role: string(role), GrantID: grantID, ResourceID: resourceID}); errors.Is(err, pgx.ErrNoRows) {
-		return repo.Grant{}, repo.ErrNotFound
-	} else if err != nil {
+func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.Grant, error) {
+	return getGrant(ctx, s.db, resourceID, grantID, false)
+}
+
+func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role, updatedBy auth.Principal) (repo.Grant, error) {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
 		return repo.Grant{}, err
 	}
-	return s.GetGrant(ctx, resourceID, grantID)
+	defer rollback(ctx, tx)
+	existing, err := getGrant(ctx, tx, resourceID, grantID, true)
+	if err != nil {
+		return repo.Grant{}, err
+	}
+	before, err := documentGrantAccessSnapshot(ctx, tx, existing.ResourceType, resourceID, existing.Principal)
+	if err != nil {
+		return repo.Grant{}, err
+	}
+	if _, err := s.q.WithTx(tx).UpdateResourceGrantRole(ctx, dbsqlc.UpdateResourceGrantRoleParams{Role: string(role), GrantID: grantID, ResourceID: resourceID}); err != nil {
+		return repo.Grant{}, err
+	}
+	after, err := documentGrantAccessSnapshot(ctx, tx, existing.ResourceType, resourceID, existing.Principal)
+	if err != nil {
+		return repo.Grant{}, err
+	}
+	if err := s.enqueueDocumentAccessChanges(ctx, tx, resourceID, accessNotificationSource(existing.Principal), updatedBy, before, after); err != nil {
+		return repo.Grant{}, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return repo.Grant{}, err
+	}
+	existing.Role = role
+	return existing, nil
 }
-func (s *Store) DeleteGrant(ctx context.Context, resourceID, grantID string) error {
-	revoked, err := s.q.RevokeResourceGrant(ctx, dbsqlc.RevokeResourceGrantParams{GrantID: grantID, ResourceID: resourceID})
+func (s *Store) DeleteGrant(ctx context.Context, resourceID, grantID string, deletedBy auth.Principal) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+	existing, err := getGrant(ctx, tx, resourceID, grantID, true)
+	if err != nil {
+		return err
+	}
+	before, err := documentGrantAccessSnapshot(ctx, tx, existing.ResourceType, resourceID, existing.Principal)
+	if err != nil {
+		return err
+	}
+	revoked, err := s.q.WithTx(tx).RevokeResourceGrant(ctx, dbsqlc.RevokeResourceGrantParams{GrantID: grantID, ResourceID: resourceID})
 	if err != nil {
 		return err
 	}
 	if revoked == 0 {
 		return repo.ErrNotFound
 	}
-	return nil
+	after, err := documentGrantAccessSnapshot(ctx, tx, existing.ResourceType, resourceID, existing.Principal)
+	if err != nil {
+		return err
+	}
+	if err := s.enqueueDocumentAccessChanges(ctx, tx, resourceID, accessNotificationSource(existing.Principal), deletedBy, before, after); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 func (s *Store) ListVersions(ctx context.Context, documentID string) ([]repo.Version, error) {
 	rows, err := s.q.ListVersions(ctx, documentID)
