@@ -14,7 +14,16 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import { CheckCircle2, Trash2, Link2, Reply, RotateCcw, Send, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Link2,
+  LocateFixed,
+  Reply,
+  RotateCcw,
+  Send,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -386,7 +395,13 @@ function CommentText({ text }: { text: string }) {
   });
 }
 
-export function Comments({ mobile = false }: { mobile?: boolean }) {
+export function Comments({
+  mobile = false,
+  onViewInDocument,
+}: {
+  mobile?: boolean;
+  onViewInDocument?: (id: string) => void;
+}) {
   const {
     docId,
     comments,
@@ -494,7 +509,15 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
           ) : items.length === 0 ? (
             <CommentsEmptyState filter={filter} />
           ) : (
-            items.map((c) => <CommentCard key={c.id} c={c} docId={docId} />)
+            items.map((c) => (
+              <CommentCard
+                key={c.id}
+                c={c}
+                docId={docId}
+                mobile
+                onViewInDocument={onViewInDocument}
+              />
+            ))
           )}
         </div>
       ) : (
@@ -934,13 +957,23 @@ function CommentCard({
   c,
   docId,
   autoReveal = true,
+  mobile = false,
+  onViewInDocument,
 }: {
   c: Comment;
   docId: string;
   autoReveal?: boolean;
+  mobile?: boolean;
+  onViewInDocument?: (id: string) => void;
 }) {
   const q = useQueryClient();
-  const { activeComment, setActiveComment, principal, unanchoredComments } = useDoc();
+  const {
+    activeComment,
+    setActiveComment,
+    principal,
+    unanchoredComments,
+    commentPositions,
+  } = useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
   const [replying, setReplying] = useState(false);
@@ -958,6 +991,19 @@ function CommentCard({
     container.scrollTop +=
       target.getBoundingClientRect().top - container.getBoundingClientRect().top - 16;
   }, [active, autoReveal, linkedComment]);
+  useEffect(() => {
+    const card = cardRef.current;
+    if (!mobile || !active || !card) return;
+    // The sheet's focus trap initially targets its first control. Move focus
+    // after that autofocus pass so reopening from the tray lands on the thread
+    // the reviewer asked to continue.
+    const frame = requestAnimationFrame(() => {
+      const focused = document.activeElement;
+      if (focused instanceof Node && card.contains(focused) && focused !== card) return;
+      card.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [active, mobile]);
   const reply = useMutation({
     mutationFn: (draft: MentionDraft) =>
       api.createCommentReply(docId, c.id, draft.body, draft.mentions),
@@ -970,7 +1016,19 @@ function CommentCard({
     onError: (e) => toast.error(errorMessage(e, "Could not update comment")),
   });
   const resolved = c.status === COMMENT_STATUS.resolved;
-  const toggleActive = () => setActiveComment(active ? undefined : c.id);
+  const anchorState = commentPositions.has(c.id)
+    ? "ready"
+    : unanchoredComments.has(c.id)
+      ? "unavailable"
+      : "locating";
+  const toggleActive = () => {
+    if (mobile) {
+      setActiveComment(c.id);
+      if (anchorState === "ready") onViewInDocument?.(c.id);
+      return;
+    }
+    setActiveComment(active ? undefined : c.id);
+  };
   return (
     <article
       ref={cardRef}
@@ -1023,6 +1081,32 @@ function CommentCard({
         </blockquote>
       )}
       <CommentBody text={c.body} mentions={c.mentions} />
+      {mobile ? (
+        <div className="mt-3">
+          {anchorState === "unavailable" ? (
+            <p
+              className="rounded-[10px] bg-amber-50 px-3 py-2 text-sm leading-relaxed text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+              role="status"
+            >
+              This highlighted passage is not visible in this version.
+            </p>
+          ) : (
+            <Button
+              variant="outline"
+              size="sm"
+              className="min-h-11 w-full"
+              disabled={anchorState === "locating"}
+              onClick={(event) => {
+                event.stopPropagation();
+                onViewInDocument?.(c.id);
+              }}
+            >
+              <LocateFixed aria-hidden="true" className="h-4 w-4" />
+              {anchorState === "locating" ? "Locating passage…" : "View in document"}
+            </Button>
+          )}
+        </div>
+      ) : null}
       <div className="mt-1">
         <ReactionBar c={c} docId={docId}>
           <Button

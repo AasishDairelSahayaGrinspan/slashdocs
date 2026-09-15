@@ -6,12 +6,28 @@ import {
   useRef,
   useState,
   type ReactNode,
+  type RefObject,
 } from "react";
 import { useNavigate, useSearchParams, useParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Check, KeyRound, Send } from "lucide-react";
-import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  KeyRound,
+  MessageSquareText,
+  Send,
+  X,
+} from "lucide-react";
+import {
+  api,
+  APIError,
+  currentVersionID,
+  docTitle,
+  versionID,
+  type Comment,
+} from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
@@ -35,6 +51,11 @@ import {
 } from "@/lib/constants";
 import { Keycast } from "./doc-keycast";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import {
+  commentForMobileScroll,
+  commentIDsInSameBlock,
+} from "@/lib/mobile-comment-context";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
 
@@ -136,6 +157,111 @@ function AccessDeniedState({ documentID }: { documentID: string }) {
   );
 }
 
+function MobileCommentTray({
+  comment,
+  groupIndex,
+  groupCount,
+  openButtonRef,
+  onOpen,
+  onDismiss,
+  onPrevious,
+  onNext,
+}: {
+  comment: Comment;
+  groupIndex: number;
+  groupCount: number;
+  openButtonRef: RefObject<HTMLButtonElement | null>;
+  onOpen: () => void;
+  onDismiss: () => void;
+  onPrevious?: () => void;
+  onNext?: () => void;
+}) {
+  const author = comment.author.name || comment.author.email || comment.author.id;
+  return (
+    <aside
+      aria-label="Selected comment"
+      className="absolute inset-x-3 z-20 rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-3 shadow-xl md:hidden"
+      style={{ bottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+    >
+      <div className="flex items-start gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
+          <MessageSquareText aria-hidden="true" className="h-4 w-4" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 text-xs text-[var(--color-fg-muted)]">
+            <span className="truncate font-semibold text-[var(--color-fg)]">
+              {author}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="capitalize">{comment.status}</span>
+            {groupCount > 1 ? (
+              <>
+                <span aria-hidden="true">·</span>
+                <span
+                  className="tabular-nums"
+                  aria-label={`Comment ${groupIndex + 1} of ${groupCount} in this paragraph`}
+                >
+                  {groupIndex + 1}/{groupCount}
+                </span>
+              </>
+            ) : null}
+          </div>
+          <p className="mt-1 line-clamp-2 text-base leading-snug text-[var(--color-fg)]">
+            {comment.body}
+          </p>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-11 min-h-11 w-11 shrink-0"
+          aria-label="Dismiss selected comment"
+          tooltip="Dismiss selected comment"
+          onClick={onDismiss}
+        >
+          <X aria-hidden="true" className="h-4 w-4" />
+        </Button>
+      </div>
+      <div className="mt-2 flex gap-1">
+        <Button
+          ref={openButtonRef}
+          variant="secondary"
+          size="sm"
+          className="min-h-11 min-w-0 flex-1"
+          onClick={onOpen}
+        >
+          Open thread
+        </Button>
+        {groupCount > 1 ? (
+          <>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 min-h-11 w-11"
+              aria-label="Previous comment in this paragraph"
+              tooltip="Previous comment"
+              disabled={!onPrevious}
+              onClick={onPrevious}
+            >
+              <ChevronLeft aria-hidden="true" className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-11 min-h-11 w-11"
+              aria-label="Next comment in this paragraph"
+              tooltip="Next comment"
+              disabled={!onNext}
+              onClick={onNext}
+            >
+              <ChevronRight aria-hidden="true" className="h-4 w-4" />
+            </Button>
+          </>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
 export function DocumentPage() {
   const { id = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -162,10 +288,20 @@ export function DocumentPage() {
     enabled: !!id && !doc.error,
     meta: { suppressGlobalError: true },
   });
+  const refetchComments = comments.refetch;
   const [commentFilter, setCommentFilter] =
     useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
   const [selection, setSelection] = useState<PendingSelection | null>(null);
-  const [activeComment, setActiveComment] = useState<string>();
+  const [activeComment, setActiveCommentState] = useState<string>();
+  const [passiveActiveComment, setPassiveActiveComment] = useState<string>();
+  const setActiveComment = useCallback((commentId?: string) => {
+    setPassiveActiveComment(undefined);
+    setActiveCommentState(commentId);
+  }, []);
+  const setActiveCommentFromScroll = useCallback((commentId: string) => {
+    setPassiveActiveComment(commentId);
+    setActiveCommentState(commentId);
+  }, []);
   const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
     new Set(),
   );
@@ -175,6 +311,7 @@ export function DocumentPage() {
   const [commentViewport, setCommentViewport] = useState<CommentViewport>({
     scrollTop: 0,
     scrollHeight: 1,
+    viewportHeight: 1,
   });
   const documentPrinterRef = useRef<(() => void) | null>(null);
   const registerDocumentPrinter = useCallback((print: (() => void) | null) => {
@@ -193,6 +330,16 @@ export function DocumentPage() {
   const scrollDocumentTo = useCallback((top: number) => {
     documentScrollerRef.current?.(top);
   }, []);
+  const commentRevealerRef = useRef<((id: string) => void) | null>(null);
+  const registerCommentRevealer = useCallback(
+    (reveal: ((id: string) => void) | null) => {
+      commentRevealerRef.current = reveal;
+    },
+    [],
+  );
+  const revealCommentInDocument = useCallback((commentId: string) => {
+    commentRevealerRef.current?.(commentId);
+  }, []);
   const commentRailSyncRef = useRef<((top: number) => void) | null>(null);
   const registerCommentRailSync = useCallback(
     (sync: ((top: number) => void) | null) => {
@@ -208,6 +355,10 @@ export function DocumentPage() {
   const [commentsOpen, setCommentsOpen] = useState(true);
   const [shareOpen, setShareOpen] = useState(searchParams.get("share") === "1");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [pendingMobileReveal, setPendingMobileReveal] = useState<string>();
+  const [mobileAnnouncement, setMobileAnnouncement] = useState("");
+  const mobileTrayButtonRef = useRef<HTMLButtonElement>(null);
+  const mobileScrollSelectionPauseUntil = useRef(0);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   const [chordLabel, setChordLabel] = useState<string>();
   const nav = useNavigate();
@@ -221,7 +372,17 @@ export function DocumentPage() {
       if (isMobile) setMobilePanelOpen(true);
       else setCommentsOpen(true);
     },
-    [fullscreen, isMobile],
+    [fullscreen, isMobile, setActiveComment],
+  );
+  const handleMobileViewInDocument = useCallback(
+    (commentId: string) => {
+      if (!commentPositions.has(commentId)) return;
+      mobileScrollSelectionPauseUntil.current = performance.now() + 900;
+      setActiveComment(commentId);
+      setPendingMobileReveal(commentId);
+      setMobilePanelOpen(false);
+    },
+    [commentPositions, setActiveComment],
   );
   useEffect(() => {
     setCommentFilter(DEFAULT_COMMENT_FILTER);
@@ -241,19 +402,45 @@ export function DocumentPage() {
       (c) => c.id === linkedComment || c.replies?.some((r) => r.id === linkedComment),
     );
     if (!root) return;
-    handledCommentLink.current = key;
-    setCommentFilter(
+    const linkedFilter =
       root.status === COMMENT_STATUS.resolved
         ? COMMENT_STATUS.resolved
-        : DEFAULT_COMMENT_FILTER,
-    );
+        : DEFAULT_COMMENT_FILTER;
+    if (commentFilter !== linkedFilter) {
+      setCommentFilter(linkedFilter);
+      return;
+    }
+    if (isMobile) {
+      if (unanchoredComments.has(root.id)) {
+        handledCommentLink.current = key;
+        setActiveComment(root.id);
+        setMobilePanelOpen(true);
+        return;
+      }
+      if (!commentPositions.has(root.id)) return;
+      handledCommentLink.current = key;
+      handleMobileViewInDocument(root.id);
+      return;
+    }
+    handledCommentLink.current = key;
     handleDocCommentClick(root.id);
-  }, [id, linkedComment, comments.data, handleDocCommentClick]);
+  }, [
+    id,
+    linkedComment,
+    comments.data,
+    commentFilter,
+    isMobile,
+    unanchoredComments,
+    commentPositions,
+    setActiveComment,
+    handleMobileViewInDocument,
+    handleDocCommentClick,
+  ]);
 
   const handleRenderedDocumentClick = useCallback(() => {
     setShareOpen(false);
     setActiveComment(undefined);
-  }, []);
+  }, [setActiveComment]);
 
   // A text selection from the rendered doc should reveal the compose flow.
   useEffect(() => {
@@ -313,6 +500,110 @@ export function DocumentPage() {
     return () => window.cancelAnimationFrame(id);
   }, [mobilePanelOpen]);
 
+  useEffect(() => {
+    if (!pendingMobileReveal || mobilePanelOpen) return;
+    const reducedMotion = window.matchMedia?.(
+      "(prefers-reduced-motion: reduce)",
+    ).matches;
+    let cancelled = false;
+    let frame = 0;
+    const reveal = async () => {
+      let comment = comments.data?.items.find(
+        (item) => item.id === pendingMobileReveal,
+      );
+      try {
+        const latest = await refetchComments();
+        if (latest.isSuccess) {
+          comment = latest.data.items.find((item) => item.id === pendingMobileReveal);
+        }
+      } catch {
+        // A transient revalidation failure should not break a locally known
+        // thread; the normal query error UI remains responsible for retries.
+      }
+      if (cancelled) return;
+      if (!comment) {
+        setPendingMobileReveal(undefined);
+        setActiveComment(undefined);
+        setMobileAnnouncement(
+          "The selected comment was deleted before it could be shown.",
+        );
+        toast.error("That comment was deleted before its passage could be shown.");
+        return;
+      }
+      frame = window.requestAnimationFrame(() => {
+        revealCommentInDocument(pendingMobileReveal);
+        const author = comment.author.name || comment.author.email || comment.author.id;
+        setMobileAnnouncement(
+          author
+            ? `Showing ${author}'s comment in the document.`
+            : "Showing comment in the document.",
+        );
+        setPendingMobileReveal(undefined);
+        mobileTrayButtonRef.current?.focus({ preventScroll: true });
+      });
+    };
+    const timeout = window.setTimeout(() => void reveal(), reducedMotion ? 0 : 210);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeout);
+      if (frame) window.cancelAnimationFrame(frame);
+    };
+  }, [
+    id,
+    pendingMobileReveal,
+    mobilePanelOpen,
+    comments.data,
+    refetchComments,
+    revealCommentInDocument,
+    setActiveComment,
+  ]);
+
+  useEffect(() => {
+    if (
+      !isMobile ||
+      mobilePanelOpen ||
+      pendingMobileReveal ||
+      !activeComment ||
+      performance.now() < mobileScrollSelectionPauseUntil.current
+    ) {
+      return;
+    }
+    const nextCommentID = commentForMobileScroll({
+      activeID: activeComment,
+      positions: commentPositions,
+      scrollTop: commentViewport.scrollTop,
+      viewportHeight: commentViewport.viewportHeight,
+    });
+    if (!nextCommentID || nextCommentID === activeComment) return;
+    const nextComment = comments.data?.items.find(
+      (comment) => comment.id === nextCommentID,
+    );
+    if (!nextComment) return;
+    setActiveCommentFromScroll(nextCommentID);
+    const author =
+      nextComment.author.name || nextComment.author.email || nextComment.author.id;
+    setMobileAnnouncement(`Showing ${author}'s comment as you scroll.`);
+  }, [
+    isMobile,
+    mobilePanelOpen,
+    pendingMobileReveal,
+    activeComment,
+    commentPositions,
+    commentViewport.scrollTop,
+    commentViewport.viewportHeight,
+    comments.data,
+    setActiveCommentFromScroll,
+  ]);
+
+  useEffect(() => {
+    if (!isMobile || mobilePanelOpen || !activeComment || !comments.data) return;
+    if (comments.data.items.some((item) => item.id === activeComment)) return;
+    setPendingMobileReveal(undefined);
+    setActiveComment(undefined);
+    setMobileAnnouncement("The selected comment was deleted before it could be shown.");
+    toast.error("That comment was deleted before its passage could be shown.");
+  }, [isMobile, mobilePanelOpen, activeComment, comments.data, setActiveComment]);
+
   const versionItems = versions.data?.items || [];
   const latest =
     currentVersionID(doc.data || {}) ||
@@ -321,7 +612,7 @@ export function DocumentPage() {
 
   useEffect(() => {
     setCommentPositions(new Map());
-    setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
+    setCommentViewport({ scrollTop: 0, scrollHeight: 1, viewportHeight: 1 });
   }, [current]);
 
   const exitFullscreen = useCallback(() => {
@@ -401,7 +692,7 @@ export function DocumentPage() {
   const onBareEscape = useCallback(() => {
     if (fullscreen) exitFullscreen();
     else setActiveComment(undefined);
-  }, [fullscreen, exitFullscreen]);
+  }, [fullscreen, exitFullscreen, setActiveComment]);
   const chord = useEscChord({
     available: chordKeys,
     onRun: runChord,
@@ -422,6 +713,7 @@ export function DocumentPage() {
       setSelection,
       activeComment,
       setActiveComment,
+      suppressCommentReveal: passiveActiveComment === activeComment,
       unanchoredComments,
       setUnanchoredComments,
       commentPositions,
@@ -432,6 +724,8 @@ export function DocumentPage() {
       printDocument,
       registerDocumentScroller,
       scrollDocumentTo,
+      registerCommentRevealer,
+      revealCommentInDocument,
       registerCommentRailSync,
       syncCommentRail,
       handleDocCommentClick,
@@ -447,6 +741,7 @@ export function DocumentPage() {
       me.data,
       selection,
       activeComment,
+      passiveActiveComment,
       unanchoredComments,
       commentPositions,
       commentViewport,
@@ -455,6 +750,8 @@ export function DocumentPage() {
       printDocument,
       registerDocumentScroller,
       scrollDocumentTo,
+      registerCommentRevealer,
+      revealCommentInDocument,
       registerCommentRailSync,
       syncCommentRail,
       handleDocCommentClick,
@@ -501,6 +798,34 @@ export function DocumentPage() {
   }
   if (!doc.data) return null;
 
+  const activeThread = comments.data?.items.find(
+    (comment) => comment.id === activeComment,
+  );
+  const sameBlockIDs = commentIDsInSameBlock(activeComment, commentPositions);
+  const sameBlockThreads = sameBlockIDs
+    .map((commentID) =>
+      comments.data?.items.find((comment) => comment.id === commentID),
+    )
+    .filter((comment): comment is Comment => Boolean(comment));
+  const activeThreadGroup =
+    activeThread && sameBlockThreads.some((comment) => comment.id === activeThread.id)
+      ? sameBlockThreads
+      : activeThread
+        ? [activeThread]
+        : [];
+  const activeThreadIndex = Math.max(
+    0,
+    activeThreadGroup.findIndex((comment) => comment.id === activeComment),
+  );
+  const selectMobileSibling = (index: number) => {
+    const comment = activeThreadGroup[index];
+    if (!comment) return;
+    setActiveCommentFromScroll(comment.id);
+    setMobileAnnouncement(
+      `Showing comment ${index + 1} of ${activeThreadGroup.length} in this paragraph.`,
+    );
+  };
+
   return (
     <DocProvider value={ctx}>
       {fullscreen ? (
@@ -546,6 +871,35 @@ export function DocumentPage() {
             <section className="relative min-w-0 flex-1 bg-[var(--color-surface-muted)]">
               {current ? <RenderFrame /> : <Center>No version available.</Center>}
               <Keycast state={chord} available={chordKeys} label={chordLabel} />
+              {isMobile && activeThread && !mobilePanelOpen ? (
+                <MobileCommentTray
+                  comment={activeThread}
+                  groupIndex={activeThreadIndex}
+                  groupCount={activeThreadGroup.length}
+                  openButtonRef={mobileTrayButtonRef}
+                  onOpen={() => {
+                    setActiveComment(activeThread.id);
+                    setMobilePanelOpen(true);
+                  }}
+                  onDismiss={() => {
+                    setActiveComment(undefined);
+                    setMobileAnnouncement("");
+                  }}
+                  onPrevious={
+                    activeThreadIndex > 0
+                      ? () => selectMobileSibling(activeThreadIndex - 1)
+                      : undefined
+                  }
+                  onNext={
+                    activeThreadIndex < activeThreadGroup.length - 1
+                      ? () => selectMobileSibling(activeThreadIndex + 1)
+                      : undefined
+                  }
+                />
+              ) : null}
+              <div className="sr-only" aria-live="polite" aria-atomic="true">
+                {mobileAnnouncement}
+              </div>
             </section>
             <AnimatePresence initial={false}>
               {commentsOpen && !isMobile && (
@@ -575,7 +929,7 @@ export function DocumentPage() {
               <SheetHeader className="sr-only">
                 <SheetTitle>Comments</SheetTitle>
               </SheetHeader>
-              <Comments mobile />
+              <Comments mobile onViewInDocument={handleMobileViewInDocument} />
             </SheetContent>
           </Sheet>
         </motion.div>

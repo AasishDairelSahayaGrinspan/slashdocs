@@ -16,6 +16,7 @@ import { errorMessage } from "@/lib/errors";
 import { CHORD_KEYS } from "@/lib/esc-chord";
 import { useDocumentExport } from "./use-document-export";
 import { useDoc } from "./doc-context";
+import { useIsMobile } from "@/lib/use-media-query";
 
 const FORWARDED_KEYS = new Set<string>([
   "Escape",
@@ -27,18 +28,21 @@ const VIM_KEYS = new Set(["j", "k", "g", "G"]);
 // messages with the in-iframe bridge. Message origins are validated on both
 // ends, and painting is driven by the bridge's ready signal.
 export function RenderFrame() {
+  const isMobile = useIsMobile();
   const {
     docId,
     version,
     comments,
     commentFilter,
     activeComment,
+    suppressCommentReveal,
     setSelection,
     handleDocCommentClick,
     setUnanchoredComments,
     setCommentPositions,
     setCommentViewport,
     registerDocumentScroller,
+    registerCommentRevealer,
     registerDocumentPrinter,
     syncCommentRail,
     handleRenderedDocumentClick,
@@ -117,7 +121,7 @@ export function RenderFrame() {
     // "highlight not found" badges never linger across version switches.
     setUnanchoredComments(new Set());
     setCommentPositions(new Map());
-    setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
+    setCommentViewport({ scrollTop: 0, scrollHeight: 1, viewportHeight: 1 });
   }, [
     frameOrigin,
     token.data?.url,
@@ -158,10 +162,15 @@ export function RenderFrame() {
   const paint = useCallback(() => {
     if (!ready || !frameOrigin) return;
     ref.current?.contentWindow?.postMessage(
-      { type: "aidocs:paint", comments: paintPayload, active: activeComment },
+      {
+        type: "aidocs:paint",
+        comments: paintPayload,
+        active: activeComment,
+        revealActive: !suppressCommentReveal,
+      },
       frameOrigin,
     );
-  }, [ready, paintPayload, activeComment, frameOrigin]);
+  }, [ready, paintPayload, activeComment, suppressCommentReveal, frameOrigin]);
 
   // Push the theme to the bridge whenever it changes OR once the frame
   // becomes ready. Depending on `ready` (state, not a ref) guarantees this
@@ -242,6 +251,18 @@ export function RenderFrame() {
     registerDocumentScroller(scrollDocumentTo);
     return () => registerDocumentScroller(null);
   }, [registerDocumentScroller, scrollDocumentTo]);
+
+  const revealCommentInDocument = useCallback(
+    (id: string) => {
+      postToCurrentFrame({ type: "aidocs:reveal-comment", id });
+    },
+    [postToCurrentFrame],
+  );
+
+  useEffect(() => {
+    registerCommentRevealer(revealCommentInDocument);
+    return () => registerCommentRevealer(null);
+  }, [registerCommentRevealer, revealCommentInDocument]);
 
   const applyZoom = useCallback(
     (deltaY: number, cursor?: { x: number; y: number }) => {
@@ -507,33 +528,66 @@ export function RenderFrame() {
       if (
         e.data?.type === "aidocs:comment-scroll" &&
         typeof e.data.scrollTop === "number" &&
+        typeof e.data.scrollHeight === "number" &&
+        typeof e.data.viewportHeight === "number" &&
         Number.isFinite(e.data.scrollTop) &&
+        Number.isFinite(e.data.scrollHeight) &&
+        Number.isFinite(e.data.viewportHeight) &&
         readyRef.current
       ) {
-        syncCommentRail(
-          e.data.scrollTop * scaleRef.current + (wrapperRef.current?.scrollTop || 0),
-        );
+        const wrapper = wrapperRef.current;
+        const scrollTop =
+          e.data.scrollTop * scaleRef.current + (wrapper?.scrollTop || 0);
+        syncCommentRail(scrollTop);
+        if (isMobile) {
+          setCommentViewport({
+            scrollTop,
+            scrollHeight: Math.max(1, e.data.scrollHeight * scaleRef.current),
+            viewportHeight: Math.max(
+              1,
+              wrapper?.clientHeight || e.data.viewportHeight * scaleRef.current,
+            ),
+          });
+        }
       }
       if (
         e.data?.type === "aidocs:comment-positions" &&
         Array.isArray(e.data.positions) &&
         readyRef.current
       ) {
-        const positions = new Map<string, { top: number; bottom: number }>();
+        const positions = new Map<
+          string,
+          {
+            top: number;
+            bottom: number;
+            left: number;
+            blockTop: number;
+            blockBottom: number;
+          }
+        >();
         for (const item of e.data.positions.slice(0, 10_000)) {
           if (
             !item ||
             typeof item.id !== "string" ||
             typeof item.top !== "number" ||
             typeof item.bottom !== "number" ||
+            typeof item.left !== "number" ||
+            typeof item.blockTop !== "number" ||
+            typeof item.blockBottom !== "number" ||
             !Number.isFinite(item.top) ||
-            !Number.isFinite(item.bottom)
+            !Number.isFinite(item.bottom) ||
+            !Number.isFinite(item.left) ||
+            !Number.isFinite(item.blockTop) ||
+            !Number.isFinite(item.blockBottom)
           ) {
             continue;
           }
           positions.set(item.id, {
             top: item.top * scaleRef.current,
             bottom: item.bottom * scaleRef.current,
+            left: item.left * scaleRef.current,
+            blockTop: item.blockTop * scaleRef.current,
+            blockBottom: item.blockBottom * scaleRef.current,
           });
         }
         setCommentPositions(positions);
@@ -549,6 +603,14 @@ export function RenderFrame() {
           setCommentViewport({
             scrollTop,
             scrollHeight: Math.max(1, e.data.scrollHeight * scaleRef.current),
+            viewportHeight: Math.max(
+              1,
+              wrapperRef.current?.clientHeight ||
+                (typeof e.data.viewportHeight === "number" &&
+                Number.isFinite(e.data.viewportHeight)
+                  ? e.data.viewportHeight * scaleRef.current
+                  : 1),
+            ),
           });
         }
       }
@@ -592,6 +654,7 @@ export function RenderFrame() {
     setCommentPositions,
     setCommentViewport,
     syncCommentRail,
+    isMobile,
     applyZoom,
     rememberKVRevision,
   ]);

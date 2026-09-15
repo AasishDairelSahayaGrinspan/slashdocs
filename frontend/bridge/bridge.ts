@@ -626,6 +626,7 @@ type Theme = "dark" | "light";
   let lastPaintKey: string | null = null;
   let lastPaintResults: { id: string; anchored: boolean }[] | null = null;
   let commentPositionFrame = 0;
+  let commentScrollFrame = 0;
   // The active comment whose mark was last revealed (scrolled into view).
   // Reveal fires only when activation changes to a different comment:
   // repaints also arrive for reasons unrelated to activation (a comment
@@ -726,7 +727,12 @@ type Theme = "dark" | "light";
       if (isActive && !scrollTarget) scrollTarget = el;
     });
     if (scroll && scrollTarget) {
-      (scrollTarget as Element).scrollIntoView({ block: "center", behavior: "smooth" });
+      const reducedMotion =
+        d.defaultView?.matchMedia("(prefers-reduced-motion: reduce)").matches === true;
+      (scrollTarget as Element).scrollIntoView({
+        block: "center",
+        behavior: reducedMotion ? "instant" : "smooth",
+      });
     }
   }
 
@@ -743,14 +749,32 @@ type Theme = "dark" | "light";
   function postCommentScroll(): void {
     const d = doc();
     if (!d) return;
+    const view = d.defaultView;
     parent.postMessage(
       {
         type: "aidocs:comment-scroll",
-        scrollTop: d.defaultView?.scrollY || d.documentElement.scrollTop || 0,
+        scrollTop: view?.scrollY || d.documentElement.scrollTop || 0,
+        scrollHeight: Math.max(
+          d.documentElement.scrollHeight,
+          d.body?.scrollHeight || 0,
+        ),
+        viewportHeight: view?.innerHeight || d.documentElement.clientHeight || 1,
       },
       targetOrigin(),
     );
   }
+
+  function scheduleCommentScroll(): void {
+    const view = doc()?.defaultView;
+    if (!view || commentScrollFrame) return;
+    commentScrollFrame = view.requestAnimationFrame(() => {
+      commentScrollFrame = 0;
+      postCommentScroll();
+    });
+  }
+
+  const commentBlockSelector =
+    "p,li,blockquote,pre,td,th,dd,dt,figcaption,h1,h2,h3,h4,h5,h6";
 
   function postCommentPositions(): void {
     const d = doc();
@@ -761,7 +785,15 @@ type Theme = "dark" | "light";
       d.documentElement.scrollHeight,
       d.body?.scrollHeight || 0,
     );
-    const positions: Array<{ id: string; top: number; bottom: number }> = [];
+    const viewportHeight = view?.innerHeight || d.documentElement.clientHeight || 1;
+    const positions: Array<{
+      id: string;
+      top: number;
+      bottom: number;
+      left: number;
+      blockTop: number;
+      blockBottom: number;
+    }> = [];
     const seen = new Set<string>();
     for (const item of lastPaint.items) {
       const id = item && item.id;
@@ -775,14 +807,49 @@ type Theme = "dark" | "light";
       );
       let top = Number.POSITIVE_INFINITY;
       let bottom = Number.NEGATIVE_INFINITY;
+      let left = Number.POSITIVE_INFINITY;
+      let blockTop = Number.POSITIVE_INFINITY;
+      let blockBottom = Number.NEGATIVE_INFINITY;
+      const blocks = new Set<Element>();
       for (const mark of marks) {
         const rect = mark.getBoundingClientRect();
         if (!Number.isFinite(rect.top) || !Number.isFinite(rect.bottom)) continue;
-        top = Math.min(top, rect.top);
+        // A mark can wrap across lines. Its bounding rect uses the smallest
+        // left edge from every line, which does not represent where the text
+        // begins. Use the first client rect for reading order while retaining
+        // the full bounding rect for visibility and block measurements.
+        const firstRect = Array.from(mark.getClientRects()).find(
+          (clientRect) => clientRect.width > 0 || clientRect.height > 0,
+        );
+        const orderTop = firstRect?.top ?? rect.top;
+        const orderLeft = firstRect?.left ?? rect.left;
+        if (orderTop < top - 0.5) {
+          top = orderTop;
+          left = orderLeft;
+        } else if (Math.abs(orderTop - top) <= 0.5) {
+          left = Math.min(left, orderLeft);
+        }
         bottom = Math.max(bottom, rect.bottom);
+        const block = mark.closest(commentBlockSelector);
+        if (block && !blocks.has(block)) {
+          blocks.add(block);
+          const blockRect = block.getBoundingClientRect();
+          if (Number.isFinite(blockRect.top) && Number.isFinite(blockRect.bottom)) {
+            blockTop = Math.min(blockTop, blockRect.top);
+            blockBottom = Math.max(blockBottom, blockRect.bottom);
+          }
+        }
       }
       if (Number.isFinite(top) && Number.isFinite(bottom)) {
-        positions.push({ id, top: top + scrollTop, bottom: bottom + scrollTop });
+        positions.push({
+          id,
+          top: top + scrollTop,
+          bottom: bottom + scrollTop,
+          left,
+          blockTop: (Number.isFinite(blockTop) ? blockTop : top) + scrollTop,
+          blockBottom:
+            (Number.isFinite(blockBottom) ? blockBottom : bottom) + scrollTop,
+        });
       }
     }
     parent.postMessage(
@@ -791,6 +858,7 @@ type Theme = "dark" | "light";
         positions,
         scrollTop,
         scrollHeight,
+        viewportHeight,
       },
       targetOrigin(),
     );
@@ -953,6 +1021,7 @@ type Theme = "dark" | "light";
   function paint(
     items: PaintItem[] | null | undefined,
     active: string | null | undefined,
+    revealActive = true,
   ): void {
     const d = doc();
     const list = items || [];
@@ -964,7 +1033,7 @@ type Theme = "dark" | "light";
     // Repaint with the same comments (sidebar clicks changing the active
     // id): move the active class without touching DOM structure. Any damage
     // from document mutations is healed by repairAfterMutations.
-    const reveal = activeID !== null && activeID !== revealedActive;
+    const reveal = revealActive && activeID !== null && activeID !== revealedActive;
     if (d && body && lastPaintResults && key === lastPaintKey) {
       revealedActive = activeID;
       applyActiveOnly(d, activeID, reveal);
@@ -1585,6 +1654,7 @@ type Theme = "dark" | "light";
     lastPaintKey = null;
     lastPaintResults = null;
     commentPositionFrame = 0;
+    commentScrollFrame = 0;
     revealedActive = null;
     restoredSelection = null;
     paintedQuotes.clear();
@@ -1788,7 +1858,7 @@ type Theme = "dark" | "light";
       () => parent.postMessage({ type: "aidocs:document-click" }, targetOrigin()),
       true,
     );
-    d.defaultView?.addEventListener("scroll", postCommentScroll, {
+    d.defaultView?.addEventListener("scroll", scheduleCommentScroll, {
       passive: true,
     });
     d.defaultView?.addEventListener("resize", scheduleCommentPositions);
@@ -1845,8 +1915,9 @@ type Theme = "dark" | "light";
       else pending?.reject();
       return;
     }
-    if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
-    else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
+    if (e.data.type === "aidocs:paint") {
+      paint(e.data.comments, e.data.active, e.data.revealActive !== false);
+    } else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
     else if (e.data.type === "aidocs:kv-response") {
       const requestId = String(e.data.requestId || "");
       const pending = kvPending[requestId];
@@ -1873,6 +1944,13 @@ type Theme = "dark" | "light";
       navigateHeading(String(e.data.id || ""));
     } else if (e.data.type === "aidocs:request-comment-positions") {
       scheduleCommentPositions();
+    } else if (
+      e.data.type === "aidocs:reveal-comment" &&
+      typeof e.data.id === "string" &&
+      e.data.id.length <= 1024
+    ) {
+      const d = doc();
+      if (d) applyActiveOnly(d, e.data.id, true);
     } else if (
       e.data.type === "aidocs:scroll-to" &&
       typeof e.data.top === "number" &&

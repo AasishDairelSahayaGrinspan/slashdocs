@@ -13,11 +13,15 @@ export type PendingSelection = {
 export type CommentPosition = {
   top: number;
   bottom: number;
+  left: number;
+  blockTop: number;
+  blockBottom: number;
 };
 
 export type CommentViewport = {
   scrollTop: number;
   scrollHeight: number;
+  viewportHeight: number;
 };
 
 export type DocContextValue = {
@@ -33,6 +37,7 @@ export type DocContextValue = {
   setSelection: (s: PendingSelection | null) => void;
   activeComment?: string;
   setActiveComment: (id?: string) => void;
+  suppressCommentReveal: boolean;
   // Ids of comments whose highlight the bridge could not anchor in the
   // currently rendered version; replaced wholesale on every repaint.
   unanchoredComments: ReadonlySet<string>;
@@ -45,6 +50,8 @@ export type DocContextValue = {
   printDocument: () => void;
   registerDocumentScroller: (scroller: ((top: number) => void) | null) => void;
   scrollDocumentTo: (top: number) => void;
+  registerCommentRevealer: (reveal: ((id: string) => void) | null) => void;
+  revealCommentInDocument: (id: string) => void;
   registerCommentRailSync: (sync: ((top: number) => void) | null) => void;
   syncCommentRail: (top: number) => void;
   handleDocCommentClick: (id: string) => void;
