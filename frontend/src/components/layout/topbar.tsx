@@ -1,6 +1,8 @@
 import { Link, useNavigate } from "react-router-dom";
+import { useState } from "react";
 import {
   Check,
+  Keyboard,
   LogOut,
   Monitor,
   Moon,
@@ -10,6 +12,7 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { GetStartedPill } from "./get-started-pill";
+import { ShortcutsHelpDialog } from "./shortcuts-help";
 import { useOnboarding } from "@/lib/onboarding";
 import {
   Dropdown,
@@ -48,6 +51,7 @@ export function AccountMenu({ user }: { user: Principal }) {
   const nav = useNavigate();
   const { theme, setTheme } = useTheme();
   const { reset } = useOnboarding();
+  const [helpOpen, setHelpOpen] = useState(false);
   return (
     <Dropdown>
       <DropdownTrigger asChild>
@@ -82,6 +86,9 @@ export function AccountMenu({ user }: { user: Principal }) {
         <DropdownItem onSelect={() => nav("/app/developers")}>
           <Terminal className="h-4 w-4" /> Developers
         </DropdownItem>
+        <DropdownItem onSelect={() => setHelpOpen(true)}>
+          <Keyboard className="h-4 w-4" /> Help & shortcuts
+        </DropdownItem>
         <DropdownSeparator />
         <DropdownLabel>Theme</DropdownLabel>
         {(
@@ -112,6 +119,7 @@ export function AccountMenu({ user }: { user: Principal }) {
           <LogOut className="h-4 w-4" /> Sign out
         </DropdownItem>
       </DropdownContent>
+      <ShortcutsHelpDialog open={helpOpen} onOpenChange={setHelpOpen} />
     </Dropdown>
   );
 }

@@ -8,6 +8,7 @@ export type OnboardingState = {
     cli_authed: boolean;
     agent_configured: boolean;
     first_doc_seen: boolean;
+    shortcuts_seen: boolean;
   };
 };
 
@@ -18,6 +19,7 @@ const initial: OnboardingState = {
     cli_authed: false,
     agent_configured: false,
     first_doc_seen: false,
+    shortcuts_seen: false,
   },
 };
 

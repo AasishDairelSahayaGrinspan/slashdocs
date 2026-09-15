@@ -15,6 +15,7 @@ import { publicURL } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/misc";
+import { ShortcutList } from "@/components/layout/shortcuts-help";
 import { cn } from "@/lib/cn";
 import {
   onboardingProgress,
@@ -144,6 +145,25 @@ export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
         >
           <TryItOut />
         </Step>
+
+        <Step
+          n={4}
+          title="Learn the shortcuts (optional)"
+          stepKey="shortcuts_seen"
+          state={state}
+          setStep={setStep}
+          optional
+        >
+          <p className="mb-4 text-sm text-[var(--color-fg-muted)]">
+            The document viewer is built for keyboards first. These make reading and
+            reviewing faster — Esc chords: press Esc, then the key.
+          </p>
+          <ShortcutList />
+          <p className="mt-4 text-xs text-[var(--color-fg-muted)]">
+            The full list also lives under <strong>Help & shortcuts</strong> in the
+            account menu (top right).
+          </p>
+        </Step>
       </ol>
     </div>
   );
@@ -168,7 +188,12 @@ function Step({
 }) {
   const done = state.steps[stepKey];
   // Find the first incomplete step among required ones to default-expand.
-  const requiredOrder: StepKey[] = ["cli_installed", "cli_authed", "first_doc_seen"];
+  const requiredOrder: StepKey[] = [
+    "cli_installed",
+    "cli_authed",
+    "first_doc_seen",
+    "shortcuts_seen",
+  ];
   const firstIncomplete = requiredOrder.find((k) => !state.steps[k]);
   const [forced, setForced] = useState<boolean | null>(null);
   const expanded = forced ?? (done ? false : firstIncomplete === stepKey);
