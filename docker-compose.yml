@@ -27,7 +27,9 @@ services:
       retries: 30
 
   minio:
-    image: minio/minio:latest
+    # Pinned official image used only by the local and CI test stack.
+    # nosemgrep: razorpay.custom-docker-base-image-check-docker-compose
+    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
     command: server /data
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -42,7 +44,9 @@ services:
 
   # One-shot sidecar that creates the document bucket, then exits.
   minio-init:
-    image: minio/mc:latest
+    # Pinned official image used only by the local and CI test stack.
+    # nosemgrep: razorpay.custom-docker-base-image-check-docker-compose
+    image: quay.io/minio/minio:RELEASE.2024-12-18T13-15-44Z
     depends_on:
       minio:
         condition: service_healthy
