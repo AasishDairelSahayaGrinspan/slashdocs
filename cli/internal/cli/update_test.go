@@ -78,8 +78,6 @@ func (f *updateFixture) versionPayload() map[string]any {
 	return map[string]any{"version": f.version, "commit": "commit-sha", "install": f.install, "assets": []any{asset}}
 }
 
-func (f *updateFixture) client() *Client { return &Client{Base: f.srv.URL, HTTP: f.srv.Client()} }
-
 // hits reports how many update-related requests the CLI made, which is how the
 // tests prove an untrusted server is never contacted at all.
 func (f *updateFixture) hits() (int64, int64, int64) {
@@ -395,7 +393,7 @@ func TestSkillSyncLeavesIdenticalFileUntouched(t *testing.T) {
 
 	stamp := time.Date(2020, time.January, 2, 3, 4, 5, 0, time.UTC)
 	for _, p := range skillPathsIn(home) {
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatalf("create skill dir: %v", err)
 		}
 		writeTestFile(t, p, []byte(f.skill))
@@ -430,7 +428,7 @@ func TestSkillSyncWritesChangedContent(t *testing.T) {
 	f := (&updateFixture{}).start(t)
 	trustServer(t, f.srv.URL)
 	for _, p := range skillPathsIn(home) {
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o750); err != nil {
 			t.Fatalf("create skill dir: %v", err)
 		}
 		writeTestFile(t, p, []byte("stale skill\n"))

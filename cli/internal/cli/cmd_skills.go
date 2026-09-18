@@ -35,11 +35,11 @@ func skillsUpdateCmd(g *globals, out io.Writer) *cobra.Command {
 			if g.quiet {
 				return nil
 			}
-			status := "unchanged"
-			if changed {
-				status = "updated"
-			}
 			if g.json {
+				status := "unchanged"
+				if changed {
+					status = "updated"
+				}
 				b, err := json.Marshal(map[string]any{"items": []any{map[string]any{"name": "aidocs", "status": status, "paths": paths}}})
 				if err != nil {
 					return err
