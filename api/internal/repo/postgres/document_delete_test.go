@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
@@ -195,6 +196,107 @@ func TestPostgresDeleteDocumentQueuesBlobKeysAtomically(t *testing.T) {
 		t.Errorf("pins rows after failed delete = %d, want 1", n)
 	}
 	assertQueuedBlobKeys(t, store, nil)
+}
+
+// A push that commits while a delete is in flight must not leave its object
+// behind: the delete takes the document's row lock before it collects the blob
+// keys, so the new version is either among them or never written.
+func TestPostgresDeleteDocumentCollectsBlobKeysOfAConcurrentPush(t *testing.T) {
+	ctx := context.Background()
+	blobs := &blockingPutBlobs{Store: blob.NewMemory(), reached: make(chan struct{}), release: make(chan struct{})}
+	store := newStoreWithBlobs(t, blobs)
+
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_delete_racing", Email: "delete-racing@example.com", Name: "Owner"}
+	seedUsers(t, store, owner)
+	doc, ver, err := store.CreateDocument(ctx, owner, "Racing", []byte("<html>v1</html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The push takes the document's row lock, then parks in its blob put, so
+	// it is holding the lock with its version still uncommitted.
+	blobs.blockNextPut()
+	pushed := make(chan error, 1)
+	go func() {
+		_, err := store.CreateVersion(ctx, doc.ID, ver.ID, "concurrent", []byte("<html>v2</html>"), owner)
+		pushed <- err
+	}()
+	select {
+	case <-blobs.reached:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the concurrent push never reached its blob put")
+	}
+
+	// The delete now blocks on that row lock, and only then does the push
+	// commit its version.
+	deleted := make(chan error, 1)
+	go func() { deleted <- store.DeleteDocument(ctx, doc.ID) }()
+	waitForLockWait(t, store)
+	close(blobs.release)
+
+	if err := <-pushed; err != nil {
+		t.Fatalf("concurrent push: %v", err)
+	}
+	if err := <-deleted; err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	for _, key := range blobs.putKeys() {
+		if _, _, err := blobs.Get(ctx, key); !errors.Is(err, blob.ErrNotFound) {
+			t.Errorf("blob %q of the concurrent push outlived the delete (err=%v)", key, err)
+		}
+	}
+	assertQueuedBlobKeys(t, store, nil)
+}
+
+// blockingPutBlobs parks one Put until the test releases it, which holds a
+// push between its row lock and its commit.
+type blockingPutBlobs struct {
+	blob.Store
+	reached chan struct{}
+	release chan struct{}
+
+	mu       sync.Mutex
+	blocking bool
+	keys     []string
+}
+
+func (b *blockingPutBlobs) Put(ctx context.Context, key, contentType string, body []byte) error {
+	b.mu.Lock()
+	blocking := b.blocking
+	b.blocking = false
+	b.keys = append(b.keys, key)
+	b.mu.Unlock()
+	if blocking {
+		close(b.reached)
+		<-b.release
+	}
+	return b.Store.Put(ctx, key, contentType, body)
+}
+
+func (b *blockingPutBlobs) blockNextPut() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.blocking = true
+}
+
+func (b *blockingPutBlobs) putKeys() []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return append([]string(nil), b.keys...)
+}
+
+// waitForLockWait blocks until a session in this test's database is waiting on
+// a lock, which is the delete queuing behind the push's row lock.
+func waitForLockWait(t *testing.T, store *pgrepo.Store) {
+	t.Helper()
+	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
+		if countRows(t, store, `SELECT count(*) FROM pg_stat_activity
+			WHERE datname=current_database() AND wait_event_type='Lock'`) > 0 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("no session ever waited on the document row lock")
 }
 
 // assertTriggerFiresAtCommit checks the premise of the test above: the
