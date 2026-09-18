@@ -31,9 +31,54 @@ or commit through the sandbox bridge:
 </script>
 ```
 
+## Per-repository consent
+
+A document chooses its own coordinates and the server answers them with the
+reader's token, so reading a repository needs the reader's approval first. The
+approval is recorded per **user**, per **document**, and per **repository**:
+approving `acme/docs` for one document approves nothing else, and each reader
+approves for themselves. Owner and repository names are stored lowercased
+because GitHub resolves them case-insensitively.
+
+The first time a document asks for a repository the reader has not approved,
+the aidocs shell — not the document — shows a dialog naming the repository and
+explaining that the document will read files from it with their GitHub account.
+Only a click on **Allow** records the approval and lets the read continue.
+Declining answers the document with an error, and that repository stays
+declined until the page is loaded again. One dialog is shown at a time, so a
+document cannot flood the reader with prompts.
+
+Until the approval exists, `POST /v1/documents/{id}/github/raw` refuses the
+read and nothing is requested from GitHub:
+
+```json
+{
+  "error": {
+    "code": "github_consent_required",
+    "message": "Approve this document reading acme/docs before it can load repository content",
+    "details": { "owner": "acme", "repo": "docs" }
+  }
+}
+```
+
+Document JavaScript sees this as a rejected promise whose message names the
+repository, so handle it like any other failure: show the reader what the
+document wanted to read and let them retry. Because a decline lasts for the
+page load, a retry only re-prompts after a reload.
+
+Approvals are managed under `/v1/documents/{id}/github/consents`: `GET` lists
+the ones the caller made for that document, `POST` with `{"owner", "repo"}`
+records one, and `DELETE /{owner}/{repo}` withdraws one. They require at least
+viewer access to the document and a user principal (a service account cannot
+approve, and cannot read repository content). Disconnecting GitHub withdraws
+every approval the user made, and deleting a document removes its approvals, so
+reconnecting or re-uploading never revives an old one.
+
+## Connecting from a document
+
 If a fetch fails because the reader has not connected GitHub, let the document
-offer the connection action directly. The trusted aidocs shell starts OAuth and
-returns the reader to the same document and heading:
+offer the connection action directly. The shell asks the reader to confirm and
+only then starts OAuth, returning them to the same document and heading:
 
 ```html
 <button id="connect-github" type="button">Connect GitHub</button>
@@ -46,7 +91,9 @@ returns the reader to the same document and heading:
 
 The document can present this as a button or link-like control. It should call
 `connect()` rather than constructing an OAuth URL, because the app and render
-frames may be served from separate origins.
+frames may be served from separate origins. `connect()` only asks the shell to
+offer the connection: the reader still has to confirm, and a confirmation they
+dismissed is not offered again until the page is loaded again.
 
 The document decides how to render the returned raw content. DOM inserted
 after the fetch is monitored by the existing annotation bridge, so readers can

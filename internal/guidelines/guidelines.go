@@ -358,6 +358,13 @@ Ref behavior:
 Access and security:
   - Every reader loads the file using their own connected GitHub account and can
     only read repositories that GitHub permits that account to access.
+  - The first time a document asks for a repository, aidocs asks that reader to
+    approve this document reading that repository. Until they allow it, the call
+    fails with "github_consent_required" and nothing is read. Approval is per
+    reader, per document, and per repository, so keep the number of repositories
+    a document reads small and name them in the visible text.
+  - A reader who declines is not asked again until they reload, so let the
+    document explain what it wanted to read instead of retrying in a loop.
   - Private organisation repositories may also require organisation approval of
     the configured GitHub integration.
   - aidocs keeps the GitHub token outside uploaded HTML. Never put a token in the
@@ -370,9 +377,9 @@ Access and security:
 Connection fallback:
   If loading fails because the reader may not have connected GitHub, offer a
   visible button that calls window.aidocs.github.connect(). The trusted aidocs
-  shell starts the connection flow and returns to the same document. Also show a
-  useful error because an incorrect path, ref, or repository permission can fail
-  in the same place.
+  shell asks the reader to confirm and then starts the connection flow, returning
+  to the same document. Also show a useful error because an incorrect path, ref,
+  a repository permission, or a declined approval can fail in the same place.
 
 Reviewability:
   - Convert the source into semantic, selectable headings, paragraphs, lists,
