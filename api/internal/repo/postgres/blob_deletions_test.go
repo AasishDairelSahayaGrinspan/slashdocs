@@ -193,6 +193,34 @@ func TestPostgresSweepBlobDeletionsBoundsItsConcurrency(t *testing.T) {
 	assertQueuedBlobKeys(t, store, nil)
 }
 
+// A claimed row must stay leased for longer than the sweep that holds it can
+// run, or another replica would claim it while its object is still being
+// deleted. Reading the lease back keeps the SQL literal and blobSweepTimeout
+// from drifting apart.
+func TestPostgresClaimBlobDeletionsLeasesPastTheSweepDeadline(t *testing.T) {
+	ctx := context.Background()
+	blobs := &scriptedBlobs{Store: blob.NewMemory()}
+	store := newStoreWithBlobs(t, blobs)
+	keys := queueBlobDeletions(t, store, "usr_sweep_lease", 1)
+
+	// A row only keeps its lease if its object outlives the sweep that
+	// claimed it, which is what a failing delete leaves behind.
+	blobs.failDeletes(errors.New("blob storage unavailable"))
+	if cleared, err := store.SweepBlobDeletions(ctx); cleared != 0 || err == nil {
+		t.Fatalf("sweep cleared=%d err=%v, want 0 and the delete failure", cleared, err)
+	}
+
+	var lease float64
+	if err := store.Pool().QueryRow(ctx,
+		`SELECT extract(epoch FROM available_at-now())::float8 FROM blob_deletions WHERE blob_key=$1`,
+		keys[0]).Scan(&lease); err != nil {
+		t.Fatal(err)
+	}
+	if want := pgrepo.BlobSweepTimeout.Seconds(); lease <= want {
+		t.Fatalf("claimed row is due again in %.0fs, want more than one sweep's %.0fs", lease, want)
+	}
+}
+
 // hangingKeyBlobs never answers the delete of one key, and deletes every other
 // one normally.
 type hangingKeyBlobs struct {

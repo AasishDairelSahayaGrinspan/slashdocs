@@ -12,7 +12,7 @@ import (
 const claimBlobDeletions = `-- name: ClaimBlobDeletions :many
 UPDATE blob_deletions b
 SET attempts=b.attempts+1,
-    available_at=now()+power(2, least(b.attempts+1, 8))*interval '1 second'
+    available_at=now()+greatest(60, power(2, least(b.attempts+1, 8)))*interval '1 second'
 FROM (
   SELECT blob_key FROM blob_deletions WHERE available_at<=now()
   ORDER BY available_at FOR UPDATE SKIP LOCKED LIMIT $1
@@ -23,7 +23,10 @@ RETURNING b.blob_key
 
 // Leases a batch of due deletions. FOR UPDATE SKIP LOCKED keeps concurrent
 // sweepers on disjoint batches, and the new available_at both holds the lease
-// and applies the retry backoff (2^attempts seconds, capped at 256).
+// and applies the retry backoff (2^attempts seconds, capped at 256). The lease
+// is floored at 60 seconds, which must stay longer than one sweep's deadline
+// (blobSweepTimeout): a shorter lease would let another replica claim rows the
+// sweep that took them is still deleting.
 func (q *Queries) ClaimBlobDeletions(ctx context.Context, rowLimit int32) ([]string, error) {
 	rows, err := q.db.Query(ctx, claimBlobDeletions, rowLimit)
 	if err != nil {
