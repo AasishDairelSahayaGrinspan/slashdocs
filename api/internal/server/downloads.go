@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"io/fs"
 	"net/http"
 	"path"
 	"strings"
@@ -19,6 +20,14 @@ var (
 
 //go:embed download_dist/*
 var downloadDist embed.FS
+
+// cliAssetDir is the directory the CLI binaries live in inside cliAssetFS.
+const cliAssetDir = "download_dist"
+
+// cliAssetFS is the source of the CLI binaries served by /cli/:os/:arch. It is
+// a package variable so tests can substitute a stand-in filesystem for the
+// embedded one, which is empty in a dev checkout.
+var cliAssetFS fs.FS = downloadDist
 
 // Keep this file in sync with ../../../../skills/aidocs/SKILL.md. It is
 // embedded into the server binary so self-hosted installs do not depend on
@@ -53,7 +62,7 @@ var cliPlatforms = []struct{ os, arch string }{
 func cliAssetName(goos, goarch string) string { return "aidocs-" + goos + "-" + goarch }
 
 func embeddedCLIAsset(goos, goarch string) ([]byte, bool) {
-	b, err := downloadDist.ReadFile(path.Join("download_dist", cliAssetName(goos, goarch)))
+	b, err := fs.ReadFile(cliAssetFS, path.Join(cliAssetDir, cliAssetName(goos, goarch)))
 	return b, err == nil && len(b) > 0
 }
 
