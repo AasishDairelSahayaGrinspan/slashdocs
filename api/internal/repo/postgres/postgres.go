@@ -864,18 +864,50 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 	}
 	defer rollback(ctx, tx)
 	q := s.q.WithTx(tx)
+	// Lock the document before reading its blob keys: a version committed by a
+	// concurrent push must either be in the keys collected here or be rejected,
+	// or its object would outlive the row that records the key.
+	if _, err := q.LockDocument(ctx, id); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil
+		}
+		return err
+	}
+	keys, err := q.ListDocumentVersionBlobKeys(ctx, id)
+	if err != nil {
+		return err
+	}
 	deleted, err := q.DeleteDocument(ctx, id)
 	if err != nil {
 		return err
 	}
 	if deleted > 0 {
+		// Grants and pins reference the document by a generic
+		// (resource_type, resource_id) pair with no foreign key to cascade
+		// them, so they are removed here, in the deleting transaction.
+		resource := []string{id}
+		if err := q.DeleteResourceGrants(ctx, dbsqlc.DeleteResourceGrantsParams{ResourceType: "document", ResourceIds: resource}); err != nil {
+			return err
+		}
+		if err := q.DeleteResourcePins(ctx, dbsqlc.DeleteResourcePinsParams{ResourceType: "document", ResourceIds: resource}); err != nil {
+			return err
+		}
+		// The version rows are the only record of the blob keys, so the keys
+		// commit into the deletion outbox with the delete itself.
+		if err := q.EnqueueBlobDeletions(ctx, keys); err != nil {
+			return err
+		}
 		// The event rows cascade with the document, so the notification tells
 		// brokers to fetch, observe ErrNotFound, and close active subscribers.
 		if err := q.NotifyDocumentKVEvent(ctx, id); err != nil {
 			return err
 		}
 	}
-	return tx.Commit(ctx)
+	if err := tx.Commit(ctx); err != nil {
+		return err
+	}
+	s.deleteQueuedBlobs(ctx, keys)
+	return nil
 }
 
 func (s *Store) ListDocumentsByLabel(ctx context.Context, p auth.Principal, label string) ([]repo.Document, error) {

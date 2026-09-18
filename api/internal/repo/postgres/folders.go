@@ -266,8 +266,18 @@ func (s *Store) DeleteFolder(ctx context.Context, id string, p auth.Principal) e
 	if err != nil {
 		return err
 	}
-	if deleted == 0 {
+	if len(deleted) == 0 {
 		return repo.ErrNotFound
+	}
+	// Grants and pins reference folders by a generic (resource_type,
+	// resource_id) pair with no foreign key to cascade them, so every folder
+	// the subtree delete removed gives up its own here. Documents inside are
+	// moved to root by ON DELETE SET NULL and keep their grants and pins.
+	if err := q.DeleteResourceGrants(ctx, dbsqlc.DeleteResourceGrantsParams{ResourceType: "folder", ResourceIds: deleted}); err != nil {
+		return err
+	}
+	if err := q.DeleteResourcePins(ctx, dbsqlc.DeleteResourcePinsParams{ResourceType: "folder", ResourceIds: deleted}); err != nil {
+		return err
 	}
 	return tx.Commit(ctx)
 }
