@@ -184,12 +184,17 @@ func New(cfg Config, opts ...Option) *Server {
 	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
+	// Multipart parsing keeps a part in memory up to this allowance and spools
+	// the rest to os.TempDir(). An upload request is capped at the same value,
+	// so no part can exceed it and an in-limit upload never touches disk.
+	r.MaxMultipartMemory = maxUploadRequestBytes
 	r.Use(requestIDMiddleware())
 	if cfg.Environment != envTest {
 		r.Use(accessLogMiddleware())
 	}
 	r.Use(recoveryMiddleware())
 	r.Use(prometheusMiddleware())
+	r.Use(limitRequestBodies())
 	s := &Server{engine: r}
 	if deps.commentNotificationSender != nil {
 		store, ok := deps.repository.(notifications.Store)
@@ -444,8 +449,17 @@ var errPayloadTooLarge = errors.New("payload too large")
 const maxHTMLBytes = 50 * 1024 * 1024
 
 func readMultipartFile(c *gin.Context, field string) ([]byte, error) {
+	// A request that reached a handler without passing through the router (the
+	// MCP adapter replays these handlers in process) still gets the cap, so
+	// parsing can never buffer or spool more than one upload's worth.
+	limitRequestBody(c, uploadRequestBodyLimit)
 	f, err := c.FormFile(field)
 	if err != nil {
+		if _, tooLarge := requestBodyLimitExceeded(c); tooLarge {
+			// The body ran past the cap mid-parse: report the same 413 an
+			// over-sized file gets below.
+			return nil, errPayloadTooLarge
+		}
 		return nil, err
 	}
 	rc, err := f.Open()

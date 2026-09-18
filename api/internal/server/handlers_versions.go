@@ -52,7 +52,7 @@ func (h handlers) createVersion(c *gin.Context) {
 	p := current(c)
 	html, err := readMultipartFile(c, "file")
 	if errors.Is(err, errPayloadTooLarge) {
-		c.JSON(http.StatusRequestEntityTooLarge, errorResponse("payload_too_large", "HTML file exceeds 50 MiB", nil))
+		payloadTooLarge(c, htmlTooLargeMessage)
 		return
 	}
 	if err != nil {

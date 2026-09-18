@@ -35,7 +35,7 @@ type mcpPrincipalContextKey struct{}
 // kept separate from routes so transport construction and its security policy
 // can be tested independently.
 func registerMCPRoutes(engine *gin.Engine, deps dependencies) {
-	engine.Any("/mcp", gin.WrapH(newMCPHTTPHandler(deps)))
+	engine.Any(mcpRoutePath, gin.WrapH(newMCPHTTPHandler(deps)))
 }
 
 // authenticateMCPRequest resolves the caller for one transport request,
@@ -212,10 +212,19 @@ func (a mcpAPIAdapter) call(
 		req.Header.Set("Content-Type", contentType)
 	}
 	recorder := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(recorder)
+	c, engine := gin.CreateTestContext(recorder)
+	// Router configuration and middleware do not apply to an in-process call,
+	// so mirror what an upload would have been given: the same parse allowance
+	// and the same body cap, reached through the same 413. A JSON body here is
+	// marshalled by the server from an MCP payload the transport already
+	// capped, so only the multipart replay needs a cap of its own.
+	engine.MaxMultipartMemory = maxUploadRequestBytes
 	c.Request = req
 	c.Params = params
 	c.Set(principalContextKey, &principal)
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		limitRequestBody(c, uploadRequestBodyLimit)
+	}
 	handler(c)
 	return mcpAPIResponse{
 		status:      recorder.Code,

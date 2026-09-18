@@ -25,7 +25,19 @@ func notFound(c *gin.Context) {
 }
 
 func badRequest(c *gin.Context, msg string) {
+	// A body the handler could not decode because it ran past the route's cap
+	// is a 413, not a 400. Every handler reports an undecodable body through
+	// here, so the translation happens once instead of in every handler.
+	if limit, tooLarge := requestBodyLimitExceeded(c); tooLarge {
+		payloadTooLarge(c, limit.message)
+		return
+	}
 	c.JSON(http.StatusBadRequest, errorResponse("bad_request", msg, nil))
+}
+
+// payloadTooLarge reports a body the server refuses to read in full.
+func payloadTooLarge(c *gin.Context, msg string) {
+	c.JSON(http.StatusRequestEntityTooLarge, errorResponse("payload_too_large", msg, nil))
 }
 
 func forbidden(c *gin.Context, msg string) {
