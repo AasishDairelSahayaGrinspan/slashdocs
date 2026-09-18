@@ -328,21 +328,30 @@ type handlers struct{ deps dependencies }
 const principalContextKey = "principal"
 
 func (h handlers) needDocRole(c *gin.Context, docID string, need repo.Role) bool {
+	_, ok := h.docRoleAtLeast(c, docID, need)
+	return ok
+}
+
+// docRoleAtLeast resolves the caller's effective role on the document and
+// answers the client itself when it falls short of need. It hands the role back
+// so callers that go on to distinguish higher roles read it once instead of
+// asking the repository again.
+func (h handlers) docRoleAtLeast(c *gin.Context, docID string, need repo.Role) (repo.Role, bool) {
 	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), docID)
 	if err != nil {
 		// A lookup failure is a server fault, not a permission verdict.
 		internalErr(c, err)
-		return false
+		return repo.RoleNone, false
 	}
 	if !atLeast(role, need) {
 		if groupMembershipUnavailable(current(c)) {
 			groupMembershipUnavailableResponse(c)
-			return false
+			return repo.RoleNone, false
 		}
 		forbidden(c, string(need)+" role required")
-		return false
+		return repo.RoleNone, false
 	}
-	return true
+	return role, true
 }
 
 func requireAuth(a auth.Authenticator, appOrigin string, groups *googlegroups.Resolver) gin.HandlerFunc {
