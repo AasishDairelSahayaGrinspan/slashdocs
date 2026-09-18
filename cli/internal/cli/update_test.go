@@ -208,14 +208,39 @@ func TestAutoUpdateSkipsServerWithoutLoggedInContext(t *testing.T) {
 	f := (&updateFixture{}).start(t)
 	exe := fakeExecutable(t, "original binary")
 
-	if _, err := Execute([]string{"docs", "list", "--server", f.srv.URL, "--token", "tok"}); err != nil {
-		t.Fatalf("docs list returned error: %v", err)
-	}
+	stderr := captureStderr(t, func() {
+		if _, err := Execute([]string{"docs", "list", "--server", f.srv.URL, "--token", "tok"}); err != nil {
+			t.Errorf("docs list returned error: %v", err)
+		}
+	})
 
 	requireExecutable(t, exe, "original binary")
 	requireNoSkillFiles(t, home)
 	if v, a, s := f.hits(); v != 0 || a != 0 || s != 0 {
 		t.Fatalf("untrusted server was contacted for updates: version=%d asset=%d skill=%d", v, a, s)
+	}
+	if strings.TrimSpace(stderr) != "" {
+		t.Fatalf("the skipped update check must stay silent, got %q", stderr)
+	}
+}
+
+// TestAutoUpdateVerboseReportsUntrustedServer: silent by default, one line
+// under --verbose so the behaviour is discoverable.
+func TestAutoUpdateVerboseReportsUntrustedServer(t *testing.T) {
+	pinVersion(t, "local-build")
+	fakeHome(t)
+	isolateConfig(t)
+	f := (&updateFixture{}).start(t)
+	fakeExecutable(t, "original binary")
+
+	stderr := captureStderr(t, func() {
+		if _, err := Execute([]string{"--verbose", "docs", "list", "--server", f.srv.URL, "--token", "tok"}); err != nil {
+			t.Errorf("docs list returned error: %v", err)
+		}
+	})
+
+	if !strings.Contains(stderr, "skipping the aidocs update check") || !strings.Contains(stderr, f.srv.URL) {
+		t.Fatalf("--verbose should explain the skipped check, got %q", stderr)
 	}
 }
 

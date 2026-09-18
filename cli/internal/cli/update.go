@@ -274,11 +274,15 @@ func bundledSkillDirs() []string {
 // when its scheme, host, and port are identical to the base's, so a trusted
 // server cannot hand the download off to another origin.
 func sameOriginURL(base, raw string) (string, error) {
+	ref := strings.TrimSpace(raw)
+	if ref == "" {
+		return "", fmt.Errorf("empty download URL")
+	}
 	b, err := url.Parse(base)
 	if err != nil {
 		return "", fmt.Errorf("invalid server URL %q: %w", base, err)
 	}
-	u, err := b.Parse(strings.TrimSpace(raw))
+	u, err := b.Parse(ref)
 	if err != nil {
 		return "", fmt.Errorf("invalid download URL %q: %w", raw, err)
 	}
