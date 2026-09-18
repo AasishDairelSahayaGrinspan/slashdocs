@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,8 +12,11 @@ import (
 	"testing"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/aidocs/api/internal/blob"
 	"github.com/razorpay/aidocs/api/internal/repo"
+	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
 	"github.com/razorpay/aidocs/api/internal/server"
+	"github.com/razorpay/aidocs/api/internal/testdb"
 )
 
 // createDocumentWithFields uploads a document with extra multipart form
@@ -319,4 +323,50 @@ func TestCreateDocumentGrantFailureErrors(t *testing.T) {
 	if strings.Contains(rr.Body.String(), "default_grant") {
 		t.Fatalf("failed grant must not report a default_grant: %s", rr.Body.String())
 	}
+}
+
+// A delete is a user action that must not depend on blob storage being up:
+// the document goes now and its objects stay queued for removal.
+func TestDeleteDocumentSucceedsWhileBlobStorageIsDown(t *testing.T) {
+	ctx := context.Background()
+	store, err := pgrepo.ConnectWithBlob(ctx, testdb.New(t), unavailableBlobDeletes{blob.NewMemory()})
+	if err != nil {
+		t.Fatalf("connect test database: %v", err)
+	}
+	t.Cleanup(store.Close)
+	if _, err := store.UpsertGoogleUser(ctx, fixtureOwner.ID, fixtureOwner.Email, fixtureOwner.Name, "sub-"+fixtureOwner.ID, ""); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	doc, _, err := store.CreateDocument(ctx, fixtureOwner, "delete me", []byte("<html><body>bye</body></html>"))
+	if err != nil {
+		t.Fatalf("seed document: %v", err)
+	}
+	h := server.New(server.Config{Environment: "test"},
+		server.WithRepository(store),
+		server.WithAuthenticator(testPrincipalAuth{}),
+	).Handler()
+
+	rr := do(t, h, http.MethodDelete, "/v1/documents/"+doc.ID, "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusNoContent)
+
+	if _, err := store.GetDocument(ctx, doc.ID); !errors.Is(err, repo.ErrNotFound) {
+		t.Fatalf("document after delete: err=%v, want not found", err)
+	}
+	var queued int
+	if err := store.Pool().QueryRow(ctx, `SELECT count(*) FROM blob_deletions`).Scan(&queued); err != nil {
+		t.Fatal(err)
+	}
+	if queued != 1 {
+		t.Fatalf("queued blob deletions = %d, want 1", queued)
+	}
+}
+
+// unavailableBlobDeletes stores objects normally but never manages to delete
+// one, standing in for an outage of the object store.
+type unavailableBlobDeletes struct{ blob.Store }
+
+func (unavailableBlobDeletes) Delete(context.Context, string) error {
+	return fmt.Errorf("%w: delete", blob.ErrStorage)
 }
