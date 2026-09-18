@@ -137,8 +137,8 @@ function githubRequest(requestId: string, repo = "secrets") {
 }
 
 function responses(toFrame: ReturnType<typeof vi.spyOn>) {
-  return toFrame.mock.calls
-    .map(([message]) => message as Record<string, unknown>)
+  return (toFrame.mock.calls as unknown[][])
+    .map((call) => call[0] as Record<string, unknown>)
     .filter((message) => message?.type === "aidocs:github-response");
 }
 
