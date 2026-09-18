@@ -80,6 +80,17 @@ func jsonTestEnv(t *testing.T, srv *httptest.Server) string {
 	t.Setenv("AIDOCS_NO_BROWSER", "1")
 	t.Setenv("AIDOCS_NO_KEYCHAIN", "1")
 	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	// Store a logged-in context for srv as well, so commands that only act for
+	// a server the user has logged in to (update, skills update) are exercised
+	// here rather than refused.
+	name := ctxName(srv.URL)
+	if err := saveConfig(Config{ActiveContext: name, Contexts: map[string]*Context{name: {
+		Server:     normalizeServer(srv.URL),
+		Credential: map[string]any{"id": "cred_1", "token": "tok"},
+		Pulled:     map[string]string{},
+	}}}); err != nil {
+		t.Fatalf("save logged-in context: %v", err)
+	}
 	html := filepath.Join(t.TempDir(), "report.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 	return html
