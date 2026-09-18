@@ -12,10 +12,12 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/oauth2"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/repo"
@@ -80,7 +82,10 @@ func (h handlers) githubOAuthCallback(c *gin.Context) {
 		badRequest(c, "invalid oauth state")
 		return
 	}
-	token, err := h.deps.githubOAuth.Exchange(c.Request.Context(), c.Query("code"))
+	// Every GitHub call, including the token exchange, goes through the
+	// configured client.
+	ctx := context.WithValue(c.Request.Context(), oauth2.HTTPClient, h.deps.githubHTTPClient)
+	token, err := h.deps.githubOAuth.Exchange(ctx, c.Query("code"))
 	if err != nil {
 		c.JSON(http.StatusBadGateway, errorResponse("github_oauth_failed", "GitHub authorization failed", nil))
 		return
@@ -112,6 +117,13 @@ func (h handlers) githubDisconnect(c *gin.Context) {
 		c.JSON(http.StatusForbidden, errorResponse("forbidden", "GitHub can only be connected by a user", nil))
 		return
 	}
+	// Consents approve spending this connection's token, so they must not
+	// outlive it: reconnecting would otherwise silently re-arm every document
+	// that was approved before.
+	if err := h.deps.repository.DeleteGitHubRepoConsents(c.Request.Context(), current(c).ID); err != nil {
+		internalErr(c, err)
+		return
+	}
 	err := h.deps.repository.DeleteGitHubConnection(c.Request.Context(), current(c).ID)
 	if err != nil && !errors.Is(err, repo.ErrNotFound) {
 		internalErr(c, err)
@@ -127,6 +139,30 @@ type githubRawRequest struct {
 	Ref   string `json:"ref"`
 }
 
+// GitHub logins are alphanumeric with single, non-leading and non-trailing
+// hyphens; repository names also allow dots and underscores. Both are bounded
+// (39 and 100 characters) and are validated here rather than trusted from the
+// caller, because a consent row is only meaningful if the coordinates it
+// names are the ones GitHub will resolve.
+var (
+	githubOwnerPattern = regexp.MustCompile(`^[A-Za-z0-9](?:-?[A-Za-z0-9])*$`)
+	githubRepoPattern  = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+)
+
+// normalizeGitHubRepoRef validates repository coordinates and returns them
+// lowercased. GitHub treats owner and repository names as case-insensitive, so
+// consent has to be recorded and compared in a single spelling; otherwise
+// approving "acme/docs" would leave "Acme/Docs" unapproved but readable.
+func normalizeGitHubRepoRef(owner, repoName string) (string, string, bool) {
+	if len(owner) > 39 || !githubOwnerPattern.MatchString(owner) {
+		return "", "", false
+	}
+	if len(repoName) > 100 || repoName == "." || repoName == ".." || !githubRepoPattern.MatchString(repoName) {
+		return "", "", false
+	}
+	return strings.ToLower(owner), strings.ToLower(repoName), true
+}
+
 // bindGitHubRawRequest reads and validates the repository coordinates,
 // answering the client itself when they are unusable.
 func bindGitHubRawRequest(c *gin.Context) (githubRawRequest, bool) {
@@ -135,11 +171,180 @@ func bindGitHubRawRequest(c *gin.Context) (githubRawRequest, bool) {
 		badRequest(c, "owner, repo, path, and ref are required")
 		return githubRawRequest{}, false
 	}
-	if strings.Contains(in.Owner, "/") || strings.Contains(in.Repo, "/") || strings.HasPrefix(in.Path, "/") || strings.Contains(in.Path, "..") {
+	if _, _, ok := normalizeGitHubRepoRef(in.Owner, in.Repo); !ok {
+		badRequest(c, "invalid repository owner or name")
+		return githubRawRequest{}, false
+	}
+	if strings.HasPrefix(in.Path, "/") || strings.Contains(in.Path, "..") {
 		badRequest(c, "invalid repository path")
 		return githubRawRequest{}, false
 	}
 	return in, true
+}
+
+// githubRepoConsentRequest is the body of a consent grant.
+type githubRepoConsentRequest struct {
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+}
+
+// githubConsentDetails names the repository a document still needs approval
+// for, so the app shell can prompt for exactly that repository.
+type githubConsentDetails struct {
+	Owner string `json:"owner"`
+	Repo  string `json:"repo"`
+}
+
+// githubConsentUser returns the calling user, answering the client when the
+// caller is not one: consent spends a GitHub connection, and only users can
+// connect GitHub.
+func githubConsentUser(c *gin.Context) (*auth.Principal, bool) {
+	p := current(c)
+	if p.Type != auth.PrincipalUser {
+		c.JSON(http.StatusForbidden, errorResponse("forbidden", "GitHub repository access can only be approved by a user", nil))
+		return nil, false
+	}
+	return p, true
+}
+
+// bindGitHubRepoConsent reads owner and repo for a consent grant, answering
+// the client itself when they are unusable.
+func bindGitHubRepoConsent(c *gin.Context) (string, string, bool) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024)
+	var in githubRepoConsentRequest
+	if err := c.ShouldBindJSON(&in); err != nil || in.Owner == "" || in.Repo == "" {
+		badRequest(c, "owner and repo are required")
+		return "", "", false
+	}
+	owner, repoName, ok := normalizeGitHubRepoRef(in.Owner, in.Repo)
+	if !ok {
+		badRequest(c, "invalid repository owner or name")
+		return "", "", false
+	}
+	return owner, repoName, true
+}
+
+// needGitHubRepoConsent reports whether the caller has approved this document
+// reading this repository. A viewer role on the document is not that approval:
+// the document's own JavaScript picks the coordinates and the server spends
+// the reader's GitHub token, so every repository is approved once, by the
+// reader, in trusted app UI.
+func (h handlers) needGitHubRepoConsent(c *gin.Context, documentID, ownerName, repoName string) bool {
+	user, ok := githubConsentUser(c)
+	if !ok {
+		return false
+	}
+	owner, name, ok := normalizeGitHubRepoRef(ownerName, repoName)
+	if !ok {
+		badRequest(c, "invalid repository owner or name")
+		return false
+	}
+	granted, err := h.deps.repository.HasGitHubRepoConsent(c.Request.Context(), user.ID, documentID, owner, name)
+	if err != nil {
+		internalErr(c, err)
+		return false
+	}
+	if !granted {
+		c.JSON(http.StatusForbidden, errorResponse(
+			"github_consent_required",
+			"Approve this document reading "+owner+"/"+name+" before it can load repository content",
+			githubConsentDetails{Owner: owner, Repo: name},
+		))
+		return false
+	}
+	return true
+}
+
+// listGitHubRepoConsents godoc
+// @Summary List the repositories you approved this document to read
+// @Description Consents are per user and per document. Another reader's approvals are never returned.
+// @Tags documents
+// @Security bearerAuth
+// @Security cookieAuth
+// @Param id path string true "Document ID"
+// @Success 200 {object} listResponse[repo.GitHubRepoConsent]
+// @Router /v1/documents/{id}/github/consents [get]
+func (h handlers) listGitHubRepoConsents(c *gin.Context) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
+		return
+	}
+	user, ok := githubConsentUser(c)
+	if !ok {
+		return
+	}
+	items, err := h.deps.repository.ListGitHubRepoConsents(c.Request.Context(), user.ID, c.Param("id"))
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	c.JSON(http.StatusOK, listResponse[repo.GitHubRepoConsent]{Items: items})
+}
+
+// grantGitHubRepoConsent godoc
+// @Summary Approve this document reading one GitHub repository
+// @Description Records that you allow this document to read files from owner/repo with your connected GitHub account. Owner and repo are stored lowercased. Repeating a grant is idempotent.
+// @Tags documents
+// @Security bearerAuth
+// @Security cookieAuth
+// @Accept json
+// @Param id path string true "Document ID"
+// @Param body body githubRepoConsentRequest true "Repository owner and name"
+// @Success 201 {object} repo.GitHubRepoConsent
+// @Router /v1/documents/{id}/github/consents [post]
+func (h handlers) grantGitHubRepoConsent(c *gin.Context) {
+	// JSON is required so a cross-origin form or text/plain POST, which a
+	// browser sends without a preflight, cannot record an approval.
+	if !requireJSON(c) {
+		return
+	}
+	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
+		return
+	}
+	user, ok := githubConsentUser(c)
+	if !ok {
+		return
+	}
+	owner, repoName, ok := bindGitHubRepoConsent(c)
+	if !ok {
+		return
+	}
+	consent, err := h.deps.repository.GrantGitHubRepoConsent(c.Request.Context(), user.ID, c.Param("id"), owner, repoName)
+	if err != nil {
+		internalErr(c, err)
+		return
+	}
+	c.JSON(http.StatusCreated, consent)
+}
+
+// revokeGitHubRepoConsent godoc
+// @Summary Withdraw your approval for one repository
+// @Description Idempotent: withdrawing an approval that is not recorded also succeeds.
+// @Tags documents
+// @Security bearerAuth
+// @Security cookieAuth
+// @Param id path string true "Document ID"
+// @Param owner path string true "Repository owner"
+// @Param repo path string true "Repository name"
+// @Success 204 "No Content"
+// @Router /v1/documents/{id}/github/consents/{owner}/{repo} [delete]
+func (h handlers) revokeGitHubRepoConsent(c *gin.Context) {
+	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
+		return
+	}
+	user, ok := githubConsentUser(c)
+	if !ok {
+		return
+	}
+	owner, repoName, ok := normalizeGitHubRepoRef(c.Param("owner"), c.Param("repo"))
+	if !ok {
+		badRequest(c, "invalid repository owner or name")
+		return
+	}
+	if err := h.deps.repository.RevokeGitHubRepoConsent(c.Request.Context(), user.ID, c.Param("id"), owner, repoName); err != nil {
+		internalErr(c, err)
+		return
+	}
+	c.Status(http.StatusNoContent)
 }
 
 // githubTokenFor opens the caller's stored GitHub token, answering the client
@@ -168,6 +373,12 @@ func (h handlers) githubRawContent(c *gin.Context) {
 	}
 	in, ok := bindGitHubRawRequest(c)
 	if !ok {
+		return
+	}
+	// Consent is checked before the connection is opened: document JavaScript
+	// picks these coordinates, so an unapproved repository must not even
+	// reveal whether the reader has connected GitHub.
+	if !h.needGitHubRepoConsent(c, c.Param("id"), in.Owner, in.Repo) {
 		return
 	}
 	token, ok := h.githubTokenFor(c)

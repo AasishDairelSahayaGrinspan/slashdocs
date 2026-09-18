@@ -910,6 +910,129 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/documents/{id}/github/consents": {
+            "get": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Consents are per user and per document. Another reader's approvals are never returned.",
+                "tags": [
+                    "documents"
+                ],
+                "summary": "List the repositories you approved this document to read",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/server.listResponse-repo_GitHubRepoConsent"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Records that you allow this document to read files from owner/repo with your connected GitHub account. Owner and repo are stored lowercased. Repeating a grant is idempotent.",
+                "consumes": [
+                    "application/json"
+                ],
+                "tags": [
+                    "documents"
+                ],
+                "summary": "Approve this document reading one GitHub repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Repository owner and name",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/server.githubRepoConsentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Created",
+                        "schema": {
+                            "$ref": "#/definitions/repo.GitHubRepoConsent"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/documents/{id}/github/consents/{owner}/{repo}": {
+            "delete": {
+                "security": [
+                    {
+                        "bearerAuth": []
+                    },
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Idempotent: withdrawing an approval that is not recorded also succeeds.",
+                "tags": [
+                    "documents"
+                ],
+                "summary": "Withdraw your approval for one repository",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Document ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository owner",
+                        "name": "owner",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "Repository name",
+                        "name": "repo",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/documents/{id}/grants": {
             "post": {
                 "security": [
@@ -2004,6 +2127,20 @@ const docTemplate = `{
                 }
             }
         },
+        "repo.GitHubRepoConsent": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "owner": {
+                    "type": "string"
+                },
+                "repo": {
+                    "type": "string"
+                }
+            }
+        },
         "repo.Grant": {
             "type": "object",
             "properties": {
@@ -2546,6 +2683,17 @@ const docTemplate = `{
                 }
             }
         },
+        "server.githubRepoConsentRequest": {
+            "type": "object",
+            "properties": {
+                "owner": {
+                    "type": "string"
+                },
+                "repo": {
+                    "type": "string"
+                }
+            }
+        },
         "server.googleGroupSearchItem": {
             "type": "object",
             "properties": {
@@ -2696,6 +2844,17 @@ const docTemplate = `{
                     "type": "array",
                     "items": {
                         "$ref": "#/definitions/repo.Document"
+                    }
+                }
+            }
+        },
+        "server.listResponse-repo_GitHubRepoConsent": {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/repo.GitHubRepoConsent"
                     }
                 }
             }

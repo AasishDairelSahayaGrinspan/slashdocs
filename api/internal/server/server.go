@@ -116,6 +116,17 @@ func WithStateStore(st auth.LoginStateStore) Option {
 	return func(d *dependencies) { d.stateStore = st }
 }
 
+// WithGitHubHTTPClient replaces the client used for every GitHub call: the
+// OAuth token exchange and the REST API. It exists so callers (and tests) can
+// drive the integration without reaching github.com.
+func WithGitHubHTTPClient(client *http.Client) Option {
+	return func(d *dependencies) {
+		if client != nil {
+			d.githubHTTPClient = client
+		}
+	}
+}
+
 func WithReadinessCheck(name string, fn func(context.Context) error) Option {
 	return func(d *dependencies) {
 		if name != "" && fn != nil {
@@ -286,6 +297,9 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/documents/:id/labels", h.listDocumentLabels)
 	authed.PUT("/documents/:id/labels", h.replaceDocumentLabels)
 	authed.POST("/documents/:id/github/raw", h.githubRawContent)
+	authed.GET("/documents/:id/github/consents", h.listGitHubRepoConsents)
+	authed.POST("/documents/:id/github/consents", h.grantGitHubRepoConsent)
+	authed.DELETE("/documents/:id/github/consents/:owner/:repo", h.revokeGitHubRepoConsent)
 	authed.POST("/documents/:id/comments", h.createComment)
 	authed.GET("/documents/:id/comments", h.listComments)
 	authed.GET("/me/notifications", activityLimit, h.notificationPreferences)
