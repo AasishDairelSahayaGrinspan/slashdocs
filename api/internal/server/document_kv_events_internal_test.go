@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/repo"
+	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
+	"github.com/razorpay/aidocs/api/internal/testdb"
 )
 
 type streamAuthorizationCheck struct {
@@ -50,6 +53,58 @@ func (w *streamResponseWriter) Write(body []byte) (int, error) {
 }
 
 func (*streamResponseWriter) Flush() {}
+
+// TestDocumentKVStreamRejectsRevokedSessionCookie drives the stream's periodic
+// re-authorization with the production cookie authenticator and a real store,
+// because a long-lived SSE connection is the one place a signed-out session
+// would otherwise survive.
+func TestDocumentKVStreamRejectsRevokedSessionCookie(t *testing.T) {
+	ctx := context.Background()
+	store, err := pgrepo.Connect(ctx, testdb.New(t))
+	if err != nil {
+		t.Fatalf("connect test database: %v", err)
+	}
+	t.Cleanup(store.Close)
+	const secret = "test-session-signing-material"
+	viewer := auth.Principal{Type: auth.PrincipalUser, ID: "usr_stream", Email: "stream@example.com", Name: "Stream"}
+	if _, err := store.UpsertGoogleUser(ctx, viewer.ID, viewer.Email, viewer.Name, "sub-"+viewer.ID, ""); err != nil {
+		t.Fatalf("seed user: %v", err)
+	}
+	doc, _, err := store.CreateDocument(ctx, viewer, "stream", []byte("<html><body>stream</body></html>"))
+	if err != nil {
+		t.Fatalf("seed document: %v", err)
+	}
+
+	token := (auth.SessionCodec{Secret: []byte(secret)}).Sign(viewer.ID)
+	request := httptest.NewRequest(http.MethodGet, "/v1/documents/"+doc.ID+"/kv/events", nil)
+	request.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	authenticator := auth.DBAuthenticator{Resolver: store, SessionSecret: secret}
+	stream := &documentKVStream{
+		ctx:        ctx,
+		repository: store,
+		authenticate: func(ctx context.Context) (*auth.Principal, error) {
+			return authenticator.Authenticate(request.Clone(ctx))
+		},
+		principal:  viewer,
+		documentID: doc.ID,
+	}
+
+	if !stream.reauthorize() {
+		t.Fatal("stream dropped a live session cookie")
+	}
+
+	_, expiresAt, ok := (auth.SessionCodec{Secret: []byte(secret)}).VerifySessionExpiry(token)
+	if !ok {
+		t.Fatal("test session token did not verify")
+	}
+	if err := store.RevokeSession(ctx, auth.HashToken(token), expiresAt); err != nil {
+		t.Fatalf("revoke session: %v", err)
+	}
+
+	if stream.reauthorize() {
+		t.Fatal("stream kept a revoked session cookie connected")
+	}
+}
 
 func TestDocumentKVStreamReauthorizesOnKeepalive(t *testing.T) {
 	principal := auth.Principal{Type: auth.PrincipalUser, ID: "viewer_1"}

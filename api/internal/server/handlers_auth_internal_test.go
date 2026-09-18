@@ -3,8 +3,13 @@ package server
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/gin-gonic/gin"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 )
@@ -129,6 +134,46 @@ func TestOIDCIdentityKeysNamespaceGenericSubjectsByExactIssuer(t *testing.T) {
 	if withoutSlashID == withSlashID || withoutSlashSubject == withSlashSubject {
 		t.Fatal("distinct exact issuer identifiers shared an account namespace")
 	}
+}
+
+func TestClearSessionCookieMatchesTheLoginCookieScope(t *testing.T) {
+	for _, appOrigin := range []string{"https://app.example", "http://localhost:8080"} {
+		t.Run(appOrigin, func(t *testing.T) {
+			h := handlers{deps: dependencies{appOrigin: appOrigin, sessionSecret: "test-session-secret"}}
+
+			set := emittedSessionCookie(t, func(c *gin.Context) {
+				h.setSessionCookie(c, auth.Principal{Type: auth.PrincipalUser, ID: "usr_1"})
+			})
+			cleared := emittedSessionCookie(t, h.clearSessionCookie)
+
+			if cleared.Value != "" || cleared.MaxAge >= 0 || !cleared.Expires.Before(time.Now()) {
+				t.Fatalf("cleared session cookie is not expired: %#v", cleared)
+			}
+			if set.Value == "" || set.MaxAge != sessionTTLSeconds {
+				t.Fatalf("login session cookie is not a 30-day credential: %#v", set)
+			}
+			if cleared.Name != set.Name || cleared.Path != set.Path || cleared.Domain != set.Domain ||
+				cleared.Secure != set.Secure || cleared.HttpOnly != set.HttpOnly || cleared.SameSite != set.SameSite {
+				t.Fatalf("cleared cookie scope %#v does not match the login cookie %#v", cleared, set)
+			}
+		})
+	}
+}
+
+// emittedSessionCookie runs a cookie writer against a throwaway response and
+// returns the session cookie it wrote.
+func emittedSessionCookie(t *testing.T, write func(*gin.Context)) *http.Cookie {
+	t.Helper()
+	rr := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rr)
+	write(c)
+	for _, cookie := range rr.Result().Cookies() {
+		if cookie.Name == sessionCookieName {
+			return cookie
+		}
+	}
+	t.Fatalf("no %q cookie was written", sessionCookieName)
+	return nil
 }
 
 func TestOIDCIdentityKeysPreserveGoogleCompatibility(t *testing.T) {

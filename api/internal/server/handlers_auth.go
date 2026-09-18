@@ -401,13 +401,62 @@ func (h handlers) revokeCLICredential(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// Logout godoc
+// @Summary Sign out
+// @Description Revokes the session token presented in the session cookie and expires that cookie. Idempotent: it answers 204 even when the request carries no session, an unusable one, or one that was already revoked, so signing out always succeeds.
+// @Tags auth
+// @Security cookieAuth
+// @Success 204
+// @Failure 403 {object} errorEnvelope
+// @Failure 500 {object} errorEnvelope
+// @Router /v1/auth/logout [post]
+func (h handlers) logout(c *gin.Context) {
+	// Signing out must work even when the presented session is already
+	// unusable, so this route is not behind requireAuth. The cookie CSRF check
+	// still applies: a cross-site page must not be able to force a sign-out.
+	if !allowCookieUnsafeRequest(c, h.deps.appOrigin) {
+		forbidden(c, "csrf check failed")
+		return
+	}
+	if cookie, err := c.Request.Cookie(sessionCookieName); err == nil {
+		// Only a token that still verifies can authenticate anything; anything
+		// else is already unusable and needs no denylist row.
+		if _, expiresAt, ok := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).VerifySessionExpiry(cookie.Value); ok {
+			if err := h.deps.repository.RevokeSession(c.Request.Context(), auth.HashToken(cookie.Value), expiresAt); err != nil {
+				// The session is still usable, so the response must not claim
+				// the caller has been signed out.
+				internalErr(c, err)
+				return
+			}
+			incAuth("logout", "success")
+		}
+	}
+	h.clearSessionCookie(c)
+	c.Status(http.StatusNoContent)
+}
+
 func (h handlers) setSessionCookie(c *gin.Context, p auth.Principal) {
-	cookie := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).Sign(p.ID)
+	h.writeSessionCookie(c, (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).Sign(p.ID), sessionTTLSeconds)
+}
+
+// clearSessionCookie expires the session cookie with the attributes
+// setSessionCookie wrote it with, so the browser replaces that cookie instead
+// of keeping it alive beside a differently scoped one.
+func (h handlers) clearSessionCookie(c *gin.Context) {
+	h.writeSessionCookie(c, "", -1)
+}
+
+func (h handlers) writeSessionCookie(c *gin.Context, value string, maxAge int) {
+	var expires time.Time
+	if maxAge < 0 {
+		expires = time.Unix(1, 0)
+	}
 	//nolint:gosec // G124: Secure is deliberately false only for configured local HTTP development origins.
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     sessionCookieName,
-		Value:    cookie,
-		MaxAge:   sessionTTLSeconds,
+		Value:    value,
+		MaxAge:   maxAge,
+		Expires:  expires,
 		Path:     "/",
 		Secure:   secureCookiesForOrigin(h.deps.appOrigin),
 		HttpOnly: true,

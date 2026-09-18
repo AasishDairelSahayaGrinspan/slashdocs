@@ -829,6 +829,28 @@ paths:
       summary: Start OIDC login
       tags:
       - auth
+  /v1/auth/logout:
+    post:
+      description: 'Revokes the session token presented in the session cookie and
+        expires that cookie. Idempotent: it answers 204 even when the request carries
+        no session, an unusable one, or one that was already revoked, so signing out
+        always succeeds.'
+      responses:
+        "204":
+          description: No Content
+        "403":
+          description: Forbidden
+          schema:
+            $ref: '#/definitions/server.errorEnvelope'
+        "500":
+          description: Internal Server Error
+          schema:
+            $ref: '#/definitions/server.errorEnvelope'
+      security:
+      - cookieAuth: []
+      summary: Sign out
+      tags:
+      - auth
   /v1/auth/oidc/callback:
     get:
       parameters:

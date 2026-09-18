@@ -254,6 +254,37 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/logout": {
+            "post": {
+                "security": [
+                    {
+                        "cookieAuth": []
+                    }
+                ],
+                "description": "Revokes the session token presented in the session cookie and expires that cookie. Idempotent: it answers 204 even when the request carries no session, an unusable one, or one that was already revoked, so signing out always succeeds.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "Sign out",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    },
+                    "403": {
+                        "description": "Forbidden",
+                        "schema": {
+                            "$ref": "#/definitions/server.errorEnvelope"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/server.errorEnvelope"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/auth/oidc/callback": {
             "get": {
                 "tags": [

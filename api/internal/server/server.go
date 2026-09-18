@@ -248,6 +248,10 @@ func (s *Server) routes(deps dependencies) {
 	v1.GET("/auth/oidc/start", h.oauthStart)
 	v1.GET("/auth/oidc/callback", h.oauthCallback)
 	v1.POST("/auth/cli/exchange", h.cliExchange)
+	// Logout sits outside the authenticated group on purpose: a user must be
+	// able to sign out even when the session they present is already invalid,
+	// expired, or revoked. The handler runs the cookie CSRF check itself.
+	v1.POST("/auth/logout", h.logout)
 
 	// Every route below requires authentication.
 	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))
@@ -350,6 +354,15 @@ func requireAuth(a auth.Authenticator, appOrigin string, groups *googlegroups.Re
 		p, err := a.Authenticate(c.Request)
 		if err != nil {
 			incAuth("request", "failure")
+			if !errors.Is(err, auth.ErrUnauthorized) {
+				// A lookup fault (e.g. the session denylist or the principal
+				// store being unavailable) is not a verdict on the credential.
+				// Answering 401 would mask the outage and bounce browsers into
+				// a login loop with a perfectly good session.
+				c.Abort()
+				internalErr(c, err)
+				return
+			}
 			if wantsBrowserLogin(c) {
 				redirect := c.Request.URL.RequestURI()
 				if !safeWebRedirect(redirect) {
