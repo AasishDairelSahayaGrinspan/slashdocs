@@ -203,4 +203,56 @@ func TestPostgresFolderInvariants(t *testing.T) {
 			t.Fatalf("pins=%#v", pins)
 		}
 	})
+	// Grants and pins reference folders by a generic (resource_type,
+	// resource_id) pair no foreign key covers, so deleting a subtree has to
+	// remove them for every folder it deletes. Documents inside are moved to
+	// root instead of deleted and keep their own grants.
+	t.Run("subtree delete removes grants and pins", func(t *testing.T) {
+		r := newFolderStore(t)
+		root, err := r.CreateFolder(ctx, owner, "Root", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := r.CreateFolder(ctx, owner, "Child", root.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		doc, _, err := r.CreateDocument(ctx, owner, "Doc", []byte("x"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.MoveDocumentToFolder(ctx, owner, child.ID, doc.ID); err != nil {
+			t.Fatal(err)
+		}
+		for _, folderID := range []string{root.ID, child.ID} {
+			if _, err := r.CreateGrant(ctx, "folder", folderID, other, repo.RoleViewer, owner); err != nil {
+				t.Fatal(err)
+			}
+			if err := r.PutPin(ctx, owner, "folder", folderID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if _, err := r.CreateGrant(ctx, "document", doc.ID, third, repo.RoleViewer, owner); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := r.DeleteFolder(ctx, root.ID, owner); err != nil {
+			t.Fatal(err)
+		}
+
+		deleted := []string{root.ID, child.ID}
+		if n := countRows(t, r, `SELECT count(*) FROM resource_grants WHERE resource_type='folder' AND resource_id=ANY($1)`, deleted); n != 0 {
+			t.Errorf("resource_grants rows for deleted folders = %d, want 0", n)
+		}
+		if n := countRows(t, r, `SELECT count(*) FROM pins WHERE resource_type='folder' AND resource_id=ANY($1)`, deleted); n != 0 {
+			t.Errorf("pins rows for deleted folders = %d, want 0", n)
+		}
+		moved, err := r.GetDocument(ctx, doc.ID)
+		if err != nil || moved.ParentFolderID != "" {
+			t.Fatalf("document after folder delete = %+v, err=%v, want it at root", moved, err)
+		}
+		if role, _ := r.RoleForDocument(ctx, third, doc.ID); role != repo.RoleViewer {
+			t.Errorf("document grant role after folder delete = %q, want viewer", role)
+		}
+	})
 }
