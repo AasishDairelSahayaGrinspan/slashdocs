@@ -25,11 +25,16 @@ type signedPayload struct {
 	Nonce string `json:"jti,omitempty"`
 }
 
+// SessionTTL is how long a browser session token is accepted. The session
+// cookie's lifetime is derived from it, so the cookie and the token it carries
+// cannot drift apart.
+const SessionTTL = 30 * 24 * time.Hour
+
 func (s SessionCodec) Sign(userID string) string {
 	return s.sign(signedPayload{
 		Subject:   userID,
 		Audience:  audSession,
-		ExpiresAt: time.Now().Add(30 * 24 * time.Hour).Unix(),
+		ExpiresAt: time.Now().Add(SessionTTL).Unix(),
 		Nonce:     sessionNonce(),
 	})
 }

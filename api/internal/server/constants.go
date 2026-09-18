@@ -1,11 +1,16 @@
 package server
 
-import "time"
+import (
+	"time"
+
+	"github.com/razorpay/aidocs/api/internal/auth"
+)
 
 // Cookie / session
 const (
 	sessionCookieName = "aidocs_session"
-	sessionTTLSeconds = int(30 * 24 * time.Hour / time.Second) // 30 days
+	// The cookie lives exactly as long as the token inside it.
+	sessionTTLSeconds = int(auth.SessionTTL / time.Second)
 )
 
 // Auth modes
