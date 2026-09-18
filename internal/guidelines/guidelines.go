@@ -71,8 +71,10 @@ Publish a new document:
 Push an update to an existing document:
   aidocs docs push <doc_id> report.html --base-version <version_id> --summary 'Address comments'
 
-If you previously ran aidocs docs pull <doc_id>, the CLI remembers that base
-version for the active context, so --base-version is optional.
+The CLI remembers the base version for the active context after every
+aidocs docs pull <doc_id>, docs create, and docs push, so --base-version is
+optional once you have touched the document from this machine. Pass it to
+build on a specific version, or to recover after another writer pushes.
 
 Publishing model:
   - Creating a document stores the uploaded HTML as version 1.
