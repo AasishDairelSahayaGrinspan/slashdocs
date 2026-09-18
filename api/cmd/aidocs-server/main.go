@@ -19,6 +19,7 @@ import (
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
+	"github.com/razorpay/aidocs/api/internal/blobdeletions"
 	"github.com/razorpay/aidocs/api/internal/db"
 	"github.com/razorpay/aidocs/api/internal/googlegroups"
 	"github.com/razorpay/aidocs/api/internal/kvevents"
@@ -118,7 +119,13 @@ func run() error {
 	workerCtx, cancelWorker := context.WithCancel(ctx)
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); srv.RunCommentNotifications(workerCtx) }()
-	defer func() { cancelWorker(); <-workerDone }()
+	// Deleting a document queues its version objects for removal and deletes
+	// what it can immediately; the sweeper retries whatever blob storage
+	// refused at the time.
+	sweeper := &blobdeletions.Sweeper{Store: store}
+	sweeperDone := make(chan struct{})
+	go func() { defer close(sweeperDone); sweeper.Run(workerCtx) }()
+	defer func() { cancelWorker(); <-workerDone; <-sweeperDone }()
 	return serve(ctx, srv.Handler(), ":"+envOrDefault("AIDOCS_PORT", "8080"), ":"+envOrDefault("AIDOCS_METRICS_PORT", "9090"))
 }
 
