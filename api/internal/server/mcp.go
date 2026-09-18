@@ -218,7 +218,7 @@ func (a mcpAPIAdapter) call(
 	// and the same body cap, reached through the same 413. A JSON body here is
 	// marshalled by the server from an MCP payload the transport already
 	// capped, so only the multipart replay needs a cap of its own.
-	engine.MaxMultipartMemory = maxUploadRequestBytes
+	keepUploadsInMemory(engine)
 	c.Request = req
 	c.Params = params
 	c.Set(principalContextKey, &principal)

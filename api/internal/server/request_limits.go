@@ -34,6 +34,16 @@ const (
 	maxUploadRequestBytes = maxHTMLBytes + maxMultipartFramingBytes
 )
 
+// keepUploadsInMemory sets the engine's multipart parse allowance to the upload
+// cap. Multipart parsing keeps a part in memory up to that allowance and spools
+// the rest to os.TempDir(); an upload request is capped at the same value, so
+// no part can exceed it and an in-limit upload never touches disk. The router
+// and the in-process engine the MCP adapter replays uploads through both call
+// this, so the two cannot drift.
+func keepUploadsInMemory(engine *gin.Engine) {
+	engine.MaxMultipartMemory = maxUploadRequestBytes
+}
+
 // htmlTooLargeMessage is what an over-sized upload has always reported. The
 // body cap must not change what a client sees, so the cap and the upload
 // handlers share this one string.

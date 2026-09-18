@@ -184,10 +184,7 @@ func New(cfg Config, opts ...Option) *Server {
 	}
 	r := gin.New()
 	r.RedirectTrailingSlash = false
-	// Multipart parsing keeps a part in memory up to this allowance and spools
-	// the rest to os.TempDir(). An upload request is capped at the same value,
-	// so no part can exceed it and an in-limit upload never touches disk.
-	r.MaxMultipartMemory = maxUploadRequestBytes
+	keepUploadsInMemory(r)
 	r.Use(requestIDMiddleware())
 	if cfg.Environment != envTest {
 		r.Use(accessLogMiddleware())
