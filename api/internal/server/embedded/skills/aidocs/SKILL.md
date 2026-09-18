@@ -96,6 +96,11 @@ run `aidocs auth login` (include the server URL if the current context requires
 it), then retry the requested CLI action. If login cannot be completed in the
 environment, explain that clearly and ask the user to authenticate.
 
+The CLI updates itself and this skill file only from a server the user has
+logged in to. Running a command against another host with `--server` or
+`AIDOCS_SERVER` never changes the `aidocs` binary or this file. To refresh the
+skill deliberately, run `aidocs skills update` against the logged-in server.
+
 ## When not to publish
 
 Do not publish to aidocs if the user explicitly asks for Markdown, plain text, a

@@ -235,6 +235,8 @@ When the server is running:
 
 Uploaded HTML should be treated as untrusted content. `aidocs` renders documents in a sandboxed frame and requires app and render URLs on different hostnames. Scheme or port differences on the same hostname do not isolate cookies; the unsafe override is for local development only.
 
+The CLI self-updates and refreshes its bundled agent skill only from a server the user has logged in to with `aidocs auth login`. A `--server` or `AIDOCS_SERVER` override serves that command's API calls and nothing else, so pointing the CLI at an arbitrary host can neither replace the binary nor rewrite the `SKILL.md` files that coding agents load automatically.
+
 ## Telemetry
 
 None. `aidocs` collects no telemetry, analytics, or usage data, and phones home to no one. The only outbound calls the server makes are to your Postgres, your blob storage, and your configured OpenID Connect provider during login.

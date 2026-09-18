@@ -616,3 +616,17 @@ it to the current user's shell profile for future terminals.
 
 For self-hosted instances, pass the URL to `aidocs auth login` so the
 CLI knows which server to authenticate against.
+
+Logging in is also what lets your server keep those installs current. The
+CLI self-updates and refreshes the bundled agent skill only from a server the
+user has logged in to; the context the installer writes does not count until
+that login happens. Running a command against any other host (`--server`,
+`AIDOCS_SERVER`) never replaces the binary and never rewrites
+`~/.agents/skills/aidocs/SKILL.md` or `~/.claude/skills/aidocs/SKILL.md`.
+
+Once logged in, an install tracks whatever build your server advertises at
+`/version.json`. Build identifiers are commit SHAs and carry no ordering, so a
+CLI that differs from the server's build is replaced by it — if you roll the
+server back, logged-in CLIs follow it back down. Assets are downloaded from
+your server's own origin and verified against the sha256 it publishes; an
+asset without a usable checksum is refused.

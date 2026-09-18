@@ -81,13 +81,27 @@ or CLI to mint credentials.
 
 ## Skills
 
-Refresh the bundled agent skill from the connected aidocs server:
+Refresh the bundled agent skill from the logged-in aidocs server:
 
 ```bash
 aidocs skills update
 ```
 
-The command installs the latest server-served `aidocs` skill into `~/.agents/skills/aidocs/SKILL.md` and `~/.claude/skills/aidocs/SKILL.md`.
+The command installs the server-served `aidocs` skill into `~/.agents/skills/aidocs/SKILL.md` and `~/.claude/skills/aidocs/SKILL.md`. Files whose contents already match are left untouched, so local mtimes are stable.
+
+## Updates
+
+After most commands the CLI asks its server for the current build and refreshes the bundled skill from it. Both run only against a server you have logged in to with `aidocs auth login`. A one-off `--server`, `AIDOCS_SERVER`, or `--token` is used for that command's API calls and nothing else: it never replaces the binary and never rewrites the `SKILL.md` files your coding agent loads automatically. A context that the installer wrote but nobody has logged in to yet is not trusted either.
+
+```bash
+aidocs update                                  # update from the logged-in server
+aidocs update --force                          # reinstall the current build from that server
+AIDOCS_DISABLE_AUTO_UPDATE=1 aidocs docs list  # skip the automatic check
+```
+
+`aidocs update` and `aidocs skills update` refuse with an explanatory error when the server they would use is not one you are logged in to; run `aidocs auth login <server>` first. `--force` only re-installs a matching build — it is not a way to trust another server.
+
+Build identifiers are commit SHAs and cannot be ordered, so the CLI installs whatever build its logged-in server currently advertises, including an older one after that server is rolled back. That is the point: the install tracks your server. Downloads must come from that server's own origin and must match the sha256 it publishes.
 
 ## Output
 
