@@ -162,13 +162,12 @@ func (h handlers) downloadCLI(c *gin.Context) {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "unsupported platform", nil))
 		return
 	}
-	info, ok := cliAssetMeta(goos, goarch)
-	if !ok {
-		c.JSON(http.StatusNotFound, errorResponse("not_found", "cli binary is not available in this build", nil))
-		return
-	}
 	name := cliAssetName(goos, goarch)
-	f, ok := openCLIAsset(name)
+	info, ok := cliAssetMeta(goos, goarch)
+	var f io.ReadSeekCloser
+	if ok {
+		f, ok = openCLIAsset(name)
+	}
 	if !ok {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "cli binary is not available in this build", nil))
 		return
