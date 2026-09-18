@@ -166,6 +166,27 @@ AIDOCS_OIDC_CLIENT_SECRET=dex-client-secret
 AIDOCS_OIDC_PROVIDER_NAME=Dex
 ```
 
+### Browser sessions and sign-out
+
+A successful browser login sets `aidocs_session`, an HttpOnly, SameSite=Lax
+cookie holding a 30-day token signed with `SESSION_SECRET`. The token is
+stateless, so signing out goes through `POST /v1/auth/logout`: the server
+records the presented token in the `revoked_sessions` table (as a SHA-256 hash,
+with the token's own expiry) and expires the cookie. Cookie authentication
+rejects a revoked token everywhere, so a copy of the cookie stops working
+immediately instead of remaining valid for the rest of the 30 days.
+
+The endpoint is deliberately unauthenticated — signing out must work even with
+an expired or already-revoked session — but it enforces the same Origin/Referer
+check as every other cookie-authenticated write, so another site cannot force
+your users to sign out. Denylist rows are reaped by later sign-outs once the
+tokens they name have expired; no cron job or manual cleanup is needed.
+
+Sign-out ends that one session. Other sessions of the same user, CLI
+credentials, service-account keys, and MCP access tokens are separate
+credentials: revoke them from the profile and service-account screens.
+Rotating `SESSION_SECRET` invalidates every browser session at once.
+
 ### Deployment type: public vs org
 
 aidocs runs in one of two modes, set by `AIDOCS_DEPLOYMENT`:
