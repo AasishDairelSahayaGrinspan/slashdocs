@@ -265,7 +265,8 @@ reference tables below document them too.
 
 For production, sit aidocs behind a TLS-terminating reverse proxy (nginx,
 Caddy, Cloudflare, ALB, etc.) and set `AIDOCS_APP_ORIGIN` / `AIDOCS_RENDER_ORIGIN` to
-the public HTTPS URLs.
+the public HTTPS URLs. Give the proxy a body-size limit that matches the
+server's (see [Request size limits](#request-size-limits)).
 
 ## Kubernetes with Helm
 
@@ -573,6 +574,34 @@ document needs images, embed them as data URLs:
 <img src="data:image/png;base64,..." alt="diagram" />
 ```
 
+## Request size limits
+
+Every request body is capped before the server parses it, so an
+over-sized request is refused with `413` and the standard error envelope
+instead of being buffered in memory or spooled to disk first. The caps
+are constants, not configuration:
+
+- **Uploads** (`POST /v1/documents`, `POST /v1/documents/{id}/versions`):
+  51 MiB — the documented 50 MiB HTML file plus 1 MiB for the multipart
+  framing and the other form fields. A file over 50 MiB still reports
+  `HTML file exceeds 50 MiB`.
+- **`/mcp`**: 301 MiB. HTML travels JSON-escaped inside JSON-RPC, which
+  can expand it several times over; the document tools behind it still
+  enforce the same 50 MiB limit.
+- **Everything else**, JSON routes included and whether or not the
+  caller is authenticated: 1 MiB. A few routes cap themselves lower — a
+  document KV patch at 256 KiB, notification preferences at 1 KiB.
+
+Align the body-size setting of anything sitting in front of aidocs so it
+does not reject what the server accepts: nginx
+`client_max_body_size 51m;`, ingress-nginx
+`nginx.ingress.kubernetes.io/proxy-body-size: 51m`, or the equivalent for
+your proxy or CDN. Clients that post large documents over MCP need the
+larger limit on the `/mcp` location.
+
+An upload within the limit is parsed entirely in memory, so the chart's
+`readOnlyRootFilesystem: true` needs no writable temp volume for it.
+
 ## Upgrading
 
 Postgres migrations are applied automatically at startup unless
@@ -585,6 +614,8 @@ down-migration manually if needed; the binary does not auto-rollback.
 - [ ] `AIDOCS_APP_ORIGIN` and `AIDOCS_RENDER_ORIGIN` on different hostnames
       (enforced at startup), and `AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN` unset.
 - [ ] HTTPS everywhere (TLS at the proxy/ingress).
+- [ ] Proxy/ingress body-size limit aligned with the server's
+      (see [Request size limits](#request-size-limits)).
 - [ ] `SESSION_SECRET` rotated to a fresh 32+ byte value, stored in a
       secret manager.
 - [ ] OAuth/OIDC redirect URIs registered at the IdP match `AIDOCS_APP_ORIGIN`.
