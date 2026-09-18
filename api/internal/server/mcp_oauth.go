@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/gin-gonic/gin"
 
@@ -31,6 +33,11 @@ const (
 	maxMCPClientNameBytes  = 128
 	maxMCPRedirectURIBytes = 1024
 	maxMCPClientIDBytes    = 2048
+	// Registration bounds the client name in bytes; the consent page bounds
+	// what it renders in runes, so no name reaching the template can outgrow
+	// the destination it is shown next to.
+	maxMCPDisplayNameRunes = maxMCPClientNameBytes
+	defaultMCPClientName   = "MCP client"
 )
 
 type mcpOAuthClient struct {
@@ -157,7 +164,7 @@ func (h handlers) mcpRegisterClient(c *gin.Context) {
 	}
 	client := mcpOAuthClient{Name: strings.TrimSpace(in.ClientName), RedirectURIs: slices.Clone(in.RedirectURIs)}
 	if client.Name == "" {
-		client.Name = "MCP client"
+		client.Name = defaultMCPClientName
 	}
 	b, err := json.Marshal(client)
 	if err != nil {
@@ -370,11 +377,95 @@ func validPKCEChallenge(challenge string) bool {
 	return true
 }
 
+// mcpConsentTarget describes, for the consent page, where an approval actually
+// sends the authorization code. Registration is unauthenticated, so the client
+// name beside it carries no weight; the destination is what a user can refuse
+// on.
+type mcpConsentTarget struct {
+	Destination string
+	Note        string
+}
+
+// mcpConsentTargetFor describes a redirect URI that has already been validated
+// against the signed client registration. It is derived from that same URI —
+// the one bound into the authorization code and used to deliver it — so the
+// page cannot show one destination while the code goes to another.
+func mcpConsentTargetFor(redirect *url.URL) mcpConsentTarget {
+	scheme := strings.ToLower(redirect.Scheme)
+	if scheme != "http" && scheme != "https" {
+		// A private-use app scheme (RFC 8252 §7.1) names no host: the operating
+		// system hands the code to whichever installed app claims the scheme,
+		// so the scheme is the whole destination.
+		return mcpConsentTarget{
+			Destination: scheme + "://",
+			Note:        "An app on this computer that is registered to open these links.",
+		}
+	}
+	target := mcpConsentTarget{
+		Destination: mcpRedirectDisplayHost(redirect),
+		Note:        "A website on the internet.",
+	}
+	if host := redirect.Hostname(); strings.EqualFold(host, "localhost") || isLoopbackIPHost(host) {
+		target.Note = "An application running on this computer."
+	}
+	return target
+}
+
+// mcpRedirectDisplayHost renders a redirect host the way a browser resolves it:
+// IDNA-encoded to ASCII so a homograph lookalike reads as its xn-- form,
+// bracketed when it is an IPv6 literal, and carrying the port only when it is
+// not the scheme default. A host that cannot be canonicalized is shown as it
+// was received; the template escapes it either way.
+func mcpRedirectDisplayHost(redirect *url.URL) string {
+	host, ok := canonicalHTTPHostname(redirect.Hostname())
+	if !ok {
+		host = redirect.Hostname()
+	}
+	if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	if port := redirect.Port(); port != "" && port != defaultHTTPPort(strings.ToLower(redirect.Scheme)) {
+		host = host + ":" + port
+	}
+	return host
+}
+
+// mcpDisplayClientName neutralizes a self-reported client name for display.
+// Registration caps the name's length but accepts any runes in it, so strip
+// here what can visually rewrite the consent page: control runes become
+// spaces, and format runes — bidi overrides and isolates such as U+202E,
+// zero-width joiners — are dropped entirely. html/template escapes the rest.
+func mcpDisplayClientName(name string) string {
+	var display strings.Builder
+	runes := 0
+	for _, r := range name {
+		if r == utf8.RuneError || unicode.Is(unicode.Cf, r) {
+			continue
+		}
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			r = ' '
+		}
+		if runes == maxMCPDisplayNameRunes {
+			display.WriteRune('…')
+			break
+		}
+		display.WriteRune(r)
+		runes++
+	}
+	collapsed := strings.Join(strings.Fields(display.String()), " ")
+	if collapsed == "" {
+		return defaultMCPClientName
+	}
+	return collapsed
+}
+
 var mcpConsentTemplate = template.Must(template.New("mcp-consent").Parse(`<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Connect {{.ClientName}} to aidocs</title>
-<style>body{font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:10vh auto;padding:0 1.5rem;color:#171717}section{border:1px solid #ddd;border-radius:12px;padding:1.5rem}h1{font-size:1.4rem}p{color:#525252}.actions{display:flex;gap:.75rem;margin-top:1.5rem}button{padding:.65rem 1rem;border-radius:8px;border:1px solid #bbb;background:#fff;font:inherit}button[value=approve]{background:#171717;color:#fff;border-color:#171717}</style></head>
-<body><section><h1>Connect {{.ClientName}}?</h1><p>This gives the client access to aidocs as <strong>{{.User}}</strong>. It can read and change the same documents, comments, folders, sharing settings, and service accounts that you can.</p>
+<style>body{font:16px/1.5 system-ui,sans-serif;max-width:36rem;margin:10vh auto;padding:0 1.5rem;color:#171717}section{border:1px solid #ddd;border-radius:12px;padding:1.5rem}h1{font-size:1.4rem;margin-bottom:.5rem}p{color:#525252}.target{font:700 1.6rem/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;color:#171717;margin:.25rem 0 0;overflow-wrap:anywhere}.target-note{margin:.25rem 0 1.25rem}.actions{display:flex;gap:.75rem;margin-top:1.5rem}button{padding:.65rem 1rem;border-radius:8px;border:1px solid #bbb;background:#fff;font:inherit}button[value=approve]{background:#171717;color:#fff;border-color:#171717}</style></head>
+<body><section><h1>Connect {{.ClientName}}?</h1><p>That name is self-reported by the application and unverified by aidocs. Approving sends your authorization code to:</p>
+<p class="target">{{.Destination}}</p><p class="target-note">{{.DestinationNote}}</p>
+<p>This gives the client access to aidocs as <strong>{{.User}}</strong>. It can read and change the same documents, comments, folders, sharing settings, and service accounts that you can.</p>
 <form method="post" action="/oauth/authorize">{{range $k,$v := .Fields}}<input type="hidden" name="{{$k}}" value="{{$v}}">{{end}}<div class="actions"><button type="submit" name="decision" value="deny">Cancel</button><button type="submit" name="decision" value="approve">Connect</button></div></form></section></body></html>`))
 
 func (h handlers) mcpAuthorize(c *gin.Context) {
@@ -401,6 +492,7 @@ func (h handlers) mcpAuthorize(c *gin.Context) {
 			"resource": in.Resource, "scope": firstNonEmpty(in.Scope, mcpScope), "state": in.State,
 		}
 		redirectURL, _ := url.Parse(in.RedirectURI) // already validated against the signed client registration
+		target := mcpConsentTargetFor(redirectURL)
 		redirectOrigin := redirectURL.Scheme + "://" + redirectURL.Host
 		if !strings.EqualFold(redirectURL.Scheme, "http") && !strings.EqualFold(redirectURL.Scheme, "https") {
 			// Private-use app schemes are expressed as scheme-only CSP
@@ -417,7 +509,10 @@ func (h handlers) mcpAuthorize(c *gin.Context) {
 		// Keep same-origin form submissions compatible with the application's
 		// cookie CSRF check without leaking authorization parameters off-origin.
 		c.Header("Referrer-Policy", "same-origin")
-		if err := mcpConsentTemplate.Execute(c.Writer, map[string]any{"ClientName": client.Name, "User": user, "Fields": fields}); err != nil {
+		if err := mcpConsentTemplate.Execute(c.Writer, map[string]any{
+			"ClientName": mcpDisplayClientName(client.Name), "User": user, "Fields": fields,
+			"Destination": target.Destination, "DestinationNote": target.Note,
+		}); err != nil {
 			internalErr(c, err)
 		}
 		return
