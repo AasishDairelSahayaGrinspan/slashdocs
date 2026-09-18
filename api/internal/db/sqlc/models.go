@@ -90,6 +90,36 @@ type Document struct {
 	ParentFolderID   pgtype.Text
 }
 
+type DocumentAccessNotificationOutbox struct {
+	DocumentID   string
+	RecipientID  string
+	Source       string
+	Reason       string
+	PreviousRole string
+	Role         string
+	Attempts     int32
+	AvailableAt  pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
+type DocumentAccessRequest struct {
+	DocumentID    string
+	RequesterType string
+	RequesterID   string
+	RequestedAt   pgtype.Timestamptz
+}
+
+type DocumentAccessRequestNotificationOutbox struct {
+	DocumentID     string
+	RequesterType  string
+	RequesterID    string
+	RequesterLabel string
+	RecipientID    string
+	Attempts       int32
+	AvailableAt    pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+}
+
 type DocumentKv struct {
 	DocumentID     string
 	Key            string
@@ -161,6 +191,14 @@ type GithubConnection struct {
 	AccessTokenCiphertext []byte
 	CreatedAt             pgtype.Timestamptz
 	UpdatedAt             pgtype.Timestamptz
+}
+
+type GithubRepoConsent struct {
+	UserID     string
+	DocumentID string
+	Owner      string
+	Repo       string
+	CreatedAt  pgtype.Timestamptz
 }
 
 type GoogleGroup struct {

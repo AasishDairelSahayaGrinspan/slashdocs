@@ -215,6 +215,15 @@ type GitHubConnection struct {
 	UpdatedAt             string `json:"updated_at,omitempty"`
 }
 
+// GitHubRepoConsent records that a user approved one document reading one
+// GitHub repository with their connected account. GitHub owner and repository
+// names are case-insensitive, so both are stored lowercased.
+type GitHubRepoConsent struct {
+	Owner     string `json:"owner"`
+	Repo      string `json:"repo"`
+	CreatedAt string `json:"created_at,omitempty"`
+}
+
 type Anchor struct {
 	Quote       string `json:"quote"`
 	Prefix      string `json:"prefix"`
@@ -348,6 +357,13 @@ type Repository interface {
 	UpsertGitHubConnection(ctx context.Context, connection GitHubConnection) error
 	GetGitHubConnection(ctx context.Context, userID string) (GitHubConnection, error)
 	DeleteGitHubConnection(ctx context.Context, userID string) error
+	// GitHub repository consents. Owner and repo must already be lowercased by
+	// the caller; the store compares them as given.
+	ListGitHubRepoConsents(ctx context.Context, userID, documentID string) ([]GitHubRepoConsent, error)
+	HasGitHubRepoConsent(ctx context.Context, userID, documentID, owner, repoName string) (bool, error)
+	GrantGitHubRepoConsent(ctx context.Context, userID, documentID, owner, repoName string) (GitHubRepoConsent, error)
+	RevokeGitHubRepoConsent(ctx context.Context, userID, documentID, owner, repoName string) error
+	DeleteGitHubRepoConsents(ctx context.Context, userID string) error
 	CreateServiceAccount(ctx context.Context, owner auth.Principal, name string) (ServiceAccount, error)
 	ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error)
 	GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error)

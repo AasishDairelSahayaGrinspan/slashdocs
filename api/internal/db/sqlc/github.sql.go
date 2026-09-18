@@ -23,6 +23,15 @@ func (q *Queries) DeleteGitHubConnection(ctx context.Context, userID string) (in
 	return result.RowsAffected(), nil
 }
 
+const deleteGitHubRepoConsents = `-- name: DeleteGitHubRepoConsents :exec
+DELETE FROM github_repo_consents WHERE user_id= $1
+`
+
+func (q *Queries) DeleteGitHubRepoConsents(ctx context.Context, userID string) error {
+	_, err := q.db.Exec(ctx, deleteGitHubRepoConsents, userID)
+	return err
+}
+
 const getGitHubConnection = `-- name: GetGitHubConnection :one
 SELECT user_id, github_user_id, login, avatar_url, access_token_ciphertext, updated_at
 FROM github_connections WHERE user_id=$1
@@ -49,6 +58,127 @@ func (q *Queries) GetGitHubConnection(ctx context.Context, userID string) (GetGi
 		&i.UpdatedAt,
 	)
 	return i, err
+}
+
+const grantGitHubRepoConsent = `-- name: GrantGitHubRepoConsent :one
+INSERT INTO github_repo_consents(user_id, document_id, owner, repo)
+VALUES($1, $2, $3, $4)
+ON CONFLICT(user_id, document_id, owner, repo) DO UPDATE SET owner=EXCLUDED.owner
+RETURNING owner, repo, created_at
+`
+
+type GrantGitHubRepoConsentParams struct {
+	UserID     string
+	DocumentID string
+	Owner      string
+	Repo       string
+}
+
+type GrantGitHubRepoConsentRow struct {
+	Owner     string
+	Repo      string
+	CreatedAt pgtype.Timestamptz
+}
+
+// A repeated approval keeps the original row, so created_at stays the moment
+// the user first approved this repository for this document.
+func (q *Queries) GrantGitHubRepoConsent(ctx context.Context, arg GrantGitHubRepoConsentParams) (GrantGitHubRepoConsentRow, error) {
+	row := q.db.QueryRow(ctx, grantGitHubRepoConsent,
+		arg.UserID,
+		arg.DocumentID,
+		arg.Owner,
+		arg.Repo,
+	)
+	var i GrantGitHubRepoConsentRow
+	err := row.Scan(&i.Owner, &i.Repo, &i.CreatedAt)
+	return i, err
+}
+
+const hasGitHubRepoConsent = `-- name: HasGitHubRepoConsent :one
+SELECT EXISTS(
+  SELECT 1 FROM github_repo_consents
+  WHERE user_id= $1 AND document_id= $2 AND owner= $3 AND repo= $4
+)
+`
+
+type HasGitHubRepoConsentParams struct {
+	UserID     string
+	DocumentID string
+	Owner      string
+	Repo       string
+}
+
+func (q *Queries) HasGitHubRepoConsent(ctx context.Context, arg HasGitHubRepoConsentParams) (bool, error) {
+	row := q.db.QueryRow(ctx, hasGitHubRepoConsent,
+		arg.UserID,
+		arg.DocumentID,
+		arg.Owner,
+		arg.Repo,
+	)
+	var exists bool
+	err := row.Scan(&exists)
+	return exists, err
+}
+
+const listGitHubRepoConsents = `-- name: ListGitHubRepoConsents :many
+SELECT owner, repo, created_at FROM github_repo_consents
+WHERE user_id= $1 AND document_id= $2
+ORDER BY owner, repo
+`
+
+type ListGitHubRepoConsentsParams struct {
+	UserID     string
+	DocumentID string
+}
+
+type ListGitHubRepoConsentsRow struct {
+	Owner     string
+	Repo      string
+	CreatedAt pgtype.Timestamptz
+}
+
+// Repository consents are written and compared lowercased; callers normalize
+// owner and repo before reaching these queries.
+func (q *Queries) ListGitHubRepoConsents(ctx context.Context, arg ListGitHubRepoConsentsParams) ([]ListGitHubRepoConsentsRow, error) {
+	rows, err := q.db.Query(ctx, listGitHubRepoConsents, arg.UserID, arg.DocumentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListGitHubRepoConsentsRow
+	for rows.Next() {
+		var i ListGitHubRepoConsentsRow
+		if err := rows.Scan(&i.Owner, &i.Repo, &i.CreatedAt); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const revokeGitHubRepoConsent = `-- name: RevokeGitHubRepoConsent :exec
+DELETE FROM github_repo_consents
+WHERE user_id= $1 AND document_id= $2 AND owner= $3 AND repo= $4
+`
+
+type RevokeGitHubRepoConsentParams struct {
+	UserID     string
+	DocumentID string
+	Owner      string
+	Repo       string
+}
+
+func (q *Queries) RevokeGitHubRepoConsent(ctx context.Context, arg RevokeGitHubRepoConsentParams) error {
+	_, err := q.db.Exec(ctx, revokeGitHubRepoConsent,
+		arg.UserID,
+		arg.DocumentID,
+		arg.Owner,
+		arg.Repo,
+	)
+	return err
 }
 
 const upsertGitHubConnection = `-- name: UpsertGitHubConnection :exec

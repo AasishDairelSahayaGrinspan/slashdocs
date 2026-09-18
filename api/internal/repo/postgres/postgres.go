@@ -950,6 +950,40 @@ func (s *Store) DeleteGitHubConnection(ctx context.Context, userID string) error
 	}
 	return nil
 }
+
+func (s *Store) ListGitHubRepoConsents(ctx context.Context, userID, documentID string) ([]repo.GitHubRepoConsent, error) {
+	rows, err := s.q.ListGitHubRepoConsents(ctx, dbsqlc.ListGitHubRepoConsentsParams{UserID: userID, DocumentID: documentID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.GitHubRepoConsent, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, repo.GitHubRepoConsent{Owner: r.Owner, Repo: r.Repo, CreatedAt: pgTimeRFC3339(r.CreatedAt)})
+	}
+	return out, nil
+}
+
+func (s *Store) HasGitHubRepoConsent(ctx context.Context, userID, documentID, owner, repoName string) (bool, error) {
+	return s.q.HasGitHubRepoConsent(ctx, dbsqlc.HasGitHubRepoConsentParams{UserID: userID, DocumentID: documentID, Owner: owner, Repo: repoName})
+}
+
+func (s *Store) GrantGitHubRepoConsent(ctx context.Context, userID, documentID, owner, repoName string) (repo.GitHubRepoConsent, error) {
+	r, err := s.q.GrantGitHubRepoConsent(ctx, dbsqlc.GrantGitHubRepoConsentParams{UserID: userID, DocumentID: documentID, Owner: owner, Repo: repoName})
+	if err != nil {
+		return repo.GitHubRepoConsent{}, err
+	}
+	return repo.GitHubRepoConsent{Owner: r.Owner, Repo: r.Repo, CreatedAt: pgTimeRFC3339(r.CreatedAt)}, nil
+}
+
+// RevokeGitHubRepoConsent is idempotent: withdrawing an approval that is not
+// recorded leaves the caller in the state they asked for.
+func (s *Store) RevokeGitHubRepoConsent(ctx context.Context, userID, documentID, owner, repoName string) error {
+	return s.q.RevokeGitHubRepoConsent(ctx, dbsqlc.RevokeGitHubRepoConsentParams{UserID: userID, DocumentID: documentID, Owner: owner, Repo: repoName})
+}
+
+func (s *Store) DeleteGitHubRepoConsents(ctx context.Context, userID string) error {
+	return s.q.DeleteGitHubRepoConsents(ctx, userID)
+}
 func (s *Store) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]repo.ServiceAccount, error) {
 	rows, err := s.q.ListServiceAccounts(ctx, owner.ID)
 	if err != nil {
