@@ -274,8 +274,25 @@ func (h handlers) deleteFolder(c *gin.Context) {
 	}
 	c.Status(http.StatusNoContent)
 }
+
+// accessResponse is the payload of GET /v1/{documents,folders}/{id}/access.
+// current_role and canonical_owner describe the CALLER: the share sheet gates
+// its controls on them (canManageSharing(current_role), owner-group changes
+// need canonical_owner), so a response without them renders sharing read-only
+// for every non-owner regardless of their actual role.
+type accessResponse struct {
+	Items          []repo.EffectiveAccessItem `json:"items"`
+	CurrentRole    repo.Role                  `json:"current_role"`
+	CanonicalOwner bool                       `json:"canonical_owner"`
+}
+
 func (h handlers) folderAccess(c *gin.Context) {
 	if !h.needFolderRole(c, c.Param("id"), repo.RoleViewer) {
+		return
+	}
+	role, err := h.deps.repository.RoleForFolder(c.Request.Context(), *current(c), c.Param("id"))
+	if err != nil {
+		internalErr(c, err)
 		return
 	}
 	items, err := h.deps.repository.ListEffectiveAccess(c.Request.Context(), "folder", c.Param("id"))
@@ -283,10 +300,19 @@ func (h handlers) folderAccess(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, listResponse[repo.EffectiveAccessItem]{Items: items})
+	c.JSON(http.StatusOK, accessResponse{
+		Items:          items,
+		CurrentRole:    role,
+		CanonicalOwner: h.isCanonicalOwner(c, "folder", c.Param("id")),
+	})
 }
 func (h handlers) documentAccess(c *gin.Context) {
 	if !h.needDocRole(c, c.Param("id"), repo.RoleViewer) {
+		return
+	}
+	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *current(c), c.Param("id"))
+	if err != nil {
+		internalErr(c, err)
 		return
 	}
 	items, err := h.deps.repository.ListEffectiveAccess(c.Request.Context(), "document", c.Param("id"))
@@ -294,7 +320,11 @@ func (h handlers) documentAccess(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
-	c.JSON(http.StatusOK, listResponse[repo.EffectiveAccessItem]{Items: items})
+	c.JSON(http.StatusOK, accessResponse{
+		Items:          items,
+		CurrentRole:    role,
+		CanonicalOwner: h.isCanonicalOwner(c, "document", c.Param("id")),
+	})
 }
 
 func (h handlers) listFolderDocs(c *gin.Context) {
