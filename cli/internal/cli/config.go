@@ -66,6 +66,34 @@ func currentContextE(g *globals) (string, *Context, Config, error) {
 	return name, cx, cfg, nil
 }
 
+// rememberBaseVersion records versionID as the base for the next push of
+// docID, in the context the request itself resolved to (flag, then
+// AIDOCS_SERVER, then the active context — the same order client() uses). It
+// is the single writer of Context.Pulled: docs pull, docs push, and docs
+// create all go through it so a document's base is recorded the same way
+// whichever command produced the version.
+func rememberBaseVersion(g *globals, docID, versionID string) error {
+	if docID == "" || versionID == "" {
+		return nil
+	}
+	name, cx, cfg, err := currentContextE(g)
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		// No server resolved anywhere, so there is no context to attach the
+		// base to. A command that reached the server always resolves one, so
+		// this only guards against inventing a context named "".
+		return nil
+	}
+	cx.Pulled[docID] = versionID
+	cfg.Contexts[name] = cx
+	if cfg.ActiveContext == "" {
+		cfg.ActiveContext = name
+	}
+	return saveConfig(cfg)
+}
+
 func saveConfig(c Config) error {
 	p := configPath()
 	if err := os.MkdirAll(filepath.Dir(p), configDirPerm); err != nil {

@@ -177,6 +177,7 @@ func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		recordBaseVersion(cmd, g, responseField(b, "id"), responseField(b, "current_version_id"))
 		return renderCreatedDocument(out, g, cl, title, perm, b)
 	}}
 	cmd.Flags().StringVar(&title, "title", "", "document title (defaults to the file name)")
@@ -456,13 +457,7 @@ func pullCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		name, cx, cfg := currentContext(g)
-		cx.Pulled[args[0]] = v
-		cfg.Contexts[name] = cx
-		if cfg.ActiveContext == "" {
-			cfg.ActiveContext = name
-		}
-		if err := saveConfig(cfg); err != nil {
+		if err := rememberBaseVersion(g, args[0], v); err != nil {
 			return err
 		}
 		if outp != "" {
@@ -502,11 +497,35 @@ func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		recordBaseVersion(cmd, g, doc, responseField(b, "id"))
 		return printPushedVersion(out, g, doc, cl.Base, b)
 	}}
 	cmd.Flags().StringVar(&base, "base-version", "", "base version ID")
 	cmd.Flags().StringVar(&summary, "summary", "", "change summary")
 	return cmd
+}
+
+// recordBaseVersion stores the version a create or push just produced as the
+// base for the next push, so a single writer's consecutive pushes succeed
+// without re-pulling (which would overwrite the local file). The version
+// already exists on the server by the time we get here, so a config problem
+// must not fail the command: it degrades to passing --base-version, and the
+// caller is told why on stderr.
+func recordBaseVersion(cmd *cobra.Command, g *globals, docID, versionID string) {
+	if err := rememberBaseVersion(g, docID, versionID); err != nil {
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not record base version %s for %s (%v); pass --base-version on the next push.\n", versionID, docID, err)
+	}
+}
+
+// responseField reads a string field out of a JSON response body, returning ""
+// when the body is not a JSON object or the field is missing.
+func responseField(b []byte, key string) string {
+	var m map[string]any
+	if json.Unmarshal(b, &m) != nil {
+		return ""
+	}
+	s, _ := value(m, key).(string)
+	return s
 }
 
 func commentsCmd(g *globals, out io.Writer) *cobra.Command {
