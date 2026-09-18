@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -8,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -15,10 +17,12 @@ import (
 	"time"
 )
 
+// serverVersion is the payload of <server>/version.json. The server also
+// advertises an "install" URL; it is deliberately not decoded, because the
+// reinstall hint is always built from the trusted server's own base.
 type serverVersion struct {
 	Version string        `json:"version"`
 	Commit  string        `json:"commit"`
-	Install string        `json:"install"`
 	Assets  []serverAsset `json:"assets"`
 }
 
@@ -30,10 +34,59 @@ type serverAsset struct {
 	Size   int    `json:"size"`
 }
 
+// untrustedUpdateSourceError reports a server that may not update this install.
+type untrustedUpdateSourceError struct{ server string }
+
+func (e untrustedUpdateSourceError) Error() string {
+	return fmt.Sprintf("refusing to update from %s: the CLI only updates itself and its agent skill from a server you have logged in to; run `aidocs auth login %s` first", e.server, e.server)
+}
+
+// trustedUpdateSource reports whether server — the one this invocation resolved
+// — is a server the user explicitly logged in to: a stored context, matched
+// after the same normalization the config uses, that holds a stored credential.
+//
+// Self-update and the agent skill sync both rewrite files the user never named
+// on the command line (the CLI binary itself, and the SKILL.md files that
+// coding agents auto-load), so they must not follow a one-off `--server`,
+// `AIDOCS_SERVER`, or a bare `--token`. A context that install.sh wrote but
+// nobody has logged in to yet is not enough either: `aidocs auth login` is the
+// deliberate, interactive act that makes a server trusted.
+func trustedUpdateSource(server string) bool {
+	cfg, err := loadConfig()
+	if err != nil {
+		return false
+	}
+	srv := normalizeServer(server)
+	cx := cfg.Contexts[ctxName(srv)]
+	if cx == nil || len(cx.Credential) == 0 {
+		return false
+	}
+	return normalizeServer(cx.Server) == srv
+}
+
+// ensureTrustedUpdateSource guards every entry point that can rewrite the
+// binary or the skill files. There is deliberately no override flag: a flag
+// would be exactly what an agent following instructions would be told to pass.
+func ensureTrustedUpdateSource(c *Client) error {
+	if trustedUpdateSource(c.Base) {
+		return nil
+	}
+	return untrustedUpdateSourceError{server: c.Base}
+}
+
 func maybeNudgeUpdate(g *globals, c *Client) { maybeAutoUpdate(g, c) }
 
 func maybeAutoUpdate(g *globals, c *Client) {
 	if Version == "" || os.Getenv("AIDOCS_DISABLE_AUTO_UPDATE") != "" {
+		return
+	}
+	// Housekeeping after a command must stay silent and must never let the
+	// server this command happened to target update the install; only a
+	// logged-in server gets asked at all.
+	if err := ensureTrustedUpdateSource(c); err != nil {
+		if g.verbose {
+			fmt.Fprintf(os.Stderr, "skipping the aidocs update check: %s is not a logged-in server\n", c.Base)
+		}
 		return
 	}
 	// This check is best-effort housekeeping after a command: use the
@@ -60,7 +113,18 @@ func maybeAutoUpdate(g *globals, c *Client) {
 	}
 }
 
+// updateCLI syncs the agent skill and the binary from a trusted server.
+//
+// Versions are opaque build identifiers (commit SHAs), so they cannot be
+// ordered: "the server advertises a different build" is the only available
+// trigger. With the source pinned to a server the user logged in to, that is a
+// documented property rather than an accident — the install tracks that
+// server's current build, and follows it back down if the server is rolled
+// back.
 func updateCLI(ctx context.Context, c *Client, force bool) (serverVersion, bool, bool, error) {
+	if err := ensureTrustedUpdateSource(c); err != nil {
+		return serverVersion{}, false, false, err
+	}
 	skillRefreshed, skillErr := installBundledSkill(ctx, c)
 	v, ok := fetchServerVersion(ctx, c)
 	if skillErr != nil {
@@ -86,16 +150,11 @@ func printManualUpdate(c *Client, v serverVersion, err error, verbose bool) {
 	if verbose {
 		fmt.Fprintf(os.Stderr, "aidocs auto-update failed: %v\n", err)
 	}
-	install := strings.TrimSpace(v.Install)
-	if install == "" {
-		install = "/install.sh"
-	}
-	if strings.HasPrefix(install, "/") {
-		install = c.Base + install
-	}
 	if v.Version != "" {
 		fmt.Fprintf(os.Stderr, "aidocs %s is available, but auto-update failed. Update with: aidocs update\n", v.Version)
-		fmt.Fprintf(os.Stderr, "Or reinstall with: curl -fsSL %s | bash\n", install)
+		// Always the trusted server's own installer: the version payload is
+		// not allowed to point the user at another host.
+		fmt.Fprintf(os.Stderr, "Or reinstall with: curl -fsSL %s/install.sh | bash\n", c.Base)
 	}
 }
 
@@ -131,58 +190,72 @@ func (v serverVersion) asset(goos, goarch string) (serverAsset, bool) {
 }
 
 func installBundledSkill(ctx context.Context, c *Client) (bool, error) {
-	paths, err := installBundledSkillFromServer(ctx, c)
-	return len(paths) > 0, err
+	_, changed, err := installBundledSkillFromServer(ctx, c)
+	return changed, err
 }
 
-func installBundledSkillFromServer(ctx context.Context, c *Client) ([]string, error) {
+// installBundledSkillFromServer writes the trusted server's SKILL.md into the
+// agent skill directories. It returns the installed paths and whether any of
+// them changed on disk.
+func installBundledSkillFromServer(ctx context.Context, c *Client) ([]string, bool, error) {
+	if err := ensureTrustedUpdateSource(c); err != nil {
+		return nil, false, err
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/skills/aidocs/SKILL.md", nil)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	res, err := c.HTTP.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	defer func() {
 		_ = res.Body.Close()
 	}()
 	if res.StatusCode == http.StatusNotFound {
 		// Older/self-hosted servers may not expose the skill endpoint yet.
-		return nil, nil
+		return nil, false, nil
 	}
 	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("skill download returned HTTP %d", res.StatusCode)
+		return nil, false, fmt.Errorf("skill download returned HTTP %d", res.StatusCode)
 	}
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	return installBundledSkillBytes(b)
 }
 
-func installBundledSkillBytes(b []byte) ([]string, error) {
+func installBundledSkillBytes(b []byte) ([]string, bool, error) {
 	if len(strings.TrimSpace(string(b))) == 0 {
-		return nil, fmt.Errorf("skill download was empty")
+		return nil, false, fmt.Errorf("skill download was empty")
 	}
 	dirs := bundledSkillDirs()
 	if len(dirs) == 0 {
-		return nil, fmt.Errorf("could not determine home directory for skill install")
+		return nil, false, fmt.Errorf("could not determine home directory for skill install")
 	}
 	installed := make([]string, 0, len(dirs))
+	changed := false
 	for _, dir := range dirs {
+		p := filepath.Join(dir, "SKILL.md")
+		//nolint:gosec // G304: p is the fixed agent skill path under the user's home directory.
+		if current, err := os.ReadFile(p); err == nil && bytes.Equal(current, b) {
+			// Identical content: leave the file, and its mtime, alone.
+			installed = append(installed, p)
+			continue
+		}
 		//nolint:gosec // G301: agent skill directories contain public documentation and are intentionally traversable.
 		if err := os.MkdirAll(dir, 0o755); err != nil {
-			return nil, err
+			return nil, changed, err
 		}
-		p := filepath.Join(dir, "SKILL.md")
 		//nolint:gosec // G306: bundled SKILL.md is public documentation, not user data or credentials.
 		if err := os.WriteFile(p, b, 0o644); err != nil {
-			return nil, err
+			return nil, changed, err
 		}
 		installed = append(installed, p)
+		changed = true
 	}
-	return installed, nil
+	return installed, changed, nil
 }
 
 func bundledSkillDirs() []string {
@@ -196,11 +269,49 @@ func bundledSkillDirs() []string {
 	}
 }
 
+// sameOriginURL resolves an advertised download URL against the trusted base.
+// A relative path is joined onto the base; an absolute URL is accepted only
+// when its scheme, host, and port are identical to the base's, so a trusted
+// server cannot hand the download off to another origin.
+func sameOriginURL(base, raw string) (string, error) {
+	b, err := url.Parse(base)
+	if err != nil {
+		return "", fmt.Errorf("invalid server URL %q: %w", base, err)
+	}
+	u, err := b.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return "", fmt.Errorf("invalid download URL %q: %w", raw, err)
+	}
+	if u.Scheme != b.Scheme || u.Host != b.Host {
+		return "", fmt.Errorf("download URL %s is not on the same origin as %s", raw, base)
+	}
+	return u.String(), nil
+}
+
+// assetSHA256 returns the asset's checksum. It is mandatory: without one, a
+// download cannot be told apart from anything else the connection returns, so
+// an asset that advertises no usable sha256 is refused before it is fetched.
+func assetSHA256(asset serverAsset) (string, error) {
+	sum := strings.TrimSpace(asset.SHA256)
+	if b, err := hex.DecodeString(sum); err != nil || len(b) != sha256.Size {
+		return "", fmt.Errorf("CLI asset for %s/%s has no usable sha256", asset.OS, asset.Arch)
+	}
+	return sum, nil
+}
+
 // executablePath resolves the binary a self-update replaces. It is a variable
 // so tests can point the update at a throwaway file instead of the test binary.
 var executablePath = os.Executable
 
 func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
+	want, err := assetSHA256(asset)
+	if err != nil {
+		return err
+	}
+	assetURL, err := sameOriginURL(c.Base, asset.URL)
+	if err != nil {
+		return err
+	}
 	exe, err := executablePath()
 	if err != nil {
 		return err
@@ -209,11 +320,7 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 	if err != nil {
 		return err
 	}
-	url := strings.TrimSpace(asset.URL)
-	if strings.HasPrefix(url, "/") {
-		url = c.Base + url
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, assetURL, nil)
 	if err != nil {
 		return err
 	}
@@ -247,11 +354,8 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 	if asset.Size > 0 && int(written) != asset.Size {
 		return fmt.Errorf("download size mismatch: got %d, want %d", written, asset.Size)
 	}
-	if asset.SHA256 != "" {
-		got := hex.EncodeToString(h.Sum(nil))
-		if !strings.EqualFold(got, asset.SHA256) {
-			return fmt.Errorf("download sha256 mismatch")
-		}
+	if got := hex.EncodeToString(h.Sum(nil)); !strings.EqualFold(got, want) {
+		return fmt.Errorf("download sha256 mismatch")
 	}
 	//nolint:gosec // G302: the checksum-verified CLI follows the installer's conventional world-executable mode.
 	if err := os.Chmod(tmpName, 0o755); err != nil {

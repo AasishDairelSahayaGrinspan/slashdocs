@@ -486,6 +486,41 @@ func TestSkillsUpdateCommandRefusesUntrustedServer(t *testing.T) {
 	}
 }
 
+// TestTrustedUpdateSource pins the predicate itself: a stored context alone is
+// not enough, the credential and the normalized server both have to match.
+func TestTrustedUpdateSource(t *testing.T) {
+	isolateConfig(t)
+	cfg := Config{ActiveContext: "install.example.com", Contexts: map[string]*Context{
+		// What install.sh writes: a context, but nobody has logged in yet.
+		"install.example.com": {Server: "https://install.example.com", Pulled: map[string]string{}},
+		// What `aidocs auth login` writes.
+		"login.example.com": {Server: "https://login.example.com", Credential: map[string]any{"id": "cred_1"}, Pulled: map[string]string{}},
+	}}
+	if err := saveConfig(cfg); err != nil {
+		t.Fatalf("save config: %v", err)
+	}
+
+	cases := []struct {
+		server string
+		want   bool
+	}{
+		{"https://login.example.com", true},
+		{"login.example.com", true},
+		{"https://login.example.com/", true},
+		{"https://install.example.com", false},
+		// Same host, different scheme than the stored context.
+		{"http://login.example.com", false},
+		{"https://login.example.com:8443", false},
+		{"https://unknown.example.com", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := trustedUpdateSource(normalizeServer(tc.server)); got != tc.want {
+			t.Fatalf("trustedUpdateSource(%q) = %v, want %v", tc.server, got, tc.want)
+		}
+	}
+}
+
 func TestUpdateCLIRefreshesBundledSkillWhenBinaryIsCurrent(t *testing.T) {
 	pinVersion(t, "commit-sha")
 	home := fakeHome(t)

@@ -159,9 +159,12 @@ func e2eMux(t *testing.T) *http.ServeMux {
 func TestCLICommandsE2E(t *testing.T) {
 	srv := httptest.NewServer(e2eMux(t))
 	defer srv.Close()
+	// `skills update` and the post-command sync write agent skill files, so
+	// this run needs both a throwaway HOME and a logged-in context for srv.
+	fakeHome(t)
+	trustServer(t, srv.URL)
 	t.Setenv("AIDOCS_TOKEN", "tok")
 	t.Setenv("AIDOCS_SERVER", srv.URL)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	t.Setenv("AIDOCS_NO_BROWSER", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))

@@ -28,21 +28,34 @@ func skillsUpdateCmd(g *globals, out io.Writer) *cobra.Command {
 			}
 			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
 			defer cancel()
-			paths, err := installBundledSkillFromServer(ctx, c)
+			paths, changed, err := installBundledSkillFromServer(ctx, c)
 			if err != nil {
 				return err
 			}
 			if g.quiet {
 				return nil
 			}
+			status := "unchanged"
+			if changed {
+				status = "updated"
+			}
 			if g.json {
-				b, err := json.Marshal(map[string]any{"items": []any{map[string]any{"name": "aidocs", "status": "updated", "paths": paths}}})
+				b, err := json.Marshal(map[string]any{"items": []any{map[string]any{"name": "aidocs", "status": status, "paths": paths}}})
 				if err != nil {
 					return err
 				}
 				return render(out, g, b)
 			}
-			if err := confirm(out, g, "Updated aidocs skill from "+c.Base); err != nil {
+			if len(paths) == 0 {
+				return confirm(out, g, c.Base+" does not serve an aidocs skill.")
+			}
+			// Identical content is not rewritten, so say so rather than
+			// claiming an update that did not happen.
+			line := "Updated aidocs skill from " + c.Base
+			if !changed {
+				line = "aidocs skill is already up to date from " + c.Base
+			}
+			if err := confirm(out, g, line); err != nil {
 				return err
 			}
 			for _, p := range paths {

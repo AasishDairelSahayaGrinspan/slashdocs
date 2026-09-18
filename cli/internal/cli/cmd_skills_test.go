@@ -10,9 +10,7 @@ import (
 )
 
 func TestSkillsUpdateRefreshesFromServer(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	home := fakeHome(t)
 
 	skill := "---\nname: aidocs\ndescription: refreshed skill\n---\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -24,6 +22,8 @@ func TestSkillsUpdateRefreshesFromServer(t *testing.T) {
 		_, _ = io.WriteString(w, skill)
 	}))
 	t.Cleanup(srv.Close)
+	// The skill sync only runs against a server the user has logged in to.
+	trustServer(t, srv.URL)
 	t.Setenv("AIDOCS_SERVER", srv.URL)
 
 	got, err := Execute([]string{"skills", "update"})
