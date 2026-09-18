@@ -90,6 +90,36 @@ type Document struct {
 	ParentFolderID   pgtype.Text
 }
 
+type DocumentAccessNotificationOutbox struct {
+	DocumentID   string
+	RecipientID  string
+	Source       string
+	Reason       string
+	PreviousRole string
+	Role         string
+	Attempts     int32
+	AvailableAt  pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
+type DocumentAccessRequest struct {
+	DocumentID    string
+	RequesterType string
+	RequesterID   string
+	RequestedAt   pgtype.Timestamptz
+}
+
+type DocumentAccessRequestNotificationOutbox struct {
+	DocumentID     string
+	RequesterType  string
+	RequesterID    string
+	RequesterLabel string
+	RecipientID    string
+	Attempts       int32
+	AvailableAt    pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
+}
+
 type DocumentKv struct {
 	DocumentID     string
 	Key            string
@@ -229,6 +259,12 @@ type ResourceGrant struct {
 	CreatedAt       pgtype.Timestamptz
 	RevokedAt       pgtype.Timestamptz
 	GrantedByType   string
+}
+
+type RevokedSession struct {
+	TokenHash string
+	ExpiresAt pgtype.Timestamptz
+	RevokedAt pgtype.Timestamptz
 }
 
 type ServiceAccount struct {

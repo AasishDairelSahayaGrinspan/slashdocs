@@ -322,6 +322,15 @@ type Repository interface {
 	CreateCLICredential(ctx context.Context, userID, name, tokenHash string) (string, error)
 	ListCLICredentials(ctx context.Context, userID string) ([]CLICredential, error)
 	RevokeCLICredential(ctx context.Context, userID, credentialID string) error
+	// RevokeSession denylists a session token hash until the token's own
+	// expiry, which is what ends a stateless session cookie before it lapses.
+	// The same write reaps rows whose tokens have expired, so the denylist
+	// stays bounded without a delete on every authenticated request.
+	RevokeSession(ctx context.Context, tokenHash string, expiresAt time.Time) error
+	// SessionRevoked reports whether a session token hash is denylisted. A
+	// non-nil error is a lookup fault, never a verdict, so callers must fail
+	// closed rather than authenticate the request.
+	SessionRevoked(ctx context.Context, tokenHash string) (bool, error)
 	// RoleForDocument and RoleForFolder return the principal's effective role
 	// on the resource. RoleNone (never an error) means the resource is missing
 	// or unshared -- the same permission verdict either way; a non-nil error is

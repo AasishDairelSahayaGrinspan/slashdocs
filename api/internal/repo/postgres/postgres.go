@@ -253,6 +253,28 @@ func (s *Store) ListCLICredentials(ctx context.Context, userID string) ([]repo.C
 func (s *Store) RevokeCLICredential(ctx context.Context, userID, credentialID string) error {
 	return s.q.RevokeCLICredential(ctx, dbsqlc.RevokeCLICredentialParams{ID: credentialID, UserID: userID})
 }
+func (s *Store) RevokeSession(ctx context.Context, tokenHash string, expiresAt time.Time) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+	q := s.q.WithTx(tx)
+	// Reaping alongside the sign-out write bounds the table without paying for
+	// a delete on every authenticated request. Rows whose tokens have expired
+	// carry no meaning: the signature no longer verifies either. It runs before
+	// the insert so the row being written is never the one reaped.
+	if err := q.DeleteExpiredRevokedSessions(ctx); err != nil {
+		return err
+	}
+	if err := q.RevokeSession(ctx, dbsqlc.RevokeSessionParams{TokenHash: tokenHash, ExpiresAt: pgtype.Timestamptz{Time: expiresAt, Valid: true}}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
+}
+func (s *Store) SessionRevoked(ctx context.Context, tokenHash string) (bool, error) {
+	return s.q.SessionRevoked(ctx, tokenHash)
+}
 
 func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentID string) (repo.Role, error) {
 	owner, err := s.q.GetDocumentOwner(ctx, documentID)

@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
@@ -275,6 +276,43 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 		if r.ID == doc.ID {
 			t.Fatal("AND label search matched a document missing the requested label")
 		}
+	}
+}
+
+func TestPostgresRevokedSessionsAreDenylistedUntilTheyExpire(t *testing.T) {
+	store := newStore(t)
+	ctx := context.Background()
+
+	const live, lapsed = "hash_live_session", "hash_lapsed_session"
+	if err := store.RevokeSession(ctx, lapsed, time.Now().Add(-time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err := store.SessionRevoked(ctx, lapsed)
+	if err != nil || !revoked {
+		t.Fatalf("SessionRevoked(lapsed) = %v, %v; want true", revoked, err)
+	}
+
+	// Revoking reaps rows whose tokens have expired, so the denylist cannot
+	// grow without bound.
+	if err := store.RevokeSession(ctx, live, time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	revoked, err = store.SessionRevoked(ctx, lapsed)
+	if err != nil || revoked {
+		t.Fatalf("SessionRevoked(lapsed) after reaping = %v, %v; want false", revoked, err)
+	}
+	revoked, err = store.SessionRevoked(ctx, live)
+	if err != nil || !revoked {
+		t.Fatalf("SessionRevoked(live) = %v, %v; want true", revoked, err)
+	}
+
+	// Signing out twice with the same cookie is not an error.
+	if err := store.RevokeSession(ctx, live, time.Now().Add(time.Hour)); err != nil {
+		t.Fatalf("repeated revocation: %v", err)
+	}
+	revoked, err = store.SessionRevoked(ctx, "hash_never_revoked")
+	if err != nil || revoked {
+		t.Fatalf("SessionRevoked(unknown) = %v, %v; want false", revoked, err)
 	}
 }
 
