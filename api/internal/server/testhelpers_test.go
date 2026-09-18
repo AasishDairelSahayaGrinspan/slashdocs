@@ -29,7 +29,7 @@ import (
 // rather than in api/internal/auth so it never ships in a production binary,
 // even without a build tag. The format is:
 //
-//	<type>:<id>[:<email>[:<name>]]
+//	<type>:<id>[:<email>[:<name>[:<google group membership state>]]]
 type testPrincipalAuth struct{}
 
 func (testPrincipalAuth) Authenticate(r *http.Request) (*auth.Principal, error) {
@@ -47,6 +47,9 @@ func (testPrincipalAuth) Authenticate(r *http.Request) (*auth.Principal, error) 
 	}
 	if len(parts) >= 4 {
 		p.Name = parts[3]
+	}
+	if len(parts) >= 5 {
+		p.GoogleGroupMembershipState = parts[4]
 	}
 	return p, nil
 }
