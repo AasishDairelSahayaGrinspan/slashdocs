@@ -181,6 +181,18 @@ func TestPostgresSweepBlobDeletionsBoundsItsConcurrency(t *testing.T) {
 		t.Fatalf("at most %d deletes ever ran at once, want %d: the sweep is not deleting concurrently",
 			blobs.peak(), pgrepo.BlobDeleteConcurrency)
 	}
+	// Exactly the limit are in flight and every one is held, so any further
+	// delete that starts now is one too many. Absence can only be observed
+	// over time: this wait can let an over-eager sweep pass on a starved
+	// machine, but it can never fail a correct one.
+	for started := 0; started < pgrepo.BlobDeleteConcurrency; started++ {
+		<-blobs.entered
+	}
+	select {
+	case <-blobs.entered:
+		t.Fatalf("a delete started while %d were still in flight, want at most %d at once", pgrepo.BlobDeleteConcurrency, pgrepo.BlobDeleteConcurrency)
+	case <-time.After(250 * time.Millisecond):
+	}
 	blobs.releaseAll()
 
 	r := awaitSweep(t, swept, "the sweep never finished once its deletes were released")
@@ -219,6 +231,31 @@ func TestPostgresClaimBlobDeletionsLeasesPastTheSweepDeadline(t *testing.T) {
 	if want := pgrepo.BlobSweepTimeout.Seconds(); lease <= want {
 		t.Fatalf("claimed row is due again in %.0fs, want more than one sweep's %.0fs", lease, want)
 	}
+}
+
+// TestPostgresSweepBlobDeletionsAppliesItsOwnDeadline covers the caller that
+// sets no deadline at all, which is what the sweeper does: a store that never
+// answers must cost one sweep's deadline, not the sweeper goroutine.
+func TestPostgresSweepBlobDeletionsAppliesItsOwnDeadline(t *testing.T) {
+	ctx := context.Background()
+	blobs := &hangingKeyBlobs{Store: blob.NewMemory()}
+	store := newStoreWithBlobs(t, blobs)
+	// Leave the per-object deadline far beyond the sweep's, so only the
+	// sweep's own deadline can end this.
+	store.SetBlobDeleteTimeout(time.Hour)
+	store.SetBlobSweepTimeout(100 * time.Millisecond)
+	keys := queueBlobDeletions(t, store, "usr_sweep_own_deadline", 1)
+	blobs.hang(keys[0])
+
+	swept := sweepInBackground(ctx, store)
+	r := awaitSweep(t, swept, "a sweep with no caller deadline never ended")
+	if r.cleared != 0 || !errors.Is(r.err, context.DeadlineExceeded) {
+		t.Fatalf("sweep cleared=%d err=%v, want 0 and a deadline error", r.cleared, r.err)
+	}
+	if _, _, err := blobs.Get(ctx, keys[0]); err != nil {
+		t.Errorf("hung key's object %q removed: %v", keys[0], err)
+	}
+	assertQueuedBlobKeys(t, store, keys)
 }
 
 // hangingKeyBlobs never answers the delete of one key, and deletes every other
@@ -321,8 +358,11 @@ type countingDeleteBlobs struct {
 	limit    int
 	full     chan struct{}
 	reported sync.Once
-	release  chan struct{}
-	freed    sync.Once
+	// entered receives once per delete that starts, so a test can tell
+	// whether another one starts while limit of them are still held.
+	entered chan struct{}
+	release chan struct{}
+	freed   sync.Once
 
 	mu     sync.Mutex
 	active int
@@ -330,7 +370,10 @@ type countingDeleteBlobs struct {
 }
 
 func newCountingDeleteBlobs(limit int) *countingDeleteBlobs {
-	return &countingDeleteBlobs{Store: blob.NewMemory(), limit: limit, full: make(chan struct{}), release: make(chan struct{})}
+	return &countingDeleteBlobs{
+		Store: blob.NewMemory(), limit: limit, full: make(chan struct{}),
+		entered: make(chan struct{}, 1024), release: make(chan struct{}),
+	}
 }
 
 func (b *countingDeleteBlobs) Delete(ctx context.Context, key string) error {
@@ -341,6 +384,7 @@ func (b *countingDeleteBlobs) Delete(ctx context.Context, key string) error {
 	}
 	atLimit := b.active >= b.limit
 	b.mu.Unlock()
+	b.entered <- struct{}{}
 	if atLimit {
 		b.reported.Do(func() { close(b.full) })
 	}

@@ -10,6 +10,10 @@ const (
 	BlobDeleteConcurrency = blobDeleteConcurrency
 )
 
+// SetBlobSweepTimeout shortens a whole sweep's deadline, so a test can watch
+// it expire without waiting out the production one.
+func (s *Store) SetBlobSweepTimeout(d time.Duration) { s.blobSweepTimeout = d }
+
 // SetBlobDeleteTimeout shortens the per-object deadline, so a test with a
 // deliberately hung Delete does not have to wait out the production one.
 func (s *Store) SetBlobDeleteTimeout(d time.Duration) { s.blobDeleteTimeout = d }

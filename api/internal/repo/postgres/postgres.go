@@ -32,7 +32,9 @@ type Store struct {
 	// blobDeletionsQueued carries the sweeper's wake-up signal; its single
 	// slot coalesces a burst of deletes into one sweep.
 	blobDeletionsQueued chan struct{}
-	// blobDeleteTimeout bounds one object deletion; tests shorten it.
+	// blobSweepTimeout and blobDeleteTimeout bound a whole sweep and one
+	// object deletion; tests shorten them.
+	blobSweepTimeout  time.Duration
 	blobDeleteTimeout time.Duration
 }
 
@@ -54,6 +56,7 @@ func NewWithBlob(db *pgxpool.Pool, blobs blob.Store) *Store {
 		q:                   dbsqlc.New(db),
 		blobs:               blobs,
 		blobDeletionsQueued: make(chan struct{}, 1),
+		blobSweepTimeout:    blobSweepTimeout,
 		blobDeleteTimeout:   blobDeleteTimeout,
 	}
 }

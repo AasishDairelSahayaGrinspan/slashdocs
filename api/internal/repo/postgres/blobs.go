@@ -55,7 +55,7 @@ func (s *Store) signalBlobDeletions() {
 // UPDATE SKIP LOCKED, so replicas sweep disjoint batches, and a claim that
 // fails is retried with backoff rather than lost.
 func (s *Store) SweepBlobDeletions(ctx context.Context) (int, error) {
-	ctx, cancel := context.WithTimeout(ctx, blobSweepTimeout)
+	ctx, cancel := context.WithTimeout(ctx, s.blobSweepTimeout)
 	defer cancel()
 	keys, err := s.q.ClaimBlobDeletions(ctx, blobDeletionBatch)
 	if err != nil || len(keys) == 0 {
