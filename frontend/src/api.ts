@@ -57,6 +57,13 @@ export type GitHubRawRequest = {
   ref: string;
 };
 export type GitHubRawResponse = GitHubRawRequest & { content: string };
+// One repository the viewer allowed a document to read with their GitHub
+// account. Owner and repo are stored lowercased.
+export type GitHubRepoConsent = {
+  owner: string;
+  repo: string;
+  created_at?: string;
+};
 export type Anchor = {
   quote: string;
   prefix?: string;
@@ -342,6 +349,18 @@ export const api = {
       method: "POST",
       body: JSON.stringify(input),
     }),
+  listGitHubConsents: (doc: string) =>
+    request<{ items: GitHubRepoConsent[] }>(`/v1/documents/${doc}/github/consents`),
+  grantGitHubConsent: (doc: string, input: { owner: string; repo: string }) =>
+    request<GitHubRepoConsent>(`/v1/documents/${doc}/github/consents`, {
+      method: "POST",
+      body: JSON.stringify(input),
+    }),
+  revokeGitHubConsent: (doc: string, owner: string, repo: string) =>
+    request<void>(
+      `/v1/documents/${doc}/github/consents/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`,
+      { method: "DELETE" },
+    ),
   listDocumentKV: (doc: string) =>
     request<DocumentKVSnapshot>(`/v1/documents/${doc}/kv`),
   patchDocumentKV: (doc: string, patch: DocumentKVPatch) =>

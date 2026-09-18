@@ -11,9 +11,24 @@ import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { matchesCommentFilter } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useResolvedTheme } from "@/lib/theme";
 import { errorMessage } from "@/lib/errors";
 import { CHORD_KEYS } from "@/lib/esc-chord";
+import {
+  GitHubConsentGate,
+  parseGitHubRawRequest,
+  repoKey,
+  type GitHubRepoRef,
+} from "@/lib/github-consent";
 import { useDocumentExport } from "./use-document-export";
 import { useDoc } from "./doc-context";
 
@@ -64,6 +79,88 @@ export function RenderFrame() {
   useEffect(() => {
     kvRevisionRef.current = 0;
   }, [docId]);
+
+  // ── GitHub. The rendered document picks the repository and the server
+  // spends the reader's GitHub token, so the shell (never the frame) asks the
+  // reader to approve each repository, and asks before starting OAuth.
+  const [consentPrompt, setConsentPrompt] = useState<GitHubRepoRef | null>(null);
+  const [connectPrompt, setConnectPrompt] = useState(false);
+  const consentGateRef = useRef<GitHubConsentGate | null>(null);
+  const consentsLoadedRef = useRef<Promise<void> | null>(null);
+  // Set while an approval is being saved, so closing the dialog to save it is
+  // not read as a refusal.
+  const approvingRef = useRef(false);
+  const connectDismissedRef = useRef(false);
+
+  const consentGate = useCallback(() => {
+    if (!consentGateRef.current) {
+      consentGateRef.current = new GitHubConsentGate({ onPrompt: setConsentPrompt });
+    }
+    return consentGateRef.current;
+  }, []);
+
+  // Approvals belong to one document, and a refusal lasts until the page is
+  // loaded again.
+  useEffect(
+    () => () => {
+      consentGateRef.current?.reset();
+      consentGateRef.current = null;
+      consentsLoadedRef.current = null;
+      approvingRef.current = false;
+      connectDismissedRef.current = false;
+      setConsentPrompt(null);
+      setConnectPrompt(false);
+    },
+    [docId],
+  );
+
+  const requestGitHubConsent = useCallback(
+    async (repository: GitHubRepoRef) => {
+      const gate = consentGate();
+      if (!consentsLoadedRef.current) {
+        // The server is the enforcement point; this list only keeps the shell
+        // from asking again for a repository this reader already approved.
+        consentsLoadedRef.current = api
+          .listGitHubConsents(docId)
+          .then((res) => gate.setGranted(res.items))
+          .catch(() => undefined);
+      }
+      await consentsLoadedRef.current;
+      return gate.request(repository);
+    },
+    [consentGate, docId],
+  );
+
+  const refuseGitHubConsent = useCallback(() => {
+    setConsentPrompt(null);
+    consentGateRef.current?.settle("denied");
+  }, []);
+
+  const approveGitHubConsent = useCallback(() => {
+    const repository = consentGateRef.current?.prompt;
+    if (!repository) return;
+    approvingRef.current = true;
+    setConsentPrompt(null);
+    void api.grantGitHubConsent(docId, repository).then(
+      () => {
+        approvingRef.current = false;
+        consentGateRef.current?.settle("allowed");
+      },
+      (err: unknown) => {
+        approvingRef.current = false;
+        toast.error(errorMessage(err, "Could not save that approval."));
+        consentGateRef.current?.settle("failed");
+      },
+    );
+  }, [docId]);
+
+  const startGitHubConnect = useCallback(() => {
+    window.location.assign(
+      api.githubConnectURL(
+        window.location.pathname + window.location.search + window.location.hash,
+      ),
+    );
+  }, []);
 
   const token = useQuery({
     queryKey: queryKeys.render(version),
@@ -390,14 +487,24 @@ export function RenderFrame() {
         }
       };
       const handleGitHubRequest = async (data: Record<string, unknown>) => {
-        const requestId = String(data.requestId || "");
+        const requestId =
+          typeof data.requestId === "string" ? data.requestId.slice(0, 256) : "";
         try {
-          if (data.operation !== "raw") throw new Error("unknown GitHub operation");
+          const fields = parseGitHubRawRequest(data);
+          if (!fields) throw new Error("owner, repo, path, and ref are required");
+          const { repository, path, ref } = fields;
+          if ((await requestGitHubConsent(repository)) !== "allowed") {
+            throw new APIError(
+              403,
+              "github_consent_required",
+              `This document has not been allowed to read ${repoKey(repository)}.`,
+            );
+          }
           const result = await api.githubRawContent(docId, {
-            owner: String(data.owner || ""),
-            repo: String(data.repo || ""),
-            path: String(data.path || ""),
-            ref: String(data.ref || ""),
+            owner: repository.owner,
+            repo: repository.repo,
+            path,
+            ref,
           });
           postToFrame({ type: "aidocs:github-response", requestId, ok: true, result });
         } catch (err) {
@@ -449,11 +556,9 @@ export function RenderFrame() {
         void handleGitHubRequest(e.data as Record<string, unknown>);
       }
       if (e.data?.type === "aidocs:github-connect") {
-        window.location.assign(
-          api.githubConnectURL(
-            window.location.pathname + window.location.search + window.location.hash,
-          ),
-        );
+        // Sending the reader to GitHub is an action, not a render: ask first,
+        // and do not offer again once this page load's prompt was dismissed.
+        if (!connectDismissedRef.current) setConnectPrompt(true);
       }
       if (
         e.data?.type === "aidocs:copy-heading" &&
@@ -594,6 +699,7 @@ export function RenderFrame() {
     syncCommentRail,
     applyZoom,
     rememberKVRevision,
+    requestGitHubConsent,
   ]);
 
   useEffect(() => {
@@ -684,6 +790,56 @@ export function RenderFrame() {
           {Math.round(scale * 100)}%
         </button>
       )}
+      {/* Both dialogs are shell UI: the document can ask, but only a click
+          here approves reading a repository or starts the GitHub connect. */}
+      <AlertDialog
+        open={!!consentPrompt}
+        onOpenChange={(open) => {
+          if (!open && !approvingRef.current) refuseGitHubConsent();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>
+            Let this document read {consentPrompt ? repoKey(consentPrompt) : ""}?
+          </AlertDialogTitle>
+          <AlertDialogDescription>
+            This document is asking to read files from the GitHub repository{" "}
+            <span className="font-medium text-[var(--color-fg)]">
+              {consentPrompt ? repoKey(consentPrompt) : ""}
+            </span>{" "}
+            with your connected GitHub account. It can then read any file in that
+            repository your account can open, and show or send on what it reads. Allow
+            this only if you trust the document.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Don’t allow</AlertDialogCancel>
+            <AlertDialogAction onClick={approveGitHubConsent}>Allow</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog
+        open={connectPrompt}
+        onOpenChange={(open) => {
+          if (open) return;
+          connectDismissedRef.current = true;
+          setConnectPrompt(false);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogTitle>Connect your GitHub account?</AlertDialogTitle>
+          <AlertDialogDescription>
+            This document asked to connect GitHub. You will go to GitHub to authorize
+            aidocs and come back to this document. aidocs still asks you before any
+            document reads a repository.
+          </AlertDialogDescription>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Not now</AlertDialogCancel>
+            <AlertDialogAction onClick={startGitHubConnect}>
+              Continue to GitHub
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
