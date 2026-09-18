@@ -308,6 +308,37 @@ func TestPushSucceedsWhenBaseVersionCannotBeRecorded(t *testing.T) {
 	}
 }
 
+// TestPushWarnsWhenResponseDoesNotNameTheVersion covers a server whose push
+// response carries no version id: the push still succeeds, nothing is recorded,
+// and the caller is told why the next push will need --base-version.
+func TestPushWarnsWhenResponseDoesNotNameTheVersion(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		writeTestJSON(t, w, map[string]any{"number": 2})
+	}))
+	t.Cleanup(srv.Close)
+	html := pushTestEnv(t, srv)
+
+	var out, errOut bytes.Buffer
+	root := NewRoot(&out)
+	root.SetErr(&errOut)
+	root.SetArgs([]string{"docs", "push", pushTestDocID, html, "--base-version", "ver_1"})
+	if err := root.Execute(); err != nil {
+		t.Fatalf("push must not fail because the response named no version: %v", err)
+	}
+	if !strings.Contains(errOut.String(), "did not name the new version") || !strings.Contains(errOut.String(), "--base-version") {
+		t.Fatalf("stderr = %q, want a warning naming the --base-version fallback", errOut.String())
+	}
+	cfg, err := loadConfig()
+	if err != nil {
+		t.Fatalf("load config: %v", err)
+	}
+	if cx := cfg.Contexts[ctxName(srv.URL)]; cx != nil && cx.Pulled[pushTestDocID] != "" {
+		t.Fatalf("stored base = %q, want nothing recorded", cx.Pulled[pushTestDocID])
+	}
+}
+
 func configHome(t *testing.T) string {
 	t.Helper()
 	dir := filepath.Dir(filepath.Dir(configPath()))

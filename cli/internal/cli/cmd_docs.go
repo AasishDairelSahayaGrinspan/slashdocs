@@ -512,6 +512,13 @@ func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 // must not fail the command: it degrades to passing --base-version, and the
 // caller is told why on stderr.
 func recordBaseVersion(cmd *cobra.Command, g *globals, docID, versionID string) {
+	if docID == "" || versionID == "" {
+		// The request succeeded, but the response did not name what it created,
+		// so there is nothing to record. Say so rather than leave the next push
+		// to fail without explanation.
+		fmt.Fprintln(cmd.ErrOrStderr(), "warning: the server response did not name the new version, so it was not recorded as the base; pass --base-version on the next push.")
+		return
+	}
 	if err := rememberBaseVersion(g, docID, versionID); err != nil {
 		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not record base version %s for %s (%v); pass --base-version on the next push.\n", versionID, docID, err)
 	}
