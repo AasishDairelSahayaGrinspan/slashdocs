@@ -392,13 +392,10 @@ func (h handlers) writeCommentReaction(c *gin.Context, write reactionWrite) {
 		badRequest(c, "unsupported reaction")
 		return
 	}
-	// Role before comment lookup: needDocRole authorizes the document in the
-	// URL but says nothing about which document the comment belongs to, so the
-	// membership check below is what actually confines the write.
-	if !h.needDocRole(c, docID, repo.RoleCommenter) {
-		return
-	}
-	if _, ok := h.commentInDocument(c, docID, commentID); !ok {
+	// Reactions carry no authorship rule of their own, so the shared gate is the
+	// whole check: current access to the document in the URL, and a comment that
+	// really belongs to it.
+	if _, _, ok := h.commentForMutation(c, docID, commentID); !ok {
 		return
 	}
 	if err := write(c.Request.Context(), commentID, *current(c), emoji); err != nil {
