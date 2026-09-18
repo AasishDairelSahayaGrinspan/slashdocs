@@ -118,6 +118,9 @@ https://your-aidocs-host.example/mcp
 Add that URL to a remote MCP client. Standards-based clients discover the
 server's OAuth metadata, open the normal aidocs sign-in and consent flow, and
 receive a short-lived, audience-bound token using authorization code + PKCE.
+Because any client can register itself, the consent page names the exact
+destination — website host, loopback address, or app scheme — that an approval
+sends the authorization code to, and marks the client's own name as unverified.
 No aidocs CLI or local MCP bridge is involved. Unattended agents can instead
 send an aidocs service-account key as a bearer token.
 

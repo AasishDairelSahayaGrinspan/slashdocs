@@ -208,7 +208,9 @@ to still use AIDocs. It can also be used for operating systems with weird instal
 The server publishes OAuth protected-resource and authorization-server
 metadata under `/.well-known/`, so compatible clients can register, open the
 normal aidocs OIDC sign-in, show an explicit consent page, and complete an
-authorization-code flow with S256 PKCE.
+authorization-code flow with S256 PKCE. Registration is open, so that consent
+page shows the exact destination the authorization code will be delivered to
+and states that the client's self-reported name is unverified.
 
 For unattended automation, an aidocs service-account key can be supplied as the
 Bearer token instead of using browser OAuth.
