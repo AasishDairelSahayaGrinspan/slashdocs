@@ -9,6 +9,23 @@ import (
 	"context"
 )
 
+const deleteResourceGrants = `-- name: DeleteResourceGrants :exec
+DELETE FROM resource_grants
+WHERE resource_type = $1 AND resource_id = ANY($2::text[])
+`
+
+type DeleteResourceGrantsParams struct {
+	ResourceType string
+	ResourceIds  []string
+}
+
+// Grants reference their resource by (resource_type, resource_id) with no
+// foreign key, so a deleted document or folder has to take them with it.
+func (q *Queries) DeleteResourceGrants(ctx context.Context, arg DeleteResourceGrantsParams) error {
+	_, err := q.db.Exec(ctx, deleteResourceGrants, arg.ResourceType, arg.ResourceIds)
+	return err
+}
+
 const listDocumentInheritedGrants = `-- name: ListDocumentInheritedGrants :many
 WITH RECURSIVE ancestors(rid, rtype, depth) AS (
   SELECT $1::text, 'document'::text, 0

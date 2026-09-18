@@ -269,6 +269,20 @@ func (q *Queries) ListFolderDocuments(ctx context.Context, folderID string) ([]L
 	return items, nil
 }
 
+const lockDocument = `-- name: LockDocument :one
+SELECT id FROM documents WHERE id=$1 FOR UPDATE
+`
+
+// Takes the same row lock as GetDocumentVersionForUpdate so a delete and a
+// concurrent CreateVersion serialize: the delete cannot miss the blob key of a
+// version committed while it was collecting them.
+func (q *Queries) LockDocument(ctx context.Context, id string) (string, error) {
+	row := q.db.QueryRow(ctx, lockDocument, id)
+	var id_2 string
+	err := row.Scan(&id_2)
+	return id_2, err
+}
+
 const moveDocumentToFolder = `-- name: MoveDocumentToFolder :execrows
 UPDATE documents SET parent_folder_id= $1::text, updated_at=now() WHERE id= $2
 `

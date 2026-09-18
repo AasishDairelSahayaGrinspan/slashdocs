@@ -110,3 +110,9 @@ LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account 
   ON g.principal_type='service_account' AND g.principal_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
 WHERE g.revoked_at IS NULL AND g.resource_id = ANY(@resource_ids::text[]);
+
+-- name: DeleteResourceGrants :exec
+-- Grants reference their resource by (resource_type, resource_id) with no
+-- foreign key, so a deleted document or folder has to take them with it.
+DELETE FROM resource_grants
+WHERE resource_type = @resource_type AND resource_id = ANY(@resource_ids::text[]);

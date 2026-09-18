@@ -8,6 +8,13 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+type BlobDeletion struct {
+	BlobKey     string
+	Attempts    int32
+	AvailableAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+}
+
 type CliCredential struct {
 	ID         string
 	UserID     string
@@ -88,6 +95,36 @@ type Document struct {
 	UpdatedAt        pgtype.Timestamptz
 	OwnerType        string
 	ParentFolderID   pgtype.Text
+}
+
+type DocumentAccessNotificationOutbox struct {
+	DocumentID   string
+	RecipientID  string
+	Source       string
+	Reason       string
+	PreviousRole string
+	Role         string
+	Attempts     int32
+	AvailableAt  pgtype.Timestamptz
+	CreatedAt    pgtype.Timestamptz
+}
+
+type DocumentAccessRequest struct {
+	DocumentID    string
+	RequesterType string
+	RequesterID   string
+	RequestedAt   pgtype.Timestamptz
+}
+
+type DocumentAccessRequestNotificationOutbox struct {
+	DocumentID     string
+	RequesterType  string
+	RequesterID    string
+	RequesterLabel string
+	RecipientID    string
+	Attempts       int32
+	AvailableAt    pgtype.Timestamptz
+	CreatedAt      pgtype.Timestamptz
 }
 
 type DocumentKv struct {

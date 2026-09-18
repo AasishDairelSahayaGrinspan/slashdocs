@@ -55,3 +55,6 @@ WHERE v.id=$1;
 
 -- name: GetVersionBlobKey :one
 SELECT html_blob_key FROM versions WHERE id=$1;
+
+-- name: ListDocumentVersionBlobKeys :many
+SELECT html_blob_key FROM versions WHERE document_id=$1;

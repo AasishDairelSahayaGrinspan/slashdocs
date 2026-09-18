@@ -26,21 +26,35 @@ func (q *Queries) AcquireFolderTreeLock(ctx context.Context, lockID int64) error
 	return err
 }
 
-const deleteFolderSubtree = `-- name: DeleteFolderSubtree :execrows
+const deleteFolderSubtree = `-- name: DeleteFolderSubtree :many
 WITH RECURSIVE d(id, depth) AS (
   SELECT $1::text, 1
   UNION ALL
   SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth < 64
 )
-DELETE FROM folders WHERE id IN (SELECT id FROM d)
+DELETE FROM folders WHERE id IN (SELECT id FROM d) RETURNING id
 `
 
-func (q *Queries) DeleteFolderSubtree(ctx context.Context, folderID string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteFolderSubtree, folderID)
+// Returns every deleted folder id so the caller can clear the grants and pins
+// that reference folders generically, without a foreign key to cascade them.
+func (q *Queries) DeleteFolderSubtree(ctx context.Context, folderID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, deleteFolderSubtree, folderID)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	return result.RowsAffected(), nil
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const findChildFolderIDByTitle = `-- name: FindChildFolderIDByTitle :one

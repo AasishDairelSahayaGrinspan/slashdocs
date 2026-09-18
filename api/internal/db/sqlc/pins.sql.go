@@ -30,6 +30,23 @@ func (q *Queries) DeletePin(ctx context.Context, arg DeletePinParams) error {
 	return err
 }
 
+const deleteResourcePins = `-- name: DeleteResourcePins :exec
+DELETE FROM pins
+WHERE resource_type = $1 AND resource_id = ANY($2::text[])
+`
+
+type DeleteResourcePinsParams struct {
+	ResourceType string
+	ResourceIds  []string
+}
+
+// Pins reference their resource by (resource_type, resource_id) with no
+// foreign key, so a deleted document or folder has to take them with it.
+func (q *Queries) DeleteResourcePins(ctx context.Context, arg DeleteResourcePinsParams) error {
+	_, err := q.db.Exec(ctx, deleteResourcePins, arg.ResourceType, arg.ResourceIds)
+	return err
+}
+
 const listPins = `-- name: ListPins :many
 SELECT resource_type, resource_id FROM pins WHERE principal_type= $1 AND principal_id= $2
 `

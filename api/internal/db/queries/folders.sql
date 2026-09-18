@@ -84,13 +84,15 @@ UPDATE folders SET parent_folder_id=NULLIF(@parent_folder_id::text,''), updated_
 SELECT EXISTS(SELECT 1 FROM folders f WHERE f.id = @folder_id)::bool AS folder_exists,
        EXISTS(SELECT 1 FROM folders f WHERE f.id = @folder_id AND f.owner_type = @owner_type AND f.owner_id = @owner_id)::bool AS is_owner;
 
--- name: DeleteFolderSubtree :execrows
+-- name: DeleteFolderSubtree :many
+-- Returns every deleted folder id so the caller can clear the grants and pins
+-- that reference folders generically, without a foreign key to cascade them.
 WITH RECURSIVE d(id, depth) AS (
   SELECT @folder_id::text, 1
   UNION ALL
   SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth < 64
 )
-DELETE FROM folders WHERE id IN (SELECT id FROM d);
+DELETE FROM folders WHERE id IN (SELECT id FROM d) RETURNING id;
 
 -- name: FindRootFoldersByTitle :many
 -- Resolves the first segment of a folder path: root folders with the given

@@ -147,6 +147,12 @@ WHERE (@title_pattern::text = '' OR d.title ~* @title_pattern::text)
 ORDER BY d.updated_at DESC, d.title
 LIMIT @row_limit;
 
+-- name: LockDocument :one
+-- Takes the same row lock as GetDocumentVersionForUpdate so a delete and a
+-- concurrent CreateVersion serialize: the delete cannot miss the blob key of a
+-- version committed while it was collecting them.
+SELECT id FROM documents WHERE id=$1 FOR UPDATE;
+
 -- name: DeleteDocument :execrows
 DELETE FROM documents WHERE id=$1;
 

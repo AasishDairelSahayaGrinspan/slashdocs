@@ -142,6 +142,30 @@ func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) (p
 	return created_at, err
 }
 
+const listDocumentVersionBlobKeys = `-- name: ListDocumentVersionBlobKeys :many
+SELECT html_blob_key FROM versions WHERE document_id=$1
+`
+
+func (q *Queries) ListDocumentVersionBlobKeys(ctx context.Context, documentID string) ([]string, error) {
+	rows, err := q.db.Query(ctx, listDocumentVersionBlobKeys, documentID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []string
+	for rows.Next() {
+		var html_blob_key string
+		if err := rows.Scan(&html_blob_key); err != nil {
+			return nil, err
+		}
+		items = append(items, html_blob_key)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listVersions = `-- name: ListVersions :many
 SELECT
   v.id,
