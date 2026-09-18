@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { api } from "@/api";
 
 const SIGNED_OUT_KEY = "aidocs.frontend_signed_out";
 const AUTH_STATE_EVENT = "aidocs:auth-state";
@@ -20,6 +21,15 @@ export function setFrontendSignedOut(signedOut: boolean) {
     }
   } catch {}
   window.dispatchEvent(new Event(AUTH_STATE_EVENT));
+}
+
+// signOut ends the session on the server, which revokes the session token and
+// clears its cookie. The local flag is only set once the server confirms, so a
+// failed sign-out never leaves a still-valid session looking signed out; the
+// rejection is left for the caller to report.
+export async function signOut() {
+  await api.logout();
+  setFrontendSignedOut(true);
 }
 
 export function useFrontendSignedOut() {

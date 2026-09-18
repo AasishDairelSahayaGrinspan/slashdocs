@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "react-router-dom";
+import { toast } from "sonner";
 import {
   Check,
   LogOut,
@@ -21,7 +22,8 @@ import {
 } from "@/components/ui/dropdown";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/misc";
-import { setFrontendSignedOut } from "@/lib/auth-state";
+import { signOut } from "@/lib/auth-state";
+import { errorMessage } from "@/lib/errors";
 import { useTheme } from "@/lib/theme";
 import type { Principal } from "@/api";
 
@@ -105,8 +107,9 @@ export function AccountMenu({ user }: { user: Principal }) {
         <DropdownSeparator />
         <DropdownItem
           onSelect={() => {
-            setFrontendSignedOut(true);
-            nav("/");
+            signOut()
+              .then(() => nav("/"))
+              .catch((e) => toast.error(errorMessage(e, "Could not sign out")));
           }}
         >
           <LogOut className="h-4 w-4" /> Sign out

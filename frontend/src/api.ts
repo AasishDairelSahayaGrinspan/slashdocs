@@ -268,6 +268,7 @@ export const api = {
     }>("/v1/me"),
   loginURL: (redirect: string = location.pathname + location.search) =>
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
+  logout: () => request<void>("/v1/auth/logout", { method: "POST" }),
   listDocuments: (q?: string) => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);

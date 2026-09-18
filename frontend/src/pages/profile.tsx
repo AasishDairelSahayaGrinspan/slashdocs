@@ -16,7 +16,7 @@ import {
 import { useMe } from "@/lib/hooks";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
-import { setFrontendSignedOut } from "@/lib/auth-state";
+import { signOut } from "@/lib/auth-state";
 import { api } from "@/api";
 import { errorMessage } from "@/lib/errors";
 
@@ -152,8 +152,9 @@ export function ProfilePage() {
             <Button
               variant="outline"
               onClick={() => {
-                setFrontendSignedOut(true);
-                nav("/");
+                signOut()
+                  .then(() => nav("/"))
+                  .catch((e) => toast.error(errorMessage(e, "Could not sign out")));
               }}
             >
               <LogOut className="h-4 w-4" /> Sign out
