@@ -196,8 +196,12 @@ func bundledSkillDirs() []string {
 	}
 }
 
+// executablePath resolves the binary a self-update replaces. It is a variable
+// so tests can point the update at a throwaway file instead of the test binary.
+var executablePath = os.Executable
+
 func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
-	exe, err := os.Executable()
+	exe, err := executablePath()
 	if err != nil {
 		return err
 	}
