@@ -134,7 +134,9 @@ authenticated principal:
 
 The effective role remains the highest role derived from canonical ownership,
 direct user or service-account grants, Google Group grants, inherited folder
-grants, and the `anyone` principal.
+grants, and the `anyone` principal, with one exception: an owner-level grant
+inherited from a folder owned by somebody else is capped at `editor` (see
+[Ownership semantics](#ownership-semantics)).
 
 ### Failure behavior
 
@@ -158,6 +160,13 @@ replace the canonical owner stored on the document or folder. Group-derived
 co-owners may perform normal owner operations, including deletion and managing
 non-owner grants.
 
+Owner-level access only ever follows the canonical owner's own resources. An
+owner-level grant on a folder confers `owner` on the resources below it whose
+canonical owner is that folder's canonical owner, and at most `editor` on
+anything below it that belongs to somebody else — so moving another person's
+document into the folder, or re-parenting a folder around it, never promotes the
+folder's sharers over that person.
+
 Owner-level grant invariants:
 
 - Only the canonical owner may create an owner-level group grant.
@@ -165,6 +174,10 @@ Owner-level grant invariants:
 - Only the canonical owner may demote or revoke an existing owner-level group
   grant.
 - Group-derived co-owners cannot alter owner-level grants.
+- An owner-level grant inherited from an ancestor folder confers `owner` only
+  when that folder's canonical owner is also the canonical owner of the
+  resource below; otherwise it confers at most `editor`, everywhere an
+  effective role is computed or reported.
 - Owner-level grants remain unsupported for individual users and aidocs
   service accounts.
 - The canonical owner continues to appear separately in effective-access and
@@ -423,6 +436,8 @@ invariants, particularly:
 - Why group membership fields on a principal are internal-only.
 - Why group owner access does not replace canonical ownership.
 - Why only canonical owners may alter owner-level group grants.
+- Why an inherited owner-level grant is capped at `editor` for resources owned
+  by somebody else.
 
 Update the self-hosting guide, Helm chart documentation, CLI help, generated
 OpenAPI specification, and operator runbooks alongside the implementation.
