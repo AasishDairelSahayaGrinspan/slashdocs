@@ -4,10 +4,13 @@ import (
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
+	"io"
 	"io/fs"
 	"net/http"
 	"path"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -61,19 +64,82 @@ var cliPlatforms = []struct{ os, arch string }{
 
 func cliAssetName(goos, goarch string) string { return "aidocs-" + goos + "-" + goarch }
 
-func embeddedCLIAsset(goos, goarch string) ([]byte, bool) {
-	b, err := fs.ReadFile(cliAssetFS, path.Join(cliAssetDir, cliAssetName(goos, goarch)))
-	return b, err == nil && len(b) > 0
+// cliAssetInfo is the size and digest of one CLI binary.
+type cliAssetInfo struct {
+	size   int
+	sha256 string
+}
+
+// /version.json is unauthenticated and the CLI polls it after almost every
+// command, so the digests are computed once per process instead of re-hashing
+// tens of megabytes of release binaries on every request. Doing it lazily
+// keeps start-up free of work that a build with no embedded CLI (dev
+// checkouts, tests) would never use.
+var (
+	cliAssetInfoOnce sync.Once
+	cliAssetInfos    map[string]cliAssetInfo
+)
+
+// cliAssetMeta returns the cached metadata of an embedded CLI binary. It
+// reports false when the asset is missing or empty, which is what a build
+// without CLI assets looks like.
+func cliAssetMeta(goos, goarch string) (cliAssetInfo, bool) {
+	cliAssetInfoOnce.Do(loadCLIAssetInfos)
+	info, ok := cliAssetInfos[cliAssetName(goos, goarch)]
+	return info, ok
+}
+
+func loadCLIAssetInfos() {
+	cliAssetInfos = make(map[string]cliAssetInfo, len(cliPlatforms))
+	for _, p := range cliPlatforms {
+		name := cliAssetName(p.os, p.arch)
+		if info, ok := hashCLIAsset(name); ok {
+			cliAssetInfos[name] = info
+		}
+	}
+}
+
+// hashCLIAsset streams the asset through the hasher. Reading it with
+// embed.FS.ReadFile would copy the whole binary into a fresh buffer just to
+// throw it away again.
+func hashCLIAsset(name string) (cliAssetInfo, bool) {
+	f, ok := openCLIAsset(name)
+	if !ok {
+		return cliAssetInfo{}, false
+	}
+	defer func() { _ = f.Close() }()
+	sum := sha256.New()
+	size, err := io.Copy(sum, f)
+	if err != nil || size == 0 {
+		return cliAssetInfo{}, false
+	}
+	return cliAssetInfo{size: int(size), sha256: hex.EncodeToString(sum.Sum(nil))}, true
+}
+
+// openCLIAsset opens a CLI binary for streaming. Embedded files are seekable,
+// which is what lets downloadCLI hand one straight to http.ServeContent; an
+// asset that is not counts as unavailable, and is then also absent from the
+// metadata cache this shares with hashCLIAsset.
+func openCLIAsset(name string) (io.ReadSeekCloser, bool) {
+	f, err := cliAssetFS.Open(path.Join(cliAssetDir, name))
+	if err != nil {
+		return nil, false
+	}
+	rsc, ok := f.(io.ReadSeekCloser)
+	if !ok {
+		_ = f.Close()
+		return nil, false
+	}
+	return rsc, true
 }
 
 func (h handlers) versionJSON(c *gin.Context) {
 	assets := make([]cliAsset, 0, len(cliPlatforms))
 	for _, p := range cliPlatforms {
 		asset := cliAsset{OS: p.os, Arch: p.arch, URL: "/cli/" + p.os + "/" + p.arch}
-		if b, ok := embeddedCLIAsset(p.os, p.arch); ok {
-			sum := sha256.Sum256(b)
-			asset.SHA256 = hex.EncodeToString(sum[:])
-			asset.Size = len(b)
+		if info, ok := cliAssetMeta(p.os, p.arch); ok {
+			asset.SHA256 = info.sha256
+			asset.Size = info.size
 		}
 		assets = append(assets, asset)
 	}
@@ -96,14 +162,28 @@ func (h handlers) downloadCLI(c *gin.Context) {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "unsupported platform", nil))
 		return
 	}
-	b, ok := embeddedCLIAsset(goos, goarch)
+	info, ok := cliAssetMeta(goos, goarch)
 	if !ok {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "cli binary is not available in this build", nil))
 		return
 	}
 	name := cliAssetName(goos, goarch)
+	f, ok := openCLIAsset(name)
+	if !ok {
+		c.JSON(http.StatusNotFound, errorResponse("not_found", "cli binary is not available in this build", nil))
+		return
+	}
+	defer func() { _ = f.Close() }()
 	c.Header("Content-Disposition", `attachment; filename="`+name+`"`)
-	c.Data(http.StatusOK, "application/octet-stream", b)
+	// Set the content type up front so ServeContent neither sniffs the binary
+	// nor guesses from a name that has no extension.
+	c.Header("Content-Type", "application/octet-stream")
+	// The digest is of the exact bytes served, so it is a strong validator.
+	c.Header("ETag", `"`+info.sha256+`"`)
+	// Streaming the embedded file keeps the binary out of the heap and brings
+	// range and conditional requests along. The zero modtime leaves
+	// Last-Modified off, as before: embedded files carry no useful timestamp.
+	http.ServeContent(c.Writer, c.Request, name, time.Time{}, f)
 }
 
 func validCLIPlatform(goos, goarch string) bool {

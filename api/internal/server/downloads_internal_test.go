@@ -76,7 +76,18 @@ func useCLIAssetFS(t *testing.T, fsys fs.FS) {
 	t.Helper()
 	previous := cliAssetFS
 	cliAssetFS = fsys
-	t.Cleanup(func() { cliAssetFS = previous })
+	resetCLIAssetCache()
+	t.Cleanup(func() {
+		cliAssetFS = previous
+		resetCLIAssetCache()
+	})
+}
+
+// resetCLIAssetCache drops the process-wide asset metadata so each test sees
+// its own stand-in assets from a cold start.
+func resetCLIAssetCache() {
+	cliAssetInfoOnce = sync.Once{}
+	cliAssetInfos = nil
 }
 
 // newDownloadsTestRouter registers the download routes exactly as
@@ -125,7 +136,7 @@ func (w *discardWriter) Write(b []byte) (int, error) { w.size += len(b); return 
 // target, after a warm-up request so that one-time work (route matching
 // caches, sync.Pool fills, and any legitimate first-request hashing) is not
 // charged to the measured loop.
-func allocBytesPerRequest(t *testing.T, r http.Handler, target string, requests int) uint64 {
+func allocBytesPerRequest(t *testing.T, r http.Handler, target string, requests uint64) uint64 {
 	t.Helper()
 	serve := func() *discardWriter {
 		w := newDiscardWriter()
@@ -144,7 +155,20 @@ func allocBytesPerRequest(t *testing.T, r http.Handler, target string, requests 
 		}
 	}
 	runtime.ReadMemStats(&after)
-	return (after.TotalAlloc - before.TotalAlloc) / uint64(requests)
+	return (after.TotalAlloc - before.TotalAlloc) / requests
+}
+
+// TestCLIAssetDirMatchesEmbed catches drift between the embed directive and
+// the directory the handlers read from. A dev checkout builds no CLI binaries,
+// so nothing else in the suite would notice a wrong path.
+func TestCLIAssetDirMatchesEmbed(t *testing.T) {
+	info, err := fs.Stat(downloadDist, cliAssetDir)
+	if err != nil {
+		t.Fatalf("stat %q in the embedded filesystem: %v", cliAssetDir, err)
+	}
+	if !info.IsDir() {
+		t.Fatalf("%q is not a directory in the embedded filesystem", cliAssetDir)
+	}
 }
 
 func TestVersionJSONReportsEmbeddedAssetDigests(t *testing.T) {
