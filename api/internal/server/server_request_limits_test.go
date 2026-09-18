@@ -234,6 +234,39 @@ func TestJSONRoutesRejectOversizedBodies(t *testing.T) {
 	}
 }
 
+// Hitting the cap must stop the server reading the rest of the body and close
+// the connection, the way http.MaxBytesReader does once it is handed net/http's
+// own ResponseWriter. Over a real connection that shows as Connection: close on
+// the 413; a gin-wrapped writer would swallow the signal and leave the server
+// draining the remainder to reuse the connection.
+func TestOversizedBodyClosesTheConnection(t *testing.T) {
+	e := newTestEnv(t)
+	srv := httptest.NewServer(e.h)
+	defer srv.Close()
+
+	// A body just past the cap, sent without a declared length: small enough
+	// that the client finishes writing whatever the server does with it.
+	body, _ := jsonBody("code", jsonRequestCapBytes+4096)
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/auth/cli/exchange", body)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatalf("post oversized body: %v", err)
+	}
+	defer func() {
+		_ = resp.Body.Close()
+	}()
+	if resp.StatusCode != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusRequestEntityTooLarge)
+	}
+	if !resp.Close {
+		t.Fatalf("413 kept the connection open; Connection header = %q", resp.Header.Get("Connection"))
+	}
+}
+
 // A route that sets its own, smaller limit keeps it: the KV patch still reports
 // its own 413 at 256 KiB instead of the shared default at 1 MiB.
 func TestRouteWithSmallerOwnLimitKeepsIt(t *testing.T) {
