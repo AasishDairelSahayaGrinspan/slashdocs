@@ -368,13 +368,12 @@ WITH RECURSIVE chain(id, title, parent_folder_id, owner_type, owner_id, depth) A
   FROM folders f JOIN chain c ON f.id=c.parent_folder_id
   WHERE c.depth < 64
 )
-SELECT c.id, c.title,
+SELECT c.id, c.title, c.owner_type, c.owner_id,
        (c.owner_type= $1::text AND c.owner_id= $2::text)::bool AS is_owner,
        COALESCE((
          SELECT max(CASE g.role WHEN 'owner' THEN 4 WHEN 'editor' THEN 3 WHEN 'commenter' THEN 2 WHEN 'viewer' THEN 1 ELSE 0 END)
          FROM resource_grants g
-         JOIN chain gc ON g.resource_id=gc.id
-         WHERE gc.depth >= c.depth
+         WHERE g.resource_id=c.id
            AND g.resource_type='folder' AND g.revoked_at IS NULL
            AND ((g.principal_type= $1::text AND g.principal_id= $2::text)
              OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[]))
@@ -394,16 +393,19 @@ type ListFolderAccessChainParams struct {
 type ListFolderAccessChainRow struct {
 	ID        string
 	Title     string
+	OwnerType string
+	OwnerID   string
 	IsOwner   bool
 	GrantRank int32
 }
 
 // A folder's ancestor chain (root first, the folder itself last) annotated
-// with the principal's access at each level, resolved in one round trip. A
-// grant on a folder applies to it and everything below it, so the strongest
-// grant for chain element X is taken over X and all of X's ancestors
-// (chain elements with depth >= X's). Rank order mirrors repo.MaxRole:
-// owner=4, editor=3, commenter=2, viewer=1.
+// with that level's canonical owner and the principal's strongest grant *on
+// that level*, resolved in one round trip. A grant on a folder applies to it
+// and everything below it, so FolderAccessChain rolls each level's grant down
+// the chain and caps inherited owner grants with repo.InheritedRole, which
+// needs the owner of the level that carries the grant. Rank order mirrors
+// repo.MaxRole: owner=4, editor=3, commenter=2, viewer=1.
 func (q *Queries) ListFolderAccessChain(ctx context.Context, arg ListFolderAccessChainParams) ([]ListFolderAccessChainRow, error) {
 	rows, err := q.db.Query(ctx, listFolderAccessChain,
 		arg.PrincipalType,
@@ -421,6 +423,8 @@ func (q *Queries) ListFolderAccessChain(ctx context.Context, arg ListFolderAcces
 		if err := rows.Scan(
 			&i.ID,
 			&i.Title,
+			&i.OwnerType,
+			&i.OwnerID,
 			&i.IsOwner,
 			&i.GrantRank,
 		); err != nil {

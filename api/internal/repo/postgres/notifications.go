@@ -60,10 +60,14 @@ func documentGrantAccessSnapshot(ctx context.Context, tx pgx.Tx, resourceType, r
 	if len(recipientIDs) == 0 {
 		return documentAccessSnapshot{}, nil
 	}
-	rows, err := tx.Query(ctx, `WITH RECURSIVE ancestors(resource_id, resource_type, depth) AS (
-		SELECT $1::text, 'document'::text, 0
+	// The ancestor chain carries each level's canonical owner so an inherited
+	// owner-level grant can be capped exactly as repo.InheritedRole does: only
+	// the document's own canonical owner can make anyone its owner.
+	rows, err := tx.Query(ctx, `WITH RECURSIVE ancestors(resource_id, resource_type, owner_type, owner_id, depth) AS (
+		SELECT root.id, 'document'::text, root.owner_type, root.owner_id, 0
+		FROM documents root WHERE root.id=$1::text
 		UNION ALL
-		SELECT f.id, 'folder'::text, a.depth+1
+		SELECT f.id, 'folder'::text, f.owner_type, f.owner_id, a.depth+1
 		FROM ancestors a
 		JOIN LATERAL (
 			SELECT CASE WHEN a.resource_type='document' THEN (SELECT parent_folder_id FROM documents WHERE id=a.resource_id)
@@ -75,15 +79,19 @@ func documentGrantAccessSnapshot(ctx context.Context, tx pgx.Tx, resourceType, r
 	SELECT recipient.id,
 		CASE WHEN d.owner_type='user' AND d.owner_id=recipient.id THEN 'owner'
 		ELSE COALESCE((
-			SELECT g.role FROM resource_grants g
-			WHERE g.revoked_at IS NULL
-			  AND g.resource_id IN (SELECT resource_id FROM ancestors)
-			  AND (g.principal_type='anyone'
-			    OR (g.principal_type='user' AND g.principal_id=recipient.id)
-			    OR (g.principal_type='google_group' AND EXISTS (
-			      SELECT 1 FROM google_group_memberships gm
-			      WHERE gm.user_id=recipient.id AND gm.group_id=g.principal_id)))
-			ORDER BY CASE g.role WHEN 'owner' THEN 4 WHEN 'editor' THEN 3 WHEN 'commenter' THEN 2 WHEN 'viewer' THEN 1 ELSE 0 END DESC
+			SELECT capped.role FROM (
+				SELECT CASE WHEN g.role='owner' AND (a.owner_type, a.owner_id) IS DISTINCT FROM (d.owner_type, d.owner_id)
+					THEN 'editor' ELSE g.role END AS role
+				FROM resource_grants g
+				JOIN ancestors a ON a.resource_id=g.resource_id
+				WHERE g.revoked_at IS NULL
+				  AND (g.principal_type='anyone'
+				    OR (g.principal_type='user' AND g.principal_id=recipient.id)
+				    OR (g.principal_type='google_group' AND EXISTS (
+				      SELECT 1 FROM google_group_memberships gm
+				      WHERE gm.user_id=recipient.id AND gm.group_id=g.principal_id)))
+			) capped
+			ORDER BY CASE capped.role WHEN 'owner' THEN 4 WHEN 'editor' THEN 3 WHEN 'commenter' THEN 2 WHEN 'viewer' THEN 1 ELSE 0 END DESC
 			LIMIT 1
 		), '') END AS role
 	FROM unnest($2::text[]) AS recipient(id)

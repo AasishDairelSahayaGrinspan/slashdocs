@@ -31,6 +31,22 @@ func MaxRole(a, b Role) Role {
 	return a
 }
 
+// InheritedRole caps what a grant confers on a resource below the resource the
+// grant sits on. Security invariant: only a resource's canonical owner may make
+// anyone an owner of it, so an owner-level grant carried by an ancestor that
+// belongs to somebody else confers at most editor on the resource underneath —
+// otherwise granting owner on a folder, or moving a document into one, would
+// silently promote the folder's sharers over the document owner. A grant on the
+// resource itself is unaffected: both owners are the same resource's owner, so
+// the cap is a no-op. See docs/proposals/google-group-sharing.md, "Ownership
+// semantics".
+func InheritedRole(role Role, grantOwnerType, grantOwnerID, ownerType, ownerID string) Role {
+	if role != RoleOwner || (grantOwnerType == ownerType && grantOwnerID == ownerID) {
+		return role
+	}
+	return RoleEditor
+}
+
 // ErrNotFound wraps auth.ErrNotFound so that packages which cannot import repo
 // (to avoid an import cycle) can still detect not-found via errors.Is.
 var ErrNotFound = fmt.Errorf("not found: %w", auth.ErrNotFound)

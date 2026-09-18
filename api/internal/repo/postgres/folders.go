@@ -60,8 +60,14 @@ func (s *Store) FolderAccessChain(ctx context.Context, p auth.Principal, folderI
 		return nil, repo.ErrNotFound
 	}
 	out := make([]repo.FolderAccess, 0, len(rows))
-	for _, r := range rows {
-		role := grantRankRole(r.GrantRank)
+	for i, r := range rows {
+		// Rows arrive root first, so rows[:i+1] is this folder plus every
+		// ancestor whose grants it inherits. Each inherited grant is capped
+		// against the owner of the level that carries it.
+		role := repo.RoleNone
+		for _, ancestor := range rows[:i+1] {
+			role = repo.MaxRole(role, repo.InheritedRole(grantRankRole(ancestor.GrantRank), ancestor.OwnerType, ancestor.OwnerID, r.OwnerType, r.OwnerID))
+		}
 		if r.IsOwner {
 			role = repo.MaxRole(role, repo.RoleOwner)
 		}

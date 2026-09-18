@@ -48,12 +48,15 @@ RETURNING id, resource_type, resource_id, principal_type, principal_id, role, gr
 UPDATE resource_grants SET revoked_at=now() WHERE id= @grant_id AND resource_id= @resource_id AND revoked_at IS NULL;
 
 -- name: ListDocumentInheritedGrants :many
--- All active grants on a document and on every folder above it. The caller
--- folds these (plus ownership) into the principal's effective role.
-WITH RECURSIVE ancestors(rid, rtype, depth) AS (
-  SELECT @document_id::text, 'document'::text, 0
+-- All active grants on a document and on every folder above it, each carrying
+-- the canonical owner of the resource it sits on. The caller folds these (plus
+-- ownership) into the principal's effective role and applies the
+-- inherited-owner cap with repo.InheritedRole.
+WITH RECURSIVE ancestors(rid, rtype, owner_type, owner_id, depth) AS (
+  SELECT d.id, 'document'::text, d.owner_type, d.owner_id, 0
+  FROM documents d WHERE d.id = @document_id::text
   UNION ALL
-  SELECT f.id, 'folder'::text, a.depth+1
+  SELECT f.id, 'folder'::text, f.owner_type, f.owner_id, a.depth+1
   FROM ancestors a
   JOIN LATERAL (
     SELECT CASE WHEN a.rtype='document' THEN (SELECT parent_folder_id FROM documents WHERE id=a.rid)
@@ -62,14 +65,17 @@ WITH RECURSIVE ancestors(rid, rtype, depth) AS (
   JOIN folders f ON f.id = sub.pid
   WHERE sub.pid IS NOT NULL AND a.depth < 64
 )
-SELECT g.resource_id, g.principal_type, g.principal_id, g.role
+SELECT g.resource_id, g.principal_type, g.principal_id, g.role,
+       a.owner_type AS grant_owner_type, a.owner_id AS grant_owner_id
 FROM resource_grants g
-WHERE g.revoked_at IS NULL
-  AND g.resource_id IN (SELECT rid FROM ancestors);
+JOIN ancestors a ON a.rid = g.resource_id
+WHERE g.revoked_at IS NULL;
 
 -- name: ListResourceAncestors :many
 -- The resource itself plus every folder above it, with titles and owners, for
--- the effective-access report.
+-- the effective-access report. Ordered by depth so the first row is always the
+-- resource itself: the report reads its canonical owner and the ownership cap
+-- for inherited grants from that row.
 WITH RECURSIVE ancestors(rid, rtype, depth) AS (
   SELECT @resource_id::text, @resource_type::text, 0
   UNION ALL
@@ -96,7 +102,8 @@ LEFT JOIN service_accounts osa -- nosemgrep: detected-google-gcm-service-account
   -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
   ON COALESCE(f.owner_type, d.owner_type)='service_account'
  AND COALESCE(f.owner_id, d.owner_id)=osa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-WHERE a.rid IS NOT NULL;
+WHERE a.rid IS NOT NULL
+ORDER BY a.depth;
 
 -- name: ListGrantsForResources :many
 SELECT g.id, g.resource_id, g.resource_type, g.principal_type, g.principal_id,

@@ -275,7 +275,9 @@ func (s *Store) RoleForDocument(ctx context.Context, p auth.Principal, documentI
 	}
 	for _, g := range grants {
 		if principalHasGrant(p, g.PrincipalType, g.PrincipalID) {
-			best = repo.MaxRole(best, repo.Role(g.Role))
+			// An owner-level grant on a folder above a document owned by
+			// somebody else confers at most editor here.
+			best = repo.MaxRole(best, repo.InheritedRole(repo.Role(g.Role), g.GrantOwnerType, g.GrantOwnerID, owner.OwnerType, owner.OwnerID))
 		}
 	}
 	return best, nil
@@ -1650,10 +1652,14 @@ func (s *Store) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]repo
 	ids := make([]string, 0, len(chain))
 	titles := map[string]string{}
 	rtypes := map[string]string{}
+	ownerTypes := map[string]string{}
+	ownerIDs := map[string]string{}
 	for _, a := range chain {
 		ids = append(ids, a.AncestorID)
 		titles[a.AncestorID] = a.Title
 		rtypes[a.AncestorID] = a.AncestorType
+		ownerTypes[a.AncestorID] = a.OwnerType
+		ownerIDs[a.AncestorID] = a.OwnerID
 	}
 
 	grants, err := s.q.ListGrantsForResources(ctx, ids)
@@ -1662,7 +1668,10 @@ func (s *Store) ListEffectiveAccess(ctx context.Context, rt, rid string) ([]repo
 	}
 	for _, g := range grants {
 		p := auth.Principal{Type: auth.PrincipalType(g.PrincipalType), ID: g.PrincipalID, Email: g.PrincipalEmail, Name: g.PrincipalName}
-		add(p, repo.AccessSource{ResourceType: rtypes[g.ResourceID], ResourceID: g.ResourceID, ResourceTitle: titles[g.ResourceID], Role: repo.Role(g.Role), GrantID: g.ID})
+		// Report what each grant is worth *here*: an owner-level grant on an
+		// ancestor owned by somebody else is only editor on this resource.
+		role := repo.InheritedRole(repo.Role(g.Role), ownerTypes[g.ResourceID], ownerIDs[g.ResourceID], root.OwnerType, root.OwnerID)
+		add(p, repo.AccessSource{ResourceType: rtypes[g.ResourceID], ResourceID: g.ResourceID, ResourceTitle: titles[g.ResourceID], Role: role, GrantID: g.ID})
 	}
 
 	out := make([]repo.EffectiveAccessItem, 0, len(by))

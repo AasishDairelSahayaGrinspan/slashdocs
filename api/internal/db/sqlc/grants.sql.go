@@ -10,10 +10,11 @@ import (
 )
 
 const listDocumentInheritedGrants = `-- name: ListDocumentInheritedGrants :many
-WITH RECURSIVE ancestors(rid, rtype, depth) AS (
-  SELECT $1::text, 'document'::text, 0
+WITH RECURSIVE ancestors(rid, rtype, owner_type, owner_id, depth) AS (
+  SELECT d.id, 'document'::text, d.owner_type, d.owner_id, 0
+  FROM documents d WHERE d.id = $1::text
   UNION ALL
-  SELECT f.id, 'folder'::text, a.depth+1
+  SELECT f.id, 'folder'::text, f.owner_type, f.owner_id, a.depth+1
   FROM ancestors a
   JOIN LATERAL (
     SELECT CASE WHEN a.rtype='document' THEN (SELECT parent_folder_id FROM documents WHERE id=a.rid)
@@ -22,21 +23,26 @@ WITH RECURSIVE ancestors(rid, rtype, depth) AS (
   JOIN folders f ON f.id = sub.pid
   WHERE sub.pid IS NOT NULL AND a.depth < 64
 )
-SELECT g.resource_id, g.principal_type, g.principal_id, g.role
+SELECT g.resource_id, g.principal_type, g.principal_id, g.role,
+       a.owner_type AS grant_owner_type, a.owner_id AS grant_owner_id
 FROM resource_grants g
+JOIN ancestors a ON a.rid = g.resource_id
 WHERE g.revoked_at IS NULL
-  AND g.resource_id IN (SELECT rid FROM ancestors)
 `
 
 type ListDocumentInheritedGrantsRow struct {
-	ResourceID    string
-	PrincipalType string
-	PrincipalID   string
-	Role          string
+	ResourceID     string
+	PrincipalType  string
+	PrincipalID    string
+	Role           string
+	GrantOwnerType string
+	GrantOwnerID   string
 }
 
-// All active grants on a document and on every folder above it. The caller
-// folds these (plus ownership) into the principal's effective role.
+// All active grants on a document and on every folder above it, each carrying
+// the canonical owner of the resource it sits on. The caller folds these (plus
+// ownership) into the principal's effective role and applies the
+// inherited-owner cap with repo.InheritedRole.
 func (q *Queries) ListDocumentInheritedGrants(ctx context.Context, documentID string) ([]ListDocumentInheritedGrantsRow, error) {
 	rows, err := q.db.Query(ctx, listDocumentInheritedGrants, documentID)
 	if err != nil {
@@ -51,6 +57,8 @@ func (q *Queries) ListDocumentInheritedGrants(ctx context.Context, documentID st
 			&i.PrincipalType,
 			&i.PrincipalID,
 			&i.Role,
+			&i.GrantOwnerType,
+			&i.GrantOwnerID,
 		); err != nil {
 			return nil, err
 		}
@@ -143,6 +151,7 @@ LEFT JOIN service_accounts osa -- nosemgrep: detected-google-gcm-service-account
   ON COALESCE(f.owner_type, d.owner_type)='service_account'
  AND COALESCE(f.owner_id, d.owner_id)=osa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 WHERE a.rid IS NOT NULL
+ORDER BY a.depth
 `
 
 type ListResourceAncestorsParams struct {
@@ -162,7 +171,9 @@ type ListResourceAncestorsRow struct {
 }
 
 // The resource itself plus every folder above it, with titles and owners, for
-// the effective-access report.
+// the effective-access report. Ordered by depth so the first row is always the
+// resource itself: the report reads its canonical owner and the ownership cap
+// for inherited grants from that row.
 // nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
 func (q *Queries) ListResourceAncestors(ctx context.Context, arg ListResourceAncestorsParams) ([]ListResourceAncestorsRow, error) {
 	rows, err := q.db.Query(ctx, listResourceAncestors, arg.ResourceID, arg.ResourceType)
