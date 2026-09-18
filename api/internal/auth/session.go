@@ -2,6 +2,7 @@ package auth
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -17,20 +18,40 @@ type signedPayload struct {
 	Subject   string `json:"sub"`
 	Audience  string `json:"aud"`
 	ExpiresAt int64  `json:"exp"`
+	// Nonce makes every minted session token distinct. Without it, two logins
+	// in the same second would produce the same string, and revoking one of
+	// them on sign-out would revoke the other too. Older tokens carry no nonce
+	// and keep verifying.
+	Nonce string `json:"jti,omitempty"`
 }
 
 func (s SessionCodec) Sign(userID string) string {
-	return s.SignForAudience(userID, audSession, 30*24*time.Hour)
+	return s.sign(signedPayload{
+		Subject:   userID,
+		Audience:  audSession,
+		ExpiresAt: time.Now().Add(30 * 24 * time.Hour).Unix(),
+		Nonce:     sessionNonce(),
+	})
 }
 
 func (s SessionCodec) SignForAudience(userID, audience string, ttl time.Duration) string {
-	p := signedPayload{Subject: userID, Audience: audience, ExpiresAt: time.Now().Add(ttl).Unix()}
+	return s.sign(signedPayload{Subject: userID, Audience: audience, ExpiresAt: time.Now().Add(ttl).Unix()})
+}
+
+func (s SessionCodec) sign(p signedPayload) string {
 	payload, _ := json.Marshal(p)
 	payloadB64 := base64.RawURLEncoding.EncodeToString(payload)
 	mac := hmac.New(sha256.New, s.Secret)
 	mac.Write([]byte(payloadB64))
 	sig := mac.Sum(nil)
 	return "v1." + payloadB64 + "." + base64.RawURLEncoding.EncodeToString(sig)
+}
+
+func sessionNonce() string {
+	b := make([]byte, 16)
+	// crypto/rand.Read never returns an error and always fills b.
+	_, _ = rand.Read(b)
+	return base64.RawURLEncoding.EncodeToString(b)
 }
 func (s SessionCodec) VerifySession(v string) (string, bool) {
 	return s.VerifyAudience(v, audSession)

@@ -153,11 +153,8 @@ func TestLogoutRejectsCrossSiteRequests(t *testing.T) {
 
 func TestLogoutRevokesOnlyThePresentedSession(t *testing.T) {
 	e := newSessionTestEnv(t)
-	codec := auth.SessionCodec{Secret: []byte(oauthTestSigningMaterial)}
 	token := signIn(fixtureUser)
-	// The codec is deterministic, so a second session for the same user is a
-	// token with a different expiry, exactly like signing in a day later.
-	otherDevice := codec.SignForAudience(fixtureUser.ID, "session", 29*24*time.Hour)
+	otherDevice := signIn(fixtureUser)
 	otherUser := signIn(fixtureOwner)
 
 	assertStatus(t, do(t, e.h, http.MethodPost, "/v1/auth/logout", "", logoutHeaders(token)), http.StatusNoContent)
@@ -165,6 +162,22 @@ func TestLogoutRevokesOnlyThePresentedSession(t *testing.T) {
 	assertStatus(t, do(t, e.h, http.MethodGet, "/v1/me", "", cookieHeaders(token)), http.StatusUnauthorized)
 	assertStatus(t, do(t, e.h, http.MethodGet, "/v1/me", "", cookieHeaders(otherDevice)), http.StatusOK)
 	assertStatus(t, do(t, e.h, http.MethodGet, "/v1/me", "", cookieHeaders(otherUser)), http.StatusOK)
+}
+
+func TestLogoutDoesNotRevokeASessionMintedAfterwards(t *testing.T) {
+	e := newSessionTestEnv(t)
+	token := signIn(fixtureUser)
+
+	assertStatus(t, do(t, e.h, http.MethodPost, "/v1/auth/logout", "", logoutHeaders(token)), http.StatusNoContent)
+
+	// Signing back in hands out a session of its own even when it lands in the
+	// same second as the sign-out, so the revocation cannot follow the user
+	// into their next session.
+	next := signIn(fixtureUser)
+	if next == token {
+		t.Fatal("signing in again minted the revoked session token")
+	}
+	assertStatus(t, do(t, e.h, http.MethodGet, "/v1/me", "", cookieHeaders(next)), http.StatusOK)
 }
 
 func TestRevokedSessionIsRejectedOnOAuthAuthorize(t *testing.T) {

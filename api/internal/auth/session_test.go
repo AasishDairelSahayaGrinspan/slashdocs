@@ -16,6 +16,35 @@ func TestSessionCodecRoundTrip(t *testing.T) {
 	}
 }
 
+func TestSessionCodecMintsADistinctTokenPerLogin(t *testing.T) {
+	codec := auth.SessionCodec{Secret: []byte("test-secret")}
+
+	first, second := codec.Sign("usr_1"), codec.Sign("usr_1")
+
+	if first == second {
+		// Identical tokens would share a revocation: signing out of one
+		// session would sign the user out of the session they just started.
+		t.Fatal("two logins in the same second minted the same session token")
+	}
+	for _, tok := range []string{first, second} {
+		if uid, ok := codec.VerifySession(tok); !ok || uid != "usr_1" {
+			t.Fatalf("VerifySession = (%q, %v), want (\"usr_1\", true)", uid, ok)
+		}
+	}
+}
+
+// TestSessionCodecVerifiesTokensWithoutANonce keeps sessions minted by an
+// older instance usable across a rolling deployment.
+func TestSessionCodecVerifiesTokensWithoutANonce(t *testing.T) {
+	codec := auth.SessionCodec{Secret: []byte("test-secret")}
+
+	legacy := codec.SignForAudience("usr_1", "session", time.Hour)
+
+	if uid, ok := codec.VerifySession(legacy); !ok || uid != "usr_1" {
+		t.Fatalf("VerifySession = (%q, %v), want (\"usr_1\", true)", uid, ok)
+	}
+}
+
 func TestSessionCodecRejectsWrongSecret(t *testing.T) {
 	tok := (auth.SessionCodec{Secret: []byte("secret-a")}).Sign("usr_1")
 	if _, ok := (auth.SessionCodec{Secret: []byte("secret-b")}).VerifySession(tok); ok {
