@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -25,6 +26,13 @@ const (
 	mcpTestMaxClientNameBytes  = 128
 	mcpTestMaxRedirectURIBytes = 1024
 	mcpTestMaxClientIDBytes    = 2048
+
+	// Consent copy that tells the user where an approval sends the code and
+	// how much the client's self-reported name is worth.
+	mcpConsentWebsiteNote    = "A website on the internet."
+	mcpConsentLocalAppNote   = "An application running on this computer."
+	mcpConsentAppSchemeNote  = "An app on this computer that is registered to open these links."
+	mcpConsentUnverifiedName = "self-reported by the application and unverified"
 )
 
 type mcpOAuthTestEnv struct {
@@ -309,6 +317,174 @@ func TestMCPAuthorizeRequiresBrowserSessionAndExplicitConsent(t *testing.T) {
 	}
 }
 
+// Registration is unauthenticated, so a client picks both its own name and its
+// own callback. The consent page must therefore show where approving actually
+// sends the authorization code, in every redirect form registration accepts,
+// and say that the name above it is unverified.
+func TestMCPConsentShowsRedirectDestination(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	cases := []struct {
+		name        string
+		redirectURI string
+		destination string
+		note        string
+		absent      string
+	}{
+		{
+			name:        "https host",
+			redirectURI: "https://attacker.example/cb",
+			destination: "attacker.example",
+			note:        mcpConsentWebsiteNote,
+		},
+		{
+			name:        "https host with non-default port",
+			redirectURI: "https://client.example:8443/callback",
+			destination: "client.example:8443",
+			note:        mcpConsentWebsiteNote,
+		},
+		{
+			name:        "https IPv6 literal",
+			redirectURI: "https://[2001:db8::1]:8443/callback",
+			destination: "[2001:db8::1]:8443",
+			note:        mcpConsentWebsiteNote,
+		},
+		{
+			name:        "loopback IPv4",
+			redirectURI: "http://127.0.0.1:3210/callback",
+			destination: "127.0.0.1:3210",
+			note:        mcpConsentLocalAppNote,
+		},
+		{
+			name:        "loopback IPv6",
+			redirectURI: "http://[::1]:3210/callback",
+			destination: "[::1]:3210",
+			note:        mcpConsentLocalAppNote,
+		},
+		{
+			name:        "loopback localhost",
+			redirectURI: "http://localhost:3210/callback",
+			destination: "localhost:3210",
+			note:        mcpConsentLocalAppNote,
+		},
+		{
+			name:        "private-use app scheme",
+			redirectURI: "cursor://anysphere.cursor-retrieval/oauth/callback",
+			destination: "cursor://",
+			note:        mcpConsentAppSchemeNote,
+		},
+		{
+			// A Cyrillic "с" reads as "client.example"; punycode does not.
+			name:        "IDN host as punycode",
+			redirectURI: "https://сlient.example/callback",
+			destination: "xn--lient-0ye.example",
+			note:        mcpConsentWebsiteNote,
+			absent:      "сlient.example",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			clientID := registeredMCPClientID(t, e, "Claude Desktop", []string{tc.redirectURI})
+			values := mcpAuthorizeValues(e, clientID, tc.redirectURI, mcpTestVerifier, "destination")
+			consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{
+				"Accept": "text/html", "Cookie": e.cookie,
+			})
+			assertStatus(t, consent, http.StatusOK)
+			body := consent.Body.String()
+			if got := consentDestination(t, body); got != tc.destination {
+				t.Fatalf("consent destination = %q, want %q", got, tc.destination)
+			}
+			for _, want := range []string{tc.note, mcpConsentUnverifiedName, "Connect Claude Desktop?"} {
+				if !strings.Contains(body, want) {
+					t.Fatalf("consent page missing %q: %s", want, body)
+				}
+			}
+			// The hidden fields have to round-trip the exact registered
+			// redirect URI, so only the copy the user reads is checked.
+			if visible, _, _ := strings.Cut(body, "<form"); tc.absent != "" && strings.Contains(visible, tc.absent) {
+				t.Fatalf("consent page rendered the raw host %q: %s", tc.absent, visible)
+			}
+		})
+	}
+}
+
+// The destination on the page has to be the one the code is delivered to, not
+// a registered spelling of it and not a second, attacker-supplied parameter.
+func TestMCPConsentDestinationIsWhereTheCodeIsDelivered(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	clientID := registeredMCPClientID(t, e, "mcp2cli", []string{"http://127.0.0.1:51726/callback", mcpTestRedirectURI})
+	// RFC 8252 §7.3 lets a native client bind a fresh loopback port, so the
+	// live callback legitimately differs from the registered one.
+	liveRedirect := "http://127.0.0.1:49812/callback"
+	values := mcpAuthorizeValues(e, clientID, liveRedirect, mcpTestVerifier, "delivery")
+
+	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{
+		"Accept": "text/html", "Cookie": e.cookie,
+	})
+	assertStatus(t, consent, http.StatusOK)
+	shown := consentDestination(t, consent.Body.String())
+	if shown != "127.0.0.1:49812" {
+		t.Fatalf("consent destination = %q, want the live loopback port", shown)
+	}
+
+	approved := cloneValues(values)
+	approved.Set("decision", "approve")
+	assertMCPCodeDelivered(t, postMCPAuthorize(t, e, approved, mcpTestOrigin), shown)
+
+	// The approval POST reads its parameters from the form body; a redirect_uri
+	// smuggled into the query string of the same request — even one the client
+	// also registered — must not divert the code away from what was shown.
+	t.Run("query string cannot divert the approval", func(t *testing.T) {
+		diverted := do(t, e.h, http.MethodPost, "/oauth/authorize?redirect_uri="+url.QueryEscape(mcpTestRedirectURI), approved.Encode(), map[string]string{
+			"Content-Type": "application/x-www-form-urlencoded", "Cookie": e.cookie, "Origin": mcpTestOrigin,
+		})
+		assertMCPCodeDelivered(t, diverted, shown)
+	})
+
+	// A repeated redirect_uri must render the first value, which is also the
+	// one both the authorization and the delivery are bound to.
+	t.Run("repeated redirect_uri renders the bound destination", func(t *testing.T) {
+		duplicated := cloneValues(values)
+		duplicated["redirect_uri"] = []string{liveRedirect, mcpTestRedirectURI}
+		rendered := do(t, e.h, http.MethodGet, "/oauth/authorize?"+duplicated.Encode(), "", map[string]string{
+			"Accept": "text/html", "Cookie": e.cookie,
+		})
+		assertStatus(t, rendered, http.StatusOK)
+		if got := consentDestination(t, rendered.Body.String()); got != shown {
+			t.Fatalf("consent destination = %q, want %q", got, shown)
+		}
+		duplicated.Set("decision", "approve")
+		assertMCPCodeDelivered(t, postMCPAuthorize(t, e, duplicated, mcpTestOrigin), shown)
+	})
+}
+
+// The client name is self-reported, so it must not be able to inject markup or
+// reorder the page around the destination it is shown next to.
+func TestMCPConsentNeutralizesHostileClientName(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	// Markup, a bidi override that visually reverses what follows, a bell, and
+	// a line break that would otherwise split the heading.
+	hostile := "<img src=x onerror=alert(1)>Claude‮ Desk\r\ntop"
+	clientID := registeredMCPClientID(t, e, hostile, []string{mcpTestRedirectURI})
+	values := mcpAuthorizeValues(e, clientID, mcpTestRedirectURI, mcpTestVerifier, "hostile-name")
+	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{
+		"Accept": "text/html", "Cookie": e.cookie,
+	})
+	assertStatus(t, consent, http.StatusOK)
+
+	body := consent.Body.String()
+	if !strings.Contains(body, "<h1>Connect &lt;img src=x onerror=alert(1)&gt;Claude Desk top?</h1>") {
+		t.Fatalf("hostile client name was not neutralized: %s", body)
+	}
+	for _, unwanted := range []string{"<img", "‮", "", "\r"} {
+		if strings.Contains(body, unwanted) {
+			t.Fatalf("consent page rendered %q from the client name: %s", unwanted, body)
+		}
+	}
+	if got := consentDestination(t, body); got != "client.example" {
+		t.Fatalf("consent destination = %q, want client.example", got)
+	}
+}
+
 // Native clients such as Cursor register private-use scheme callbacks
 // (RFC 8252 §7.1); the whole flow must work end to end for them.
 func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
@@ -590,6 +766,31 @@ func postMCPToken(t *testing.T, e *mcpOAuthTestEnv, values url.Values) *httptest
 	return do(t, e.h, http.MethodPost, "/oauth/token", values.Encode(), map[string]string{
 		"Content-Type": "application/x-www-form-urlencoded",
 	})
+}
+
+var mcpConsentDestinationPattern = regexp.MustCompile(`(?s)<p class="target">(.*?)</p>`)
+
+// consentDestination returns the destination the consent page renders as the
+// target of an approval.
+func consentDestination(t *testing.T, body string) string {
+	t.Helper()
+	match := mcpConsentDestinationPattern.FindStringSubmatch(body)
+	if match == nil {
+		t.Fatalf("consent page does not show a redirect destination: %s", body)
+	}
+	return match[1]
+}
+
+func assertMCPCodeDelivered(t *testing.T, rr *httptest.ResponseRecorder, destination string) {
+	t.Helper()
+	assertStatus(t, rr, http.StatusFound)
+	delivered := mustParseURL(t, rr.Header().Get("Location"))
+	if delivered.Host != destination {
+		t.Fatalf("authorization code delivered to %q, consent page showed %q", delivered.Host, destination)
+	}
+	if delivered.Query().Get("code") == "" {
+		t.Fatalf("approval redirect has no code: %s", delivered)
+	}
 }
 
 func assertOAuthError(t *testing.T, rr *httptest.ResponseRecorder, status int, code string) {
