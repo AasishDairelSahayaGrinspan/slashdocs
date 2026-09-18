@@ -573,6 +573,29 @@ document needs images, embed them as data URLs:
 <img src="data:image/png;base64,..." alt="diagram" />
 ```
 
+### Deleting a document deletes its objects
+
+Deleting a document removes every version's HTML object from the bucket,
+along with the document's grants and pins. Deleting a folder removes the
+grants and pins of every folder in the subtree; documents inside it move
+to the owner's root and keep their own sharing.
+
+The keys are recorded in a `blob_deletions` table in the same transaction
+as the delete, so the delete never depends on blob storage being
+reachable: it succeeds, and the objects are removed right afterwards. Keys
+the bucket refuses stay in that table and a background sweeper retries
+them every minute with exponential backoff (up to about four minutes
+between attempts) until the object is gone. An object that is already
+missing counts as deleted. Rows are never expired, so a long outage delays
+cleanup but never loses an object; `SELECT count(*) FROM blob_deletions`
+is the backlog, and a persistent one is logged as
+`blob deletion sweep failed`. Every replica runs the sweeper and they
+claim rows without overlapping, so nothing extra is needed to scale out.
+
+Objects orphaned by deletes from before this behavior existed are not
+covered by the table — bucket lifecycle rules or a one-off reconciliation
+against `versions.html_blob_key` are the way to reclaim those.
+
 ## Upgrading
 
 Postgres migrations are applied automatically at startup unless
