@@ -335,17 +335,17 @@ var allowedCommentReactions = map[string]bool{
 // must check the document role first; a missing comment and a comment in
 // another document deliberately share one 404 so the response cannot be used
 // to probe for comment IDs outside the document the caller named.
-func (h handlers) commentInDocument(c *gin.Context, docID, commentID string) bool {
+func (h handlers) commentInDocument(c *gin.Context, docID, commentID string) (repo.Comment, bool) {
 	cm, err := h.deps.repository.GetComment(c.Request.Context(), commentID)
 	if err != nil && !errors.Is(err, repo.ErrNotFound) {
 		internalErr(c, err)
-		return false
+		return repo.Comment{}, false
 	}
 	if err != nil || cm.DocumentID != docID {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "comment not found in document", nil))
-		return false
+		return repo.Comment{}, false
 	}
-	return true
+	return cm, true
 }
 
 // PutCommentReaction godoc
@@ -398,7 +398,7 @@ func (h handlers) writeCommentReaction(c *gin.Context, write reactionWrite) {
 	if !h.needDocRole(c, docID, repo.RoleCommenter) {
 		return
 	}
-	if !h.commentInDocument(c, docID, commentID) {
+	if _, ok := h.commentInDocument(c, docID, commentID); !ok {
 		return
 	}
 	if err := write(c.Request.Context(), commentID, *current(c), emoji); err != nil {
@@ -408,66 +408,55 @@ func (h handlers) writeCommentReaction(c *gin.Context, write reactionWrite) {
 	c.Status(http.StatusNoContent)
 }
 
-// loadCommentInDocument fetches a comment and confirms it belongs to docID,
-// answering the client on every failure path.
-//
-// Distinct from commentInDocument above, which the reaction handlers use: this
-// one runs before any document-role check, so it reports a missing comment as
-// 403 and a cross-document one as 404. That split is only safe because the
-// caller has not yet established the caller's access, and it is why the two
-// helpers are not merged.
-func (h handlers) loadCommentInDocument(c *gin.Context, docID, commentID string) (repo.Comment, bool) {
-	cm, err := h.deps.repository.GetComment(c.Request.Context(), commentID)
-	if err != nil {
-		if errors.Is(err, repo.ErrNotFound) {
-			forbidden(c, "comment access required")
-			return repo.Comment{}, false
-		}
-		internalErr(c, err)
-		return repo.Comment{}, false
-	}
-	if cm.DocumentID != docID {
-		c.JSON(http.StatusNotFound, errorResponse("not_found", "comment not found in document", nil))
-		return repo.Comment{}, false
-	}
-	return cm, true
-}
-
 // authoredBy reports whether the principal wrote the comment. Principal ids are
 // only unique within a type, so both fields must match.
 func authoredBy(cm repo.Comment, p auth.Principal) bool {
 	return cm.Author.Type == p.Type && cm.Author.ID == p.ID
 }
 
+// commentForMutation authorizes a write to an existing comment and loads it.
+//
+// Current access decides first: writing a comment always needs at least
+// commenter on the document, so authorship never outlives a revoked or
+// downgraded grant, and it only decides which comments a commenter may change.
+// Resolving the role before the comment is read also keeps the answer
+// independent of the comment, so a caller without access cannot tell an
+// existing comment from one in another document or from an id that never
+// existed.
+func (h handlers) commentForMutation(c *gin.Context, docID, commentID string) (repo.Comment, repo.Role, bool) {
+	role, ok := h.docRoleAtLeast(c, docID, repo.RoleCommenter)
+	if !ok {
+		return repo.Comment{}, repo.RoleNone, false
+	}
+	cm, ok := h.commentInDocument(c, docID, commentID)
+	return cm, role, ok
+}
+
 func (h handlers) canDeleteComment(c *gin.Context, docID, commentID string) bool {
-	cm, ok := h.loadCommentInDocument(c, docID, commentID)
+	cm, _, ok := h.commentForMutation(c, docID, commentID)
 	if !ok {
 		return false
 	}
 	if authoredBy(cm, *current(c)) {
 		return true
 	}
+	// No role lets one principal erase another's words, so an unresolved group
+	// membership cannot change this verdict either.
 	forbidden(c, "only the comment author can delete this comment")
 	return false
 }
 
 func (h handlers) canMutateComment(c *gin.Context, docID, commentID string) bool {
-	cm, ok := h.loadCommentInDocument(c, docID, commentID)
+	cm, role, ok := h.commentForMutation(c, docID, commentID)
 	if !ok {
 		return false
 	}
 	p := current(c)
-	if authoredBy(cm, *p) {
+	if authoredBy(cm, *p) || role == repo.RoleOwner || role == repo.RoleEditor {
 		return true
 	}
-	role, err := h.deps.repository.RoleForDocument(c.Request.Context(), *p, cm.DocumentID)
-	if err != nil {
-		internalErr(c, err)
-		return false
-	}
-	if role == repo.RoleOwner || role == repo.RoleEditor {
-		return true
-	}
+	// An unresolved group membership may be hiding an editor grant, so say the
+	// membership is unavailable rather than return a 403 that may be wrong.
 	if groupMembershipUnavailable(p) {
 		groupMembershipUnavailableResponse(c)
 		return false

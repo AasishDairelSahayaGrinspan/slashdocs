@@ -1,10 +1,13 @@
 package server_test
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/razorpay/aidocs/api/internal/repo"
 )
 
 func assertRFC3339Timestamp(t *testing.T, value string) {
@@ -183,14 +186,37 @@ func TestEditorCannotDeleteAnotherUsersComment(t *testing.T) {
 	assertStatus(t, rr, http.StatusForbidden)
 }
 
+// A comment id may not be steered through another document's path. Which
+// refusal comes back depends on the caller's access to the document named in
+// the URL: without it, the same role refusal every document route gives, which
+// says nothing about the comment; with it, the comment-scoped 404.
 func TestPatchCommentRejectsWrongDocument(t *testing.T) {
 	e := newTestEnv(t)
-	rr := do(t, e.h, http.MethodPatch, "/v1/documents/doc_wrong/comments/"+e.cmt.ID, `{"status":"resolved"}`, map[string]string{
-		"Content-Type":     "application/json",
-		"X-Test-Principal": principalHeader(fixtureCommenter),
-	})
+	otherDocID, otherVerID := e.createDocument("Other", "<html>other</html>", fixtureOwner)
+	elsewhere, err := e.store.CreateComment(context.Background(), otherDocID, otherVerID, "elsewhere", repo.Anchor{Quote: "other"}, fixtureOwner, nil)
+	if err != nil {
+		t.Fatalf("seed comment in another document: %v", err)
+	}
 
-	assertStatus(t, rr, http.StatusNotFound)
+	for _, tc := range []struct {
+		name      string
+		docID     string
+		commentID string
+		status    int
+	}{
+		{"document the caller cannot reach", "doc_wrong", e.cmt.ID, http.StatusForbidden},
+		{"comment from another document", e.doc.ID, elsewhere.ID, http.StatusNotFound},
+		{"comment that does not exist", e.doc.ID, "cmt_missing", http.StatusNotFound},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rr := do(t, e.h, http.MethodPatch, "/v1/documents/"+tc.docID+"/comments/"+tc.commentID, `{"status":"resolved"}`, map[string]string{
+				"Content-Type":     "application/json",
+				"X-Test-Principal": principalHeader(fixtureCommenter),
+			})
+
+			assertStatus(t, rr, tc.status)
+		})
+	}
 }
 
 func TestPatchCommentRejectsInvalidStatus(t *testing.T) {
