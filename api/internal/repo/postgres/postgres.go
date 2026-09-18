@@ -29,6 +29,11 @@ type Store struct {
 	db                   *pgxpool.Pool
 	q                    *dbsqlc.Queries
 	blobs                blob.Store
+	// blobDeletionsQueued carries the sweeper's wake-up signal; its single
+	// slot coalesces a burst of deletes into one sweep.
+	blobDeletionsQueued chan struct{}
+	// blobDeleteTimeout bounds one object deletion; tests shorten it.
+	blobDeleteTimeout time.Duration
 }
 
 // rollback closes a transaction on every early-return path. pgx returns
@@ -44,7 +49,13 @@ func NewWithBlob(db *pgxpool.Pool, blobs blob.Store) *Store {
 		// version HTML is never duplicated in Postgres.
 		blobs = blob.NewMemory()
 	}
-	return &Store{db: db, q: dbsqlc.New(db), blobs: blobs}
+	return &Store{
+		db:                  db,
+		q:                   dbsqlc.New(db),
+		blobs:               blobs,
+		blobDeletionsQueued: make(chan struct{}, 1),
+		blobDeleteTimeout:   blobDeleteTimeout,
+	}
 }
 func Connect(ctx context.Context, databaseURL string) (*Store, error) {
 	return ConnectWithBlob(ctx, databaseURL, nil)
@@ -881,6 +892,7 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
+	queued := false
 	if deleted > 0 {
 		// Grants and pins reference the document by a generic
 		// (resource_type, resource_id) pair with no foreign key to cascade
@@ -897,6 +909,7 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 		if err := q.EnqueueBlobDeletions(ctx, keys); err != nil {
 			return err
 		}
+		queued = len(keys) > 0
 		// The event rows cascade with the document, so the notification tells
 		// brokers to fetch, observe ErrNotFound, and close active subscribers.
 		if err := q.NotifyDocumentKVEvent(ctx, id); err != nil {
@@ -906,7 +919,13 @@ func (s *Store) DeleteDocument(ctx context.Context, id string) error {
 	if err := tx.Commit(ctx); err != nil {
 		return err
 	}
-	s.deleteQueuedBlobs(ctx, keys)
+	if queued {
+		// The objects are the sweeper's to delete, so the delete returns as
+		// soon as their keys are committed. Only this replica's sweeper is
+		// woken; other replicas, and rows a crash left behind, are covered by
+		// its ticker.
+		s.signalBlobDeletions()
+	}
 	return nil
 }
 

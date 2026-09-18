@@ -119,10 +119,11 @@ func run() error {
 	workerCtx, cancelWorker := context.WithCancel(ctx)
 	workerDone := make(chan struct{})
 	go func() { defer close(workerDone); srv.RunCommentNotifications(workerCtx) }()
-	// Deleting a document queues its version objects for removal and deletes
-	// what it can immediately; the sweeper retries whatever blob storage
-	// refused at the time.
-	sweeper := &blobdeletions.Sweeper{Store: store}
+	// Deleting a document only queues its version objects for removal; the
+	// sweeper deletes them. The wake-up makes that prompt on the replica that
+	// handled the delete, and the ticker covers the other replicas and rows a
+	// crashed process left queued.
+	sweeper := &blobdeletions.Sweeper{Store: store, Wake: store.BlobDeletionsQueued()}
 	sweeperDone := make(chan struct{})
 	go func() { defer close(sweeperDone); sweeper.Run(workerCtx) }()
 	defer func() { cancelWorker(); <-workerDone; <-sweeperDone }()

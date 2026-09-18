@@ -63,6 +63,8 @@ func TestPostgresDeleteDocumentRemovesBlobsGrantsAndPins(t *testing.T) {
 	if err := store.DeleteDocument(ctx, doc.ID); err != nil {
 		t.Fatal(err)
 	}
+	// The objects belong to the sweeper, so the delete only queued their keys.
+	sweepBlobDeletions(t, store, len(keys))
 
 	for _, key := range keys {
 		if _, _, err := blobs.Get(ctx, key); !errors.Is(err, blob.ErrNotFound) {
@@ -74,6 +76,54 @@ func TestPostgresDeleteDocumentRemovesBlobsGrantsAndPins(t *testing.T) {
 	}
 	if n := countRows(t, store, `SELECT count(*) FROM pins WHERE resource_type='document' AND resource_id=$1`, doc.ID); n != 0 {
 		t.Errorf("pins rows for deleted document = %d, want 0", n)
+	}
+}
+
+// A delete must not wait on blob storage at all: it commits the keys, signals
+// the sweeper and returns, so a bucket that never answers holds up nobody.
+func TestPostgresDeleteDocumentDoesNotWaitForBlobStorage(t *testing.T) {
+	ctx := context.Background()
+	blobs := &hangingDeleteBlobs{Store: blob.NewMemory(), release: make(chan struct{})}
+	defer blobs.releaseAll()
+	store := newStoreWithBlobs(t, blobs)
+
+	owner := auth.Principal{Type: auth.PrincipalUser, ID: "usr_delete_hung", Email: "delete-hung@example.com", Name: "Owner"}
+	seedUsers(t, store, owner)
+	doc, ver, err := store.CreateDocument(ctx, owner, "Hung", []byte("<html>v1</html>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.CreateVersion(ctx, doc.ID, ver.ID, "v2", []byte("<html>v2</html>"), owner); err != nil {
+		t.Fatal(err)
+	}
+	keys := versionBlobKeys(t, store, doc.ID)
+
+	deleted := make(chan error, 1)
+	go func() { deleted <- store.DeleteDocument(ctx, doc.ID) }()
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatalf("delete: %v", err)
+		}
+	case <-time.After(30 * time.Second):
+		t.Fatal("DeleteDocument never returned while blob storage was hung")
+	}
+
+	assertQueuedBlobKeys(t, store, keys)
+	if calls := blobs.deletes(); calls != 0 {
+		t.Fatalf("Delete called %d times on the request path, want 0", calls)
+	}
+	// One signal is pending, so the sweeper runs now rather than on its next
+	// tick, and a burst of deletes still costs one sweep.
+	select {
+	case <-store.BlobDeletionsQueued():
+	default:
+		t.Fatal("no wake-up signal pending; the sweeper would wait for its next tick")
+	}
+	select {
+	case <-store.BlobDeletionsQueued():
+		t.Fatal("a second wake-up signal was pending; signals must coalesce")
+	default:
 	}
 }
 
@@ -141,6 +191,7 @@ func TestPostgresDeleteDocumentTreatsMissingObjectAsDeleted(t *testing.T) {
 	if err := store.DeleteDocument(ctx, doc.ID); err != nil {
 		t.Fatal(err)
 	}
+	sweepBlobDeletions(t, store, 1)
 	assertQueuedBlobKeys(t, store, nil)
 }
 
@@ -240,6 +291,7 @@ func TestPostgresDeleteDocumentCollectsBlobKeysOfAConcurrentPush(t *testing.T) {
 	if err := <-deleted; err != nil {
 		t.Fatalf("delete: %v", err)
 	}
+	sweepBlobDeletions(t, store, len(blobs.putKeys()))
 	for _, key := range blobs.putKeys() {
 		if _, _, err := blobs.Get(ctx, key); !errors.Is(err, blob.ErrNotFound) {
 			t.Errorf("blob %q of the concurrent push outlived the delete (err=%v)", key, err)
@@ -359,6 +411,34 @@ func (b *scriptedBlobs) deletedKeys() []string {
 	return append([]string(nil), b.deleted...)
 }
 
+// hangingDeleteBlobs stands in for an object store whose Delete never answers,
+// which is what a request path that deletes objects would wait on.
+type hangingDeleteBlobs struct {
+	blob.Store
+	release chan struct{}
+	freed   sync.Once
+
+	mu    sync.Mutex
+	calls int
+}
+
+func (b *hangingDeleteBlobs) Delete(context.Context, string) error {
+	b.mu.Lock()
+	b.calls++
+	b.mu.Unlock()
+	<-b.release
+	return nil
+}
+
+func (b *hangingDeleteBlobs) deletes() int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.calls
+}
+
+// releaseAll frees anything parked in Delete when the test ends.
+func (b *hangingDeleteBlobs) releaseAll() { b.freed.Do(func() { close(b.release) }) }
+
 // newStoreWithBlobs connects a Store backed by blobs to a fresh test database.
 func newStoreWithBlobs(t *testing.T, blobs blob.Store) *pgrepo.Store {
 	t.Helper()
@@ -416,6 +496,17 @@ func exec(t *testing.T, store *pgrepo.Store, query string, args ...any) {
 	t.Helper()
 	if _, err := store.Pool().Exec(context.Background(), query, args...); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// sweepBlobDeletions runs one sweep and checks it cleared want rows. Objects
+// are only ever deleted by a sweep, so every test that expects them gone drives
+// one itself.
+func sweepBlobDeletions(t *testing.T, store *pgrepo.Store, want int) {
+	t.Helper()
+	cleared, err := store.SweepBlobDeletions(context.Background())
+	if err != nil || cleared != want {
+		t.Fatalf("sweep cleared=%d err=%v, want %d and no error", cleared, err, want)
 	}
 }
 
