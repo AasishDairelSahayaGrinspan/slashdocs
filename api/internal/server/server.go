@@ -45,6 +45,10 @@ type Config struct {
 	// feature set unless the application entrypoint explicitly disables them.
 	DisableLabels     bool
 	DisableSearchTags bool
+	// Agent fields — all empty means agent feature is disabled.
+	AgentBaseURL string
+	AgentAPIKey  string
+	AgentModel   string
 }
 
 // Server wraps the gin engine.
@@ -81,6 +85,9 @@ type dependencies struct {
 	googleGroupResolver       *googlegroups.Resolver
 	labelsEnabled             bool
 	searchTagsEnabled         bool
+	agentBaseURL              string
+	agentAPIKey               string
+	agentModel                string
 }
 
 // Option configures the Server.
@@ -154,6 +161,9 @@ func New(cfg Config, opts ...Option) *Server {
 		googleGroupsEnabled:  cfg.GoogleGroupsEnabled,
 		labelsEnabled:        !cfg.DisableLabels,
 		searchTagsEnabled:    !cfg.DisableSearchTags,
+		agentBaseURL:         cfg.AgentBaseURL,
+		agentAPIKey:          cfg.AgentAPIKey,
+		agentModel:           cfg.AgentModel,
 	}
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
 		deps.githubOAuth = &oauth2.Config{

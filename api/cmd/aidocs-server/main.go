@@ -314,6 +314,9 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		GoogleGroupsMembershipTTL: googleGroups.membershipTTL,
 		DisableLabels:             !labelsEnabled,
 		DisableSearchTags:         !searchTagsEnabled,
+		AgentBaseURL:              os.Getenv("AIDOCS_AGENT_BASE_URL"),
+		AgentAPIKey:               os.Getenv("AIDOCS_AGENT_API_KEY"),
+		AgentModel:                envOrDefault("AIDOCS_AGENT_MODEL", "gpt-4o"),
 	}, options...), nil
 }
 
