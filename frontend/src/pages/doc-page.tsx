@@ -28,6 +28,7 @@ import {
 import { DocBar } from "./doc-bar";
 import { RenderFrame } from "./doc-render-frame";
 import { Comments } from "./doc-comments";
+import { AgentPanel } from "./doc-agent";
 import {
   COMMENT_STATUS,
   DEFAULT_COMMENT_FILTER,
@@ -206,6 +207,7 @@ export function DocumentPage() {
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
   const [commentsOpen, setCommentsOpen] = useState(true);
+  const [agentOpen, setAgentOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(searchParams.get("share") === "1");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
@@ -264,7 +266,20 @@ export function DocumentPage() {
 
   const toggleComments = useCallback(() => {
     if (isMobile) setMobilePanelOpen((o) => !o);
-    else setCommentsOpen((o) => !o);
+    else
+      setCommentsOpen((o) => {
+        if (!o) setAgentOpen(false);
+        return !o;
+      });
+  }, [isMobile]);
+
+  const toggleAgent = useCallback(() => {
+    if (isMobile) setMobilePanelOpen((o) => !o);
+    else
+      setAgentOpen((o) => {
+        if (!o) setCommentsOpen(false);
+        return !o;
+      });
   }, [isMobile]);
 
   // On mobile the comments sheet should be dismissable with the browser/OS
@@ -538,6 +553,8 @@ export function DocumentPage() {
               onSelectVersion={setSelectedVersion}
               commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
               onToggleComments={toggleComments}
+              agentOpen={isMobile ? mobilePanelOpen : agentOpen}
+              onToggleAgent={toggleAgent}
               shareOpen={shareOpen}
               onShareOpenChange={setShareOpen}
             />
@@ -563,6 +580,22 @@ export function DocumentPage() {
                 </motion.aside>
               )}
             </AnimatePresence>
+            <AnimatePresence initial={false}>
+              {agentOpen && !isMobile && (
+                <motion.aside
+                  key="agent-rail"
+                  initial={{ width: 0, opacity: 0 }}
+                  animate={{ width: 360, opacity: 1 }}
+                  exit={{ width: 0, opacity: 0 }}
+                  transition={{ type: "spring", duration: 0.35, bounce: 0 }}
+                  className="relative hidden shrink-0 overflow-hidden bg-[var(--color-surface-muted)] md:block"
+                >
+                  <div className="h-full w-[360px]">
+                    <AgentPanel />
+                  </div>
+                </motion.aside>
+              )}
+            </AnimatePresence>
           </motion.div>
 
           {/* Mobile: comments live in a slide-over sheet */}
@@ -576,6 +609,23 @@ export function DocumentPage() {
                 <SheetTitle>Comments</SheetTitle>
               </SheetHeader>
               <Comments mobile />
+            </SheetContent>
+          </Sheet>
+          <Sheet
+            open={agentOpen && isMobile}
+            onOpenChange={(open) => {
+              if (!open) setAgentOpen(false);
+            }}
+          >
+            <SheetContent
+              side="right"
+              className="w-full max-w-md p-0 md:hidden"
+              aria-describedby={undefined}
+            >
+              <SheetHeader className="sr-only">
+                <SheetTitle>Ask AI</SheetTitle>
+              </SheetHeader>
+              <AgentPanel mobile />
             </SheetContent>
           </Sheet>
         </motion.div>

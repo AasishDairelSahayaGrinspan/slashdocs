@@ -15,6 +15,7 @@ import {
   GitBranch,
   MoreHorizontal,
   PanelRightClose,
+  Sparkles,
   PanelRightOpen,
   Share2,
   Tag,
@@ -65,6 +66,8 @@ export function DocBar({
   onSelectVersion,
   commentsOpen,
   onToggleComments,
+  agentOpen,
+  onToggleAgent,
   shareOpen,
   onShareOpenChange,
 }: {
@@ -81,6 +84,8 @@ export function DocBar({
   onSelectVersion: (versionID: string) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
+  agentOpen: boolean;
+  onToggleAgent: () => void;
   shareOpen: boolean;
   onShareOpenChange: (open: boolean) => void;
 }) {
@@ -88,6 +93,7 @@ export function DocBar({
   const q = useQueryClient();
   const backTo = parentFolder ? `/app/folders/${parentFolder.id}` : "/app/documents";
   const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
+  const agentEnabled = config.data?.agent_enabled ?? false;
   const currentVersion = versions.find((v) => v.id === current);
   const isViewingOlder = !!current && !!latest && current !== latest;
   const canManage = samePrincipal(principal, owner);
@@ -243,6 +249,19 @@ export function DocBar({
           }}
         />
       </Sheet>
+      {agentEnabled && (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={onToggleAgent}
+          aria-label={agentOpen ? "Hide AI panel" : "Ask AI"}
+          tooltip={agentOpen ? false : "Ask AI"}
+          aria-pressed={agentOpen}
+          className="shrink-0"
+        >
+          <Sparkles className="h-4 w-4" />
+        </Button>
+      )}
       <Button
         variant="ghost"
         size="icon"
