@@ -278,7 +278,7 @@ export async function* agentChat(
       if (!line.startsWith("data: ")) continue;
       const after = line.slice(6);
       if (after === "[DONE]") return;
-      yield after;
+      yield JSON.parse(after) as string;
     }
   }
 }

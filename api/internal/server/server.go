@@ -88,6 +88,7 @@ type dependencies struct {
 	agentBaseURL              string
 	agentAPIKey               string
 	agentModel                string
+	agentHTTPClient           *http.Client
 }
 
 // Option configures the Server.
@@ -164,6 +165,7 @@ func New(cfg Config, opts ...Option) *Server {
 		agentBaseURL:         cfg.AgentBaseURL,
 		agentAPIKey:          cfg.AgentAPIKey,
 		agentModel:           cfg.AgentModel,
+		agentHTTPClient:      &http.Client{Timeout: 120 * time.Second},
 	}
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
 		deps.githubOAuth = &oauth2.Config{

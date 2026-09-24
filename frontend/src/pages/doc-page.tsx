@@ -209,7 +209,7 @@ export function DocumentPage() {
   const [commentsOpen, setCommentsOpen] = useState(true);
   const [agentOpen, setAgentOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(searchParams.get("share") === "1");
-  const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [mobilePanel, setMobilePanel] = useState<"comments" | "agent" | null>(null);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   const [chordLabel, setChordLabel] = useState<string>();
   const nav = useNavigate();
@@ -220,7 +220,7 @@ export function DocumentPage() {
     (commentId: string) => {
       setActiveComment(commentId);
       if (fullscreen) return;
-      if (isMobile) setMobilePanelOpen(true);
+      if (isMobile) setMobilePanel("comments");
       else setCommentsOpen(true);
     },
     [fullscreen, isMobile],
@@ -260,12 +260,12 @@ export function DocumentPage() {
   // A text selection from the rendered doc should reveal the compose flow.
   useEffect(() => {
     if (fullscreen || !selection?.quote) return;
-    if (isMobile) setMobilePanelOpen(true);
+    if (isMobile) setMobilePanel("comments");
     else setCommentsOpen(true);
   }, [isMobile, fullscreen, selection]);
 
   const toggleComments = useCallback(() => {
-    if (isMobile) setMobilePanelOpen((o) => !o);
+    if (isMobile) setMobilePanel((p) => (p === "comments" ? null : "comments"));
     else
       setCommentsOpen((o) => {
         if (!o) setAgentOpen(false);
@@ -274,7 +274,7 @@ export function DocumentPage() {
   }, [isMobile]);
 
   const toggleAgent = useCallback(() => {
-    if (isMobile) setMobilePanelOpen((o) => !o);
+    if (isMobile) setMobilePanel((p) => (p === "agent" ? null : "agent"));
     else
       setAgentOpen((o) => {
         if (!o) setCommentsOpen(false);
@@ -288,12 +288,12 @@ export function DocumentPage() {
   // navigating away. Closing via the UI removes the entry we added.
   const sheetHistoryRef = useRef(false);
   useEffect(() => {
-    if (!mobilePanelOpen) return;
+    if (!mobilePanel) return;
     window.history.pushState({ aidocsCommentsSheet: true }, "");
     sheetHistoryRef.current = true;
     const onPop = () => {
       sheetHistoryRef.current = false;
-      setMobilePanelOpen(false);
+      setMobilePanel(null);
     };
     window.addEventListener("popstate", onPop);
     return () => {
@@ -305,7 +305,7 @@ export function DocumentPage() {
         window.history.back();
       }
     };
-  }, [mobilePanelOpen]);
+  }, [mobilePanel]);
 
   // Radix Dialog's scroll-lock (react-remove-scroll) can leave the body
   // with `overflow: hidden` / `pointer-events: none` after the mobile
@@ -314,7 +314,7 @@ export function DocumentPage() {
   // would avoid the lock, but Radix then skips the overlay and outside
   // dismissal entirely, so we keep modal behavior and clean up after it.)
   useEffect(() => {
-    if (mobilePanelOpen) return;
+    if (mobilePanel !== null) return;
     const restore = () => {
       for (const el of [document.body, document.documentElement]) {
         el.style.removeProperty("overflow");
@@ -326,7 +326,7 @@ export function DocumentPage() {
     // Run after Radix's own close cleanup on the next frame.
     const id = window.requestAnimationFrame(restore);
     return () => window.cancelAnimationFrame(id);
-  }, [mobilePanelOpen]);
+  }, [mobilePanel]);
 
   const versionItems = versions.data?.items || [];
   const latest =
@@ -391,7 +391,7 @@ export function DocumentPage() {
       }
       if (key === "c") {
         setChordLabel(
-          (isMobile ? mobilePanelOpen : commentsOpen)
+          (isMobile ? mobilePanel === "comments" : commentsOpen)
             ? "Comments hidden"
             : "Comments shown",
         );
@@ -407,7 +407,7 @@ export function DocumentPage() {
       fullscreen,
       toggleFullscreen,
       isMobile,
-      mobilePanelOpen,
+      mobilePanel,
       commentsOpen,
       toggleComments,
       nav,
@@ -551,9 +551,9 @@ export function DocumentPage() {
               versions={versions.data?.items || []}
               labels={doc.data.labels || []}
               onSelectVersion={setSelectedVersion}
-              commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
+              commentsOpen={isMobile ? mobilePanel === "comments" : commentsOpen}
               onToggleComments={toggleComments}
-              agentOpen={isMobile ? mobilePanelOpen : agentOpen}
+              agentOpen={isMobile ? mobilePanel === "agent" : agentOpen}
               onToggleAgent={toggleAgent}
               shareOpen={shareOpen}
               onShareOpenChange={setShareOpen}
@@ -599,7 +599,7 @@ export function DocumentPage() {
           </motion.div>
 
           {/* Mobile: comments live in a slide-over sheet */}
-          <Sheet open={mobilePanelOpen} onOpenChange={setMobilePanelOpen}>
+          <Sheet open={mobilePanel === "comments"} onOpenChange={(open) => { if (!open) setMobilePanel(null); }}>
             <SheetContent
               side="right"
               className="w-full max-w-md p-0 md:hidden"
@@ -612,7 +612,7 @@ export function DocumentPage() {
             </SheetContent>
           </Sheet>
           <Sheet
-            open={agentOpen && isMobile}
+            open={mobilePanel === "agent"}
             onOpenChange={(open) => {
               if (!open) setAgentOpen(false);
             }}

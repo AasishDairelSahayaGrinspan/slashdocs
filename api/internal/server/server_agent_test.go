@@ -15,6 +15,9 @@ import (
 
 var fixtureOtherUser = auth.Principal{Type: auth.PrincipalUser, ID: "other@example.com", Email: "other@example.com"}
 
+// TODO: TestAgentChat_NoVersion (422 when doc has no current_version_id) is not covered here.
+// It requires either pgrepo.Store to export the pgxpool.Pool for direct SQL, or a mock repository.
+// The code path in handlers_agent.go:62-67 is correct; this is a test infrastructure gap.
 func createTestDoc(t *testing.T, e *testEnv) string {
 	t.Helper()
 	body, ct := multipartBody(t, map[string]string{"title": "test doc"},
@@ -127,5 +130,5 @@ func TestAgentChat_Streams(t *testing.T) {
 			got = append(got, after)
 		}
 	}
-	require.Equal(t, []string{"Hello", " world", "[DONE]"}, got)
+	require.Equal(t, []string{`"Hello"`, `" world"`, "[DONE]"}, got)
 }

@@ -74,7 +74,13 @@ func (h handlers) agentChat(c *gin.Context) {
 
 	plaintext := htmlToText(raw)
 	if len(plaintext) > agentMaxPlaintextBytes {
-		plaintext = plaintext[:agentMaxPlaintextBytes]
+		// Truncate to a valid UTF-8 boundary.
+		for i := agentMaxPlaintextBytes; i > 0; i-- {
+			if (plaintext[i] & 0xc0) != 0x80 {
+				plaintext = plaintext[:i]
+				break
+			}
+		}
 	}
 
 	systemPrompt := "You are a helpful assistant. The document the user is asking about follows.\n\n<document>\n" +
@@ -109,7 +115,7 @@ func (h handlers) agentChat(c *gin.Context) {
 		req.Header.Set("Authorization", "Bearer "+h.deps.agentAPIKey)
 	}
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := h.deps.agentHTTPClient.Do(req)
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -151,7 +157,11 @@ func (h handlers) agentChat(c *gin.Context) {
 		if len(chunk.Choices) == 0 || chunk.Choices[0].Delta.Content == "" {
 			continue
 		}
-		fmt.Fprintf(c.Writer, "data: %s\n\n", chunk.Choices[0].Delta.Content)
+		encoded, err := json.Marshal(chunk.Choices[0].Delta.Content)
+		if err != nil {
+			continue
+		}
+		fmt.Fprintf(c.Writer, "data: %s\n\n", encoded)
 		c.Writer.(http.Flusher).Flush()
 	}
 }
