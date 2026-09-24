@@ -33,6 +33,7 @@ export type ServerConfig = {
   google_groups_enabled: boolean;
   labels_enabled: boolean;
   search_tags_enabled: boolean;
+  agent_enabled: boolean;
 };
 export type GoogleGroup = { id: string; email: string; name: string };
 export type Version = {
@@ -233,6 +234,53 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
     return (await res.json()) as T;
   }
   return (await res.text()) as T;
+}
+
+export type AgentMessage = { role: "user" | "assistant" | "system"; content: string };
+
+export async function* agentChat(
+  docId: string,
+  messages: AgentMessage[],
+  versionId?: string,
+): AsyncGenerator<string> {
+  const body: Record<string, unknown> = { messages };
+  if (versionId) body.version_id = versionId;
+
+  const res = await fetch(`/v1/documents/${encodeURIComponent(docId)}/agent/chat`, {
+    method: "POST",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    let msg = res.statusText;
+    try {
+      const payload = (await res.json()) as { error?: { message?: string } };
+      msg = payload.error?.message || msg;
+    } catch {}
+    throw new APIError(res.status, "agent_error", msg);
+  }
+
+  const reader = res.body?.getReader();
+  if (!reader) throw new APIError(0, "agent_error", "no response body");
+
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop() ?? "";
+    for (const line of lines) {
+      if (!line.startsWith("data: ")) continue;
+      const after = line.slice(6);
+      if (after === "[DONE]") return;
+      yield after;
+    }
+  }
 }
 
 function mentionPayload(mentions: CommentMention[]) {
