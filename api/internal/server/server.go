@@ -302,6 +302,7 @@ func (s *Server) routes(deps dependencies) {
 	authed.PUT("/me/notifications", activityLimit, h.setNotificationPreferences)
 	authed.GET("/documents/:id/notifications", activityLimit, h.documentNotificationPreferences)
 	authed.GET("/documents/:id/headings", activityLimit, h.documentHeadings)
+	authed.POST("/documents/:id/agent/chat", h.agentChat)
 	authed.GET("/documents/:id/link", activityLimit, h.documentLink)
 	authed.PUT("/documents/:id/notifications", activityLimit, h.setDocumentNotificationPreferences)
 	authed.GET("/documents/:id/kv", h.listDocumentKV)
