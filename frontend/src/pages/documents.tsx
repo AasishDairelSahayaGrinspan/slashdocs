@@ -20,7 +20,6 @@ import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
 import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
 import { UploadBackupItem } from "@/components/browse/upload-backup";
 import { DocumentSearchInput } from "@/components/browse/document-search-input";
-import { SearchResults } from "@/components/browse/search-results";
 import { hasDocumentSearchOperators } from "@/lib/search-query";
 import {
   DndContext,
@@ -243,8 +242,14 @@ export function DocumentsPage() {
       ) : searching ? (
         documents.length === 0 && folders.length === 0 ? (
           <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
+        ) : viewMode === "list" ? (
+          <UnifiedTable
+            entries={entries}
+            principal={me.data?.principal}
+            pinnedIds={pinnedIds}
+          />
         ) : (
-          <SearchResults entries={entries} />
+          <UnifiedGrid entries={entries} pinnedIds={pinnedIds} />
         )
       ) : (
         <DndContext
