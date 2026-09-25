@@ -752,7 +752,7 @@ type Theme = "dark" | "light";
     );
   }
 
-  // Report a short passage near the top of the viewport, so other viewers
+  // Report a short passage in the middle of the viewport, so other viewers
   // can follow this reader. Debounced: one scroll fires many events.
   const VIEWPORT_QUOTE_LENGTH = 64;
   let viewportTimer: ReturnType<typeof setTimeout> | undefined;
@@ -771,10 +771,11 @@ type Theme = "dark" | "light";
     );
   }
 
-  // Probe a few points in the upper half of the viewport for text. Caret
-  // hit-testing costs the same on any document size, unlike a tree walk.
+  // Probe points from the middle of the viewport outward for text. Text
+  // navigation centers the anchor, so a follower sees what this reader sees.
+  // Caret hit-testing costs the same on any document size, unlike a tree walk.
   function viewportAnchor(d: Document, view: Window): CommentAnchor | null {
-    for (const y of [0.2, 0.35, 0.5]) {
+    for (const y of [0.5, 0.4, 0.6, 0.3, 0.7]) {
       for (const x of [0.5, 0.25, 0.75]) {
         const range = caretRange(d, view.innerWidth * x, view.innerHeight * y);
         const node = range?.startContainer;
@@ -1575,14 +1576,14 @@ type Theme = "dark" | "light";
     pendingText = null;
     textVisibilityObserver?.disconnect();
     clearTimeout(textNoticeTimer);
+    // Center the first line of the text, not its block: a long paragraph
+    // would otherwise put the text far from where a followed reader sees it.
     start?.scrollIntoView({ block: "center", behavior: "instant" });
-    const rect = range.getBoundingClientRect();
-    if (rect.top < 0 || rect.top > d.defaultView!.innerHeight - 40) {
-      d.defaultView!.scrollBy({
-        top: rect.top - d.defaultView!.innerHeight / 2,
-        behavior: "instant",
-      });
-    }
+    const line = Array.from(range.getClientRects()).find((r) => r.width && r.height)!;
+    d.defaultView!.scrollBy({
+      top: line.top + line.height / 2 - d.defaultView!.innerHeight / 2,
+      behavior: "instant",
+    });
     textFlashStarted = Date.now();
     const reducedMotion = d.defaultView!.matchMedia(
       "(prefers-reduced-motion: reduce)",
