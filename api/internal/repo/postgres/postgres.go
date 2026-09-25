@@ -1416,6 +1416,28 @@ func (s *Store) ListDocumentKVEvents(ctx context.Context, documentID string, aft
 	if err != nil {
 		return nil, err
 	}
+	out, err := documentKVEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) ListDocumentPresence(ctx context.Context, documentID string, maxAge time.Duration) ([]repo.DocumentKVEvent, error) {
+	rows, err := s.q.ListRecentDocumentPresenceEvents(ctx, dbsqlc.ListRecentDocumentPresenceEventsParams{
+		DocumentID:    documentID,
+		MaxAgeSeconds: int32(maxAge / time.Second),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return documentKVEvents(rows)
+}
+
+func documentKVEvents(rows []dbsqlc.DocumentKvEvent) ([]repo.DocumentKVEvent, error) {
 	out := make([]repo.DocumentKVEvent, 0, len(rows))
 	for _, row := range rows {
 		var changes []repo.DocumentKVChange
@@ -1431,13 +1453,12 @@ func (s *Store) ListDocumentKVEvents(ctx context.Context, documentID string, aft
 		out = append(out, repo.DocumentKVEvent{
 			DocumentID: row.DocumentID,
 			Revision:   row.Revision,
+			Kind:       row.Kind,
 			Changes:    changes,
+			Data:       row.Data,
 			UpdatedAt:  pgTimeRFC3339(row.UpdatedAt),
 			UpdatedBy:  &actor,
 		})
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
 	}
 	return out, nil
 }
@@ -1487,13 +1508,44 @@ func (s *Store) PatchDocumentKV(ctx context.Context, documentID string, set map[
 	}
 	// PostgreSQL delivers NOTIFY only if this transaction commits, so listeners
 	// can never observe a revision whose KV rows or event-log row rolled back.
-	if err := insertAndNotifyDocumentKVEvent(ctx, q, dbsqlc.InsertDocumentKVEventParams{DocumentID: documentID, Revision: rev, Changes: rawChanges, UpdatedByType: actorType, UpdatedByID: actor.ID, UpdatedByEmail: actor.Email, UpdatedByName: actor.Name}); err != nil {
+	if err := insertAndNotifyDocumentKVEvent(ctx, q, dbsqlc.InsertDocumentKVEventParams{DocumentID: documentID, Revision: rev, Kind: repo.DocumentEventKV, Changes: rawChanges, UpdatedByType: actorType, UpdatedByID: actor.ID, UpdatedByEmail: actor.Email, UpdatedByName: actor.Name}); err != nil {
 		return repo.DocumentKVPatchResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return repo.DocumentKVPatchResult{}, err
 	}
 	return repo.DocumentKVPatchResult{Revision: rev, Changes: changes, UpdatedBy: &actor}, nil
+}
+
+// presenceRetention bounds how long presence events stay in the log. Readers
+// only use the last minute; the slack keeps reconnect replays meaningful.
+const presenceRetention = 10 * time.Minute
+
+func (s *Store) AppendDocumentEvent(ctx context.Context, documentID, kind string, data json.RawMessage, actor auth.Principal) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+	q := s.q.WithTx(tx)
+	if _, err := q.LockDocumentForKV(ctx, documentID); errors.Is(err, pgx.ErrNoRows) {
+		return repo.ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	rev, err := q.GetDocumentKVRevision(ctx, documentID)
+	if err != nil {
+		return err
+	}
+	if kind == repo.DocumentEventPresence {
+		if err := q.DeleteStaleDocumentPresenceEvents(ctx, dbsqlc.DeleteStaleDocumentPresenceEventsParams{DocumentID: documentID, MaxAgeSeconds: int32(presenceRetention / time.Second)}); err != nil {
+			return err
+		}
+	}
+	if err := insertAndNotifyDocumentKVEvent(ctx, q, dbsqlc.InsertDocumentKVEventParams{DocumentID: documentID, Revision: rev + 1, Kind: kind, Changes: []byte("[]"), Data: data, UpdatedByType: string(actor.Type), UpdatedByID: actor.ID, UpdatedByEmail: actor.Email, UpdatedByName: actor.Name}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func insertAndNotifyDocumentKVEvent(ctx context.Context, q *dbsqlc.Queries, event dbsqlc.InsertDocumentKVEventParams) error {

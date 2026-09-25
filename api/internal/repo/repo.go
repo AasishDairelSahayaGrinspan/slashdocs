@@ -300,10 +300,21 @@ type DocumentKVPatchResult struct {
 	UpdatedBy *auth.Principal    `json:"updated_by,omitempty"`
 }
 
+// Kinds of events in a document's live event log. KV changes carry Changes;
+// the other kinds share the KV revision sequence and carry optional Data.
+const (
+	DocumentEventKV       = "kv"
+	DocumentEventDocument = "document"
+	DocumentEventComments = "comments"
+	DocumentEventPresence = "presence"
+)
+
 type DocumentKVEvent struct {
 	DocumentID string             `json:"document_id"`
 	Revision   int64              `json:"revision"`
+	Kind       string             `json:"kind"`
 	Changes    []DocumentKVChange `json:"changes"`
+	Data       json.RawMessage    `json:"data,omitempty"`
 	UpdatedAt  string             `json:"updated_at,omitempty"`
 	UpdatedBy  *auth.Principal    `json:"updated_by,omitempty"`
 }
@@ -386,8 +397,16 @@ type Repository interface {
 	PutCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
 	DeleteCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
 	ListDocumentKV(ctx context.Context, documentID string) (DocumentKVSnapshot, error)
+	// CurrentDocumentKVRevision returns the high-water mark of the document's
+	// event log.
+	CurrentDocumentKVRevision(ctx context.Context, documentID string) (int64, error)
 	ListDocumentKVEvents(ctx context.Context, documentID string, afterRevision int64, limit int32) ([]DocumentKVEvent, error)
 	PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error)
+	// AppendDocumentEvent appends a non-KV live event (document, comments, or
+	// presence) to the document's event log and wakes its subscribers.
+	AppendDocumentEvent(ctx context.Context, documentID, kind string, data json.RawMessage, actor auth.Principal) error
+	// ListDocumentPresence returns the presence events newer than maxAge.
+	ListDocumentPresence(ctx context.Context, documentID string, maxAge time.Duration) ([]DocumentKVEvent, error)
 	CreateFolder(ctx context.Context, owner auth.Principal, title, parentFolderID string) (Folder, error)
 	ListFolder(ctx context.Context, principal auth.Principal, folderID, path string) ([]FolderEntry, bool, *Folder, error)
 	SearchFoldersByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Folder, error)

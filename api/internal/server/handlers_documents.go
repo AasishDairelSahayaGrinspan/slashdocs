@@ -244,6 +244,7 @@ func (h handlers) patchDocument(c *gin.Context) {
 		internalErr(c, err)
 		return
 	}
+	h.announce(c, repo.DocumentEventDocument)
 	c.JSON(http.StatusOK, d)
 }
 

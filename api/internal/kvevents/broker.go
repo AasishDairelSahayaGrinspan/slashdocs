@@ -1,5 +1,6 @@
-// Package kvevents coalesces persisted document KV events and fans them out to
-// every SSE subscriber in a server process.
+// Package kvevents coalesces persisted document events (KV changes and live
+// document, comment, and presence events) and fans them out to every SSE
+// subscriber in a server process.
 package kvevents
 
 import (
@@ -439,7 +440,7 @@ func (b *Broker) fetchDocument(state *documentState) error {
 		}
 		advanced := false
 		for _, event := range events {
-			if event.DocumentID != state.id || event.Revision <= cursor || len(event.Changes) == 0 {
+			if event.DocumentID != state.id || event.Revision <= cursor || emptyKVEvent(event) {
 				continue
 			}
 			if !b.publish(state, event) {
@@ -452,6 +453,12 @@ func (b *Broker) fetchDocument(state *documentState) error {
 			return nil
 		}
 	}
+}
+
+// emptyKVEvent reports a KV event without changes. Other live event kinds
+// carry no KV changes by design and are always delivered.
+func emptyKVEvent(event repo.DocumentKVEvent) bool {
+	return len(event.Changes) == 0 && (event.Kind == "" || event.Kind == repo.DocumentEventKV)
 }
 
 func (b *Broker) publish(state *documentState, event repo.DocumentKVEvent) bool {

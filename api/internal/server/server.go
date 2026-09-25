@@ -252,6 +252,8 @@ func (s *Server) routes(deps dependencies) {
 	// Every route below requires authentication.
 	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))
 	activityLimit := activityRateLimit()
+	// A separate budget: presence heartbeats must not starve other activity.
+	presenceLimit := activityRateLimit()
 	authed.GET("/me", h.me)
 	authed.GET("/users", h.searchUsers)
 	authed.GET("/google-groups", h.searchGoogleGroups)
@@ -296,6 +298,7 @@ func (s *Server) routes(deps dependencies) {
 	authed.PUT("/documents/:id/notifications", activityLimit, h.setDocumentNotificationPreferences)
 	authed.GET("/documents/:id/kv", h.listDocumentKV)
 	authed.GET("/documents/:id/kv/events", h.streamDocumentKVEvents)
+	authed.POST("/documents/:id/presence", presenceLimit, h.postDocumentPresence)
 	authed.PATCH("/documents/:id/kv", h.patchDocumentKV)
 	authed.POST("/documents/:id/comments/:comment_id/replies", h.createCommentReply)
 	authed.PATCH("/documents/:id/comments/:comment_id", h.patchComment)

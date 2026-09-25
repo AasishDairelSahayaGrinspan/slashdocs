@@ -104,6 +104,7 @@ func (h handlers) createComment(c *gin.Context) {
 		return
 	}
 	incComment("created", cm.Status, actorType(c))
+	h.announce(c, repo.DocumentEventComments)
 	c.JSON(http.StatusCreated, commentJSON(cm, cm.VersionID, "", *p))
 }
 
@@ -184,6 +185,7 @@ func (h handlers) createCommentReply(c *gin.Context) {
 		return
 	}
 	incComment("created", cm.Status, actorType(c))
+	h.announce(c, repo.DocumentEventComments)
 	c.JSON(http.StatusCreated, commentJSON(cm, "", "", *current(c)))
 }
 
@@ -236,6 +238,7 @@ func (h handlers) patchComment(c *gin.Context) {
 		event = "reopened"
 	}
 	incComment(event, cm.Status, actorType(c))
+	h.announce(c, repo.DocumentEventComments)
 	c.JSON(http.StatusOK, commentJSON(cm, cm.VersionID, "", *current(c)))
 }
 
@@ -315,6 +318,7 @@ func (h handlers) deleteComment(c *gin.Context) {
 		return
 	}
 	incComment("deleted", labelUnknown, actorType(c))
+	h.announce(c, repo.DocumentEventComments)
 	c.Status(http.StatusNoContent)
 }
 
@@ -405,6 +409,7 @@ func (h handlers) writeCommentReaction(c *gin.Context, write reactionWrite) {
 		internalErr(c, err)
 		return
 	}
+	h.announce(c, repo.DocumentEventComments)
 	c.Status(http.StatusNoContent)
 }
 
