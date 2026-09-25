@@ -7,13 +7,25 @@ export const DropdownTrigger = DM.Trigger;
 
 export function DropdownContent({
   className,
+  onCloseAutoFocus,
   ...p
 }: React.ComponentPropsWithoutRef<typeof DM.Content>) {
+  // Focus goes back to the trigger only when the keyboard closed the menu.
+  // After a click, the returned focus opens the trigger's tooltip.
+  const closedByPointer = React.useRef(false);
   return (
     <DM.Portal>
       <DM.Content
         sideOffset={6}
         align="end"
+        onPointerDownCapture={() => (closedByPointer.current = true)}
+        onPointerDownOutside={() => (closedByPointer.current = true)}
+        onKeyDownCapture={() => (closedByPointer.current = false)}
+        onEscapeKeyDown={() => (closedByPointer.current = false)}
+        onCloseAutoFocus={(event) => {
+          onCloseAutoFocus?.(event);
+          if (closedByPointer.current) event.preventDefault();
+        }}
         className={cn(
           "z-50 min-w-[200px] rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg transition-[opacity,transform] duration-150 ease-out data-[state=closed]:translate-y-1 data-[state=open]:translate-y-0 data-[state=closed]:scale-[0.98] data-[state=open]:scale-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
           className,
