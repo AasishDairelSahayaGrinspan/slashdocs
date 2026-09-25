@@ -1,5 +1,6 @@
 import {
   parseTextLink,
+  textLinkAnchor,
   textLinkFragment,
   TEXT_LINK_PREFIX,
 } from "../../bridge/text-link";
@@ -7,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
+import { api, APIError, type Anchor } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { matchesCommentFilter } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
@@ -32,8 +33,9 @@ export function RenderFrame() {
     version,
     comments,
     commentFilter,
+    drafts,
     activeComment,
-    setSelection,
+    startDraft,
     handleDocCommentClick,
     setUnanchoredComments,
     setCommentPositions,
@@ -42,6 +44,8 @@ export function RenderFrame() {
     registerDocumentPrinter,
     syncCommentRail,
     handleRenderedDocumentClick,
+    subscribeDocumentKV,
+    reportViewport,
   } = useDoc();
   const versionRef = useRef(version);
   versionRef.current = version;
@@ -73,8 +77,8 @@ export function RenderFrame() {
   });
 
   const paintPayload = useMemo(
-    () =>
-      comments
+    () => [
+      ...comments
         // Match the sidebar filter so resolved threads can also be positioned
         // beside their text when browsing All or Resolved.
         .filter((c) => matchesCommentFilter(c.status, commentFilter))
@@ -83,7 +87,9 @@ export function RenderFrame() {
           quote: c.selected_text || c.anchor?.quote,
           anchor: c.anchor,
         })),
-    [comments, commentFilter],
+      ...drafts.map(({ id, quote, anchor }) => ({ id, quote, anchor })),
+    ],
+    [comments, commentFilter, drafts],
   );
 
   const frameOrigin = useMemo(() => {
@@ -440,7 +446,10 @@ export function RenderFrame() {
         const quote = anchor?.quote ?? e.data.quote;
         const top =
           typeof e.data.top === "number" ? e.data.top * scaleRef.current : undefined;
-        if (quote) setSelection({ quote, anchor, top });
+        if (quote) startDraft({ quote, anchor, top });
+      }
+      if (e.data?.type === "aidocs:viewport") {
+        reportViewport(textLinkAnchor(e.data.anchor) ?? undefined);
       }
       if (e.data?.type === "aidocs:kv-request") {
         void handleKVRequest(e.data as Record<string, unknown>);
@@ -585,7 +594,8 @@ export function RenderFrame() {
   }, [
     docId,
     frameOrigin,
-    setSelection,
+    startDraft,
+    reportViewport,
     handleDocCommentClick,
     handleRenderedDocumentClick,
     setUnanchoredComments,
@@ -596,33 +606,20 @@ export function RenderFrame() {
     rememberKVRevision,
   ]);
 
+  // The page holds the event stream. A frame that is not ready yet reads the
+  // current KV state when it hydrates, so it misses no change.
   useEffect(() => {
-    if (!ready || !frameOrigin || !docId) return;
-    const source = new EventSource(
-      `/v1/documents/${encodeURIComponent(docId)}/kv/events?after_revision=${kvRevisionRef.current}`,
-      { withCredentials: true },
-    );
-    source.onmessage = (event) => {
-      let detail: DocumentKVEvent;
-      try {
-        detail = JSON.parse(event.data) as DocumentKVEvent;
-      } catch {
-        return;
-      }
-      if (!detail || typeof detail.revision !== "number") return;
+    if (!ready || !frameOrigin) return;
+    return subscribeDocumentKV((detail) => {
+      if (typeof detail?.revision !== "number") return;
       if (detail.revision <= kvRevisionRef.current) return;
       rememberKVRevision(detail.revision);
       postToCurrentFrame({
         type: "aidocs:kv-event",
-        detail: {
-          ...detail,
-          source: "sync",
-          operation: "sync",
-        },
+        detail: { ...detail, source: "sync", operation: "sync" },
       });
-    };
-    return () => source.close();
-  }, [docId, frameOrigin, ready, postToCurrentFrame, rememberKVRevision]);
+    });
+  }, [frameOrigin, ready, subscribeDocumentKV, postToCurrentFrame, rememberKVRevision]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {

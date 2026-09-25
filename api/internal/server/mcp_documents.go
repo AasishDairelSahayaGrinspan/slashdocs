@@ -252,7 +252,7 @@ func registerMCPVersionTools(server *mcpserver.MCPServer, api mcpAPIAdapter) {
 		mcpDocumentID(),
 		mcp.WithString("base_version_id", mcp.Required(), mcp.Description("Version on which these edits are based.")),
 		mcp.WithString("html", mcp.Required(), mcp.Description("Complete replacement HTML, up to 50 MiB.")),
-		mcp.WithString("change_summary", mcp.Description("Short summary of the changes.")),
+		mcp.WithString("change_summary", mcp.Description("Short summary of the changes, one change per line.")),
 	)...), func(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 		doc, invalid := mcpRequired(request, "document_id")
 		if invalid != nil {

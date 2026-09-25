@@ -518,6 +518,11 @@ uses coalesced polling. The listener URL must reach the same database directly
 or through session pooling; the normal `DATABASE_URL` may still use a separate
 route for queries and notification sends.
 
+The same per-document stream also carries document, comment, and presence
+events. Open viewers refresh comments, hear about new versions, and see who
+else is viewing, whichever replica served each request. Presence rows expire
+after ten minutes, so the event table does not grow with viewing time.
+
 `notify` fails startup if LISTEN cannot be verified. It prefers the listener URL
 and otherwise uses `DATABASE_URL`, which is an explicit assertion by the
 operator that the connection preserves session state. `poll` never opens a

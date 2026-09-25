@@ -7,12 +7,22 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useNavigate, useSearchParams, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Check, KeyRound, Send } from "lucide-react";
-import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
+import {
+  api,
+  APIError,
+  currentVersionID,
+  docTitle,
+  versionID,
+  type CommentMention,
+} from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { useCommentDrafts } from "@/lib/comment-drafts";
+import { textLinkFragment } from "../../bridge/text-link";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/lib/use-media-query";
@@ -34,6 +44,7 @@ import {
   type CommentFilter,
 } from "@/lib/constants";
 import { Keycast } from "./doc-keycast";
+import { useDocumentStream, type Viewer } from "./use-document-stream";
 import { Button } from "@/components/ui/button";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
@@ -164,7 +175,6 @@ export function DocumentPage() {
   });
   const [commentFilter, setCommentFilter] =
     useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
-  const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
   const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
     new Set(),
@@ -211,6 +221,7 @@ export function DocumentPage() {
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   const [chordLabel, setChordLabel] = useState<string>();
   const nav = useNavigate();
+  const location = useLocation();
   const { theme, setTheme } = useTheme();
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
@@ -254,13 +265,6 @@ export function DocumentPage() {
     setShareOpen(false);
     setActiveComment(undefined);
   }, []);
-
-  // A text selection from the rendered doc should reveal the compose flow.
-  useEffect(() => {
-    if (fullscreen || !selection?.quote) return;
-    if (isMobile) setMobilePanelOpen(true);
-    else setCommentsOpen(true);
-  }, [isMobile, fullscreen, selection]);
 
   const toggleComments = useCallback(() => {
     if (isMobile) setMobilePanelOpen((o) => !o);
@@ -323,6 +327,87 @@ export function DocumentPage() {
     setCommentPositions(new Map());
     setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
   }, [current]);
+
+  const [drafts, updateDrafts] = useCommentDrafts(id);
+  // Drafts left empty on an earlier visit hold nothing worth keeping.
+  useEffect(() => {
+    updateDrafts((list) => list.filter((draft) => draft.body.trim()));
+  }, [updateDrafts]);
+
+  // A selection starts a new draft next to the drafts that have text. Picking
+  // the same text again returns to its draft.
+  const startDraft = useCallback(
+    (selection: PendingSelection) => {
+      let draftId = `draft:${crypto.randomUUID()}`;
+      updateDrafts((list) => {
+        const same = list.find(
+          (draft) =>
+            draft.version === current &&
+            draft.quote === selection.quote &&
+            draft.anchor?.start_offset === selection.anchor?.start_offset,
+        );
+        if (same) {
+          draftId = same.id;
+          return list;
+        }
+        const draft = {
+          id: draftId,
+          version: current,
+          ...selection,
+          body: "",
+          mentions: [],
+          updatedAt: Date.now(),
+        };
+        return [...list.filter((d) => d.body.trim()), draft];
+      });
+      setCommentFilter(COMMENT_STATUS.open);
+      handleDocCommentClick(draftId);
+    },
+    [current, updateDrafts, handleDocCommentClick],
+  );
+  const saveDraft = useCallback(
+    (draftId: string, text: { body: string; mentions: CommentMention[] }) =>
+      updateDrafts((list) =>
+        list.map((d) =>
+          d.id === draftId ? { ...d, ...text, updatedAt: Date.now() } : d,
+        ),
+      ),
+    [updateDrafts],
+  );
+  const discardDraft = useCallback(
+    (draftId: string) => updateDrafts((list) => list.filter((d) => d.id !== draftId)),
+    [updateDrafts],
+  );
+
+  const stream = useDocumentStream({
+    docId: id,
+    version: current,
+    principal: me.data?.principal,
+    // Keep the reader on the version they read when someone else publishes.
+    onRemoteDocumentChange: () => setSelectedVersion((version) => version || current),
+  });
+
+  // Offer the version someone else published while this reader stayed on the
+  // one before it.
+  const seenLatest = useRef(latest);
+  useEffect(() => {
+    const previous = seenLatest.current;
+    seenLatest.current = latest;
+    if (!previous || previous === latest || current !== previous) return;
+    toast.info("A new version is available.", {
+      action: { label: "View", onClick: () => setSelectedVersion(latest) },
+    });
+  }, [latest, current]);
+
+  // Show the version another viewer reads, at the passage they look at.
+  const followViewer = useCallback(
+    (viewer: Viewer) => {
+      if (viewer.version) setSelectedVersion(viewer.version);
+      const hash = textLinkFragment(viewer.anchor);
+      if (hash) nav({ search: location.search, hash }, { replace: true });
+    },
+    [nav, location.search],
+  );
 
   const exitFullscreen = useCallback(() => {
     setSearchParams(
@@ -418,8 +503,10 @@ export function DocumentPage() {
       commentsLoading: comments.isLoading,
       commentsError: !!comments.error,
       principal: me.data?.principal,
-      selection,
-      setSelection,
+      drafts,
+      startDraft,
+      saveDraft,
+      discardDraft,
       activeComment,
       setActiveComment,
       unanchoredComments,
@@ -436,6 +523,8 @@ export function DocumentPage() {
       syncCommentRail,
       handleDocCommentClick,
       handleRenderedDocumentClick,
+      subscribeDocumentKV: stream.subscribeKV,
+      reportViewport: stream.reportViewport,
     }),
     [
       id,
@@ -445,7 +534,10 @@ export function DocumentPage() {
       comments.isLoading,
       comments.error,
       me.data,
-      selection,
+      drafts,
+      startDraft,
+      saveDraft,
+      discardDraft,
       activeComment,
       unanchoredComments,
       commentPositions,
@@ -459,6 +551,8 @@ export function DocumentPage() {
       syncCommentRail,
       handleDocCommentClick,
       handleRenderedDocumentClick,
+      stream.subscribeKV,
+      stream.reportViewport,
     ],
   );
 
@@ -536,6 +630,8 @@ export function DocumentPage() {
               versions={versions.data?.items || []}
               labels={doc.data.labels || []}
               onSelectVersion={setSelectedVersion}
+              viewers={stream.viewers}
+              onFollowViewer={followViewer}
               commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
               onToggleComments={toggleComments}
               shareOpen={shareOpen}

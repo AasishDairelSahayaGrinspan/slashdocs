@@ -111,6 +111,7 @@ func TestBridgePreservesWireMessageFamilies(t *testing.T) {
 		"aidocs:ready",
 		"aidocs:selection",
 		"aidocs:theme",
+		"aidocs:viewport",
 		"aidocs:zoom",
 	} {
 		if !strings.Contains(bridge, messageType) {

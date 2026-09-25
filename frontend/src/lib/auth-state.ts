@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { clearCommentDrafts } from "./comment-drafts";
 
 const SIGNED_OUT_KEY = "aidocs.frontend_signed_out";
 const AUTH_STATE_EVENT = "aidocs:auth-state";
@@ -15,6 +16,8 @@ export function setFrontendSignedOut(signedOut: boolean) {
   try {
     if (signedOut) {
       localStorage.setItem(SIGNED_OUT_KEY, "true");
+      // Unsent comments must not outlive the session on a shared browser.
+      clearCommentDrafts();
     } else {
       localStorage.removeItem(SIGNED_OUT_KEY);
     }

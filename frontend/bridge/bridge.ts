@@ -752,6 +752,53 @@ type Theme = "dark" | "light";
     );
   }
 
+  // Report a short passage near the top of the viewport, so other viewers
+  // can follow this reader. Debounced: one scroll fires many events.
+  const VIEWPORT_QUOTE_LENGTH = 64;
+  let viewportTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleViewport(): void {
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(postViewport, 300);
+  }
+
+  function postViewport(): void {
+    const d = doc();
+    const view = d?.defaultView;
+    if (!d?.body || !view) return;
+    parent.postMessage(
+      { type: "aidocs:viewport", anchor: viewportAnchor(d, view) },
+      targetOrigin(),
+    );
+  }
+
+  // Probe a few points in the upper half of the viewport for text. Caret
+  // hit-testing costs the same on any document size, unlike a tree walk.
+  function viewportAnchor(d: Document, view: Window): CommentAnchor | null {
+    for (const y of [0.2, 0.35, 0.5]) {
+      for (const x of [0.5, 0.25, 0.75]) {
+        const range = caretRange(d, view.innerWidth * x, view.innerHeight * y);
+        const node = range?.startContainer;
+        const text = node?.nodeType === Node.TEXT_NODE ? node.nodeValue || "" : "";
+        if (!range || !node || !text.trim()) continue;
+        const start = text.lastIndexOf(" ", range.startOffset) + 1;
+        range.setStart(node, start);
+        range.setEnd(node, Math.min(text.length, start + VIEWPORT_QUOTE_LENGTH));
+        const anchor = describeAnchor(d.body, range);
+        if (anchor) return anchor;
+      }
+    }
+    return null;
+  }
+
+  function caretRange(d: Document, x: number, y: number): Range | null {
+    if (!d.caretPositionFromPoint) return d.caretRangeFromPoint(x, y);
+    const position = d.caretPositionFromPoint(x, y);
+    if (!position) return null;
+    const range = d.createRange();
+    range.setStart(position.offsetNode, position.offset);
+    return range;
+  }
+
   function postCommentPositions(): void {
     const d = doc();
     if (!d || !lastPaint) return;
@@ -1792,7 +1839,10 @@ type Theme = "dark" | "light";
       passive: true,
     });
     d.defaultView?.addEventListener("resize", scheduleCommentPositions);
+    // Capture scrolls of nested containers too, not only the window.
+    d.addEventListener("scroll", scheduleViewport, { capture: true, passive: true });
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
+    scheduleViewport();
     hydrateKV();
   }
 

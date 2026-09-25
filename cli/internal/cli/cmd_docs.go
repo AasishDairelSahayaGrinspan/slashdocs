@@ -505,7 +505,7 @@ func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 		return printPushedVersion(out, g, doc, cl.Base, b)
 	}}
 	cmd.Flags().StringVar(&base, "base-version", "", "base version ID")
-	cmd.Flags().StringVar(&summary, "summary", "", "change summary")
+	cmd.Flags().StringVar(&summary, "summary", "", "change summary, one change per line")
 	return cmd
 }
 

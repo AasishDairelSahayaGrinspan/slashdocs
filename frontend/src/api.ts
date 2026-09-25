@@ -172,6 +172,17 @@ export type DocumentKVEvent = {
   changes: DocumentKVChange[];
   updated_at?: string;
   updated_by?: Principal;
+  // Stream events other than KV changes set kind; presence events carry data.
+  kind?: "kv" | "document" | "comments" | "presence";
+  data?: unknown;
+};
+// A viewer's place in a document, published on the document event stream.
+export type DocumentPresence = {
+  session: string;
+  version?: string;
+  anchor?: Partial<Anchor>;
+  left?: boolean;
+  picture_url?: string;
 };
 export type AccessSource = {
   resource_type: string;
@@ -348,6 +359,11 @@ export const api = {
     request<DocumentKVPatchResult>(`/v1/documents/${doc}/kv`, {
       method: "PATCH",
       body: JSON.stringify(patch),
+    }),
+  postDocumentPresence: (doc: string, presence: DocumentPresence) =>
+    request<void>(`/v1/documents/${doc}/presence`, {
+      method: "POST",
+      body: JSON.stringify(presence),
     }),
   // emoji stays a string: the only caller forwards a slug the server sent, and
   // narrowing it here would need a cast that asserts what the wire does not

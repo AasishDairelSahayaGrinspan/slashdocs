@@ -51,7 +51,8 @@ format:
 
 If the user is iterating on an existing aidocs document, push a new version
 instead of creating a duplicate. Use the CLI help to find the current push/update
-syntax and include a short summary of what changed.
+syntax and include a short summary of what changed. Write one change per line;
+the version history shows a multi-line summary as a list.
 
 ### Searching and labels
 

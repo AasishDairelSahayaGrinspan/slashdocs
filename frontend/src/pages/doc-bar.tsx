@@ -23,6 +23,7 @@ import {
 import { AccountMenu } from "@/components/layout/topbar";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Avatar } from "@/components/ui/misc";
 import {
   Dropdown,
   DropdownContent,
@@ -44,12 +45,16 @@ import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
 import { canManageSharing, ROLE_RANK } from "@/lib/constants";
+import { changeSummaryLines } from "@/lib/change-summary";
 import { formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
 import { useDoc } from "./doc-context";
 import { UploadVersionItem } from "./doc-upload-version";
+import type { Viewer } from "./use-document-stream";
+
+const MAX_VIEWER_AVATARS = 4;
 
 export function DocBar({
   title,
@@ -63,6 +68,8 @@ export function DocBar({
   versions,
   labels,
   onSelectVersion,
+  viewers,
+  onFollowViewer,
   commentsOpen,
   onToggleComments,
   shareOpen,
@@ -79,6 +86,8 @@ export function DocBar({
   versions: Version[];
   labels: string[];
   onSelectVersion: (versionID: string) => void;
+  viewers: Viewer[];
+  onFollowViewer: (viewer: Viewer) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
   shareOpen: boolean;
@@ -166,6 +175,7 @@ export function DocBar({
           </span>
         )}
       </div>
+      <Viewers viewers={viewers} versions={versions} onFollow={onFollowViewer} />
       {isViewingOlder ? (
         <Button
           variant="ghost"
@@ -320,6 +330,58 @@ export function DocBar({
   );
 }
 
+// Other people viewing the document. Clicking one shows what they see.
+function Viewers({
+  viewers,
+  versions,
+  onFollow,
+}: {
+  viewers: Viewer[];
+  versions: Version[];
+  onFollow: (viewer: Viewer) => void;
+}) {
+  if (!viewers.length) return null;
+  const hidden = viewers.length - MAX_VIEWER_AVATARS;
+  return (
+    <div
+      role="group"
+      aria-label="People viewing this document"
+      className="hidden shrink-0 items-center -space-x-1.5 pr-1 sm:flex"
+    >
+      {viewers.slice(0, MAX_VIEWER_AVATARS).map((viewer) => {
+        const name = principalLabel(viewer.principal);
+        const number = versions.find((v) => v.id === viewer.version)?.number;
+        return (
+          <Tooltip
+            key={`${viewer.principal.type}:${viewer.principal.id}`}
+            label={number ? `${name} · viewing v${number}` : name}
+          >
+            <button
+              type="button"
+              aria-label={`Go to where ${name} is viewing`}
+              onClick={() => onFollow(viewer)}
+              className="relative rounded-full ring-2 ring-[var(--color-surface)] transition-transform duration-150 ease-out hover:z-10 hover:-translate-y-0.5 focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-accent)] motion-reduce:transition-none"
+            >
+              <Avatar size={28} name={name} src={viewer.principal.picture_url} />
+            </button>
+          </Tooltip>
+        );
+      })}
+      {hidden > 0 ? (
+        <span
+          title={viewers
+            .slice(MAX_VIEWER_AVATARS)
+            .map((viewer) => principalLabel(viewer.principal))
+            .join(", ")}
+          className="relative flex h-7 min-w-7 items-center justify-center rounded-full bg-[var(--color-surface-muted)] px-1.5 text-xs font-medium tabular-nums text-[var(--color-fg-muted)] ring-2 ring-[var(--color-surface)]"
+        >
+          +{hidden}
+        </span>
+      ) : null}
+    </div>
+  );
+}
+
 function LabelsDialog({
   docId,
   labels,
@@ -405,9 +467,15 @@ function VersionHistoryDialog({
   versions: Version[];
   onSelectVersion: (versionID: string) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const sorted = [...versions].sort((a, b) => b.number - a.number);
+  const select = (versionID: string) => {
+    if (versionID === current) return;
+    onSelectVersion(versionID);
+    setOpen(false);
+  };
   return (
-    <Dialog>
+    <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
         <Button
           variant="ghost"
@@ -437,7 +505,7 @@ function VersionHistoryDialog({
               <button
                 key={v.id}
                 type="button"
-                onClick={() => onSelectVersion(v.id)}
+                onClick={() => select(v.id)}
                 className={`flex w-full gap-3 rounded-xl border border-[var(--color-border)] p-4 text-left transition-colors hover:bg-[var(--color-surface-muted)]/60 ${
                   v.id === current
                     ? "bg-[var(--color-accent-muted)]/35"
@@ -458,10 +526,7 @@ function VersionHistoryDialog({
                     ) : null}
                     {v.id === latest ? <Badge variant="muted">Latest</Badge> : null}
                   </div>
-                  <div className="mt-1 text-sm text-[var(--color-fg-muted)]">
-                    {v.change_summary ||
-                      (v.number === 1 ? "Initial version" : "No change summary")}
-                  </div>
+                  <ChangeSummary version={v} />
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
                     <span>Created by {principalLabel(v.created_by)}</span>
                     {v.created_at ? <span>{formatTimestamp(v.created_at)}</span> : null}
@@ -474,6 +539,25 @@ function VersionHistoryDialog({
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+function ChangeSummary({ version }: { version: Version }) {
+  const lines = changeSummaryLines(version.change_summary);
+  const className = "mt-1 text-sm text-[var(--color-fg-muted)]";
+  if (lines.length > 1) {
+    return (
+      <ul className={`${className} list-disc space-y-0.5 pl-5`}>
+        {lines.map((line, i) => (
+          <li key={i}>{line}</li>
+        ))}
+      </ul>
+    );
+  }
+  return (
+    <p className={className}>
+      {lines[0] || (version.number === 1 ? "Initial version" : "No change summary")}
+    </p>
   );
 }
 
