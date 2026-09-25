@@ -126,19 +126,19 @@ func TestDocumentPresenceSnapshotLiveUpdatesAndLeave(t *testing.T) {
 			"X-Test-Principal": principalHeader(p),
 		})
 	}
-	assertStatus(t, post(fixtureEditor, `{"session":"editor-session","version":"`+e.ver.ID+`","ratio":0.5}`), http.StatusNoContent)
+	assertStatus(t, post(fixtureEditor, `{"session":"editor-session","version":"`+e.ver.ID+`"}`), http.StatusNoContent)
 
 	reader, snapshot := openLiveStream(t, ctx, ts, e.doc.ID, "?session=viewer-session", fixtureViewer)
 	if len(snapshot) != 1 || snapshot[0].name != repo.DocumentEventPresence || snapshot[0].id != "" {
 		t.Fatalf("snapshot = %#v, want one presence event without an id", snapshot)
 	}
-	if data := presenceOf(t, snapshot[0]); data["session"] != "editor-session" || data["ratio"] != 0.5 {
+	if data := presenceOf(t, snapshot[0]); data["session"] != "editor-session" || data["version"] != e.ver.ID || data["anchor"] != nil {
 		t.Fatalf("snapshot presence = %v", data)
 	}
 
 	anchor := `{"quote":"fixture","prefix":"","suffix":"","start_offset":0,"end_offset":7}`
-	assertStatus(t, post(fixtureEditor, `{"session":"editor-session","version":"`+e.ver.ID+`","anchor":`+anchor+`,"ratio":0.9}`), http.StatusNoContent)
-	if data := presenceOf(t, readLiveEvent(t, reader)); data["ratio"] != 0.9 || data["anchor"] == nil {
+	assertStatus(t, post(fixtureEditor, `{"session":"editor-session","version":"`+e.ver.ID+`","anchor":`+anchor+`}`), http.StatusNoContent)
+	if data := presenceOf(t, readLiveEvent(t, reader)); data["anchor"] == nil {
 		t.Fatalf("live presence = %v, want the moved position", data)
 	}
 
@@ -161,7 +161,7 @@ func TestDocumentPresenceRejectsInvalidInput(t *testing.T) {
 	}{
 		{"stranger", fixtureStranger, `{"session":"stranger-session"}`, http.StatusForbidden},
 		{"short session", fixtureViewer, `{"session":"short"}`, http.StatusBadRequest},
-		{"ratio out of range", fixtureViewer, `{"session":"viewer-session","ratio":2}`, http.StatusBadRequest},
+		{"negative offset", fixtureViewer, `{"session":"viewer-session","anchor":{"quote":"x","start_offset":-1}}`, http.StatusBadRequest},
 		{"long quote", fixtureViewer, `{"session":"viewer-session","anchor":{"quote":"` + strings.Repeat("x", 600) + `"}}`, http.StatusBadRequest},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
-	"math"
 	"net/http"
 	"regexp"
 	"time"
@@ -30,22 +29,18 @@ const (
 
 var presenceSessionPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 
-// presence is one viewer session's position in a document. The client sends
-// the session, version, and position; the server adds identity.
+// presence is one viewer session's place in a document: the version on screen
+// and a short passage near the top of the viewport. The server adds identity.
 type presence struct {
 	Session    string       `json:"session"`
 	Version    string       `json:"version,omitempty"`
 	Anchor     *repo.Anchor `json:"anchor,omitempty"`
-	Ratio      float64      `json:"ratio"`
 	Left       bool         `json:"left,omitempty"`
 	PictureURL string       `json:"picture_url,omitempty"`
 }
 
 func (p presence) valid() bool {
 	if !presenceSessionPattern.MatchString(p.Session) || len(p.Version) > maxPresenceVersionSize {
-		return false
-	}
-	if math.IsNaN(p.Ratio) || p.Ratio < 0 || p.Ratio > 1 {
 		return false
 	}
 	a := p.Anchor
