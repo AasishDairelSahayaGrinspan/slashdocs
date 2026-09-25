@@ -65,6 +65,16 @@ func TestParseDocumentSearch(t *testing.T) {
 			want: repo.DocumentSearch{UpdatedSince: day(time.February, 1), UpdatedBefore: day(time.March, 1)},
 		},
 		{
+			name: "a date goes on over date words",
+			raw:  "after:last week budget on:monday may",
+			want: repo.DocumentSearch{Terms: []string{"budget", "may"}, UpdatedSince: day(time.March, 9), UpdatedBefore: day(time.March, 10)},
+		},
+		{
+			name: "a quoted date",
+			raw:  `before:"5 march"`,
+			want: repo.DocumentSearch{UpdatedBefore: day(time.March, 5)},
+		},
+		{
 			name: "partly typed modifiers have no effect",
 			raw:  `plan from: on:2026-0 in:"Product`,
 			want: repo.DocumentSearch{Terms: []string{"plan"}, Folders: []string{"product"}},

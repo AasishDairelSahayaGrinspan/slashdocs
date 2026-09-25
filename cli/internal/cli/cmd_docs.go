@@ -67,14 +67,15 @@ func documentListCmd(g *globals, out io.Writer) *cobra.Command {
 			"  from:<person>        The owner: an email, the name before the @, or me\n" +
 			"  in:<folder>          A folder, or any folder above the document\n" +
 			"  label:<a,b>          Require every label\n" +
-			"  before:<day>         Updated before the day\n" +
-			"  after:<day>          Updated after the day\n" +
-			"  on:<day>             Updated on the day\n" +
-			"  during:<period>      Updated during a day, month (2026-09, september), or year\n\n" +
-			"A day is YYYY-MM-DD, today, or yesterday, in UTC. Repeat from: or in: to match any value.\n" +
+			"  before:<date>        Updated before the date\n" +
+			"  after:<date>         Updated after the date\n" +
+			"  on:<date>            Updated on the date (during: is the same)\n\n" +
+			"A date is a day (25-09-26, 5 september, monday, today, 3 days ago), a week,\n" +
+			"a month, or a year (last week, september, this year, 2026), or last 7 days.\n" +
+			"Dates use UTC. Repeat from: or in: to match any value.\n" +
 			"Quote the whole query when it contains spaces.",
 		Example: "  aidocs docs list 'incident from:alice@example.com label:api,review in:\"Product Specs\"'\n" +
-			"  aidocs docs list --query 'rollout -draft from:me during:september'",
+			"  aidocs docs list --query 'rollout -draft from:me after:last week'",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 && cmd.Flags().Changed("query") {

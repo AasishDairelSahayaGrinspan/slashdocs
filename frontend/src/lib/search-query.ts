@@ -7,8 +7,10 @@ export const SEARCH_MODIFIERS = [
   { key: "before", hint: "Updated before a date" },
   { key: "after", hint: "Updated after a date" },
   { key: "on", hint: "Updated on a date" },
-  { key: "during", hint: "Updated during a month or year" },
+  { key: "during", hint: "Updated during a week, month, or year" },
 ] as const;
+
+export const DATE_KEYS = new Set(["before", "after", "on", "during"]);
 
 // label: is left out of suggestions while labels are gated, and the aliases
 // keep earlier queries working.
@@ -28,11 +30,19 @@ export type SearchToken = {
   value: string;
 };
 
-// Split on whitespace outside double quotes, as the server does.
+// Split on whitespace outside double quotes, as the server does. A date goes
+// on over the next words that can be part of a date, as in after:last week.
 export function searchTokens(query: string): SearchToken[] {
   const tokens: SearchToken[] = [];
   for (const match of query.matchAll(/(?:"[^"]*(?:"|$)|[^\s"])+/g)) {
     const text = match[0];
+    const previous = tokens.at(-1);
+    if (previous?.key && DATE_KEYS.has(previous.key) && isDateWord(text)) {
+      previous.end = match.index + text.length;
+      previous.text = query.slice(previous.start, previous.end);
+      previous.value = previous.text.slice(previous.key.length + 1).replaceAll('"', "");
+      continue;
+    }
     const modifier = /^([a-z]+):(.*)$/i.exec(text);
     const key = modifier?.[1].toLowerCase();
     const known = !!key && MODIFIER_KEYS.has(key);
@@ -45,6 +55,24 @@ export function searchTokens(query: string): SearchToken[] {
     });
   }
   return tokens;
+}
+
+// Words of dates, such as "last", "week", and "september". The server has
+// the full rules. Here a start of a word is enough, because the last word is
+// often still being typed.
+const DATE_WORDS = [
+  ..."today yesterday this last past ago of day days week weeks month months year years".split(
+    " ",
+  ),
+  ..."january february march april may june july august september october november december".split(
+    " ",
+  ),
+  ..."monday tuesday wednesday thursday friday saturday sunday".split(" "),
+];
+
+function isDateWord(word: string): boolean {
+  const w = word.toLowerCase().replace(/,$/, "");
+  return /^[\d/.-]+(st|nd|rd|th)?$/.test(w) || DATE_WORDS.some((d) => d.startsWith(w));
 }
 
 // The token that the cursor is in or at the end of. Between tokens, it is

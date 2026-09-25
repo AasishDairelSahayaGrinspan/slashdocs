@@ -52,6 +52,13 @@ describe("DocumentSearchInput", () => {
     expect(screen.getByRole("option", { name: /this month/i })).toBeVisible();
   });
 
+  it("completes a date phrase", async () => {
+    const { user, input } = setup();
+    await user.type(input, "budget after:last w");
+    await user.keyboard("{Enter}");
+    expect(input).toHaveValue("budget after:last week ");
+  });
+
   it("autocompletes a person with keyboard navigation", async () => {
     const { user, input, fetchMock } = setup({
       "/v1/users?q=ali": {

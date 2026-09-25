@@ -26,6 +26,21 @@ describe("document search query helpers", () => {
     });
   });
 
+  it("runs a date over the next date words", () => {
+    expect(searchTokens("after:last week budget").map((t) => t.text)).toEqual([
+      "after:last week",
+      "budget",
+    ]);
+    expect(searchTokens("on:5th sept, 2025 plan")[0]).toMatchObject({
+      key: "on",
+      value: "5th sept, 2025",
+    });
+    expect(searchTokenAt("after:last we", 13)).toMatchObject({
+      key: "after",
+      value: "last we",
+    });
+  });
+
   it("finds the token at the cursor, or an empty one between tokens", () => {
     expect(searchTokenAt("incident from:ali", 17)).toMatchObject({
       key: "from",

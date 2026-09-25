@@ -6,6 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/misc";
 import { queryKeys } from "@/lib/queryKeys";
 import {
+  DATE_KEYS,
   quoteSearchValue,
   replaceSearchToken,
   SEARCH_MODIFIERS,
@@ -22,8 +23,6 @@ type Suggestion = {
 };
 
 type Suggestions = { heading: string; items: Suggestion[]; status?: string };
-
-const DATE_KEYS = new Set(["before", "after", "on", "during"]);
 
 // A Slack-style search box: modifiers are highlighted as you type, and the
 // menu below suggests modifiers, people, folders, and dates for the token at
@@ -141,7 +140,7 @@ export function DocumentSearchInput({
             choose(activeIndex);
           }
         }}
-        placeholder="Search, or try from: in: after:"
+        placeholder="Search every word, even the footnotes…"
         className="w-full pl-9 text-transparent caret-[var(--color-fg)] sm:w-[360px]"
         role="combobox"
         aria-label="Search documents"
@@ -279,18 +278,16 @@ function suggestionsFor(
     };
   }
   if (DATE_KEYS.has(key)) {
-    const items = dateValues(key)
-      .filter((d) => d.value.startsWith(typed))
-      .map((d) => ({
-        label: d.value,
-        detail: d.detail,
-        icon: <Calendar className="h-4 w-4" />,
-        replacement: `${key}:${d.value}`,
-      }));
+    const items = dateValues(typed.trim()).map((d) => ({
+      label: d.value,
+      detail: d.detail,
+      icon: <Calendar className="h-4 w-4" />,
+      replacement: `${key}:${d.value}`,
+    }));
     return {
       heading: "Dates",
       items,
-      status: `Or type a date, like ${isoDay(new Date())}`,
+      status: `Also works: ${dayLabel(new Date())}, 5 march, 3 days ago`,
     };
   }
   return null;
@@ -308,29 +305,55 @@ function statusFor(
   return undefined;
 }
 
-function dateValues(key: string): { value: string; detail: string }[] {
+// Common dates come first. Typing also finds months and weekdays.
+function dateValues(typed: string): { value: string; detail: string }[] {
   const now = new Date();
-  const values = [
-    { value: "today", detail: isoDay(now) },
-    { value: "yesterday", detail: isoDay(new Date(now.getTime() - 86_400_000)) },
-  ];
-  if (key !== "during") return values;
+  const day = (offset: number) =>
+    new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+  const monday = -((now.getDay() + 6) % 7);
+  const monthName = (date: Date) => date.toLocaleString("en-US", { month: "long" });
   const month = (offset: number) =>
-    new Date(now.getFullYear(), now.getMonth() - offset, 1);
-  const monthName = (date: Date) =>
-    date.toLocaleString("en-US", { month: "long" }).toLowerCase();
-  return [
-    ...values,
-    { value: monthName(month(0)), detail: "This month" },
-    { value: monthName(month(1)), detail: "Last month" },
-    { value: String(now.getFullYear()), detail: "This year" },
-    { value: String(now.getFullYear() - 1), detail: "Last year" },
+    new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const common = [
+    { value: "today", detail: dayLabel(day(0)) },
+    { value: "yesterday", detail: dayLabel(day(-1)) },
+    { value: "this week", detail: `Since ${dayLabel(day(monday))}` },
+    {
+      value: "last week",
+      detail: `${dayLabel(day(monday - 7))} to ${dayLabel(day(monday - 1))}`,
+    },
+    { value: "last 7 days", detail: `Since ${dayLabel(day(-6))}` },
+    { value: "this month", detail: monthName(month(0)) },
+    { value: "last month", detail: monthName(month(-1)) },
+    { value: "this year", detail: String(now.getFullYear()) },
+    { value: "last year", detail: String(now.getFullYear() - 1) },
   ];
+  if (!typed) return common;
+  // A month or a weekday without a year is the most recent one.
+  const months = Array.from({ length: 12 }, (_, index) => {
+    const date = new Date(
+      now.getFullYear() - (index > now.getMonth() ? 1 : 0),
+      index,
+      1,
+    );
+    return {
+      value: monthName(date).toLowerCase(),
+      detail: `${monthName(date)} ${date.getFullYear()}`,
+    };
+  });
+  const weekdays = Array.from({ length: 7 }, (_, index) => ({
+    value: day(-index).toLocaleString("en-US", { weekday: "long" }).toLowerCase(),
+    detail: dayLabel(day(-index)),
+  }));
+  return [...common, ...months, ...weekdays]
+    .filter((d) => d.value.startsWith(typed))
+    .slice(0, 8);
 }
 
-function isoDay(date: Date): string {
+// Search dates show as dd-mm-yy, a form that the server also reads.
+function dayLabel(date: Date): string {
   const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+  return `${pad(date.getDate())}-${pad(date.getMonth() + 1)}-${pad(date.getFullYear() % 100)}`;
 }
 
 function useDebounced(value: string, delay: number): string {

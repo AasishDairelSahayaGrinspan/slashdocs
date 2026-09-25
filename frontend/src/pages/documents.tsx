@@ -241,7 +241,10 @@ export function DocumentsPage() {
         <EmptyDocs />
       ) : searching ? (
         documents.length === 0 && folders.length === 0 ? (
-          <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
+          <EmptyState
+            title="No matches"
+            description={`We read every page of every document. "${q}" is not on any of them.`}
+          />
         ) : viewMode === "list" ? (
           <UnifiedTable
             entries={entries}
