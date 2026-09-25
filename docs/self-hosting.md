@@ -571,6 +571,11 @@ configured for the server.
 comments, grants, sessions, and OAuth state in Postgres. Documents are
 versioned immutably; each push creates a new version.
 
+For search, Postgres also keeps the visible text of each new version. After an
+upgrade from a release without content search, every server reads the older
+current versions from blob storage in the background and indexes them. Until a
+document is indexed, search matches its title only.
+
 For v1, each document should be one self-contained HTML file. If a
 document needs images, embed them as data URLs:
 

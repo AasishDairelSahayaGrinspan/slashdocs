@@ -115,11 +115,23 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	workerCtx, cancelWorker := context.WithCancel(ctx)
-	workerDone := make(chan struct{})
-	go func() { defer close(workerDone); srv.RunCommentNotifications(workerCtx) }()
-	defer func() { cancelWorker(); <-workerDone }()
+	workerCtx, cancelWorkers := context.WithCancel(ctx)
+	var workers sync.WaitGroup
+	workers.Go(func() { srv.RunCommentNotifications(workerCtx) })
+	workers.Go(func() { indexVersions(workerCtx, store) })
+	defer func() { cancelWorkers(); workers.Wait() }()
 	return serve(ctx, srv.Handler(), ":"+envOrDefault("AIDOCS_PORT", "8080"), ":"+envOrDefault("AIDOCS_METRICS_PORT", "9090"))
+}
+
+// indexVersions gives search text to versions that were created before
+// content search. After the first run, it finds nothing to do.
+func indexVersions(ctx context.Context, store *pgrepo.Store) {
+	indexed, err := store.IndexVersions(ctx)
+	if err != nil && ctx.Err() == nil {
+		slog.ErrorContext(ctx, "version indexing stopped", slog.Int("indexed", indexed), slog.Any("error", err))
+	} else if indexed > 0 {
+		slog.InfoContext(ctx, "versions indexed for search", slog.Int("indexed", indexed))
+	}
 }
 
 // newKVEventListenerFactory returns the interface type, not the concrete

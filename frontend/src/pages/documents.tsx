@@ -20,6 +20,7 @@ import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
 import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
 import { UploadBackupItem } from "@/components/browse/upload-backup";
 import { DocumentSearchInput } from "@/components/browse/document-search-input";
+import { SearchResults } from "@/components/browse/search-results";
 import { hasDocumentSearchOperators } from "@/lib/search-query";
 import {
   DndContext,
@@ -78,32 +79,41 @@ export function DocumentsPage() {
     [pins.data],
   );
 
-  // Merge folders and documents into a single list sorted by pinned status, last activity, then alphabetically
-  const merged = useMemo(() => {
-    const folderItems: FolderEntry[] = folderEntries.map((e) => ({
-      type: "folder" as const,
-      folder: e.folder,
-      last_active: e.last_active,
-    }));
-    const docItems: FolderEntry[] = documents.map((d) => ({
-      type: "document" as const,
-      document: d,
-      last_active: d.updated_at,
-    }));
-    return [...folderItems, ...docItems].sort((a, b) => {
-      const ap = pinnedIds.has(a.folder?.id || docID(a.document!));
-      const bp = pinnedIds.has(b.folder?.id || docID(b.document!));
-      if (ap !== bp) return ap ? -1 : 1;
-      const ta = a.last_active || "";
-      const tb = b.last_active || "";
-      if (ta && tb) return tb.localeCompare(ta);
-      if (tb) return 1;
-      if (ta) return -1;
-      const na = (a.folder?.title || a.document?.title || "").toLowerCase();
-      const nb = (b.folder?.title || b.document?.title || "").toLowerCase();
-      return na.localeCompare(nb);
-    });
-  }, [folderEntries, documents, pinnedIds]);
+  const entries = useMemo<FolderEntry[]>(
+    () => [
+      ...folderEntries.map((e) => ({
+        type: "folder" as const,
+        folder: e.folder,
+        last_active: e.last_active,
+      })),
+      ...documents.map((d) => ({
+        type: "document" as const,
+        document: d,
+        last_active: d.updated_at,
+      })),
+    ],
+    [folderEntries, documents],
+  );
+
+  // Browsing sorts by pinned status, last activity, then title. Search
+  // results keep the server's order, which is by relevance.
+  const merged = useMemo(
+    () =>
+      [...entries].sort((a, b) => {
+        const ap = pinnedIds.has(a.folder?.id || docID(a.document!));
+        const bp = pinnedIds.has(b.folder?.id || docID(b.document!));
+        if (ap !== bp) return ap ? -1 : 1;
+        const ta = a.last_active || "";
+        const tb = b.last_active || "";
+        if (ta && tb) return tb.localeCompare(ta);
+        if (tb) return 1;
+        if (ta) return -1;
+        const na = (a.folder?.title || a.document?.title || "").toLowerCase();
+        const nb = (b.folder?.title || b.document?.title || "").toLowerCase();
+        return na.localeCompare(nb);
+      }),
+    [entries, pinnedIds],
+  );
 
   const viewMode = viewModeStore.useStore();
   const [newFolderOpen, setNewFolderOpen] = useState(false);
@@ -233,10 +243,8 @@ export function DocumentsPage() {
       ) : searching ? (
         documents.length === 0 && folders.length === 0 ? (
           <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
-        ) : viewMode === "list" ? (
-          <UnifiedTable entries={merged} principal={me.data?.principal} />
         ) : (
-          <UnifiedGrid entries={merged} />
+          <SearchResults entries={entries} />
         )
       ) : (
         <DndContext

@@ -65,6 +65,11 @@ definitions:
         $ref: '#/definitions/repo.FolderBreadcrumb'
       parent_folder_id:
         type: string
+      snippet:
+        description: |-
+          Snippet is set in search results when the text matches. U+0002 and
+          U+0003 surround each match.
+        type: string
       title:
         type: string
       updated_at:
@@ -890,7 +895,7 @@ paths:
   /v1/documents:
     get:
       parameters:
-      - description: 'Slack-style search: words, \'
+      - description: 'Slack-style search of titles and text: words, \'
         in: query
         name: q
         type: string

@@ -367,7 +367,7 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Slack-style search: words, \\",
+                        "description": "Slack-style search of titles and text: words, \\",
                         "name": "q",
                         "in": "query"
                     },
@@ -1989,6 +1989,10 @@ const docTemplate = `{
                     "$ref": "#/definitions/repo.FolderBreadcrumb"
                 },
                 "parent_folder_id": {
+                    "type": "string"
+                },
+                "snippet": {
+                    "description": "Snippet is set in search results when the text matches. U+0002 and\nU+0003 surround each match.",
                     "type": "string"
                 },
                 "title": {

@@ -1,12 +1,26 @@
 -- name: InsertInitialVersion :one
-INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
-VALUES($1,$2,1,$3,$4,NULL,$5,$6,'')
+INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary,search_text)
+VALUES($1,$2,1,$3,$4,NULL,$5,$6,'',sqlc.arg(search_text)::text)
 RETURNING created_at;
 
 -- name: InsertVersion :one
-INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary,search_text)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,sqlc.arg(search_text)::text)
 RETURNING created_at;
+
+-- name: ListUnindexedVersions :many
+-- Locks the rows, so that servers that index at the same time skip each
+-- other's versions. Only current versions are searched.
+SELECT v.id, v.html_blob_key
+FROM versions v
+JOIN documents d ON d.current_version_id = v.id
+WHERE v.search_text IS NULL AND v.id <> ALL(COALESCE(@skipped::text[], '{}'))
+ORDER BY v.id
+LIMIT @row_limit
+FOR UPDATE OF v SKIP LOCKED;
+
+-- name: SetVersionSearchText :exec
+UPDATE versions SET search_text = @search_text::text WHERE id = @id;
 
 -- name: ListVersions :many
 SELECT

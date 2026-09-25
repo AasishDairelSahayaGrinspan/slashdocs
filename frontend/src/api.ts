@@ -24,6 +24,8 @@ export type Document = {
   parent_folder?: { id: string; title: string };
   updated_at?: string;
   labels?: string[];
+  // Search results only: the matching text. U+0002 and U+0003 surround each match.
+  snippet?: string;
 };
 export type ServerConfig = {
   deployment: "public" | "org";

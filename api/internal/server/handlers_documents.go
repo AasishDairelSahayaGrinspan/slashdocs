@@ -105,7 +105,7 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Produce json
-// @Param q query string false "Slack-style search: words, \"phrases\", -word, from:, in:, label:, before:, after:, on:, and during:"
+// @Param q query string false "Slack-style search of titles and text: words, \"phrases\", -word, from:, in:, label:, before:, after:, on:, and during:"
 // @Param tz query string false "IANA time zone for date modifiers; defaults to UTC"
 // @Param label query string false "Deprecated exact label filter; use q=label:<label>"
 // @Success 200 {object} listResponse[repo.Document]

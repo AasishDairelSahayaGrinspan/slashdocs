@@ -245,7 +245,7 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 
 	// Now the viewer can find the doc via folder inheritance
 	results, err = store.SearchDocuments(ctx, viewer, repo.DocumentSearch{
-		Terms:         []string{"searchable", "infolder"},
+		Terms:         []string{"searchablein"},
 		ExcludedTerms: []string{"draft"},
 		Owners:        []string{"missing@test.com", "search-folder-owner"},
 		Folders:       []string{"checkout", "payments platform"},

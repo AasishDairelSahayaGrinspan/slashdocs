@@ -79,8 +79,8 @@ func (q *Queries) GetVersionBlobKey(ctx context.Context, id string) (string, err
 }
 
 const insertInitialVersion = `-- name: InsertInitialVersion :one
-INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
-VALUES($1,$2,1,$3,$4,NULL,$5,$6,'')
+INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary,search_text)
+VALUES($1,$2,1,$3,$4,NULL,$5,$6,'',$7::text)
 RETURNING created_at
 `
 
@@ -91,6 +91,7 @@ type InsertInitialVersionParams struct {
 	Sha256        string
 	CreatedByType string
 	CreatedByID   string
+	SearchText    string
 }
 
 func (q *Queries) InsertInitialVersion(ctx context.Context, arg InsertInitialVersionParams) (pgtype.Timestamptz, error) {
@@ -101,6 +102,7 @@ func (q *Queries) InsertInitialVersion(ctx context.Context, arg InsertInitialVer
 		arg.Sha256,
 		arg.CreatedByType,
 		arg.CreatedByID,
+		arg.SearchText,
 	)
 	var created_at pgtype.Timestamptz
 	err := row.Scan(&created_at)
@@ -108,8 +110,8 @@ func (q *Queries) InsertInitialVersion(ctx context.Context, arg InsertInitialVer
 }
 
 const insertVersion = `-- name: InsertVersion :one
-INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary)
-VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+INSERT INTO versions(id,document_id,number,html_blob_key,sha256,parent_version_id,created_by_type,created_by_id,change_summary,search_text)
+VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::text)
 RETURNING created_at
 `
 
@@ -123,6 +125,7 @@ type InsertVersionParams struct {
 	CreatedByType   string
 	CreatedByID     string
 	ChangeSummary   string
+	SearchText      string
 }
 
 func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) (pgtype.Timestamptz, error) {
@@ -136,10 +139,53 @@ func (q *Queries) InsertVersion(ctx context.Context, arg InsertVersionParams) (p
 		arg.CreatedByType,
 		arg.CreatedByID,
 		arg.ChangeSummary,
+		arg.SearchText,
 	)
 	var created_at pgtype.Timestamptz
 	err := row.Scan(&created_at)
 	return created_at, err
+}
+
+const listUnindexedVersions = `-- name: ListUnindexedVersions :many
+SELECT v.id, v.html_blob_key
+FROM versions v
+JOIN documents d ON d.current_version_id = v.id
+WHERE v.search_text IS NULL AND v.id <> ALL(COALESCE($1::text[], '{}'))
+ORDER BY v.id
+LIMIT $2
+FOR UPDATE OF v SKIP LOCKED
+`
+
+type ListUnindexedVersionsParams struct {
+	Skipped  []string
+	RowLimit int32
+}
+
+type ListUnindexedVersionsRow struct {
+	ID          string
+	HtmlBlobKey string
+}
+
+// Locks the rows, so that servers that index at the same time skip each
+// other's versions. Only current versions are searched.
+func (q *Queries) ListUnindexedVersions(ctx context.Context, arg ListUnindexedVersionsParams) ([]ListUnindexedVersionsRow, error) {
+	rows, err := q.db.Query(ctx, listUnindexedVersions, arg.Skipped, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListUnindexedVersionsRow
+	for rows.Next() {
+		var i ListUnindexedVersionsRow
+		if err := rows.Scan(&i.ID, &i.HtmlBlobKey); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listVersions = `-- name: ListVersions :many
@@ -210,4 +256,18 @@ func (q *Queries) ListVersions(ctx context.Context, documentID string) ([]ListVe
 		return nil, err
 	}
 	return items, nil
+}
+
+const setVersionSearchText = `-- name: SetVersionSearchText :exec
+UPDATE versions SET search_text = $1::text WHERE id = $2
+`
+
+type SetVersionSearchTextParams struct {
+	SearchText string
+	ID         string
+}
+
+func (q *Queries) SetVersionSearchText(ctx context.Context, arg SetVersionSearchTextParams) error {
+	_, err := q.db.Exec(ctx, setVersionSearchText, arg.SearchText, arg.ID)
+	return err
 }

@@ -83,6 +83,8 @@ LIMIT 25;
 UPDATE documents SET title=$1,updated_at=now() WHERE id=$2;
 
 -- name: SearchDocuments :many
+-- @match_query and @exclude_query are tsquery text. A document matches when
+-- its title or current text matches. Title words rank higher.
 WITH RECURSIVE folder_ancestors(doc_id, fid, depth) AS (
   SELECT d2.id, d2.parent_folder_id, 1
   FROM documents d2
@@ -99,21 +101,33 @@ docs_via_folder AS (
   WHERE (g.principal_type= @owner_type AND g.principal_id= @owner_id)
      OR (g.principal_type='google_group' AND g.principal_id=ANY(@google_group_ids::text[]))
      OR (@include_org_wide::boolean AND g.principal_type='anyone')
-)
-SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
-       COALESCE(u.email,'') AS owner_email,
-       COALESCE(u.name,sa.name,'') AS owner_name,
-       d.updated_at
-FROM documents d
-LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
-LEFT JOIN service_accounts sa
-  ON d.owner_type='service_account' AND sa.id=d.owner_id
-WHERE NOT EXISTS (
-    SELECT 1 FROM unnest(@terms::text[]) AS term WHERE strpos(lower(d.title), term) = 0
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM unnest(@excluded_terms::text[]) AS term WHERE strpos(lower(d.title), term) > 0
-  )
+),
+search AS (
+  SELECT to_tsquery('english', @match_query::text) AS match,
+         to_tsquery('english', @exclude_query::text) AS exclude
+),
+matches AS (
+  SELECT d.id, d.title, d.current_version_id, d.owner_type, d.owner_id,
+         COALESCE(u.email,'') AS owner_email,
+         COALESCE(u.name,sa.name,'') AS owner_name,
+         COALESCE(pf.id,'') AS parent_folder_id,
+         COALESCE(pf.title,'') AS parent_folder_title,
+         d.updated_at,
+         cv.search_text,
+         cv.search_vector,
+         ts_rank(doc.vector, search.match) AS rank
+  FROM documents d
+  CROSS JOIN search
+  LEFT JOIN versions cv ON cv.id=d.current_version_id
+  LEFT JOIN folders pf ON pf.id=d.parent_folder_id
+  LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+  LEFT JOIN service_accounts sa
+    ON d.owner_type='service_account' AND sa.id=d.owner_id
+  CROSS JOIN LATERAL (
+    SELECT setweight(to_tsvector('english', d.title), 'A') || COALESCE(cv.search_vector, '') AS vector
+  ) doc
+  WHERE (numnode(search.match) = 0 OR doc.vector @@ search.match)
+  AND NOT doc.vector @@ search.exclude
   AND (
     COALESCE(cardinality(@owners::text[]), 0) = 0
     OR lower(d.owner_id) = ANY(@owners::text[])
@@ -153,8 +167,19 @@ WHERE NOT EXISTS (
     )
     OR d.id IN (SELECT doc_id FROM docs_via_folder)
   )
-ORDER BY d.updated_at DESC, d.title
-LIMIT @row_limit;
+  ORDER BY rank DESC, d.updated_at DESC, d.title
+  LIMIT @row_limit
+)
+-- Snippets are made after LIMIT, because ts_headline reads the whole text.
+SELECT m.id, m.title, m.current_version_id, m.owner_type, m.owner_id,
+       m.owner_email, m.owner_name, m.parent_folder_id, m.parent_folder_title, m.updated_at,
+       CASE WHEN m.search_vector @@ search.match
+         THEN ts_headline('english', m.search_text, search.match,
+           'MaxFragments=1,MaxWords=24,MinWords=12,StartSel="'||chr(2)||'",StopSel="'||chr(3)||'"')
+         ELSE '' END::text AS snippet
+FROM matches m
+CROSS JOIN search
+ORDER BY m.rank DESC, m.updated_at DESC, m.title;
 
 -- name: DeleteDocument :execrows
 DELETE FROM documents WHERE id=$1;

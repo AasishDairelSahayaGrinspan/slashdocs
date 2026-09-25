@@ -89,6 +89,9 @@ type Document struct {
 	ParentFolder     *FolderBreadcrumb `json:"parent_folder,omitempty"`
 	UpdatedAt        string            `json:"updated_at,omitempty"`
 	Labels           []string          `json:"labels,omitempty"`
+	// Snippet is set in search results when the text matches. U+0002 and
+	// U+0003 surround each match.
+	Snippet string `json:"snippet,omitempty"`
 }
 
 type FolderBreadcrumb struct {
@@ -123,8 +126,8 @@ type FolderEntry struct {
 // DocumentSearch filters documents. All values are lowercase, and empty
 // fields do not filter.
 type DocumentSearch struct {
-	Terms         []string // Every term is in the title.
-	ExcludedTerms []string // No term is in the title.
+	Terms         []string // Every term is in the title or the text.
+	ExcludedTerms []string // No term is in the title or the text.
 	Owners        []string // The owner's ID, email, or email name is one of these.
 	Folders       []string // A folder that holds the document has one of these titles or IDs.
 	Labels        []string // The document has every label.

@@ -333,106 +333,134 @@ docs_via_folder AS (
   SELECT DISTINCT fa.doc_id
   FROM folder_ancestors fa
   JOIN resource_grants g ON g.resource_type='folder' AND g.resource_id=fa.fid AND g.revoked_at IS NULL
-  WHERE (g.principal_type= $8 AND g.principal_id= $9)
-     OR (g.principal_type='google_group' AND g.principal_id=ANY($10::text[]))
-     OR ($11::boolean AND g.principal_type='anyone')
-)
-SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
-       COALESCE(u.email,'') AS owner_email,
-       COALESCE(u.name,sa.name,'') AS owner_name,
-       d.updated_at
-FROM documents d
-LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
-LEFT JOIN service_accounts sa
-  ON d.owner_type='service_account' AND sa.id=d.owner_id
-WHERE NOT EXISTS (
-    SELECT 1 FROM unnest($1::text[]) AS term WHERE strpos(lower(d.title), term) = 0
-  )
-  AND NOT EXISTS (
-    SELECT 1 FROM unnest($2::text[]) AS term WHERE strpos(lower(d.title), term) > 0
+  WHERE (g.principal_type= $1 AND g.principal_id= $2)
+     OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[]))
+     OR ($4::boolean AND g.principal_type='anyone')
+),
+search AS (
+  SELECT to_tsquery('english', $5::text) AS match,
+         to_tsquery('english', $6::text) AS exclude
+),
+matches AS (
+  SELECT d.id, d.title, d.current_version_id, d.owner_type, d.owner_id,
+         COALESCE(u.email,'') AS owner_email,
+         COALESCE(u.name,sa.name,'') AS owner_name,
+         COALESCE(pf.id,'') AS parent_folder_id,
+         COALESCE(pf.title,'') AS parent_folder_title,
+         d.updated_at,
+         cv.search_text,
+         cv.search_vector,
+         ts_rank(doc.vector, search.match) AS rank
+  FROM documents d
+  CROSS JOIN search
+  LEFT JOIN versions cv ON cv.id=d.current_version_id
+  LEFT JOIN folders pf ON pf.id=d.parent_folder_id
+  LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
+  LEFT JOIN service_accounts sa
+    ON d.owner_type='service_account' AND sa.id=d.owner_id
+  CROSS JOIN LATERAL (
+    SELECT setweight(to_tsvector('english', d.title), 'A') || COALESCE(cv.search_vector, '') AS vector
+  ) doc
+  WHERE (numnode(search.match) = 0 OR doc.vector @@ search.match)
+  AND NOT doc.vector @@ search.exclude
+  AND (
+    COALESCE(cardinality($7::text[]), 0) = 0
+    OR lower(d.owner_id) = ANY($7::text[])
+    OR lower(u.email) = ANY($7::text[])
+    OR lower(split_part(u.email, '@', 1)) = ANY($7::text[])
+    OR lower(sa.name) = ANY($7::text[])
   )
   AND (
-    COALESCE(cardinality($3::text[]), 0) = 0
-    OR lower(d.owner_id) = ANY($3::text[])
-    OR lower(u.email) = ANY($3::text[])
-    OR lower(split_part(u.email, '@', 1)) = ANY($3::text[])
-    OR lower(sa.name) = ANY($3::text[])
-  )
-  AND (
-    COALESCE(cardinality($4::text[]), 0) = 0
+    COALESCE(cardinality($8::text[]), 0) = 0
     OR EXISTS (
       SELECT 1
       FROM folder_ancestors search_folder_ancestor
       JOIN folders search_folder ON search_folder.id=search_folder_ancestor.fid
       WHERE search_folder_ancestor.doc_id=d.id
-        AND (search_folder.id = ANY($4::text[]) OR lower(search_folder.title) = ANY($4::text[]))
+        AND (search_folder.id = ANY($8::text[]) OR lower(search_folder.title) = ANY($8::text[]))
     )
   )
   AND NOT EXISTS (
-    SELECT 1 FROM unnest($5::text[]) AS requested_label
+    SELECT 1 FROM unnest($9::text[]) AS requested_label
     WHERE NOT EXISTS (
       SELECT 1 FROM document_labels dl
       WHERE dl.document_id=d.id AND dl.label = requested_label
     )
   )
-  AND ($6::timestamptz IS NULL OR d.updated_at >= $6)
-  AND ($7::timestamptz IS NULL OR d.updated_at < $7)
+  AND ($10::timestamptz IS NULL OR d.updated_at >= $10)
+  AND ($11::timestamptz IS NULL OR d.updated_at < $11)
   AND (
-    (d.owner_type= $8 AND d.owner_id= $9)
+    (d.owner_type= $1 AND d.owner_id= $2)
     OR EXISTS (
       SELECT 1 FROM resource_grants g
       WHERE g.resource_type='document'
         AND g.resource_id=d.id
         AND g.revoked_at IS NULL
-        AND ((g.principal_type= $8 AND g.principal_id= $9)
-          OR (g.principal_type='google_group' AND g.principal_id=ANY($10::text[]))
-          OR ($11::boolean AND g.principal_type='anyone'))
+        AND ((g.principal_type= $1 AND g.principal_id= $2)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY($3::text[]))
+          OR ($4::boolean AND g.principal_type='anyone'))
     )
     OR d.id IN (SELECT doc_id FROM docs_via_folder)
   )
-ORDER BY d.updated_at DESC, d.title
-LIMIT $12
+  ORDER BY rank DESC, d.updated_at DESC, d.title
+  LIMIT $12
+)
+SELECT m.id, m.title, m.current_version_id, m.owner_type, m.owner_id,
+       m.owner_email, m.owner_name, m.parent_folder_id, m.parent_folder_title, m.updated_at,
+       CASE WHEN m.search_vector @@ search.match
+         THEN ts_headline('english', m.search_text, search.match,
+           'MaxFragments=1,MaxWords=24,MinWords=12,StartSel="'||chr(2)||'",StopSel="'||chr(3)||'"')
+         ELSE '' END::text AS snippet
+FROM matches m
+CROSS JOIN search
+ORDER BY m.rank DESC, m.updated_at DESC, m.title
 `
 
 type SearchDocumentsParams struct {
-	Terms          []string
-	ExcludedTerms  []string
+	OwnerType      string
+	OwnerID        string
+	GoogleGroupIds []string
+	IncludeOrgWide bool
+	MatchQuery     string
+	ExcludeQuery   string
 	Owners         []string
 	Folders        []string
 	Labels         []string
 	UpdatedSince   pgtype.Timestamptz
 	UpdatedBefore  pgtype.Timestamptz
-	OwnerType      string
-	OwnerID        string
-	GoogleGroupIds []string
-	IncludeOrgWide bool
 	RowLimit       int32
 }
 
 type SearchDocumentsRow struct {
-	ID               string
-	Title            string
-	CurrentVersionID pgtype.Text
-	OwnerType        string
-	OwnerID          string
-	OwnerEmail       string
-	OwnerName        string
-	UpdatedAt        pgtype.Timestamptz
+	ID                string
+	Title             string
+	CurrentVersionID  pgtype.Text
+	OwnerType         string
+	OwnerID           string
+	OwnerEmail        string
+	OwnerName         string
+	ParentFolderID    string
+	ParentFolderTitle string
+	UpdatedAt         pgtype.Timestamptz
+	Snippet           string
 }
 
+// @match_query and @exclude_query are tsquery text. A document matches when
+// its title or current text matches. Title words rank higher.
+// Snippets are made after LIMIT, because ts_headline reads the whole text.
 func (q *Queries) SearchDocuments(ctx context.Context, arg SearchDocumentsParams) ([]SearchDocumentsRow, error) {
 	rows, err := q.db.Query(ctx, searchDocuments,
-		arg.Terms,
-		arg.ExcludedTerms,
+		arg.OwnerType,
+		arg.OwnerID,
+		arg.GoogleGroupIds,
+		arg.IncludeOrgWide,
+		arg.MatchQuery,
+		arg.ExcludeQuery,
 		arg.Owners,
 		arg.Folders,
 		arg.Labels,
 		arg.UpdatedSince,
 		arg.UpdatedBefore,
-		arg.OwnerType,
-		arg.OwnerID,
-		arg.GoogleGroupIds,
-		arg.IncludeOrgWide,
 		arg.RowLimit,
 	)
 	if err != nil {
@@ -450,7 +478,10 @@ func (q *Queries) SearchDocuments(ctx context.Context, arg SearchDocumentsParams
 			&i.OwnerID,
 			&i.OwnerEmail,
 			&i.OwnerName,
+			&i.ParentFolderID,
+			&i.ParentFolderTitle,
 			&i.UpdatedAt,
+			&i.Snippet,
 		); err != nil {
 			return nil, err
 		}

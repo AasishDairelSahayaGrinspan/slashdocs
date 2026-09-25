@@ -63,8 +63,10 @@ aidocs docs list 'incident from:alice@example.com label:api,review in:"Product S
 aidocs docs list 'rollout -draft from:me during:september' --json
 ```
 
-Every word must appear in the title. `"quoted text"` matches as written, and
-`-word` excludes titles that contain the word. `from:` (an email, the name
+Every word must appear in the title or the text of the latest version, and
+the most relevant documents come first. A word also matches longer words that
+start with it. `"quoted text"` matches the words in order, and `-word`
+excludes documents that contain the word. `from:` (an email, the name
 before the @, or `me`), `in:` (a folder or any folder above the document),
 `label:`, `before:`, `after:`, `on:`, and `during:` narrow the results. Repeat
 `from:` or `in:` to match any of the values. Dates are `YYYY-MM-DD`, `today`,

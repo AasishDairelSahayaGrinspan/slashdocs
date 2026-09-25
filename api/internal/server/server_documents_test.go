@@ -119,7 +119,7 @@ func TestDocumentSearchPrimitives(t *testing.T) {
 		`fixture from:someone-else`,
 		`fixture before:today`,
 		`fixture label:missing`,
-		`"from:me"`,
+		`"label:payments"`,
 	} {
 		if body := search("q=" + url.QueryEscape(query)); strings.Contains(body, e.doc.ID) {
 			t.Errorf("search %q returned the document: %s", query, body)

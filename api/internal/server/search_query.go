@@ -13,8 +13,8 @@ import (
 )
 
 // Document search follows Slack's search language. Every word must appear in
-// the title, "quoted text" must appear as written, and -word excludes titles
-// that contain the word. Modifiers filter the results:
+// the title or the text, "quoted text" matches its words in order, and -word
+// excludes documents that contain the word. Modifiers filter the results:
 //
 //	from:<person>    the owner: an email, the name before the @, or me
 //	in:<folder>      a folder title or ID, or a folder above it

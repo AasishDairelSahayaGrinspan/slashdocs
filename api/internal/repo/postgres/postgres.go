@@ -323,7 +323,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 	if err := q.InsertDocument(ctx, dbsqlc.InsertDocumentParams{ID: docID, Title: title, OwnerType: string(owner.Type), OwnerID: owner.ID}); err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
-	createdAt, err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID})
+	createdAt, err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID, SearchText: searchText(html)})
 	if err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
@@ -510,7 +510,7 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 			_ = s.blobs.Delete(context.WithoutCancel(ctx), blobKey)
 		}
 	}()
-	createdAt, err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: cur.NextNumber, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary})
+	createdAt, err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: cur.NextNumber, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary, SearchText: searchText(html)})
 	if err != nil {
 		return repo.Version{}, err
 	}
@@ -816,8 +816,8 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 }
 func (s *Store) SearchDocuments(ctx context.Context, p auth.Principal, search repo.DocumentSearch, includeOrgWide bool, limit int32) ([]repo.Document, error) {
 	rows, err := s.q.SearchDocuments(ctx, dbsqlc.SearchDocumentsParams{
-		Terms:          search.Terms,
-		ExcludedTerms:  search.ExcludedTerms,
+		MatchQuery:     tsquery(search.Terms, " & "),
+		ExcludeQuery:   tsquery(search.ExcludedTerms, " | "),
 		Owners:         search.Owners,
 		Folders:        search.Folders,
 		Labels:         search.Labels,
@@ -1631,7 +1631,10 @@ func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
 	return d
 }
 func docFromSearch(r dbsqlc.SearchDocumentsRow) repo.Document {
-	d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}, ParentFolderID: r.ParentFolderID, Snippet: r.Snippet}
+	if r.ParentFolderID != "" {
+		d.ParentFolder = &repo.FolderBreadcrumb{ID: r.ParentFolderID, Title: r.ParentFolderTitle}
+	}
 	if r.UpdatedAt.Valid {
 		d.UpdatedAt = r.UpdatedAt.Time.Format(time.RFC3339)
 	}

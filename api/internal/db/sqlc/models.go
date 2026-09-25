@@ -303,4 +303,6 @@ type Version struct {
 	CreatedByID     string
 	ChangeSummary   string
 	CreatedAt       pgtype.Timestamptz
+	SearchText      pgtype.Text
+	SearchVector    interface{}
 }
