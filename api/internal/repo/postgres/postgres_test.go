@@ -3,6 +3,7 @@ package postgres_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/razorpay/aidocs/api/internal/auth"
 	"github.com/razorpay/aidocs/api/internal/blob"
@@ -227,7 +228,7 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 	}
 
 	// Before granting folder access, viewer cannot find the doc
-	results, err := store.SearchDocuments(ctx, viewer, repo.DocumentSearch{TitlePattern: "SearchableInFolder"}, false, 25)
+	results, err := store.SearchDocuments(ctx, viewer, repo.DocumentSearch{Terms: []string{"searchableinfolder"}}, false, 25)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -244,10 +245,13 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 
 	// Now the viewer can find the doc via folder inheritance
 	results, err = store.SearchDocuments(ctx, viewer, repo.DocumentSearch{
-		TitlePattern:  "Searchable.*Folder",
-		AuthorPattern: `search-folder-owner@test\.com$`,
-		LabelPatterns: []string{"^api-", "payments"},
-		FolderPattern: "Payments|Checkout",
+		Terms:         []string{"searchable", "infolder"},
+		ExcludedTerms: []string{"draft"},
+		Owners:        []string{"missing@test.com", "search-folder-owner"},
+		Folders:       []string{"checkout", "payments platform"},
+		Labels:        []string{"api-review", "payments"},
+		UpdatedSince:  time.Now().Add(-time.Hour),
+		UpdatedBefore: time.Now().Add(time.Hour),
 		IncludeLabels: true,
 	}, false, 25)
 	if err != nil {
@@ -267,7 +271,7 @@ func TestPostgresSearchDocumentsViaFolderGrant(t *testing.T) {
 		t.Fatalf("combined search results = %+v, want one result with labels", results)
 	}
 
-	results, err = store.SearchDocuments(ctx, viewer, repo.DocumentSearch{LabelPatterns: []string{"missing"}}, false, 25)
+	results, err = store.SearchDocuments(ctx, viewer, repo.DocumentSearch{Labels: []string{"payments", "missing"}}, false, 25)
 	if err != nil {
 		t.Fatal(err)
 	}

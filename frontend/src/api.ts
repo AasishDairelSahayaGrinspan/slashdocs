@@ -32,7 +32,6 @@ export type ServerConfig = {
   provider_name: string;
   google_groups_enabled: boolean;
   labels_enabled: boolean;
-  search_tags_enabled: boolean;
 };
 export type GoogleGroup = { id: string; email: string; name: string };
 export type Version = {
@@ -281,7 +280,11 @@ export const api = {
     `/v1/auth/google/start?mode=web&redirect=${encodeURIComponent(redirect)}`,
   listDocuments: (q?: string) => {
     const params = new URLSearchParams();
-    if (q) params.set("q", q);
+    if (q) {
+      params.set("q", q);
+      // Date modifiers such as on:today use the searcher's days.
+      params.set("tz", Intl.DateTimeFormat().resolvedOptions().timeZone);
+    }
     const qs = params.toString();
     return request<{ items: Document[] }>(`/v1/documents${qs ? `?${qs}` : ""}`);
   },

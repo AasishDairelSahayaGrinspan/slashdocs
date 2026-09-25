@@ -273,10 +273,6 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
-	searchTagsEnabled, err := boolEnv("AIDOCS_SEARCH_TAGS_ENABLED", false)
-	if err != nil {
-		return nil, err
-	}
 	oidcProvider, providerName, err := loadOIDC(ctx, origins.appOrigin)
 	if err != nil {
 		return nil, err
@@ -313,7 +309,6 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		GoogleGroupsEnabled:       googleGroups.enabled,
 		GoogleGroupsMembershipTTL: googleGroups.membershipTTL,
 		DisableLabels:             !labelsEnabled,
-		DisableSearchTags:         !searchTagsEnabled,
 	}, options...), nil
 }
 

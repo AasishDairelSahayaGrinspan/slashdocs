@@ -333,9 +333,9 @@ docs_via_folder AS (
   SELECT DISTINCT fa.doc_id
   FROM folder_ancestors fa
   JOIN resource_grants g ON g.resource_type='folder' AND g.resource_id=fa.fid AND g.revoked_at IS NULL
-  WHERE (g.principal_type= $5 AND g.principal_id= $6)
-     OR (g.principal_type='google_group' AND g.principal_id=ANY($7::text[]))
-     OR ($8::boolean AND g.principal_type='anyone')
+  WHERE (g.principal_type= $8 AND g.principal_id= $9)
+     OR (g.principal_type='google_group' AND g.principal_id=ANY($10::text[]))
+     OR ($11::boolean AND g.principal_type='anyone')
 )
 SELECT DISTINCT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(u.email,'') AS owner_email,
@@ -345,51 +345,63 @@ FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
 LEFT JOIN service_accounts sa
   ON d.owner_type='service_account' AND sa.id=d.owner_id
-WHERE ($1::text = '' OR d.title ~* $1::text)
-  AND (
-    $2::text = ''
-    OR COALESCE(NULLIF(u.email,''), NULLIF(sa.name,''), d.owner_id) ~* $2::text
+WHERE NOT EXISTS (
+    SELECT 1 FROM unnest($1::text[]) AS term WHERE strpos(lower(d.title), term) = 0
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM unnest($2::text[]) AS term WHERE strpos(lower(d.title), term) > 0
   )
   AND (
-    $3::text = ''
+    COALESCE(cardinality($3::text[]), 0) = 0
+    OR lower(d.owner_id) = ANY($3::text[])
+    OR lower(u.email) = ANY($3::text[])
+    OR lower(split_part(u.email, '@', 1)) = ANY($3::text[])
+    OR lower(sa.name) = ANY($3::text[])
+  )
+  AND (
+    COALESCE(cardinality($4::text[]), 0) = 0
     OR EXISTS (
       SELECT 1
       FROM folder_ancestors search_folder_ancestor
       JOIN folders search_folder ON search_folder.id=search_folder_ancestor.fid
       WHERE search_folder_ancestor.doc_id=d.id
-        AND search_folder.title ~* $3::text
+        AND (search_folder.id = ANY($4::text[]) OR lower(search_folder.title) = ANY($4::text[]))
     )
   )
   AND NOT EXISTS (
-    SELECT 1
-    FROM unnest($4::text[]) AS requested_label(pattern)
+    SELECT 1 FROM unnest($5::text[]) AS requested_label
     WHERE NOT EXISTS (
       SELECT 1 FROM document_labels dl
-      WHERE dl.document_id=d.id AND dl.label ~* requested_label.pattern
+      WHERE dl.document_id=d.id AND dl.label = requested_label
     )
   )
+  AND ($6::timestamptz IS NULL OR d.updated_at >= $6)
+  AND ($7::timestamptz IS NULL OR d.updated_at < $7)
   AND (
-    (d.owner_type= $5 AND d.owner_id= $6)
+    (d.owner_type= $8 AND d.owner_id= $9)
     OR EXISTS (
       SELECT 1 FROM resource_grants g
       WHERE g.resource_type='document'
         AND g.resource_id=d.id
         AND g.revoked_at IS NULL
-        AND ((g.principal_type= $5 AND g.principal_id= $6)
-          OR (g.principal_type='google_group' AND g.principal_id=ANY($7::text[]))
-          OR ($8::boolean AND g.principal_type='anyone'))
+        AND ((g.principal_type= $8 AND g.principal_id= $9)
+          OR (g.principal_type='google_group' AND g.principal_id=ANY($10::text[]))
+          OR ($11::boolean AND g.principal_type='anyone'))
     )
     OR d.id IN (SELECT doc_id FROM docs_via_folder)
   )
 ORDER BY d.updated_at DESC, d.title
-LIMIT $9
+LIMIT $12
 `
 
 type SearchDocumentsParams struct {
-	TitlePattern   string
-	AuthorPattern  string
-	FolderPattern  string
-	LabelPatterns  []string
+	Terms          []string
+	ExcludedTerms  []string
+	Owners         []string
+	Folders        []string
+	Labels         []string
+	UpdatedSince   pgtype.Timestamptz
+	UpdatedBefore  pgtype.Timestamptz
 	OwnerType      string
 	OwnerID        string
 	GoogleGroupIds []string
@@ -410,10 +422,13 @@ type SearchDocumentsRow struct {
 
 func (q *Queries) SearchDocuments(ctx context.Context, arg SearchDocumentsParams) ([]SearchDocumentsRow, error) {
 	rows, err := q.db.Query(ctx, searchDocuments,
-		arg.TitlePattern,
-		arg.AuthorPattern,
-		arg.FolderPattern,
-		arg.LabelPatterns,
+		arg.Terms,
+		arg.ExcludedTerms,
+		arg.Owners,
+		arg.Folders,
+		arg.Labels,
+		arg.UpdatedSince,
+		arg.UpdatedBefore,
 		arg.OwnerType,
 		arg.OwnerID,
 		arg.GoogleGroupIds,

@@ -75,11 +75,10 @@ deployment:
   # default_permission field and revoke the reported default grant.
   defaultDocPermission: ""
 
-# Feature rollout switches. Labels and structured search tags are temporarily
-# disabled by default; set either value to true to re-enable that surface.
+# Feature rollout switches. Labels are temporarily disabled by default; set
+# labels to true to re-enable them.
 features:
   labels: false
-  searchTags: false
 
 # Kubernetes Deployment rollout strategy. Keep RollingUpdate normally. The
 # structured-mentions upgrade documented in docs/self-hosting.md requires one

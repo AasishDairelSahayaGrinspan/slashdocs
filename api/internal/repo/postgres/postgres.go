@@ -816,10 +816,13 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 }
 func (s *Store) SearchDocuments(ctx context.Context, p auth.Principal, search repo.DocumentSearch, includeOrgWide bool, limit int32) ([]repo.Document, error) {
 	rows, err := s.q.SearchDocuments(ctx, dbsqlc.SearchDocumentsParams{
-		TitlePattern:   search.TitlePattern,
-		AuthorPattern:  search.AuthorPattern,
-		FolderPattern:  search.FolderPattern,
-		LabelPatterns:  search.LabelPatterns,
+		Terms:          search.Terms,
+		ExcludedTerms:  search.ExcludedTerms,
+		Owners:         search.Owners,
+		Folders:        search.Folders,
+		Labels:         search.Labels,
+		UpdatedSince:   pgtype.Timestamptz{Time: search.UpdatedSince, Valid: !search.UpdatedSince.IsZero()},
+		UpdatedBefore:  pgtype.Timestamptz{Time: search.UpdatedBefore, Valid: !search.UpdatedBefore.IsZero()},
 		OwnerID:        p.ID,
 		OwnerType:      string(p.Type),
 		GoogleGroupIds: p.GoogleGroupIDs,

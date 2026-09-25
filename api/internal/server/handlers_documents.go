@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 
@@ -104,8 +105,9 @@ func (h handlers) createDocument(c *gin.Context) {
 // @Security bearerAuth
 // @Security cookieAuth
 // @Produce json
-// @Param q query string false "Search query; supports author:, labels:, in:, and /regex/ values"
-// @Param label query string false "Deprecated exact label filter; use q=labels:<label>"
+// @Param q query string false "Slack-style search: words, \"phrases\", -word, from:, in:, label:, before:, after:, on:, and during:"
+// @Param tz query string false "IANA time zone for date modifiers; defaults to UTC"
+// @Param label query string false "Deprecated exact label filter; use q=label:<label>"
 // @Success 200 {object} listResponse[repo.Document]
 // @Router /v1/documents [get]
 func (h handlers) listDocuments(c *gin.Context) {
@@ -113,13 +115,12 @@ func (h handlers) listDocuments(c *gin.Context) {
 		return
 	}
 	q := strings.TrimSpace(c.Query("q"))
-	var search repo.DocumentSearch
-	var err error
-	if h.deps.searchTagsEnabled {
-		search, err = parseDocumentSearch(q)
-	} else {
-		search, err = parseDocumentTitleSearch(q)
+	zone, err := time.LoadLocation(c.Query("tz"))
+	if err != nil {
+		badRequest(c, "invalid tz")
+		return
 	}
+	search, err := parseDocumentSearch(q, *current(c), time.Now().In(zone))
 	if err != nil {
 		badRequest(c, err.Error())
 		return
@@ -134,13 +135,9 @@ func (h handlers) listDocuments(c *gin.Context) {
 			badRequest(c, "invalid label")
 			return
 		}
-		if len(search.LabelPatterns) >= maxSearchLabels {
-			badRequest(c, fmt.Sprintf("at most %d labels are allowed", maxSearchLabels))
-			return
-		}
-		search.LabelPatterns = append(search.LabelPatterns, "^"+escapePostgresRegex(label)+"$")
+		search.Labels = append(search.Labels, label)
 	}
-	if q != "" || len(search.LabelPatterns) > 0 {
+	if q != "" || len(search.Labels) > 0 {
 		includeOrgWide := h.deps.deployment == DeploymentOrg
 		items, err := h.deps.repository.SearchDocuments(c.Request.Context(), *current(c), search, includeOrgWide, 25)
 		if err != nil {

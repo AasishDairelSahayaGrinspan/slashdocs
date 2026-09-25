@@ -40,11 +40,10 @@ type Config struct {
 	GoogleGroupsEnabled       bool
 	GoogleGroupsMembershipTTL time.Duration
 	GoogleGroupsRetryCooldown time.Duration
-	// DisableLabels and DisableSearchTags are temporary rollout switches. They
-	// default to false so programmatic users of server.New retain the existing
-	// feature set unless the application entrypoint explicitly disables them.
-	DisableLabels     bool
-	DisableSearchTags bool
+	// DisableLabels is a temporary rollout switch. It defaults to false so
+	// programmatic users of server.New retain the existing feature set unless
+	// the application entrypoint explicitly disables labels.
+	DisableLabels bool
 }
 
 // Server wraps the gin engine.
@@ -80,7 +79,6 @@ type dependencies struct {
 	googleGroupDirectory      googlegroups.GoogleGroupDirectory
 	googleGroupResolver       *googlegroups.Resolver
 	labelsEnabled             bool
-	searchTagsEnabled         bool
 }
 
 // Option configures the Server.
@@ -153,7 +151,6 @@ func New(cfg Config, opts ...Option) *Server {
 		githubHTTPClient:     http.DefaultClient,
 		googleGroupsEnabled:  cfg.GoogleGroupsEnabled,
 		labelsEnabled:        !cfg.DisableLabels,
-		searchTagsEnabled:    !cfg.DisableSearchTags,
 	}
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
 		deps.githubOAuth = &oauth2.Config{

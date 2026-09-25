@@ -59,15 +59,21 @@ func documentListCmd(g *globals, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list [query]",
 		Short: "List or search documents",
-		Long: "List documents, or search with the same query language as the web application.\n\n" +
-			"Supported primitives:\n" +
-			"  author:<email>       Match the document author\n" +
-			"  labels:<a,b>         Require every comma-separated label\n" +
-			"  in:<folder>          Match a folder or any ancestor folder\n" +
-			"  /pattern/            Use a primitive case-insensitive regex value\n\n" +
+		Long: "List documents, or search with the same Slack-style language as the web application.\n\n" +
+			"Every word must appear in the title. Modifiers narrow the results:\n" +
+			"  \"exact phrase\"       Match the words together\n" +
+			"  -word                Exclude titles that contain the word\n" +
+			"  from:<person>        The owner: an email, the name before the @, or me\n" +
+			"  in:<folder>          A folder, or any folder above the document\n" +
+			"  label:<a,b>          Require every label\n" +
+			"  before:<day>         Updated before the day\n" +
+			"  after:<day>          Updated after the day\n" +
+			"  on:<day>             Updated on the day\n" +
+			"  during:<period>      Updated during a day, month (2026-09, september), or year\n\n" +
+			"A day is YYYY-MM-DD, today, or yesterday, in UTC. Repeat from: or in: to match any value.\n" +
 			"Quote the whole query when it contains spaces.",
-		Example: "  aidocs docs list 'incident author:alice@example.com labels:api,review in:\"Product Specs\"'\n" +
-			"  aidocs docs list --query 'author:/@razorpay\\.com$/ labels:/^api-/'",
+		Example: "  aidocs docs list 'incident from:alice@example.com label:api,review in:\"Product Specs\"'\n" +
+			"  aidocs docs list --query 'rollout -draft from:me during:september'",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 && cmd.Flags().Changed("query") {

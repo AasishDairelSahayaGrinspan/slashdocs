@@ -120,16 +120,18 @@ type FolderEntry struct {
 	LastActive string    `json:"last_active,omitempty"`
 }
 
-// DocumentSearch contains validated, case-insensitive PostgreSQL regular
-// expressions for each supported search dimension. Empty patterns disable a
-// dimension. LabelPatterns use AND semantics.
+// DocumentSearch filters documents. All values are lowercase, and empty
+// fields do not filter.
 type DocumentSearch struct {
-	TitlePattern  string
-	AuthorPattern string
-	LabelPatterns []string
-	FolderPattern string
-	// IncludeLabels controls response hydration only; LabelPatterns still
-	// filter regardless of this value.
+	Terms         []string // Every term is in the title.
+	ExcludedTerms []string // No term is in the title.
+	Owners        []string // The owner's ID, email, or email name is one of these.
+	Folders       []string // A folder that holds the document has one of these titles or IDs.
+	Labels        []string // The document has every label.
+	UpdatedSince  time.Time
+	UpdatedBefore time.Time
+	// IncludeLabels controls response hydration only; Labels still filter
+	// regardless of this value.
 	IncludeLabels bool
 }
 

@@ -108,29 +108,38 @@ FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
 LEFT JOIN service_accounts sa
   ON d.owner_type='service_account' AND sa.id=d.owner_id
-WHERE (@title_pattern::text = '' OR d.title ~* @title_pattern::text)
-  AND (
-    @author_pattern::text = ''
-    OR COALESCE(NULLIF(u.email,''), NULLIF(sa.name,''), d.owner_id) ~* @author_pattern::text
+WHERE NOT EXISTS (
+    SELECT 1 FROM unnest(@terms::text[]) AS term WHERE strpos(lower(d.title), term) = 0
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM unnest(@excluded_terms::text[]) AS term WHERE strpos(lower(d.title), term) > 0
   )
   AND (
-    @folder_pattern::text = ''
+    COALESCE(cardinality(@owners::text[]), 0) = 0
+    OR lower(d.owner_id) = ANY(@owners::text[])
+    OR lower(u.email) = ANY(@owners::text[])
+    OR lower(split_part(u.email, '@', 1)) = ANY(@owners::text[])
+    OR lower(sa.name) = ANY(@owners::text[])
+  )
+  AND (
+    COALESCE(cardinality(@folders::text[]), 0) = 0
     OR EXISTS (
       SELECT 1
       FROM folder_ancestors search_folder_ancestor
       JOIN folders search_folder ON search_folder.id=search_folder_ancestor.fid
       WHERE search_folder_ancestor.doc_id=d.id
-        AND search_folder.title ~* @folder_pattern::text
+        AND (search_folder.id = ANY(@folders::text[]) OR lower(search_folder.title) = ANY(@folders::text[]))
     )
   )
   AND NOT EXISTS (
-    SELECT 1
-    FROM unnest(@label_patterns::text[]) AS requested_label(pattern)
+    SELECT 1 FROM unnest(@labels::text[]) AS requested_label
     WHERE NOT EXISTS (
       SELECT 1 FROM document_labels dl
-      WHERE dl.document_id=d.id AND dl.label ~* requested_label.pattern
+      WHERE dl.document_id=d.id AND dl.label = requested_label
     )
   )
+  AND (sqlc.narg('updated_since')::timestamptz IS NULL OR d.updated_at >= sqlc.narg('updated_since'))
+  AND (sqlc.narg('updated_before')::timestamptz IS NULL OR d.updated_at < sqlc.narg('updated_before'))
   AND (
     (d.owner_type= @owner_type AND d.owner_id= @owner_id)
     OR EXISTS (

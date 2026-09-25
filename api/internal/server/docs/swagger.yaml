@@ -310,8 +310,6 @@ definitions:
         type: string
       provider_name:
         type: string
-      search_tags_enabled:
-        type: boolean
     type: object
   server.createCommentReplyRequest:
     properties:
@@ -892,11 +890,15 @@ paths:
   /v1/documents:
     get:
       parameters:
-      - description: Search query; supports author:, labels:, in:, and /regex/ values
+      - description: 'Slack-style search: words, \'
         in: query
         name: q
         type: string
-      - description: Deprecated exact label filter; use q=labels:<label>
+      - description: IANA time zone for date modifiers; defaults to UTC
+        in: query
+        name: tz
+        type: string
+      - description: Deprecated exact label filter; use q=label:<label>
         in: query
         name: label
         type: string
