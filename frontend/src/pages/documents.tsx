@@ -137,7 +137,8 @@ export function DocumentsPage() {
       qc.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       const warning = (data as Record<string, unknown>)?.permission_warning as
-        { message?: string } | undefined;
+        | { message?: string }
+        | undefined;
       if (warning?.message) {
         setAccessWarning(warning.message);
       } else {

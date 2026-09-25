@@ -25,9 +25,65 @@ export type Viewer = {
 
 export type DocumentKVListener = (event: DocumentKVEvent) => void;
 
-// useDocumentStream holds the page's one connection to the document event
-// stream. It passes KV changes to subscribers, refreshes comments and the
-// document when they change, and reports and tracks who is viewing.
+type DocumentEventHandlers = Partial<
+  Record<"kv" | "document" | "comments" | "presence", DocumentKVListener>
+> & { open?: () => void };
+
+// useDocumentEvents holds one connection to the document event stream and
+// passes each event to the handler for its kind. A session marks the
+// connection as a viewer, whom the server lists until the stream ends.
+export function useDocumentEvents(
+  docId: string,
+  handlers: DocumentEventHandlers,
+  session?: string,
+) {
+  const handlersRef = useRef(handlers);
+  handlersRef.current = handlers;
+  const [attempt, setAttempt] = useState(0);
+  const lastRevision = useRef(0);
+
+  useEffect(() => {
+    const params = new URLSearchParams(session ? { session } : {});
+    // The browser resumes dropped streams itself. Only a stream it gave up on
+    // is opened again here, and it continues from the last event it saw.
+    if (lastRevision.current)
+      params.set("after_revision", String(lastRevision.current));
+    const source = new EventSource(
+      `/v1/documents/${encodeURIComponent(docId)}/kv/events?${params}`,
+      { withCredentials: true },
+    );
+    source.onopen = () => handlersRef.current.open?.();
+    // KV changes are unnamed messages; other kinds are named events.
+    for (const kind of ["kv", "document", "comments", "presence"] as const) {
+      source.addEventListener(kind === "kv" ? "message" : kind, (message) => {
+        lastRevision.current = Math.max(
+          lastRevision.current,
+          Number(message.lastEventId) || 0,
+        );
+        let event: DocumentKVEvent;
+        try {
+          event = JSON.parse(message.data) as DocumentKVEvent;
+        } catch {
+          return;
+        }
+        handlersRef.current[kind]?.(event);
+      });
+    }
+    let reconnect: number | undefined;
+    source.onerror = () => {
+      if (source.readyState !== EventSource.CLOSED) return;
+      reconnect = window.setTimeout(() => setAttempt((n) => n + 1), RECONNECT_DELAY);
+    };
+    return () => {
+      source.close();
+      window.clearTimeout(reconnect);
+    };
+  }, [docId, session, attempt]);
+}
+
+// useDocumentStream is the document page's view of the event stream. It
+// passes KV changes to subscribers, refreshes comments and the document when
+// they change, and reports and tracks who is viewing.
 export function useDocumentStream({
   docId,
   version,
@@ -43,80 +99,39 @@ export function useDocumentStream({
   const [session] = useState(() => crypto.randomUUID());
   const kvListeners = useRef(new Set<DocumentKVListener>());
   const [sessions, setSessions] = useState<ReadonlyMap<string, Viewer>>(new Map());
-  const [attempt, setAttempt] = useState(0);
-  const lastRevision = useRef(0);
-  const principalRef = useRef(principal);
-  principalRef.current = principal;
-  const onRemoteDocumentChangeRef = useRef(onRemoteDocumentChange);
-  onRemoteDocumentChangeRef.current = onRemoteDocumentChange;
 
-  useEffect(() => {
-    const params = new URLSearchParams({ session });
-    // The browser resumes dropped streams itself. Only a stream it gave up on
-    // is opened again here, and it continues from the last event it saw.
-    if (lastRevision.current)
-      params.set("after_revision", String(lastRevision.current));
-    const source = new EventSource(
-      `/v1/documents/${encodeURIComponent(docId)}/kv/events?${params}`,
-      { withCredentials: true },
-    );
-    let reconnect: number | undefined;
-    const read = (message: MessageEvent<string>): DocumentKVEvent | null => {
-      lastRevision.current = Math.max(
-        lastRevision.current,
-        Number(message.lastEventId) || 0,
-      );
-      try {
-        return JSON.parse(message.data) as DocumentKVEvent;
-      } catch {
-        return null;
-      }
-    };
-    source.onopen = () => setSessions(new Map());
-    source.onmessage = (message) => {
-      const event = read(message);
-      if (event) kvListeners.current.forEach((listener) => listener(event));
-    };
-    source.addEventListener("comments", (message) => {
-      read(message);
-      q.invalidateQueries({ queryKey: queryKeys.comments(docId) });
-    });
-    source.addEventListener("document", (message) => {
-      const event = read(message);
-      if (!samePrincipal(event?.updated_by, principalRef.current)) {
-        onRemoteDocumentChangeRef.current();
-      }
-      q.invalidateQueries({ queryKey: queryKeys.document(docId) });
-      q.invalidateQueries({ queryKey: queryKeys.versions(docId) });
-    });
-    source.addEventListener("presence", (message) => {
-      const event = read(message);
-      const presence = event?.data as DocumentPresence | undefined;
-      const viewer = event?.updated_by;
-      if (!presence?.session || presence.session === session || !viewer) return;
-      const key = `${viewer.type}:${viewer.id}:${presence.session}`;
-      setSessions((current) => {
-        const next = new Map(current);
-        if (presence.left) next.delete(key);
-        else
-          next.set(key, {
-            principal: { ...viewer, picture_url: presence.picture_url },
-            version: presence.version,
-            anchor: presence.anchor,
-            seenAt: Date.now(),
-          });
-        return next;
-      });
-    });
-    source.onerror = () => {
-      if (source.readyState !== EventSource.CLOSED) return;
-      reconnect = window.setTimeout(() => setAttempt((n) => n + 1), RECONNECT_DELAY);
-    };
-    return () => {
-      source.close();
-      window.clearTimeout(reconnect);
-    };
-  }, [docId, session, attempt, q]);
+  useDocumentEvents(
+    docId,
+    {
+      open: () => setSessions(new Map()),
+      kv: (event) => kvListeners.current.forEach((listener) => listener(event)),
+      comments: () => q.invalidateQueries({ queryKey: queryKeys.comments(docId) }),
+      document: (event) => {
+        if (!samePrincipal(event.updated_by, principal)) onRemoteDocumentChange();
+        q.invalidateQueries({ queryKey: queryKeys.document(docId) });
+        q.invalidateQueries({ queryKey: queryKeys.versions(docId) });
+      },
+      presence: (event) => {
+        const presence = event.data as DocumentPresence | undefined;
+        const viewer = event.updated_by;
+        if (!presence?.session || presence.session === session || !viewer) return;
+        const key = `${viewer.type}:${viewer.id}:${presence.session}`;
+        setSessions((current) => {
+          const next = new Map(current);
+          if (presence.left) next.delete(key);
+          else
+            next.set(key, {
+              principal: { ...viewer, picture_url: presence.picture_url },
+              version: presence.version,
+              anchor: presence.anchor,
+              seenAt: Date.now(),
+            });
+          return next;
+        });
+      },
+    },
+    session,
+  );
 
   // Viewers whose tab closed without a goodbye drop out after the TTL.
   useEffect(() => {
