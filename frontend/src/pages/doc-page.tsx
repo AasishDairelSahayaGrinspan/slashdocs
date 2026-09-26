@@ -28,6 +28,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { useIsMobile } from "@/lib/use-media-query";
 import { useTheme } from "@/lib/theme";
 import { useEscChord } from "@/lib/use-esc-chord";
+import { createPersistentStore } from "@/lib/persistent-store";
 import type { ChordKey } from "@/lib/esc-chord";
 import {
   DocProvider,
@@ -48,6 +49,14 @@ import { useDocumentStream, type Viewer } from "./use-document-stream";
 import { Button } from "@/components/ui/button";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
+
+// The desktop comments panel stays as the reader left it, across documents
+// and visits. The mobile sheet always starts closed.
+const commentsOpenStore = createPersistentStore<boolean>(
+  "aidocs:comments-open",
+  true,
+  (parsed) => parsed !== false,
+);
 
 const pageStagger = {
   hidden: {},
@@ -215,7 +224,7 @@ export function DocumentPage() {
   }, []);
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
-  const [commentsOpen, setCommentsOpen] = useState(true);
+  const commentsOpen = commentsOpenStore.useStore();
   const [shareOpen, setShareOpen] = useState(searchParams.get("share") === "1");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
@@ -230,7 +239,7 @@ export function DocumentPage() {
       setActiveComment(commentId);
       if (fullscreen) return;
       if (isMobile) setMobilePanelOpen(true);
-      else setCommentsOpen(true);
+      else commentsOpenStore.write(true);
     },
     [fullscreen, isMobile],
   );
@@ -268,8 +277,8 @@ export function DocumentPage() {
 
   const toggleComments = useCallback(() => {
     if (isMobile) setMobilePanelOpen((o) => !o);
-    else setCommentsOpen((o) => !o);
-  }, [isMobile]);
+    else commentsOpenStore.write(!commentsOpen);
+  }, [isMobile, commentsOpen]);
 
   // On mobile the comments sheet should be dismissable with the browser/OS
   // Back gesture, without leaving the document. We push a dedicated history
