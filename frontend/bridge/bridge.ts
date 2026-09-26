@@ -1340,7 +1340,7 @@ type Theme = "dark" | "light";
       };
       addAction(
         "Comment on selected text",
-        "Comment (⌘⌥M / Ctrl+Alt+M)",
+        "Comment (C)",
         "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9H13a8.48 8.48 0 0 1 8 8v.5Z",
         () => {
           if (actionRange) commitSelection(actionRange);
@@ -1750,10 +1750,13 @@ type Theme = "dark" | "light";
     };
     d.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") dismissSelectionAction();
+      const modified = ev.metaKey || ev.ctrlKey || ev.altKey;
+      // C comments on the selected text, as in Figma. Esc then C still
+      // toggles the comments panel.
       if (
-        (ev.metaKey || ev.ctrlKey) &&
-        ev.altKey &&
-        ev.key.toLowerCase() === "m" &&
+        ev.key === "c" &&
+        !modified &&
+        !chordArmedAt &&
         !isTextEditingTarget(ev.target)
       ) {
         const range = selectedRange(d.getSelection());
@@ -1775,7 +1778,6 @@ type Theme = "dark" | "light";
         return;
       }
 
-      const modified = ev.metaKey || ev.ctrlKey || ev.altKey;
       if (ev.key === "Escape") {
         chordArmedAt = modified ? 0 : Date.now();
         parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
