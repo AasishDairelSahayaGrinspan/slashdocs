@@ -1789,6 +1789,9 @@ type Theme = "dark" | "light";
           parent.postMessage({ type: "aidocs:keydown", key }, targetOrigin());
         }
       }
+      if (ev.key === "?" && !modified) {
+        parent.postMessage({ type: "aidocs:keydown", key: "?" }, targetOrigin());
+      }
 
       const vim = reduceVimScroll(
         {

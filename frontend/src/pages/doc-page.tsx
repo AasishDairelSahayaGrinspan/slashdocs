@@ -29,7 +29,7 @@ import { useIsMobile } from "@/lib/use-media-query";
 import { useTheme } from "@/lib/theme";
 import { useEscChord } from "@/lib/use-esc-chord";
 import { createPersistentStore } from "@/lib/persistent-store";
-import type { ChordKey } from "@/lib/esc-chord";
+import { isChordBlocked, type ChordKey } from "@/lib/esc-chord";
 import {
   DocProvider,
   type CommentPosition,
@@ -45,6 +45,7 @@ import {
   type CommentFilter,
 } from "@/lib/constants";
 import { Keycast } from "./doc-keycast";
+import { ShortcutsDialog } from "./doc-shortcuts";
 import { useDocumentStream, type Viewer } from "./use-document-stream";
 import { Button } from "@/components/ui/button";
 
@@ -227,6 +228,7 @@ export function DocumentPage() {
   const commentsOpen = commentsOpenStore.useStore();
   const [shareOpen, setShareOpen] = useState(searchParams.get("share") === "1");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   const [chordLabel, setChordLabel] = useState<string>();
   const nav = useNavigate();
@@ -492,6 +494,15 @@ export function DocumentPage() {
       nav,
     ],
   );
+  // ? shows every shortcut, as in GitHub and Gmail. The bridge forwards it
+  // from the document.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "?" && !isChordBlocked(event.target)) setShortcutsOpen(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const onBareEscape = useCallback(() => {
     if (fullscreen) exitFullscreen();
     else setActiveComment(undefined);
@@ -606,12 +617,13 @@ export function DocumentPage() {
 
   return (
     <DocProvider value={ctx}>
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {fullscreen ? (
         <div className="relative h-full bg-[var(--color-surface-muted)]">
           {showFullscreenHint ? (
             <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
               <span className="hidden sm:inline">
-                Esc to exit · Esc t theme · Esc h home
+                Esc to exit · ? for all shortcuts
               </span>
               <span className="sm:hidden">Go back to exit full screen</span>
             </div>
@@ -643,6 +655,7 @@ export function DocumentPage() {
               onFollowViewer={followViewer}
               commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
               onToggleComments={toggleComments}
+              onShowShortcuts={() => setShortcutsOpen(true)}
               shareOpen={shareOpen}
               onShareOpenChange={setShareOpen}
             />

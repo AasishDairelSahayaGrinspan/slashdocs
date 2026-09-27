@@ -20,6 +20,7 @@ import { useBridgeHost } from "./use-bridge-host";
 
 const FORWARDED_KEYS = new Set<string>([
   "Escape",
+  "?",
   ...CHORD_KEYS.map((item) => item.key),
 ]);
 const VIM_KEYS = new Set(["j", "k", "g", "G"]);

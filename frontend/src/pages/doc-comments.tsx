@@ -1005,6 +1005,25 @@ function CommentCard({
   });
   const resolved = c.status === COMMENT_STATUS.resolved;
   const toggleActive = () => setActiveComment(active ? undefined : c.id);
+  const replies = c.replies || [];
+  // Reply sits on the last message of the thread, just above the composer.
+  const replyButton = (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="shrink-0 text-[var(--color-fg-muted)]"
+      aria-label="Reply"
+      title="Reply"
+      onClick={(event) => {
+        event.stopPropagation();
+        setReplying(true);
+        cardRef.current?.querySelector("textarea")?.focus({ preventScroll: true });
+      }}
+      aria-expanded={replying}
+    >
+      <Reply className="h-4 w-4" />
+    </Button>
+  );
   return (
     <article
       ref={cardRef}
@@ -1059,24 +1078,7 @@ function CommentCard({
       <CommentBody text={c.body} mentions={c.mentions} />
       <div className="mt-1">
         <ReactionBar c={c} docId={docId}>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0 text-[var(--color-fg-muted)]"
-            aria-label="Reply"
-            title="Reply"
-            onClick={(event) => {
-              event.stopPropagation();
-              setReplying(true);
-              cardRef.current
-                ?.querySelector("textarea")
-                ?.focus({ preventScroll: true });
-            }}
-            aria-expanded={replying}
-          >
-            <Reply className="h-4 w-4" />
-          </Button>
-
+          {replies.length === 0 && replyButton}
           <CopyCommentLink docId={docId} commentId={c.id} />
           <DeleteCommentButton
             c={c}
@@ -1107,15 +1109,17 @@ function CommentCard({
           </Button>
         </ReactionBar>
       </div>
-      {(c.replies || []).length > 0 && (
+      {replies.length > 0 && (
         <div className="mt-1 space-y-1 border-l border-[var(--color-border)] pl-3">
-          {(c.replies || []).map((r) => (
+          {replies.map((r, index) => (
             <ReplyItem
               key={r.id}
               r={r}
               docId={docId}
               canDelete={samePrincipal(principal, r.author)}
-            />
+            >
+              {index === replies.length - 1 && replyButton}
+            </ReplyItem>
           ))}
         </div>
       )}
@@ -1136,10 +1140,12 @@ function ReplyItem({
   r,
   docId,
   canDelete,
+  children,
 }: {
   r: Comment;
   docId: string;
   canDelete: boolean;
+  children?: ReactNode;
 }) {
   return (
     <div
@@ -1159,6 +1165,7 @@ function ReplyItem({
       <CommentBody text={r.body} mentions={r.mentions} />
       <div className="mt-1">
         <ReactionBar c={r} docId={docId}>
+          {children}
           <CopyCommentLink docId={docId} commentId={r.id} />
           <DeleteCommentButton c={r} docId={docId} canDelete={canDelete} />
         </ReactionBar>

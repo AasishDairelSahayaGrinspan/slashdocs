@@ -13,6 +13,7 @@ import {
   ArrowUpToLine,
   Maximize2,
   GitBranch,
+  Keyboard,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
@@ -72,6 +73,7 @@ export function DocBar({
   onFollowViewer,
   commentsOpen,
   onToggleComments,
+  onShowShortcuts,
   shareOpen,
   onShareOpenChange,
 }: {
@@ -90,6 +92,7 @@ export function DocBar({
   onFollowViewer: (viewer: Viewer) => void;
   commentsOpen: boolean;
   onToggleComments: () => void;
+  onShowShortcuts: () => void;
   shareOpen: boolean;
   onShareOpenChange: (open: boolean) => void;
 }) {
@@ -205,7 +208,7 @@ export function DocBar({
       >
         <Link
           to={`/app/d/${docId}?fullscreen=1&version=${current}`}
-          title="Full screen"
+          title="Full screen (Esc F)"
           aria-label="Full screen"
         >
           <Maximize2 className="h-4 w-4" />
@@ -258,7 +261,7 @@ export function DocBar({
         size="icon"
         onClick={onToggleComments}
         aria-label={commentsOpen ? "Hide comments" : "Show comments"}
-        tooltip={commentsOpen ? false : "Show comments"}
+        tooltip={commentsOpen ? false : "Show comments (Esc C)"}
         aria-pressed={commentsOpen}
         className="shrink-0"
       >
@@ -300,6 +303,12 @@ export function DocBar({
           </DropdownItem>
           <DropdownItem onSelect={() => void exportPDF()}>
             <FileDown className="h-4 w-4" /> Export as PDF
+          </DropdownItem>
+          <DropdownItem className="hidden sm:flex" onSelect={onShowShortcuts}>
+            <Keyboard className="h-4 w-4" /> Keyboard shortcuts
+            <kbd className="ml-auto pl-4 font-mono text-xs text-[var(--color-fg-muted)]">
+              ?
+            </kbd>
           </DropdownItem>
           {canManage ? (
             <>
