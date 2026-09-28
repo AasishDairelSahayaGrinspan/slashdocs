@@ -16,6 +16,10 @@ exceeded.</p><noscript>Enable JS</noscript><template><p>later</p></template><p>E
 		t.Fatalf("searchText() = %q, want %q", got, want)
 	}
 
+	if got, want := searchText([]byte("<p>caf\xe9 \xd3\xeb ok</p>")), "caf  ok"; got != want {
+		t.Fatalf("searchText() = %q, want %q", got, want)
+	}
+
 	long := searchText([]byte("<p>" + strings.Repeat("é", maxSearchTextBytes) + "</p>"))
 	if len(long) > maxSearchTextBytes || !utf8.ValidString(long) {
 		t.Fatalf("searchText() kept %d bytes, valid UTF-8 = %v", len(long), utf8.ValidString(long))
