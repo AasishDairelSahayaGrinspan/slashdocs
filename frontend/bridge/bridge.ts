@@ -14,7 +14,8 @@ import {
 } from "./highlight.ts";
 import {
   reduceVimScroll,
-  vimLineScrollDistance,
+  VIM_GLIDE_PX_PER_MS,
+  VIM_LINE_PX,
   type VimScrollAction,
 } from "../src/lib/vim-scroll.ts";
 
@@ -1718,23 +1719,36 @@ type Theme = "dark" | "light";
     let chordArmedAt = 0;
     let vimGArmed = false;
     let vimGTimer = 0;
+    let glide = 0;
+    const stopGlide = () => {
+      d.defaultView?.cancelAnimationFrame(glide);
+      glide = 0;
+    };
+    d.addEventListener("keyup", stopGlide);
+    d.defaultView?.addEventListener("blur", stopGlide);
     const runVimScroll = (action: VimScrollAction, repeat = false) => {
       const view = d.defaultView;
       if (!view) return;
-      const behavior = view.matchMedia("(prefers-reduced-motion: reduce)").matches
-        ? "instant"
-        : "smooth";
-      if (action === "line-down")
-        view.scrollBy({
-          top: vimLineScrollDistance(repeat),
-          behavior,
-        });
-      else if (action === "line-up")
-        view.scrollBy({
-          top: -vimLineScrollDistance(repeat),
-          behavior,
-        });
-      else if (action === "half-page-down")
+      const reducedMotion = view.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const behavior = reducedMotion ? "instant" : "smooth";
+      if (action === "line-down" || action === "line-up") {
+        const direction = action === "line-down" ? 1 : -1;
+        if (!repeat || reducedMotion) {
+          stopGlide();
+          view.scrollBy({ top: direction * VIM_LINE_PX, behavior });
+          return;
+        }
+        // Each key repeat would restart a smooth scroll from rest, which is
+        // slower than taps. A held key moves the page every frame instead.
+        if (glide) return;
+        let last = view.performance.now();
+        const step = (now: number) => {
+          view.scrollBy(0, direction * VIM_GLIDE_PX_PER_MS * (now - last));
+          last = now;
+          glide = view.requestAnimationFrame(step);
+        };
+        glide = view.requestAnimationFrame(step);
+      } else if (action === "half-page-down")
         view.scrollBy({ top: Math.max(160, view.innerHeight * 0.5), behavior });
       else if (action === "half-page-up")
         view.scrollBy({
@@ -1943,7 +1957,7 @@ type Theme = "dark" | "light";
       const KeyboardEventCtor = d?.defaultView?.KeyboardEvent;
       if (!d || !KeyboardEventCtor) return;
       d.dispatchEvent(
-        new KeyboardEventCtor("keydown", {
+        new KeyboardEventCtor(e.data.up === true ? "keyup" : "keydown", {
           key: String(e.data.key || ""),
           ctrlKey: e.data.ctrlKey === true,
           metaKey: e.data.metaKey === true,

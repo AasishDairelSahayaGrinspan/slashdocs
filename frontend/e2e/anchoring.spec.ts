@@ -262,3 +262,30 @@ test("comments on a selection with C and lists every shortcut with ?", async ({
   await expect(dialog.getByText("Comment on the selected text")).toBeVisible();
   await expect(dialog.getByText("Full screen")).toBeVisible();
 });
+
+test("holding j scrolls faster than tapping it and stops on release", async ({
+  page,
+  aidocs,
+}) => {
+  const title = uniqueName("Glide");
+  const document = await aidocs.createDocument(
+    title,
+    documentHTML(title, '<p>Top</p><div style="height:20000px"></div>'),
+  );
+  await page.goto(`/app/d/${document.id}`);
+  const doc = renderedDocument(page);
+  const scrollY = () => doc.locator("html").evaluate(() => window.scrollY);
+  await doc.locator("p").click();
+
+  // A key repeats about every 33 ms while it is held.
+  await page.keyboard.down("j");
+  for (let i = 0; i < 30; i++) {
+    await page.waitForTimeout(33);
+    await page.keyboard.down("j");
+  }
+  await page.keyboard.up("j");
+  const held = await scrollY();
+  expect(held).toBeGreaterThan(1000);
+  await page.waitForTimeout(300);
+  expect(await scrollY()).toBe(held);
+});
