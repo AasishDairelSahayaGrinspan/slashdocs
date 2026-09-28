@@ -25,9 +25,11 @@ func searchText(doc []byte) string {
 	var text strings.Builder
 	hidden := 0 // The depth inside elements that are not shown.
 	for text.Len() < maxSearchTextBytes {
-		switch token := z.Next(); token {
-		case html.ErrorToken:
-			return text.String()
+		token := z.Next()
+		if token == html.ErrorToken {
+			break
+		}
+		switch token {
 		case html.TextToken:
 			if hidden > 0 {
 				continue
@@ -50,7 +52,9 @@ func searchText(doc []byte) string {
 			}
 		}
 	}
-	return strings.ToValidUTF8(text.String()[:maxSearchTextBytes], "")
+	// PostgreSQL text must be UTF-8. A document can have bytes in another
+	// encoding, and the size limit can cut a character in two.
+	return strings.ToValidUTF8(text.String()[:min(text.Len(), maxSearchTextBytes)], "")
 }
 
 var hiddenElements = map[string]bool{"script": true, "style": true, "template": true, "noscript": true}
