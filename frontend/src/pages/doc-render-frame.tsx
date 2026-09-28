@@ -161,8 +161,18 @@ export function RenderFrame() {
         repeat: event.repeat,
       });
     };
+    // A held j or k glides until its key comes up.
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (VIM_KEYS.has(event.key)) {
+        postToFrame({ type: "aidocs:vim-key", key: event.key, up: true });
+      }
+    };
     window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
   }, [ready, frameOrigin, postToFrame]);
 
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
