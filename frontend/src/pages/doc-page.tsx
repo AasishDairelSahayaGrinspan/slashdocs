@@ -225,7 +225,10 @@ export function DocumentPage() {
   }, []);
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
-  const commentsOpen = commentsOpenStore.useStore();
+  // A comment started while the comments are hidden shows them only until it
+  // is posted or discarded.
+  const [peekDraft, setPeekDraft] = useState<string>();
+  const commentsOpen = commentsOpenStore.useStore() || peekDraft !== undefined;
   const [shareOpen, setShareOpen] = useState(searchParams.get("share") === "1");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -247,6 +250,7 @@ export function DocumentPage() {
   );
   useEffect(() => {
     setCommentFilter(DEFAULT_COMMENT_FILTER);
+    setPeekDraft(undefined);
   }, [id]);
 
   const linkedComment = searchParams.get("comment");
@@ -280,6 +284,7 @@ export function DocumentPage() {
   const toggleComments = useCallback(() => {
     if (isMobile) setMobilePanelOpen((o) => !o);
     else commentsOpenStore.write(!commentsOpen);
+    setPeekDraft(undefined);
   }, [isMobile, commentsOpen]);
 
   // On mobile the comments sheet should be dismissable with the browser/OS
@@ -372,9 +377,23 @@ export function DocumentPage() {
         return [...list.filter((d) => d.body.trim()), draft];
       });
       setCommentFilter(COMMENT_STATUS.open);
-      handleDocCommentClick(draftId);
+      setActiveComment(draftId);
+      if (fullscreen) return;
+      // The newest draft keeps a peek, so the panel stays while it is written.
+      if (peekDraft !== undefined || !(isMobile ? mobilePanelOpen : commentsOpen)) {
+        setPeekDraft(draftId);
+      }
+      if (isMobile) setMobilePanelOpen(true);
     },
-    [current, updateDrafts, handleDocCommentClick],
+    [
+      current,
+      updateDrafts,
+      fullscreen,
+      isMobile,
+      mobilePanelOpen,
+      commentsOpen,
+      peekDraft,
+    ],
   );
   const saveDraft = useCallback(
     (draftId: string, text: { body: string; mentions: CommentMention[] }) =>
@@ -386,8 +405,13 @@ export function DocumentPage() {
     [updateDrafts],
   );
   const discardDraft = useCallback(
-    (draftId: string) => updateDrafts((list) => list.filter((d) => d.id !== draftId)),
-    [updateDrafts],
+    (draftId: string) => {
+      updateDrafts((list) => list.filter((d) => d.id !== draftId));
+      if (draftId !== peekDraft) return;
+      setPeekDraft(undefined);
+      setMobilePanelOpen(false);
+    },
+    [updateDrafts, peekDraft],
   );
 
   const stream = useDocumentStream({

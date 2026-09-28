@@ -289,3 +289,21 @@ test("holding j scrolls faster than tapping it and stops on release", async ({
   await page.waitForTimeout(300);
   expect(await scrollY()).toBe(held);
 });
+
+test("a comment started with the comments hidden hides them again when it posts", async ({
+  page,
+  aidocs,
+}) => {
+  const title = uniqueName("Peek");
+  const document = await aidocs.createDocument(
+    title,
+    documentHTML(title, "<p>Comment on me while the rail is hidden.</p>"),
+  );
+  await page.goto(`/app/d/${document.id}`);
+  await page.getByRole("button", { name: "Hide comments" }).click();
+  await renderedDocument(page).locator("p").selectText();
+  await postComment(page, document.id, "Posted while hidden");
+  await expect(page.getByRole("button", { name: "Show comments" })).toBeVisible();
+  await page.reload();
+  await expect(page.getByRole("button", { name: "Show comments" })).toBeVisible();
+});
