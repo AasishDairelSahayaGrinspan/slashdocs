@@ -8,6 +8,7 @@ import { docID, docTitle, type FolderEntry, type Principal } from "@/api";
 import { principalLabel, samePrincipal } from "@/lib/principals";
 import { DRAG_TYPE } from "./drag";
 import { PinButton } from "./pin-button";
+import { SearchSnippet } from "./search-snippet";
 import {
   FOLDER_DELETE_DESCRIPTION,
   useDeleteResource,
@@ -58,6 +59,7 @@ export function UnifiedTable({
                   owner={e.document.owner}
                   canDelete={samePrincipal(principal, e.document.owner)}
                   pinned={pinnedIds?.has(docID(e.document))}
+                  snippet={e.document.snippet}
                 />
               );
             }
@@ -76,6 +78,7 @@ function DraggableEntryRow({
   owner,
   canDelete,
   pinned,
+  snippet,
 }: {
   type: ResourceType;
   id: string;
@@ -83,6 +86,7 @@ function DraggableEntryRow({
   owner?: Principal;
   canDelete: boolean;
   pinned?: boolean;
+  snippet?: string;
 }) {
   const isFolder = type === "folder";
   const {
@@ -124,6 +128,9 @@ function DraggableEntryRow({
           )}
           {title}
         </Link>
+        {snippet ? (
+          <SearchSnippet text={snippet} className="mt-1 line-clamp-2 pl-6 text-xs" />
+        ) : null}
       </td>
       <td className="px-4 py-3">
         <OwnerCell owner={owner} />

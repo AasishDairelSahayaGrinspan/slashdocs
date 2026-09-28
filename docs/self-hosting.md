@@ -518,6 +518,11 @@ uses coalesced polling. The listener URL must reach the same database directly
 or through session pooling; the normal `DATABASE_URL` may still use a separate
 route for queries and notification sends.
 
+The same per-document stream also carries document, comment, and presence
+events. Open viewers refresh comments, hear about new versions, and see who
+else is viewing, whichever replica served each request. Presence rows expire
+after ten minutes, so the event table does not grow with viewing time.
+
 `notify` fails startup if LISTEN cannot be verified. It prefers the listener URL
 and otherwise uses `DATABASE_URL`, which is an explicit assertion by the
 operator that the connection preserves session state. `poll` never opens a
@@ -565,6 +570,11 @@ configured for the server.
 `aidocs` stores uploaded HTML versions in blob storage and metadata,
 comments, grants, sessions, and OAuth state in Postgres. Documents are
 versioned immutably; each push creates a new version.
+
+For search, Postgres also keeps the visible text of each new version. After an
+upgrade from a release without content search, every server reads the older
+current versions from blob storage in the background and indexes them. Until a
+document is indexed, search matches its title only.
 
 For v1, each document should be one self-contained HTML file. If a
 document needs images, embed them as data URLs:

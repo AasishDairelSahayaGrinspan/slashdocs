@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -19,6 +20,8 @@ import (
 const (
 	documentKVReplayLimit = 100
 	documentKVKeepAlive   = 25 * time.Second
+	// presenceTTL is how long a viewer stays listed without a heartbeat.
+	presenceTTL = 45 * time.Second
 )
 
 type documentKVStream struct {
@@ -50,8 +53,10 @@ func (s *documentKVStream) sendBacklog() error {
 				continue
 			}
 			s.started = true
-			if err := writeDocumentKVSSE(s.writer, event); err != nil {
-				return err
+			if !stalePresence(event) {
+				if err := writeDocumentEventSSE(s.writer, event, true); err != nil {
+					return err
+				}
 			}
 			s.lastSent = event.Revision
 		}
@@ -75,7 +80,7 @@ func (s *documentKVStream) sendLive(event repo.DocumentKVEvent) error {
 		}
 	}
 	s.started = true
-	if err := writeDocumentKVSSE(s.writer, event); err != nil {
+	if err := writeDocumentEventSSE(s.writer, event, true); err != nil {
 		return err
 	}
 	s.lastSent = event.Revision
@@ -143,11 +148,21 @@ func (s *documentKVStream) run(liveEvents <-chan repo.DocumentKVEvent) {
 	}
 }
 
+// streamDocumentKVEvents streams the document's live event log: KV changes,
+// document and comment change notices, and viewer presence. A connection with
+// neither after_revision nor Last-Event-ID starts at the live edge. A session
+// parameter marks the viewer as gone when the stream ends.
 func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 	docID := c.Param("id")
 	if !h.needDocRole(c, docID, repo.RoleViewer) {
 		return
 	}
+	session := c.Query("session")
+	if session != "" && !presenceSessionPattern.MatchString(session) {
+		badRequest(c, "invalid presence session")
+		return
+	}
+	fromLiveEdge := c.Query("after_revision") == "" && c.GetHeader("Last-Event-ID") == ""
 	afterRevision, err := parseKVEventRevision(c.Query("after_revision"))
 	if err != nil {
 		badRequest(c, "invalid event revision")
@@ -174,6 +189,14 @@ func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 		return
 	}
 	defer unsubscribe()
+	// Read the live edge only after subscribing, so no event falls between.
+	if fromLiveEdge {
+		afterRevision, err = h.deps.repository.CurrentDocumentKVRevision(c.Request.Context(), docID)
+		if err != nil {
+			internalErr(c, err)
+			return
+		}
+	}
 
 	// This stream outlives the server-wide read timeout; clear the connection
 	// deadlines so an expiring deadline doesn't sever the SSE response. The
@@ -216,11 +239,32 @@ func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 		return
 	}
 	stream.started = true
+	h.writePresenceSnapshot(c, docID)
 	if _, err := fmt.Fprint(c.Writer, ": connected\n\n"); err != nil {
 		return
 	}
 	flusher.Flush()
 	stream.run(liveEvents)
+	if session != "" {
+		h.leavePresence(c, docID, session)
+	}
+}
+
+// writePresenceSnapshot lists the current viewers. The events carry no id, so
+// the client's Last-Event-ID never moves backwards.
+func (h handlers) writePresenceSnapshot(c *gin.Context, docID string) {
+	events, err := h.deps.repository.ListDocumentPresence(c.Request.Context(), docID, presenceTTL)
+	if err != nil {
+		slog.WarnContext(c.Request.Context(), "document presence snapshot failed",
+			slog.String("document_id", docID),
+			slog.Any("error", err))
+		return
+	}
+	for _, event := range events {
+		if err := writeDocumentEventSSE(c.Writer, event, false); err != nil {
+			return
+		}
+	}
 }
 
 func parseKVEventRevision(raw string) (int64, error) {
@@ -234,11 +278,30 @@ func parseKVEventRevision(raw string) (int64, error) {
 	return revision, nil
 }
 
-func writeDocumentKVSSE(w http.ResponseWriter, event repo.DocumentKVEvent) error {
+// writeDocumentEventSSE writes KV changes as unnamed messages, which the
+// render bridge has always consumed, and other kinds as named events.
+func writeDocumentEventSSE(w http.ResponseWriter, event repo.DocumentKVEvent, withID bool) error {
 	raw, err := json.Marshal(event)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "id: %d\ndata: %s\n\n", event.Revision, raw)
+	var header strings.Builder
+	if withID {
+		fmt.Fprintf(&header, "id: %d\n", event.Revision)
+	}
+	if event.Kind != "" && event.Kind != repo.DocumentEventKV {
+		fmt.Fprintf(&header, "event: %s\n", event.Kind)
+	}
+	_, err = fmt.Fprintf(w, "%sdata: %s\n\n", header.String(), raw)
 	return err
+}
+
+// stalePresence reports a presence event too old to describe a live viewer.
+// Replaying it after a reconnect would bring back a viewer who already left.
+func stalePresence(event repo.DocumentKVEvent) bool {
+	if event.Kind != repo.DocumentEventPresence {
+		return false
+	}
+	at, err := time.Parse(time.RFC3339Nano, event.UpdatedAt)
+	return err != nil || time.Since(at) > presenceTTL
 }

@@ -323,7 +323,7 @@ func (s *Store) CreateDocument(ctx context.Context, owner auth.Principal, title 
 	if err := q.InsertDocument(ctx, dbsqlc.InsertDocumentParams{ID: docID, Title: title, OwnerType: string(owner.Type), OwnerID: owner.ID}); err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
-	createdAt, err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID})
+	createdAt, err := q.InsertInitialVersion(ctx, dbsqlc.InsertInitialVersionParams{ID: verID, DocumentID: docID, HtmlBlobKey: blobKey, Sha256: sum, CreatedByType: string(owner.Type), CreatedByID: owner.ID, SearchText: searchText(html)})
 	if err != nil {
 		return repo.Document{}, repo.Version{}, err
 	}
@@ -510,7 +510,7 @@ func (s *Store) CreateVersion(ctx context.Context, documentID, baseVersionID, ch
 			_ = s.blobs.Delete(context.WithoutCancel(ctx), blobKey)
 		}
 	}()
-	createdAt, err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: cur.NextNumber, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary})
+	createdAt, err := q.InsertVersion(ctx, dbsqlc.InsertVersionParams{ID: id, DocumentID: documentID, Number: cur.NextNumber, HtmlBlobKey: blobKey, Sha256: sum, ParentVersionID: pgtype.Text{String: cur.CurrentVersionID.String, Valid: cur.CurrentVersionID.Valid}, CreatedByType: string(createdBy.Type), CreatedByID: createdBy.ID, ChangeSummary: changeSummary, SearchText: searchText(html)})
 	if err != nil {
 		return repo.Version{}, err
 	}
@@ -816,10 +816,13 @@ func (s *Store) ListDocuments(ctx context.Context, p auth.Principal) ([]repo.Doc
 }
 func (s *Store) SearchDocuments(ctx context.Context, p auth.Principal, search repo.DocumentSearch, includeOrgWide bool, limit int32) ([]repo.Document, error) {
 	rows, err := s.q.SearchDocuments(ctx, dbsqlc.SearchDocumentsParams{
-		TitlePattern:   search.TitlePattern,
-		AuthorPattern:  search.AuthorPattern,
-		FolderPattern:  search.FolderPattern,
-		LabelPatterns:  search.LabelPatterns,
+		MatchQuery:     tsquery(search.Terms, " & "),
+		ExcludeQuery:   tsquery(search.ExcludedTerms, " | "),
+		Owners:         search.Owners,
+		Folders:        search.Folders,
+		Labels:         search.Labels,
+		UpdatedSince:   pgtype.Timestamptz{Time: search.UpdatedSince, Valid: !search.UpdatedSince.IsZero()},
+		UpdatedBefore:  pgtype.Timestamptz{Time: search.UpdatedBefore, Valid: !search.UpdatedBefore.IsZero()},
 		OwnerID:        p.ID,
 		OwnerType:      string(p.Type),
 		GoogleGroupIds: p.GoogleGroupIDs,
@@ -1416,6 +1419,28 @@ func (s *Store) ListDocumentKVEvents(ctx context.Context, documentID string, aft
 	if err != nil {
 		return nil, err
 	}
+	out, err := documentKVEvents(rows)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (s *Store) ListDocumentPresence(ctx context.Context, documentID string, maxAge time.Duration) ([]repo.DocumentKVEvent, error) {
+	rows, err := s.q.ListRecentDocumentPresenceEvents(ctx, dbsqlc.ListRecentDocumentPresenceEventsParams{
+		DocumentID:    documentID,
+		MaxAgeSeconds: int32(maxAge / time.Second),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return documentKVEvents(rows)
+}
+
+func documentKVEvents(rows []dbsqlc.DocumentKvEvent) ([]repo.DocumentKVEvent, error) {
 	out := make([]repo.DocumentKVEvent, 0, len(rows))
 	for _, row := range rows {
 		var changes []repo.DocumentKVChange
@@ -1431,13 +1456,12 @@ func (s *Store) ListDocumentKVEvents(ctx context.Context, documentID string, aft
 		out = append(out, repo.DocumentKVEvent{
 			DocumentID: row.DocumentID,
 			Revision:   row.Revision,
+			Kind:       row.Kind,
 			Changes:    changes,
+			Data:       row.Data,
 			UpdatedAt:  pgTimeRFC3339(row.UpdatedAt),
 			UpdatedBy:  &actor,
 		})
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, err
 	}
 	return out, nil
 }
@@ -1487,13 +1511,44 @@ func (s *Store) PatchDocumentKV(ctx context.Context, documentID string, set map[
 	}
 	// PostgreSQL delivers NOTIFY only if this transaction commits, so listeners
 	// can never observe a revision whose KV rows or event-log row rolled back.
-	if err := insertAndNotifyDocumentKVEvent(ctx, q, dbsqlc.InsertDocumentKVEventParams{DocumentID: documentID, Revision: rev, Changes: rawChanges, UpdatedByType: actorType, UpdatedByID: actor.ID, UpdatedByEmail: actor.Email, UpdatedByName: actor.Name}); err != nil {
+	if err := insertAndNotifyDocumentKVEvent(ctx, q, dbsqlc.InsertDocumentKVEventParams{DocumentID: documentID, Revision: rev, Kind: repo.DocumentEventKV, Changes: rawChanges, UpdatedByType: actorType, UpdatedByID: actor.ID, UpdatedByEmail: actor.Email, UpdatedByName: actor.Name}); err != nil {
 		return repo.DocumentKVPatchResult{}, err
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return repo.DocumentKVPatchResult{}, err
 	}
 	return repo.DocumentKVPatchResult{Revision: rev, Changes: changes, UpdatedBy: &actor}, nil
+}
+
+// presenceRetention bounds how long presence events stay in the log. Readers
+// only use the last minute; the slack keeps reconnect replays meaningful.
+const presenceRetention = 10 * time.Minute
+
+func (s *Store) AppendDocumentEvent(ctx context.Context, documentID, kind string, data json.RawMessage, actor auth.Principal) error {
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer rollback(ctx, tx)
+	q := s.q.WithTx(tx)
+	if _, err := q.LockDocumentForKV(ctx, documentID); errors.Is(err, pgx.ErrNoRows) {
+		return repo.ErrNotFound
+	} else if err != nil {
+		return err
+	}
+	rev, err := q.GetDocumentKVRevision(ctx, documentID)
+	if err != nil {
+		return err
+	}
+	if kind == repo.DocumentEventPresence {
+		if err := q.DeleteStaleDocumentPresenceEvents(ctx, dbsqlc.DeleteStaleDocumentPresenceEventsParams{DocumentID: documentID, MaxAgeSeconds: int32(presenceRetention / time.Second)}); err != nil {
+			return err
+		}
+	}
+	if err := insertAndNotifyDocumentKVEvent(ctx, q, dbsqlc.InsertDocumentKVEventParams{DocumentID: documentID, Revision: rev + 1, Kind: kind, Changes: []byte("[]"), Data: data, UpdatedByType: string(actor.Type), UpdatedByID: actor.ID, UpdatedByEmail: actor.Email, UpdatedByName: actor.Name}); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func insertAndNotifyDocumentKVEvent(ctx context.Context, q *dbsqlc.Queries, event dbsqlc.InsertDocumentKVEventParams) error {
@@ -1576,7 +1631,10 @@ func docFromList(r dbsqlc.ListDocumentsRow) repo.Document {
 	return d
 }
 func docFromSearch(r dbsqlc.SearchDocumentsRow) repo.Document {
-	d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}}
+	d := repo.Document{ID: r.ID, Title: r.Title, CurrentVersionID: r.CurrentVersionID.String, Owner: auth.Principal{Type: auth.PrincipalType(r.OwnerType), ID: r.OwnerID, Email: r.OwnerEmail, Name: r.OwnerName}, ParentFolderID: r.ParentFolderID, Snippet: r.Snippet}
+	if r.ParentFolderID != "" {
+		d.ParentFolder = &repo.FolderBreadcrumb{ID: r.ParentFolderID, Title: r.ParentFolderTitle}
+	}
 	if r.UpdatedAt.Valid {
 		d.UpdatedAt = r.UpdatedAt.Time.Format(time.RFC3339)
 	}

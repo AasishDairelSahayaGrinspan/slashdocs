@@ -752,6 +752,54 @@ type Theme = "dark" | "light";
     );
   }
 
+  // Report a short passage in the middle of the viewport, so other viewers
+  // can follow this reader. Debounced: one scroll fires many events.
+  const VIEWPORT_QUOTE_LENGTH = 64;
+  let viewportTimer: ReturnType<typeof setTimeout> | undefined;
+  function scheduleViewport(): void {
+    clearTimeout(viewportTimer);
+    viewportTimer = setTimeout(postViewport, 300);
+  }
+
+  function postViewport(): void {
+    const d = doc();
+    const view = d?.defaultView;
+    if (!d?.body || !view) return;
+    parent.postMessage(
+      { type: "aidocs:viewport", anchor: viewportAnchor(d, view) },
+      targetOrigin(),
+    );
+  }
+
+  // Probe points from the middle of the viewport outward for text. Text
+  // navigation centers the anchor, so a follower sees what this reader sees.
+  // Caret hit-testing costs the same on any document size, unlike a tree walk.
+  function viewportAnchor(d: Document, view: Window): CommentAnchor | null {
+    for (const y of [0.5, 0.4, 0.6, 0.3, 0.7]) {
+      for (const x of [0.5, 0.25, 0.75]) {
+        const range = caretRange(d, view.innerWidth * x, view.innerHeight * y);
+        const node = range?.startContainer;
+        const text = node?.nodeType === Node.TEXT_NODE ? node.nodeValue || "" : "";
+        if (!range || !node || !text.trim()) continue;
+        const start = text.lastIndexOf(" ", range.startOffset) + 1;
+        range.setStart(node, start);
+        range.setEnd(node, Math.min(text.length, start + VIEWPORT_QUOTE_LENGTH));
+        const anchor = describeAnchor(d.body, range);
+        if (anchor) return anchor;
+      }
+    }
+    return null;
+  }
+
+  function caretRange(d: Document, x: number, y: number): Range | null {
+    if (!d.caretPositionFromPoint) return d.caretRangeFromPoint(x, y);
+    const position = d.caretPositionFromPoint(x, y);
+    if (!position) return null;
+    const range = d.createRange();
+    range.setStart(position.offsetNode, position.offset);
+    return range;
+  }
+
   function postCommentPositions(): void {
     const d = doc();
     if (!d || !lastPaint) return;
@@ -1292,7 +1340,7 @@ type Theme = "dark" | "light";
       };
       addAction(
         "Comment on selected text",
-        "Comment (⌘⌥M / Ctrl+Alt+M)",
+        "Comment (C)",
         "M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9H13a8.48 8.48 0 0 1 8 8v.5Z",
         () => {
           if (actionRange) commitSelection(actionRange);
@@ -1528,14 +1576,14 @@ type Theme = "dark" | "light";
     pendingText = null;
     textVisibilityObserver?.disconnect();
     clearTimeout(textNoticeTimer);
+    // Center the first line of the text, not its block: a long paragraph
+    // would otherwise put the text far from where a followed reader sees it.
     start?.scrollIntoView({ block: "center", behavior: "instant" });
-    const rect = range.getBoundingClientRect();
-    if (rect.top < 0 || rect.top > d.defaultView!.innerHeight - 40) {
-      d.defaultView!.scrollBy({
-        top: rect.top - d.defaultView!.innerHeight / 2,
-        behavior: "instant",
-      });
-    }
+    const line = Array.from(range.getClientRects()).find((r) => r.width && r.height)!;
+    d.defaultView!.scrollBy({
+      top: line.top + line.height / 2 - d.defaultView!.innerHeight / 2,
+      behavior: "instant",
+    });
     textFlashStarted = Date.now();
     const reducedMotion = d.defaultView!.matchMedia(
       "(prefers-reduced-motion: reduce)",
@@ -1702,10 +1750,13 @@ type Theme = "dark" | "light";
     };
     d.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape") dismissSelectionAction();
+      const modified = ev.metaKey || ev.ctrlKey || ev.altKey;
+      // C comments on the selected text, as in Figma. Esc then C still
+      // toggles the comments panel.
       if (
-        (ev.metaKey || ev.ctrlKey) &&
-        ev.altKey &&
-        ev.key.toLowerCase() === "m" &&
+        ev.key === "c" &&
+        !modified &&
+        !chordArmedAt &&
         !isTextEditingTarget(ev.target)
       ) {
         const range = selectedRange(d.getSelection());
@@ -1727,7 +1778,6 @@ type Theme = "dark" | "light";
         return;
       }
 
-      const modified = ev.metaKey || ev.ctrlKey || ev.altKey;
       if (ev.key === "Escape") {
         chordArmedAt = modified ? 0 : Date.now();
         parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
@@ -1738,6 +1788,9 @@ type Theme = "dark" | "light";
         if (withinWindow && !modified && chordKeys.includes(key)) {
           parent.postMessage({ type: "aidocs:keydown", key }, targetOrigin());
         }
+      }
+      if (ev.key === "?" && !modified) {
+        parent.postMessage({ type: "aidocs:keydown", key: "?" }, targetOrigin());
       }
 
       const vim = reduceVimScroll(
@@ -1792,7 +1845,10 @@ type Theme = "dark" | "light";
       passive: true,
     });
     d.defaultView?.addEventListener("resize", scheduleCommentPositions);
+    // Capture scrolls of nested containers too, not only the window.
+    d.addEventListener("scroll", scheduleViewport, { capture: true, passive: true });
     parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
+    scheduleViewport();
     hydrateKV();
   }
 

@@ -192,8 +192,7 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "provider_name": "SSO",
 	  "default_doc_permission": "private",
 	  "google_groups_enabled": false,
-	  "labels_enabled": true,
-	  "search_tags_enabled": true
+	  "labels_enabled": true
 	}`)
 
 	org := newConfiguredTestEnv(t, server.Config{Environment: "test", Deployment: "org", OrgName: "Acme", OIDCProviderName: "Google", DefaultDocPermission: repo.RoleCommenter})
@@ -206,27 +205,24 @@ func TestConfigReportsDeploymentWording(t *testing.T) {
 	  "provider_name": "Google",
 	  "default_doc_permission": "commenter",
 	  "google_groups_enabled": false,
-	  "labels_enabled": true,
-	  "search_tags_enabled": true
+	  "labels_enabled": true
 	}`)
 }
 
 func TestConfigReportsTemporarilyDisabledDocumentFeatures(t *testing.T) {
 	e := newConfiguredTestEnv(t, server.Config{
-		Environment:       "test",
-		DisableLabels:     true,
-		DisableSearchTags: true,
+		Environment:   "test",
+		DisableLabels: true,
 	})
 	rr := do(t, e.h, http.MethodGet, "/v1/config", "", nil)
 	assertStatus(t, rr, http.StatusOK)
 	var cfg struct {
-		LabelsEnabled     bool `json:"labels_enabled"`
-		SearchTagsEnabled bool `json:"search_tags_enabled"`
+		LabelsEnabled bool `json:"labels_enabled"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if cfg.LabelsEnabled || cfg.SearchTagsEnabled {
+	if cfg.LabelsEnabled {
 		t.Fatalf("config did not disable document features: %s", rr.Body.String())
 	}
 }

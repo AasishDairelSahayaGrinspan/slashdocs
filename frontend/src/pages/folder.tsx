@@ -51,6 +51,8 @@ import { UnifiedGrid } from "@/components/browse/unified-grid";
 import { UnifiedTable } from "@/components/browse/unified-table";
 import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
 import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
+import { useBridgeHost } from "./use-bridge-host";
+import { useDocumentEvents } from "./use-document-stream";
 import {
   DndContext,
   PointerSensor,
@@ -432,6 +434,10 @@ function FolderReadme({
     enabled: !!document.current_version_id,
     staleTime: 4 * 60_000,
   });
+  // The README is a full document: it follows the theme and reads and
+  // writes its KV state, live, like on the document page.
+  const bridge = useBridgeHost(document.id, token.data?.url);
+  useDocumentEvents(document.id, { kv: bridge.deliverKV });
   return (
     <section className="mt-8 overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)]">
       <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
@@ -443,10 +449,11 @@ function FolderReadme({
           <Link to={`/app/d/${document.id}`}>Open document</Link>
         </Button>
       </div>
-      {token.data?.url ? (
+      {bridge.frameSrc ? (
         <iframe
+          ref={bridge.ref}
           title="Folder README"
-          src={token.data.url}
+          src={bridge.frameSrc}
           className="h-[min(70vh,760px)] w-full border-0"
           sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"
         />

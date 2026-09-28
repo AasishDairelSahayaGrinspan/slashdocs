@@ -367,13 +367,19 @@ const docTemplate = `{
                 "parameters": [
                     {
                         "type": "string",
-                        "description": "Search query; supports author:, labels:, in:, and /regex/ values",
+                        "description": "Slack-style search of titles and text: words, \\",
                         "name": "q",
                         "in": "query"
                     },
                     {
                         "type": "string",
-                        "description": "Deprecated exact label filter; use q=labels:\u003clabel\u003e",
+                        "description": "IANA time zone for date modifiers; defaults to UTC",
+                        "name": "tz",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "Deprecated exact label filter; use q=label:\u003clabel\u003e",
                         "name": "label",
                         "in": "query"
                     }
@@ -1985,6 +1991,10 @@ const docTemplate = `{
                 "parent_folder_id": {
                     "type": "string"
                 },
+                "snippet": {
+                    "description": "Snippet is set in search results when the text matches. U+0002 and\nU+0003 surround each match.",
+                    "type": "string"
+                },
                 "title": {
                     "type": "string"
                 },
@@ -2353,9 +2363,6 @@ const docTemplate = `{
                 },
                 "provider_name": {
                     "type": "string"
-                },
-                "search_tags_enabled": {
-                    "type": "boolean"
                 }
             }
         },

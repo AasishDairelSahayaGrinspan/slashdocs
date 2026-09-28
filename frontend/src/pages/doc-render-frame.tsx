@@ -1,5 +1,6 @@
 import {
   parseTextLink,
+  textLinkAnchor,
   textLinkFragment,
   TEXT_LINK_PREFIX,
 } from "../../bridge/text-link";
@@ -7,33 +8,35 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useLocation } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { api, APIError, type Anchor, type DocumentKVEvent } from "@/api";
+import { api, type Anchor } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { matchesCommentFilter } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
 import { useResolvedTheme } from "@/lib/theme";
-import { errorMessage } from "@/lib/errors";
 import { CHORD_KEYS } from "@/lib/esc-chord";
 import { useDocumentExport } from "./use-document-export";
 import { useDoc } from "./doc-context";
+import { useBridgeHost } from "./use-bridge-host";
 
 const FORWARDED_KEYS = new Set<string>([
   "Escape",
+  "?",
   ...CHORD_KEYS.map((item) => item.key),
 ]);
 const VIM_KEYS = new Set(["j", "k", "g", "G"]);
 
-// Renders the sandboxed document iframe and exchanges selection and paint
-// messages with the in-iframe bridge. Message origins are validated on both
-// ends, and painting is driven by the bridge's ready signal.
+// Renders the sandboxed document iframe for the document page. useBridgeHost
+// serves the theme and KV; this adds comments, selection, zoom, and links.
+// Painting is driven by the bridge's ready signal.
 export function RenderFrame() {
   const {
     docId,
     version,
     comments,
     commentFilter,
+    drafts,
     activeComment,
-    setSelection,
+    startDraft,
     handleDocCommentClick,
     setUnanchoredComments,
     setCommentPositions,
@@ -42,28 +45,13 @@ export function RenderFrame() {
     registerDocumentPrinter,
     syncCommentRail,
     handleRenderedDocumentClick,
+    subscribeDocumentKV,
+    reportViewport,
   } = useDoc();
   const versionRef = useRef(version);
   versionRef.current = version;
   const location = useLocation();
-  const ref = useRef<HTMLIFrameElement>(null);
-  const [ready, setReady] = useState(false);
   const theme = useResolvedTheme();
-  // Latest resolved theme, readable from stable event handlers without
-  // forcing them to re-register (which caused a race where aidocs:ready
-  // could arrive during listener teardown and be missed).
-  const themeRef = useRef(theme);
-  themeRef.current = theme;
-  // Same pattern for readiness: paint-results from a document that is being
-  // navigated away from (the iframe's WindowProxy survives navigation) must
-  // not repopulate unanchoredComments after the reset below.
-  const readyRef = useRef(ready);
-  readyRef.current = ready;
-  const kvRevisionRef = useRef(0);
-
-  useEffect(() => {
-    kvRevisionRef.current = 0;
-  }, [docId]);
 
   const token = useQuery({
     queryKey: queryKeys.render(version),
@@ -71,10 +59,18 @@ export function RenderFrame() {
     staleTime: 4 * 60_000,
     enabled: !!version,
   });
+  const { ref, frameSrc, frameOrigin, ready, postToFrame, deliverKV } = useBridgeHost(
+    docId,
+    token.data?.url,
+  );
+  // Paint results from a frame that is navigating away (its WindowProxy
+  // survives navigation) must not bring back the state reset below.
+  const readyRef = useRef(ready);
+  readyRef.current = ready;
 
   const paintPayload = useMemo(
-    () =>
-      comments
+    () => [
+      ...comments
         // Match the sidebar filter so resolved threads can also be positioned
         // beside their text when browsing All or Resolved.
         .filter((c) => matchesCommentFilter(c.status, commentFilter))
@@ -83,36 +79,14 @@ export function RenderFrame() {
           quote: c.selected_text || c.anchor?.quote,
           anchor: c.anchor,
         })),
-    [comments, commentFilter],
+      ...drafts.map(({ id, quote, anchor }) => ({ id, quote, anchor })),
+    ],
+    [comments, commentFilter, drafts],
   );
-
-  const frameOrigin = useMemo(() => {
-    if (!token.data?.url) return null;
-    try {
-      return new URL(token.data.url, window.location.href).origin;
-    } catch {
-      return null;
-    }
-  }, [token.data]);
 
   useDocumentExport(ref, frameOrigin, ready, registerDocumentPrinter);
 
-  const rememberKVRevision = useCallback((revision: unknown) => {
-    if (typeof revision !== "number" || !Number.isFinite(revision)) return;
-    kvRevisionRef.current = Math.max(kvRevisionRef.current, revision);
-  }, []);
-
-  const postToCurrentFrame = useCallback(
-    (message: unknown) => {
-      if (!frameOrigin) return;
-      ref.current?.contentWindow?.postMessage(message, frameOrigin);
-    },
-    [frameOrigin],
-  );
-
-  // Reset readiness whenever we load a different frame.
   useEffect(() => {
-    setReady(false);
     // Anchoring results belong to the frame that produced them; drop them so
     // "highlight not found" badges never linger across version switches.
     setUnanchoredComments(new Set());
@@ -126,23 +100,11 @@ export function RenderFrame() {
     setCommentViewport,
   ]);
 
-  // The resolved theme is baked into the iframe URL so the bridge can apply
-  // it before the document's first paint (no flash); live toggles are pushed
-  // over postMessage below.
-  const frameSrc = useMemo(() => {
-    const url = token.data?.url;
-    if (!url) return undefined;
-    const sep = url.includes("?") ? "&" : "?";
-    return `${url}${sep}aidocs_theme=${theme}`;
-    // theme is intentionally excluded: changing it must not reload the frame.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [token.data?.url]);
-
   useEffect(() => {
     if (!ready) return;
     if (location.hash.startsWith(TEXT_LINK_PREFIX)) {
       const anchor = parseTextLink(location.hash);
-      if (anchor) postToCurrentFrame({ type: "aidocs:navigate-text", anchor });
+      if (anchor) postToFrame({ type: "aidocs:navigate-text", anchor });
       else toast.error("This text link is invalid.");
       return;
     }
@@ -152,29 +114,17 @@ export function RenderFrame() {
     } catch {
       /* Keep literal malformed fragments. */
     }
-    postToCurrentFrame({ type: "aidocs:navigate-heading", id: heading });
-  }, [location.hash, ready, postToCurrentFrame]);
+    postToFrame({ type: "aidocs:navigate-heading", id: heading });
+  }, [location.hash, ready, postToFrame]);
 
   const paint = useCallback(() => {
-    if (!ready || !frameOrigin) return;
-    ref.current?.contentWindow?.postMessage(
-      { type: "aidocs:paint", comments: paintPayload, active: activeComment },
-      frameOrigin,
-    );
-  }, [ready, paintPayload, activeComment, frameOrigin]);
-
-  // Push the theme to the bridge whenever it changes OR once the frame
-  // becomes ready. Depending on `ready` (state, not a ref) guarantees this
-  // re-runs after the frame signals ready, so a theme set while the frame
-  // was still loading is always applied — fixing the intermittent wrong
-  // theme and the "switch does nothing" cases.
-  useEffect(() => {
-    if (!ready || !frameOrigin) return;
-    ref.current?.contentWindow?.postMessage(
-      { type: "aidocs:theme", theme },
-      frameOrigin,
-    );
-  }, [theme, ready, frameOrigin]);
+    if (!ready) return;
+    postToFrame({
+      type: "aidocs:paint",
+      comments: paintPayload,
+      active: activeComment,
+    });
+  }, [ready, paintPayload, activeComment, postToFrame]);
 
   // Vim scrolling works whether focus is inside the rendered document or on
   // the surrounding viewer chrome. The bridge handles the actual scroll so
@@ -202,7 +152,7 @@ export function RenderFrame() {
         ["d", "u"].includes(event.key.toLowerCase());
       if (!(plain && VIM_KEYS.has(event.key)) && !halfPage) return;
       event.preventDefault();
-      postToCurrentFrame({
+      postToFrame({
         type: "aidocs:vim-key",
         key: event.key,
         ctrlKey: event.ctrlKey,
@@ -213,7 +163,7 @@ export function RenderFrame() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [ready, frameOrigin, postToCurrentFrame]);
+  }, [ready, frameOrigin, postToFrame]);
 
   // ── Pinch-to-zoom: intercept trackpad pinch (wheel + ctrlKey) and apply
   // a CSS scale to the iframe instead of zooming the entire browser page.
@@ -230,12 +180,12 @@ export function RenderFrame() {
   const scrollDocumentTo = useCallback(
     (top: number) => {
       const wrapperScrollTop = wrapperRef.current?.scrollTop || 0;
-      postToCurrentFrame({
+      postToFrame({
         type: "aidocs:scroll-to",
         top: Math.max(0, (top - wrapperScrollTop) / scaleRef.current),
       });
     },
-    [postToCurrentFrame],
+    [postToFrame],
   );
 
   useEffect(() => {
@@ -272,10 +222,10 @@ export function RenderFrame() {
       requestAnimationFrame(() => {
         el.scrollLeft = docX * newScale - cx;
         el.scrollTop = docY * newScale - cy;
-        postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+        postToFrame({ type: "aidocs:request-comment-positions" });
       });
     },
-    [postToCurrentFrame],
+    [postToFrame],
   );
 
   useEffect(() => {
@@ -290,7 +240,7 @@ export function RenderFrame() {
       cursorRef.current = { x: e.clientX, y: e.clientY };
     };
     const onScroll = () => {
-      postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+      postToFrame({ type: "aidocs:request-comment-positions" });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("mousemove", onMouseMove);
@@ -300,118 +250,12 @@ export function RenderFrame() {
       el.removeEventListener("mousemove", onMouseMove);
       el.removeEventListener("scroll", onScroll);
     };
-  }, [applyZoom, postToCurrentFrame]);
+  }, [applyZoom, postToFrame]);
 
   useEffect(() => {
     const onMsg = (e: MessageEvent) => {
       if (!frameOrigin || e.origin !== frameOrigin) return;
       if (e.source !== ref.current?.contentWindow) return;
-      const requestWindow = e.source;
-      const postToFrame = (message: unknown) => {
-        if (!requestWindow || ref.current?.contentWindow !== requestWindow) return;
-        requestWindow.postMessage(message, frameOrigin);
-      };
-      const handleKVRequest = async (data: Record<string, unknown>) => {
-        const requestId = String(data.requestId || "");
-        const operation = String(data.operation || "");
-        const sendError = (err: unknown) => {
-          postToFrame({
-            type: "aidocs:kv-response",
-            requestId,
-            ok: false,
-            error:
-              err instanceof APIError
-                ? { message: err.message, code: err.code, status: err.status }
-                : { message: errorMessage(err, "KV request failed") },
-          });
-        };
-        try {
-          if (operation === "all" || operation === "hydrate" || operation === "get") {
-            const snapshot = await api.listDocumentKV(docId);
-            rememberKVRevision(snapshot.revision);
-            const result =
-              operation === "get"
-                ? {
-                    revision: snapshot.revision,
-                    value:
-                      typeof data.key === "string"
-                        ? snapshot.items[data.key]
-                        : undefined,
-                  }
-                : snapshot;
-            postToFrame({
-              type: "aidocs:kv-response",
-              requestId,
-              ok: true,
-              result,
-            });
-            return;
-          }
-          if (operation === "patch") {
-            const set =
-              data.set && typeof data.set === "object" && !Array.isArray(data.set)
-                ? (data.set as Record<string, unknown>)
-                : {};
-            const deleteKeys = Array.isArray(data.delete)
-              ? data.delete.filter((key): key is string => typeof key === "string")
-              : [];
-            const result = await api.patchDocumentKV(docId, {
-              set,
-              delete: deleteKeys,
-            });
-            const alreadyDelivered = result.revision <= kvRevisionRef.current;
-            rememberKVRevision(result.revision);
-            postToFrame({
-              type: "aidocs:kv-response",
-              requestId,
-              ok: true,
-              result,
-            });
-            if (!alreadyDelivered) {
-              postToFrame({
-                type: "aidocs:kv-event",
-                detail: {
-                  ...result,
-                  source: String(data.source || "local"),
-                  operation: String(data.kvOperation || "patch"),
-                },
-              });
-            }
-            return;
-          }
-          postToFrame({
-            type: "aidocs:kv-response",
-            requestId,
-            ok: false,
-            error: { message: "unknown KV operation" },
-          });
-        } catch (err) {
-          sendError(err);
-        }
-      };
-      const handleGitHubRequest = async (data: Record<string, unknown>) => {
-        const requestId = String(data.requestId || "");
-        try {
-          if (data.operation !== "raw") throw new Error("unknown GitHub operation");
-          const result = await api.githubRawContent(docId, {
-            owner: String(data.owner || ""),
-            repo: String(data.repo || ""),
-            path: String(data.path || ""),
-            ref: String(data.ref || ""),
-          });
-          postToFrame({ type: "aidocs:github-response", requestId, ok: true, result });
-        } catch (err) {
-          postToFrame({
-            type: "aidocs:github-response",
-            requestId,
-            ok: false,
-            error:
-              err instanceof APIError
-                ? { message: err.message, code: err.code, status: err.status }
-                : { message: errorMessage(err, "GitHub request failed") },
-          });
-        }
-      };
       if (e.data?.type === "aidocs:copy-text") {
         const fragment = textLinkFragment(e.data.anchor);
         if (!fragment) {
@@ -440,20 +284,10 @@ export function RenderFrame() {
         const quote = anchor?.quote ?? e.data.quote;
         const top =
           typeof e.data.top === "number" ? e.data.top * scaleRef.current : undefined;
-        if (quote) setSelection({ quote, anchor, top });
+        if (quote) startDraft({ quote, anchor, top });
       }
-      if (e.data?.type === "aidocs:kv-request") {
-        void handleKVRequest(e.data as Record<string, unknown>);
-      }
-      if (e.data?.type === "aidocs:github-request") {
-        void handleGitHubRequest(e.data as Record<string, unknown>);
-      }
-      if (e.data?.type === "aidocs:github-connect") {
-        window.location.assign(
-          api.githubConnectURL(
-            window.location.pathname + window.location.search + window.location.hash,
-          ),
-        );
+      if (e.data?.type === "aidocs:viewport") {
+        reportViewport(textLinkAnchor(e.data.anchor) ?? undefined);
       }
       if (
         e.data?.type === "aidocs:copy-heading" &&
@@ -572,20 +406,14 @@ export function RenderFrame() {
             : undefined;
         applyZoom(e.data.deltaY, cursor);
       }
-      if (e.data?.type === "aidocs:ready") {
-        setReady(true);
-        ref.current?.contentWindow?.postMessage(
-          { type: "aidocs:theme", theme: themeRef.current },
-          frameOrigin,
-        );
-      }
     };
     window.addEventListener("message", onMsg);
     return () => window.removeEventListener("message", onMsg);
   }, [
-    docId,
+    ref,
     frameOrigin,
-    setSelection,
+    startDraft,
+    reportViewport,
     handleDocCommentClick,
     handleRenderedDocumentClick,
     setUnanchoredComments,
@@ -593,36 +421,10 @@ export function RenderFrame() {
     setCommentViewport,
     syncCommentRail,
     applyZoom,
-    rememberKVRevision,
   ]);
 
-  useEffect(() => {
-    if (!ready || !frameOrigin || !docId) return;
-    const source = new EventSource(
-      `/v1/documents/${encodeURIComponent(docId)}/kv/events?after_revision=${kvRevisionRef.current}`,
-      { withCredentials: true },
-    );
-    source.onmessage = (event) => {
-      let detail: DocumentKVEvent;
-      try {
-        detail = JSON.parse(event.data) as DocumentKVEvent;
-      } catch {
-        return;
-      }
-      if (!detail || typeof detail.revision !== "number") return;
-      if (detail.revision <= kvRevisionRef.current) return;
-      rememberKVRevision(detail.revision);
-      postToCurrentFrame({
-        type: "aidocs:kv-event",
-        detail: {
-          ...detail,
-          source: "sync",
-          operation: "sync",
-        },
-      });
-    };
-    return () => source.close();
-  }, [docId, frameOrigin, ready, postToCurrentFrame, rememberKVRevision]);
+  // The page holds the event stream; the bridge host forwards its KV changes.
+  useEffect(() => subscribeDocumentKV(deliverKV), [subscribeDocumentKV, deliverKV]);
 
   // Push fresh paint data once the frame is ready and whenever it changes.
   useEffect(() => {
@@ -675,7 +477,7 @@ export function RenderFrame() {
               wrapper.scrollTop = 0;
             }
             window.requestAnimationFrame(() => {
-              postToCurrentFrame({ type: "aidocs:request-comment-positions" });
+              postToFrame({ type: "aidocs:request-comment-positions" });
             });
           }}
           className="sticky bottom-3 left-[calc(100%-3.5rem)] z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"

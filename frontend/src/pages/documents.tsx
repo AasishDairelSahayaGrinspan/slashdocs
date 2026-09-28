@@ -39,8 +39,6 @@ export function DocumentsPage() {
     return () => window.clearTimeout(t);
   }, [q]);
   const me = useQuery({ queryKey: queryKeys.me(), queryFn: api.me });
-  const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
-  const searchTagsEnabled = config.data?.search_tags_enabled === true;
   const docs = useQuery({
     queryKey: [...queryKeys.documents(), debouncedQ],
     queryFn: () => api.listDocuments(debouncedQ || undefined),
@@ -50,7 +48,7 @@ export function DocumentsPage() {
     queryKey: queryKeys.pins(),
     queryFn: api.listPins,
   });
-  const structuredSearch = searchTagsEnabled && hasDocumentSearchOperators(debouncedQ);
+  const structuredSearch = hasDocumentSearchOperators(debouncedQ);
   const rootFolders = useQuery({
     queryKey: [...queryKeys.folders(), debouncedQ],
     queryFn: () => api.listFolders(undefined, undefined, debouncedQ || undefined),
@@ -80,32 +78,41 @@ export function DocumentsPage() {
     [pins.data],
   );
 
-  // Merge folders and documents into a single list sorted by pinned status, last activity, then alphabetically
-  const merged = useMemo(() => {
-    const folderItems: FolderEntry[] = folderEntries.map((e) => ({
-      type: "folder" as const,
-      folder: e.folder,
-      last_active: e.last_active,
-    }));
-    const docItems: FolderEntry[] = documents.map((d) => ({
-      type: "document" as const,
-      document: d,
-      last_active: d.updated_at,
-    }));
-    return [...folderItems, ...docItems].sort((a, b) => {
-      const ap = pinnedIds.has(a.folder?.id || docID(a.document!));
-      const bp = pinnedIds.has(b.folder?.id || docID(b.document!));
-      if (ap !== bp) return ap ? -1 : 1;
-      const ta = a.last_active || "";
-      const tb = b.last_active || "";
-      if (ta && tb) return tb.localeCompare(ta);
-      if (tb) return 1;
-      if (ta) return -1;
-      const na = (a.folder?.title || a.document?.title || "").toLowerCase();
-      const nb = (b.folder?.title || b.document?.title || "").toLowerCase();
-      return na.localeCompare(nb);
-    });
-  }, [folderEntries, documents, pinnedIds]);
+  const entries = useMemo<FolderEntry[]>(
+    () => [
+      ...folderEntries.map((e) => ({
+        type: "folder" as const,
+        folder: e.folder,
+        last_active: e.last_active,
+      })),
+      ...documents.map((d) => ({
+        type: "document" as const,
+        document: d,
+        last_active: d.updated_at,
+      })),
+    ],
+    [folderEntries, documents],
+  );
+
+  // Browsing sorts by pinned status, last activity, then title. Search
+  // results keep the server's order, which is by relevance.
+  const merged = useMemo(
+    () =>
+      [...entries].sort((a, b) => {
+        const ap = pinnedIds.has(a.folder?.id || docID(a.document!));
+        const bp = pinnedIds.has(b.folder?.id || docID(b.document!));
+        if (ap !== bp) return ap ? -1 : 1;
+        const ta = a.last_active || "";
+        const tb = b.last_active || "";
+        if (ta && tb) return tb.localeCompare(ta);
+        if (tb) return 1;
+        if (ta) return -1;
+        const na = (a.folder?.title || a.document?.title || "").toLowerCase();
+        const nb = (b.folder?.title || b.document?.title || "").toLowerCase();
+        return na.localeCompare(nb);
+      }),
+    [entries, pinnedIds],
+  );
 
   const viewMode = viewModeStore.useStore();
   const [newFolderOpen, setNewFolderOpen] = useState(false);
@@ -137,7 +144,8 @@ export function DocumentsPage() {
       qc.invalidateQueries({ queryKey: queryKeys.foldersAll() });
       qc.invalidateQueries({ queryKey: queryKeys.documents() });
       const warning = (data as Record<string, unknown>)?.permission_warning as
-        { message?: string } | undefined;
+        | { message?: string }
+        | undefined;
       if (warning?.message) {
         setAccessWarning(warning.message);
       } else {
@@ -193,11 +201,7 @@ export function DocumentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <DocumentSearchInput
-            value={q}
-            onChange={setQ}
-            searchTagsEnabled={searchTagsEnabled}
-          />
+          <DocumentSearchInput value={q} onChange={setQ} />
           <ViewModeToggle />
           <Button
             variant="outline"
@@ -237,11 +241,18 @@ export function DocumentsPage() {
         <EmptyDocs />
       ) : searching ? (
         documents.length === 0 && folders.length === 0 ? (
-          <EmptyState title="No matches" description={`Nothing matches "${q}".`} />
+          <EmptyState
+            title="No matches"
+            description={`We read every page of every document. "${q}" is not on any of them.`}
+          />
         ) : viewMode === "list" ? (
-          <UnifiedTable entries={merged} principal={me.data?.principal} />
+          <UnifiedTable
+            entries={entries}
+            principal={me.data?.principal}
+            pinnedIds={pinnedIds}
+          />
         ) : (
-          <UnifiedGrid entries={merged} />
+          <UnifiedGrid entries={entries} pinnedIds={pinnedIds} />
         )
       ) : (
         <DndContext

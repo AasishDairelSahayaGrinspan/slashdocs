@@ -9,6 +9,7 @@ import { queryKeys } from "@/lib/queryKeys";
 import { principalLabel, samePrincipal } from "@/lib/principals";
 import { DRAG_TYPE } from "./drag";
 import { PinButton } from "./pin-button";
+import { SearchSnippet } from "./search-snippet";
 import {
   FOLDER_DELETE_DESCRIPTION,
   useDeleteResource,
@@ -49,6 +50,7 @@ export function UnifiedGrid({
               owner={e.document.owner}
               canDelete={samePrincipal(me.data?.principal, e.document.owner)}
               pinned={pinnedIds?.has(docID(e.document))}
+              snippet={e.document.snippet}
             />
           );
         }
@@ -65,6 +67,7 @@ function DraggableEntryCard({
   owner,
   canDelete,
   pinned,
+  snippet,
 }: {
   type: ResourceType;
   id: string;
@@ -72,6 +75,7 @@ function DraggableEntryCard({
   owner?: Principal;
   canDelete: boolean;
   pinned?: boolean;
+  snippet?: string;
 }) {
   const isFolder = type === "folder";
   const {
@@ -106,6 +110,8 @@ function DraggableEntryCard({
       >
         {isFolder ? (
           <FolderIcon className="h-10 w-10 text-[var(--color-accent)]/60" />
+        ) : snippet ? (
+          <SearchSnippet text={snippet} className="line-clamp-4 w-full text-xs" />
         ) : (
           <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />
         )}

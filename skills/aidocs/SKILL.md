@@ -51,20 +51,27 @@ format:
 
 If the user is iterating on an existing aidocs document, push a new version
 instead of creating a duplicate. Use the CLI help to find the current push/update
-syntax and include a short summary of what changed.
+syntax and include a short summary of what changed. Write one change per line;
+the version history shows a multi-line summary as a list.
 
 ### Searching and labels
 
-Use the same structured search language as the web application:
+Use the same Slack-style search language as the web application:
 
 ```bash
-aidocs docs list 'incident author:alice@example.com labels:api,review in:"Product Specs"'
-aidocs docs list 'author:/@razorpay\.com$/ labels:/^api-/' --json
+aidocs docs list 'incident from:alice@example.com label:api,review in:"Product Specs"'
+aidocs docs list 'rollout -draft from:me after:last week' --json
 ```
 
-`author:`, comma-separated `labels:`, and `in:` combine with AND. `in:` also
-matches ancestor folders. Literal modifier values are exact and
-case-insensitive; wrap a value in `/.../` for a primitive regular expression.
+Every word must appear in the title or the text of the latest version, and
+the most relevant documents come first. A word also matches longer words that
+start with it. `"quoted text"` matches the words in order, and `-word`
+excludes documents that contain the word. `from:` (an email, the name
+before the @, or `me`), `in:` (a folder or any folder above the document),
+`label:`, `before:`, `after:`, `on:`, and `during:` narrow the results. Repeat
+`from:` or `in:` to match any of the values. A date is a day (`25-09-26`,
+`5 september`, `monday`, `today`, `3 days ago`), a week, a month, or a year
+(`last week`, `september`, `this year`, `2026`), or `last 7 days`, in UTC.
 
 Manage labels directly from the CLI:
 

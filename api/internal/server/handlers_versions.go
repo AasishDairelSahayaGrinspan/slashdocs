@@ -76,6 +76,7 @@ func (h handlers) createVersion(c *gin.Context) {
 		return
 	}
 	incVersion("created", actorType(c))
+	h.announce(c, repo.DocumentEventDocument)
 	c.JSON(http.StatusCreated, createVersionResponse{ID: v.ID, Number: v.Number, SHA256: v.SHA256, ChangeSummary: v.ChangeSummary})
 }
 

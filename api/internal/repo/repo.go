@@ -89,6 +89,9 @@ type Document struct {
 	ParentFolder     *FolderBreadcrumb `json:"parent_folder,omitempty"`
 	UpdatedAt        string            `json:"updated_at,omitempty"`
 	Labels           []string          `json:"labels,omitempty"`
+	// Snippet is set in search results when the text matches. U+0002 and
+	// U+0003 surround each match.
+	Snippet string `json:"snippet,omitempty"`
 }
 
 type FolderBreadcrumb struct {
@@ -120,16 +123,18 @@ type FolderEntry struct {
 	LastActive string    `json:"last_active,omitempty"`
 }
 
-// DocumentSearch contains validated, case-insensitive PostgreSQL regular
-// expressions for each supported search dimension. Empty patterns disable a
-// dimension. LabelPatterns use AND semantics.
+// DocumentSearch filters documents. All values are lowercase, and empty
+// fields do not filter.
 type DocumentSearch struct {
-	TitlePattern  string
-	AuthorPattern string
-	LabelPatterns []string
-	FolderPattern string
-	// IncludeLabels controls response hydration only; LabelPatterns still
-	// filter regardless of this value.
+	Terms         []string // Every term is in the title or the text.
+	ExcludedTerms []string // No term is in the title or the text.
+	Owners        []string // The owner's ID, email, or email name is one of these.
+	Folders       []string // A folder that holds the document has one of these titles or IDs.
+	Labels        []string // The document has every label.
+	UpdatedSince  time.Time
+	UpdatedBefore time.Time
+	// IncludeLabels controls response hydration only; Labels still filter
+	// regardless of this value.
 	IncludeLabels bool
 }
 
@@ -300,10 +305,21 @@ type DocumentKVPatchResult struct {
 	UpdatedBy *auth.Principal    `json:"updated_by,omitempty"`
 }
 
+// Kinds of events in a document's live event log. KV changes carry Changes;
+// the other kinds share the KV revision sequence and carry optional Data.
+const (
+	DocumentEventKV       = "kv"
+	DocumentEventDocument = "document"
+	DocumentEventComments = "comments"
+	DocumentEventPresence = "presence"
+)
+
 type DocumentKVEvent struct {
 	DocumentID string             `json:"document_id"`
 	Revision   int64              `json:"revision"`
+	Kind       string             `json:"kind"`
 	Changes    []DocumentKVChange `json:"changes"`
+	Data       json.RawMessage    `json:"data,omitempty"`
 	UpdatedAt  string             `json:"updated_at,omitempty"`
 	UpdatedBy  *auth.Principal    `json:"updated_by,omitempty"`
 }
@@ -386,8 +402,16 @@ type Repository interface {
 	PutCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
 	DeleteCommentReaction(ctx context.Context, commentID string, principal auth.Principal, emoji string) error
 	ListDocumentKV(ctx context.Context, documentID string) (DocumentKVSnapshot, error)
+	// CurrentDocumentKVRevision returns the high-water mark of the document's
+	// event log.
+	CurrentDocumentKVRevision(ctx context.Context, documentID string) (int64, error)
 	ListDocumentKVEvents(ctx context.Context, documentID string, afterRevision int64, limit int32) ([]DocumentKVEvent, error)
 	PatchDocumentKV(ctx context.Context, documentID string, set map[string]json.RawMessage, deleteKeys []string, actor auth.Principal) (DocumentKVPatchResult, error)
+	// AppendDocumentEvent appends a non-KV live event (document, comments, or
+	// presence) to the document's event log and wakes its subscribers.
+	AppendDocumentEvent(ctx context.Context, documentID, kind string, data json.RawMessage, actor auth.Principal) error
+	// ListDocumentPresence returns the presence events newer than maxAge.
+	ListDocumentPresence(ctx context.Context, documentID string, maxAge time.Duration) ([]DocumentKVEvent, error)
 	CreateFolder(ctx context.Context, owner auth.Principal, title, parentFolderID string) (Folder, error)
 	ListFolder(ctx context.Context, principal auth.Principal, folderID, path string) ([]FolderEntry, bool, *Folder, error)
 	SearchFoldersByTitle(ctx context.Context, principal auth.Principal, query string, includeOrgWide bool, limit int32) ([]Folder, error)

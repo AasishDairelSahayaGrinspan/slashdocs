@@ -71,6 +71,9 @@ Publish a new document:
 Push an update to an existing document:
   aidocs docs push <doc_id> report.html --base-version <version_id> --summary 'Address comments'
 
+Write one change per line in --summary; the version history shows each line
+as a list item.
+
 If you previously ran aidocs docs pull <doc_id>, the CLI remembers that base
 version for the active context, so --base-version is optional.
 

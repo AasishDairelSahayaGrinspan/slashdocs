@@ -59,15 +59,23 @@ func documentListCmd(g *globals, out io.Writer) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list [query]",
 		Short: "List or search documents",
-		Long: "List documents, or search with the same query language as the web application.\n\n" +
-			"Supported primitives:\n" +
-			"  author:<email>       Match the document author\n" +
-			"  labels:<a,b>         Require every comma-separated label\n" +
-			"  in:<folder>          Match a folder or any ancestor folder\n" +
-			"  /pattern/            Use a primitive case-insensitive regex value\n\n" +
+		Long: "List documents, or search with the same Slack-style language as the web application.\n\n" +
+			"Every word must appear in the title or the text. The most relevant documents come first.\n" +
+			"Modifiers narrow the results:\n" +
+			"  \"exact phrase\"       Match the words together\n" +
+			"  -word                Exclude documents that contain the word\n" +
+			"  from:<person>        The owner: an email, the name before the @, or me\n" +
+			"  in:<folder>          A folder, or any folder above the document\n" +
+			"  label:<a,b>          Require every label\n" +
+			"  before:<date>        Updated before the date\n" +
+			"  after:<date>         Updated after the date\n" +
+			"  on:<date>            Updated on the date (during: is the same)\n\n" +
+			"A date is a day (25-09-26, 5 september, monday, today, 3 days ago), a week,\n" +
+			"a month, or a year (last week, september, this year, 2026), or last 7 days.\n" +
+			"Dates use UTC. Repeat from: or in: to match any value.\n" +
 			"Quote the whole query when it contains spaces.",
-		Example: "  aidocs docs list 'incident author:alice@example.com labels:api,review in:\"Product Specs\"'\n" +
-			"  aidocs docs list --query 'author:/@razorpay\\.com$/ labels:/^api-/'",
+		Example: "  aidocs docs list 'incident from:alice@example.com label:api,review in:\"Product Specs\"'\n" +
+			"  aidocs docs list --query 'rollout -draft from:me after:last week'",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 && cmd.Flags().Changed("query") {
@@ -505,7 +513,7 @@ func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 		return printPushedVersion(out, g, doc, cl.Base, b)
 	}}
 	cmd.Flags().StringVar(&base, "base-version", "", "base version ID")
-	cmd.Flags().StringVar(&summary, "summary", "", "change summary")
+	cmd.Flags().StringVar(&summary, "summary", "", "change summary, one change per line")
 	return cmd
 }
 

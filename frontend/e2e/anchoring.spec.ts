@@ -235,3 +235,30 @@ test("text links wait for a custom panel to be revealed", async ({ page, aidocs 
   await expect(doc.locator(".aidocs-text-flash").first()).toBeVisible();
   await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
 });
+
+test("comments on a selection with C and lists every shortcut with ?", async ({
+  page,
+  aidocs,
+}) => {
+  const title = uniqueName("Shortcuts");
+  const document = await aidocs.createDocument(
+    title,
+    documentHTML(title, "<p>Keys beat clicks.</p>"),
+  );
+  await page.goto(`/app/d/${document.id}`);
+  const doc = renderedDocument(page);
+  // A mouse selection focuses the document. selectText alone does not.
+  await doc.locator("p").click();
+  await doc.locator("p").selectText();
+  await page.keyboard.press("c");
+  const composer = page.getByPlaceholder("Add a comment…");
+  await expect(composer).toBeFocused();
+  await expect(composer).toHaveValue("");
+  await page.getByRole("button", { name: "Cancel comment" }).click();
+
+  await doc.locator("h1").click();
+  await page.keyboard.press("?");
+  const dialog = page.getByRole("dialog", { name: "Keyboard shortcuts" });
+  await expect(dialog.getByText("Comment on the selected text")).toBeVisible();
+  await expect(dialog.getByText("Full screen")).toBeVisible();
+});

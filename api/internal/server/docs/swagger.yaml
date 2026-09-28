@@ -65,6 +65,11 @@ definitions:
         $ref: '#/definitions/repo.FolderBreadcrumb'
       parent_folder_id:
         type: string
+      snippet:
+        description: |-
+          Snippet is set in search results when the text matches. U+0002 and
+          U+0003 surround each match.
+        type: string
       title:
         type: string
       updated_at:
@@ -310,8 +315,6 @@ definitions:
         type: string
       provider_name:
         type: string
-      search_tags_enabled:
-        type: boolean
     type: object
   server.createCommentReplyRequest:
     properties:
@@ -892,11 +895,15 @@ paths:
   /v1/documents:
     get:
       parameters:
-      - description: Search query; supports author:, labels:, in:, and /regex/ values
+      - description: 'Slack-style search of titles and text: words, \'
         in: query
         name: q
         type: string
-      - description: Deprecated exact label filter; use q=labels:<label>
+      - description: IANA time zone for date modifiers; defaults to UTC
+        in: query
+        name: tz
+        type: string
+      - description: Deprecated exact label filter; use q=label:<label>
         in: query
         name: label
         type: string

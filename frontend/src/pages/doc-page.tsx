@@ -7,18 +7,29 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { useNavigate, useSearchParams, useParams } from "react-router-dom";
+import { useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { AnimatePresence, motion } from "framer-motion";
 import { useMutation, useQuery } from "@tanstack/react-query";
+import { toast } from "sonner";
 import { Check, KeyRound, Send } from "lucide-react";
-import { api, APIError, currentVersionID, docTitle, versionID } from "@/api";
+import {
+  api,
+  APIError,
+  currentVersionID,
+  docTitle,
+  versionID,
+  type CommentMention,
+} from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
+import { useCommentDrafts } from "@/lib/comment-drafts";
+import { textLinkFragment } from "../../bridge/text-link";
 import { Center, Skeleton } from "@/components/ui/misc";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { useIsMobile } from "@/lib/use-media-query";
 import { useTheme } from "@/lib/theme";
 import { useEscChord } from "@/lib/use-esc-chord";
-import type { ChordKey } from "@/lib/esc-chord";
+import { createPersistentStore } from "@/lib/persistent-store";
+import { isChordBlocked, type ChordKey } from "@/lib/esc-chord";
 import {
   DocProvider,
   type CommentPosition,
@@ -34,9 +45,19 @@ import {
   type CommentFilter,
 } from "@/lib/constants";
 import { Keycast } from "./doc-keycast";
+import { ShortcutsDialog } from "./doc-shortcuts";
+import { useDocumentStream, type Viewer } from "./use-document-stream";
 import { Button } from "@/components/ui/button";
 
 const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const;
+
+// The desktop comments panel stays as the reader left it, across documents
+// and visits. The mobile sheet always starts closed.
+const commentsOpenStore = createPersistentStore<boolean>(
+  "aidocs:comments-open",
+  true,
+  (parsed) => parsed !== false,
+);
 
 const pageStagger = {
   hidden: {},
@@ -164,7 +185,6 @@ export function DocumentPage() {
   });
   const [commentFilter, setCommentFilter] =
     useState<CommentFilter>(DEFAULT_COMMENT_FILTER);
-  const [selection, setSelection] = useState<PendingSelection | null>(null);
   const [activeComment, setActiveComment] = useState<string>();
   const [unanchoredComments, setUnanchoredComments] = useState<ReadonlySet<string>>(
     new Set(),
@@ -205,12 +225,14 @@ export function DocumentPage() {
   }, []);
   const [selectedVersion, setSelectedVersion] = useState<string>();
   const isMobile = useIsMobile();
-  const [commentsOpen, setCommentsOpen] = useState(true);
+  const commentsOpen = commentsOpenStore.useStore();
   const [shareOpen, setShareOpen] = useState(searchParams.get("share") === "1");
   const [mobilePanelOpen, setMobilePanelOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [showFullscreenHint, setShowFullscreenHint] = useState(false);
   const [chordLabel, setChordLabel] = useState<string>();
   const nav = useNavigate();
+  const location = useLocation();
   const { theme, setTheme } = useTheme();
   useTitle(doc.data ? docTitle(doc.data) : undefined);
 
@@ -219,7 +241,7 @@ export function DocumentPage() {
       setActiveComment(commentId);
       if (fullscreen) return;
       if (isMobile) setMobilePanelOpen(true);
-      else setCommentsOpen(true);
+      else commentsOpenStore.write(true);
     },
     [fullscreen, isMobile],
   );
@@ -255,17 +277,10 @@ export function DocumentPage() {
     setActiveComment(undefined);
   }, []);
 
-  // A text selection from the rendered doc should reveal the compose flow.
-  useEffect(() => {
-    if (fullscreen || !selection?.quote) return;
-    if (isMobile) setMobilePanelOpen(true);
-    else setCommentsOpen(true);
-  }, [isMobile, fullscreen, selection]);
-
   const toggleComments = useCallback(() => {
     if (isMobile) setMobilePanelOpen((o) => !o);
-    else setCommentsOpen((o) => !o);
-  }, [isMobile]);
+    else commentsOpenStore.write(!commentsOpen);
+  }, [isMobile, commentsOpen]);
 
   // On mobile the comments sheet should be dismissable with the browser/OS
   // Back gesture, without leaving the document. We push a dedicated history
@@ -323,6 +338,87 @@ export function DocumentPage() {
     setCommentPositions(new Map());
     setCommentViewport({ scrollTop: 0, scrollHeight: 1 });
   }, [current]);
+
+  const [drafts, updateDrafts] = useCommentDrafts(id);
+  // Drafts left empty on an earlier visit hold nothing worth keeping.
+  useEffect(() => {
+    updateDrafts((list) => list.filter((draft) => draft.body.trim()));
+  }, [updateDrafts]);
+
+  // A selection starts a new draft next to the drafts that have text. Picking
+  // the same text again returns to its draft.
+  const startDraft = useCallback(
+    (selection: PendingSelection) => {
+      let draftId = `draft:${crypto.randomUUID()}`;
+      updateDrafts((list) => {
+        const same = list.find(
+          (draft) =>
+            draft.version === current &&
+            draft.quote === selection.quote &&
+            draft.anchor?.start_offset === selection.anchor?.start_offset,
+        );
+        if (same) {
+          draftId = same.id;
+          return list;
+        }
+        const draft = {
+          id: draftId,
+          version: current,
+          ...selection,
+          body: "",
+          mentions: [],
+          updatedAt: Date.now(),
+        };
+        return [...list.filter((d) => d.body.trim()), draft];
+      });
+      setCommentFilter(COMMENT_STATUS.open);
+      handleDocCommentClick(draftId);
+    },
+    [current, updateDrafts, handleDocCommentClick],
+  );
+  const saveDraft = useCallback(
+    (draftId: string, text: { body: string; mentions: CommentMention[] }) =>
+      updateDrafts((list) =>
+        list.map((d) =>
+          d.id === draftId ? { ...d, ...text, updatedAt: Date.now() } : d,
+        ),
+      ),
+    [updateDrafts],
+  );
+  const discardDraft = useCallback(
+    (draftId: string) => updateDrafts((list) => list.filter((d) => d.id !== draftId)),
+    [updateDrafts],
+  );
+
+  const stream = useDocumentStream({
+    docId: id,
+    version: current,
+    principal: me.data?.principal,
+    // Keep the reader on the version they read when someone else publishes.
+    onRemoteDocumentChange: () => setSelectedVersion((version) => version || current),
+  });
+
+  // Offer the version someone else published while this reader stayed on the
+  // one before it.
+  const seenLatest = useRef(latest);
+  useEffect(() => {
+    const previous = seenLatest.current;
+    seenLatest.current = latest;
+    if (!previous || previous === latest || current !== previous) return;
+    toast.info("A new version is available.", {
+      action: { label: "View", onClick: () => setSelectedVersion(latest) },
+    });
+  }, [latest, current]);
+
+  // Show the version another viewer reads, at the passage they look at.
+  const followViewer = useCallback(
+    (viewer: Viewer) => {
+      if (viewer.version) setSelectedVersion(viewer.version);
+      const hash = textLinkFragment(viewer.anchor);
+      if (hash) nav({ search: location.search, hash }, { replace: true });
+    },
+    [nav, location.search],
+  );
 
   const exitFullscreen = useCallback(() => {
     setSearchParams(
@@ -398,6 +494,15 @@ export function DocumentPage() {
       nav,
     ],
   );
+  // ? shows every shortcut, as in GitHub and Gmail. The bridge forwards it
+  // from the document.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "?" && !isChordBlocked(event.target)) setShortcutsOpen(true);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   const onBareEscape = useCallback(() => {
     if (fullscreen) exitFullscreen();
     else setActiveComment(undefined);
@@ -418,8 +523,10 @@ export function DocumentPage() {
       commentsLoading: comments.isLoading,
       commentsError: !!comments.error,
       principal: me.data?.principal,
-      selection,
-      setSelection,
+      drafts,
+      startDraft,
+      saveDraft,
+      discardDraft,
       activeComment,
       setActiveComment,
       unanchoredComments,
@@ -436,6 +543,8 @@ export function DocumentPage() {
       syncCommentRail,
       handleDocCommentClick,
       handleRenderedDocumentClick,
+      subscribeDocumentKV: stream.subscribeKV,
+      reportViewport: stream.reportViewport,
     }),
     [
       id,
@@ -445,7 +554,10 @@ export function DocumentPage() {
       comments.isLoading,
       comments.error,
       me.data,
-      selection,
+      drafts,
+      startDraft,
+      saveDraft,
+      discardDraft,
       activeComment,
       unanchoredComments,
       commentPositions,
@@ -459,6 +571,8 @@ export function DocumentPage() {
       syncCommentRail,
       handleDocCommentClick,
       handleRenderedDocumentClick,
+      stream.subscribeKV,
+      stream.reportViewport,
     ],
   );
 
@@ -503,12 +617,13 @@ export function DocumentPage() {
 
   return (
     <DocProvider value={ctx}>
+      <ShortcutsDialog open={shortcutsOpen} onOpenChange={setShortcutsOpen} />
       {fullscreen ? (
         <div className="relative h-full bg-[var(--color-surface-muted)]">
           {showFullscreenHint ? (
             <div className="pointer-events-none absolute left-1/2 top-6 z-20 -translate-x-1/2 rounded-full bg-[var(--color-surface)] px-6 py-3 text-base font-semibold text-[var(--color-fg)] shadow-xl ring-1 ring-[var(--color-border)]">
               <span className="hidden sm:inline">
-                Esc to exit · Esc t theme · Esc h home
+                Esc to exit · ? for all shortcuts
               </span>
               <span className="sm:hidden">Go back to exit full screen</span>
             </div>
@@ -536,8 +651,11 @@ export function DocumentPage() {
               versions={versions.data?.items || []}
               labels={doc.data.labels || []}
               onSelectVersion={setSelectedVersion}
+              viewers={stream.viewers}
+              onFollowViewer={followViewer}
               commentsOpen={isMobile ? mobilePanelOpen : commentsOpen}
               onToggleComments={toggleComments}
+              onShowShortcuts={() => setShortcutsOpen(true)}
               shareOpen={shareOpen}
               onShareOpenChange={setShareOpen}
             />
