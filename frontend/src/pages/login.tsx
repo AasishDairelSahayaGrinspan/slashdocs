@@ -1,10 +1,11 @@
 import { useTitle } from "@/lib/use-title";
-import { Link, Navigate, useSearchParams } from "react-router-dom";
+import { Navigate, useSearchParams } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { queryKeys } from "@/lib/queryKeys";
 import { motion } from "framer-motion";
-import { ArrowLeft, MessageSquareText, Share2, Sparkles } from "lucide-react";
+import { MessageSquareText, Share2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Logo } from "@/components/layout/logo";
 import { api } from "@/api";
 import { setFrontendSignedOut, useFrontendSignedOut } from "@/lib/auth-state";
 import { useMe } from "@/lib/hooks";
@@ -64,12 +65,6 @@ export function LoginPage() {
         aria-hidden
         className="pointer-events-none absolute left-1/2 top-1/3 h-[28rem] w-[28rem] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--color-accent)] opacity-[0.07] blur-3xl animate-[glow-pulse_8s_ease-in-out_infinite]"
       />
-      <Link
-        to="/"
-        className="absolute left-6 top-6 flex items-center gap-1 text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)]"
-      >
-        <ArrowLeft className="h-4 w-4" /> Home
-      </Link>
       <motion.div
         className="relative w-full max-w-sm"
         initial="hidden"
@@ -81,8 +76,8 @@ export function LoginPage() {
           className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)] p-8 elevate-subtle"
         >
           <div className="mb-7 flex flex-col items-center text-center">
-            <img src="/favicon.svg" alt="" className="mb-4 h-14 w-14" />
-            <h1 className="text-2xl font-semibold tracking-tight">Sign in to aidocs</h1>
+            <Logo className="mb-6 h-6 w-auto" />
+            <h1 className="text-2xl font-semibold tracking-tight">Sign in</h1>
             <p className="mt-2 text-sm text-[var(--color-fg-muted)]">
               The review layer for documents your agents write.
             </p>

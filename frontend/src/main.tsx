@@ -9,7 +9,6 @@ import { APIError } from "@/api";
 import { errorMessage } from "@/lib/errors";
 import { ThemeProvider } from "@/lib/theme";
 import { AppShell } from "@/components/layout/app-shell";
-import { LandingPage } from "@/pages/landing";
 import { LoginPage } from "@/pages/login";
 import { DocumentsPage } from "@/pages/documents";
 import { DocumentPage } from "@/pages/document";
@@ -44,7 +43,8 @@ function App() {
         <TooltipProvider>
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<LandingPage />} />
+              {/* The landing page (pages/landing.tsx) is hidden for now. */}
+              <Route path="/" element={<Navigate to="/login" replace />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/app" element={<AppShell />}>
                 <Route index element={<Navigate to="documents" replace />} />

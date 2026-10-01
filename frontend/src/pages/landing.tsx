@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { CodeBlock } from "@/components/ui/misc";
 import { HowItWorks } from "@/components/marketing/how-it-works";
+import { Logo } from "@/components/layout/logo";
 import { useFrontendSignedOut } from "@/lib/auth-state";
 import { useMe } from "@/lib/hooks";
 import { publicURL } from "@/lib/config";
@@ -78,13 +79,8 @@ function Nav() {
   return (
     <header className="sticky top-0 z-30 border-b border-[var(--color-border)]/50 bg-[var(--color-bg)]/70 backdrop-blur-xl backdrop-saturate-150">
       <div className="mx-auto flex h-14 max-w-6xl items-center justify-between px-6">
-        <Link to="/" className="group flex items-center gap-2 font-semibold">
-          <img
-            src="/favicon.svg"
-            alt=""
-            className="h-10 w-10 transition-transform duration-300 ease-out group-hover:rotate-[-8deg] group-hover:scale-110"
-          />
-          aidocs
+        <Link to="/">
+          <Logo className="h-5 w-auto" />
         </Link>
         <nav className="flex items-center gap-2">
           <Tooltip label="GitHub">
@@ -302,10 +298,7 @@ function Footer() {
         className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-[var(--color-border-strong)] to-transparent"
       />
       <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-3 px-6 text-sm text-[var(--color-fg-muted)] md:flex-row">
-        <div className="flex items-center gap-2">
-          <img src="/favicon.svg" alt="" className="h-5 w-5" />
-          aidocs
-        </div>
+        <Logo className="h-4 w-auto" />
         <div className="flex items-center gap-4">
           <a href="/openapi.json" className="hover:text-[var(--color-fg)]">
             OpenAPI
