@@ -22,6 +22,7 @@ import {
   Trash2,
 } from "lucide-react";
 import { AccountMenu } from "@/components/layout/topbar";
+import { Logo } from "@/components/layout/logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/misc";
@@ -140,9 +141,9 @@ export function DocBar({
           to="/app/documents"
           aria-label="aidocs home"
           title="All documents"
-          className="hidden h-10 w-10 shrink-0 items-center justify-center rounded-[10px] hover:bg-[var(--color-surface-muted)] sm:flex"
+          className="hidden h-10 shrink-0 items-center rounded-[10px] px-2 hover:bg-[var(--color-surface-muted)] sm:flex"
         >
-          <img src="/favicon.svg" alt="" className="h-8 w-8" />
+          <Logo className="h-4 w-auto" />
         </Link>
       </Tooltip>
       <div className="flex min-w-0 flex-1 items-center gap-2">
