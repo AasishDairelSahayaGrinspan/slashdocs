@@ -10,6 +10,7 @@ import {
   User as UserIcon,
 } from "lucide-react";
 import { GetStartedPill } from "./get-started-pill";
+import { Logo } from "./logo";
 import { useOnboarding } from "@/lib/onboarding";
 import {
   Dropdown,
@@ -28,13 +29,8 @@ import type { Principal } from "@/api";
 export function TopBar({ user }: { user: Principal }) {
   return (
     <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-[var(--color-border)]/50 bg-[var(--color-surface)]/70 px-5 backdrop-blur-xl backdrop-saturate-150">
-      <Link to="/app/documents" className="group flex items-center gap-2 font-semibold">
-        <img
-          src="/favicon.svg"
-          alt=""
-          className="h-10 w-10 transition-transform duration-300 ease-out group-hover:rotate-[-8deg] group-hover:scale-110"
-        />
-        aidocs
+      <Link to="/app/documents">
+        <Logo className="h-5 w-auto" />
       </Link>
       <div className="flex items-center gap-2">
         <GetStartedPill />
