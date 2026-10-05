@@ -35,6 +35,7 @@ type Config struct {
 	// newly created documents when the request does not override it via the
 	// default_permission form field. repo.RoleNone means private: no grant.
 	DefaultDocPermission      repo.Role
+	Featured                  []FeaturedSection
 	GitHubClientID            string
 	GitHubClientSecret        string
 	GoogleGroupsEnabled       bool
@@ -71,6 +72,7 @@ type dependencies struct {
 	deployment                string
 	orgName                   string
 	defaultDocPermission      repo.Role
+	featured                  []FeaturedSection
 	readinessChecks           []readinessCheck
 	documentKVEvents          kvevents.Subscriber
 	githubOAuth               *oauth2.Config
@@ -148,6 +150,7 @@ func New(cfg Config, opts ...Option) *Server {
 		deployment:           cfg.Deployment,
 		orgName:              cfg.OrgName,
 		defaultDocPermission: cfg.DefaultDocPermission,
+		featured:             cfg.Featured,
 		githubHTTPClient:     http.DefaultClient,
 		googleGroupsEnabled:  cfg.GoogleGroupsEnabled,
 		labelsEnabled:        !cfg.DisableLabels,
@@ -317,6 +320,8 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/pins", h.listPins)
 	authed.PUT("/pins/:resource_type/:resource_id", h.putPin)
 	authed.DELETE("/pins/:resource_type/:resource_id", h.deletePin)
+	authed.GET("/featured", h.listFeatured)
+	authed.DELETE("/featured/:id", h.hideFeatured)
 	authed.GET("/integrations/github", h.githubStatus)
 	authed.GET("/integrations/github/start", h.githubOAuthStart)
 	authed.GET("/integrations/github/callback", h.githubOAuthCallback)

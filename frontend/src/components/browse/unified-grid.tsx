@@ -8,7 +8,7 @@ import { api, docID, docTitle, type FolderEntry, type Principal } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { principalLabel, samePrincipal } from "@/lib/principals";
 import { DRAG_TYPE } from "./drag";
-import { PinButton } from "./pin-button";
+import { PinButton, PinnedMark } from "./pin-button";
 import { SearchSnippet } from "./search-snippet";
 import {
   FOLDER_DELETE_DESCRIPTION,
@@ -115,6 +115,7 @@ function DraggableEntryCard({
         ) : (
           <FileText className="h-10 w-10 text-[var(--color-fg-muted)]/30" />
         )}
+        {pinned && <PinnedMark className="absolute left-3 top-3" />}
         <div className="absolute inset-x-3 bottom-2.5">
           <div className="truncate text-sm font-medium">{title}</div>
           <div className="truncate text-xs text-[var(--color-fg-muted)]">

@@ -20,6 +20,7 @@ import { ViewModeToggle } from "@/components/browse/view-mode-toggle";
 import { AccessWarningDialog, NewFolderDialog } from "@/components/browse/dialogs";
 import { UploadBackupItem } from "@/components/browse/upload-backup";
 import { DocumentSearchInput } from "@/components/browse/document-search-input";
+import { FeaturedItems } from "@/components/browse/featured-items";
 import { hasDocumentSearchOperators } from "@/lib/search-query";
 import {
   DndContext,
@@ -231,6 +232,8 @@ export function DocumentsPage() {
           </Dropdown>
         </div>
       </div>
+
+      {!searching && <FeaturedItems />}
 
       {docs.error ? (
         <EmptyState

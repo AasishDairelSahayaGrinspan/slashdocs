@@ -1746,3 +1746,9 @@ func (s *Store) PutPin(ctx context.Context, p auth.Principal, rt, rid string) er
 func (s *Store) DeletePin(ctx context.Context, p auth.Principal, rt, rid string) error {
 	return s.q.DeletePin(ctx, dbsqlc.DeletePinParams{PrincipalType: string(p.Type), PrincipalID: p.ID, ResourceType: rt, ResourceID: rid})
 }
+func (s *Store) ListHiddenFeaturedItems(ctx context.Context, p auth.Principal) ([]string, error) {
+	return s.q.ListHiddenFeaturedItems(ctx, dbsqlc.ListHiddenFeaturedItemsParams{PrincipalType: string(p.Type), PrincipalID: p.ID})
+}
+func (s *Store) HideFeaturedItem(ctx context.Context, p auth.Principal, rid string) error {
+	return s.q.HideFeaturedItem(ctx, dbsqlc.HideFeaturedItemParams{PrincipalType: string(p.Type), PrincipalID: p.ID, ResourceID: rid})
+}

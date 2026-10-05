@@ -218,6 +218,13 @@ type GoogleGroupSyncState struct {
 	LastErrorCode string
 }
 
+type HiddenFeaturedItem struct {
+	PrincipalType string
+	PrincipalID   string
+	ResourceID    string
+	HiddenAt      pgtype.Timestamptz
+}
+
 type NotificationPreference struct {
 	PrincipalType string
 	PrincipalID   string
