@@ -277,6 +277,10 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
+	featured, err := server.ParseFeatured(os.Getenv("AIDOCS_FEATURED"))
+	if err != nil {
+		return nil, fmt.Errorf("AIDOCS_FEATURED: %w", err)
+	}
 	googleGroups, err := loadGoogleGroupsConfig(ctx, deployment.name)
 	if err != nil {
 		return nil, err
@@ -316,6 +320,7 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		Deployment:                deployment.name,
 		OrgName:                   deployment.orgName,
 		DefaultDocPermission:      deployment.defaultDocPermission,
+		Featured:                  featured,
 		GitHubClientID:            os.Getenv("AIDOCS_GITHUB_CLIENT_ID"),
 		GitHubClientSecret:        os.Getenv("AIDOCS_GITHUB_CLIENT_SECRET"),
 		GoogleGroupsEnabled:       googleGroups.enabled,

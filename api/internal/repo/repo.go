@@ -427,4 +427,6 @@ type Repository interface {
 	ListPins(ctx context.Context, principal auth.Principal) ([]Pin, error)
 	PutPin(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error
 	DeletePin(ctx context.Context, principal auth.Principal, resourceType, resourceID string) error
+	ListHiddenFeaturedItems(ctx context.Context, principal auth.Principal) ([]string, error)
+	HideFeaturedItem(ctx context.Context, principal auth.Principal, resourceID string) error
 }

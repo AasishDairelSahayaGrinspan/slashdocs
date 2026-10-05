@@ -199,6 +199,31 @@ created document (`AIDOCS_DEFAULT_DOC_PERMISSION`: `viewer`, `commenter`,
 `editor`, or `private`, the default). Users can set a different preference on the CLI by
 setting the same env variable on their system while using the CLI.
 
+### Featured sections
+
+The Documents page can show sections of documents and folders above each
+user's own items, for example team tutorials on an org deployment or examples
+on a public one. Set `AIDOCS_FEATURED` to a JSON object. Each key is a section
+title, and the key order is the page order:
+
+```json
+{
+  "Dev tutorials": {
+    "description": "Guides for every engineer.",
+    "permanent": true,
+    "items": ["fld_abc", "doc_def"]
+  },
+  "Examples": { "items": ["doc_ghi"] }
+}
+```
+
+- `items` holds document (`doc_`) and folder (`fld_`) IDs. Users only see
+  the items that they can open, so share each item with everyone.
+- Users can hide each item, unless `permanent` is `true`.
+- `description` is optional.
+
+The server does not start if the JSON is not valid.
+
 ### MCP Server
 
 Although the preferred usage method is via the CLI, every deployment serves
@@ -498,6 +523,7 @@ both. The redirect URI to register is
 | `AIDOCS_METRICS_PORT`                    | `9090`      | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain. |
 | `AIDOCS_MIGRATE`                         | `true`      | Run database migrations on boot. Set `false` to skip.                                                                                 |
 | `AIDOCS_DEFAULT_DOC_PERMISSION`          | `private`   | Server-wide default sharing applied when a document is created: `viewer`, `commenter`, `editor`, or `private` (no grant). Non-private values require `AIDOCS_DEPLOYMENT=org`; requests may override per document via the `default_permission` form field. |
+| `AIDOCS_FEATURED`                        | unset       | JSON object of sections that the Documents page shows above each user's own items. See [Featured sections](#featured-sections).     |
 | `AIDOCS_KV_EVENTS_MODE`                  | `auto`      | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                              |
 | `AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset       | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.      |
 | `AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`     | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.         |

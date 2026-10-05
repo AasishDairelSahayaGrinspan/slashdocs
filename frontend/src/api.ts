@@ -141,6 +141,14 @@ export type FolderEntry = {
   document?: Document;
   last_active?: string;
 };
+// FeaturedSection is a titled row of server-configured documents and folders.
+// Users cannot hide the items of a permanent section.
+export type FeaturedSection = {
+  title: string;
+  description?: string;
+  permanent: boolean;
+  items: FolderEntry[];
+};
 export type Pin = {
   resource_type: "document" | "folder";
   resource_id: string;
@@ -591,6 +599,10 @@ export const api = {
     request<void>(`/v1/pins/${resourceType}/${resourceId}`, {
       method: "DELETE",
     }),
+  // Featured items: documents and folders that the server shows to each user.
+  listFeatured: () => request<{ items: FeaturedSection[] }>("/v1/featured"),
+  hideFeatured: (resourceId: string) =>
+    request<void>(`/v1/featured/${resourceId}`, { method: "DELETE" }),
 };
 
 export const docID = (d: Partial<Document>) => d.id || "";

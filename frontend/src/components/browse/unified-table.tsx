@@ -7,7 +7,7 @@ import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { docID, docTitle, type FolderEntry, type Principal } from "@/api";
 import { principalLabel, samePrincipal } from "@/lib/principals";
 import { DRAG_TYPE } from "./drag";
-import { PinButton } from "./pin-button";
+import { PinButton, PinnedMark } from "./pin-button";
 import { SearchSnippet } from "./search-snippet";
 import {
   FOLDER_DELETE_DESCRIPTION,
@@ -127,6 +127,7 @@ function DraggableEntryRow({
             <FileText className="h-4 w-4 text-[var(--color-fg-muted)]" />
           )}
           {title}
+          {pinned && <PinnedMark />}
         </Link>
         {snippet ? (
           <SearchSnippet text={snippet} className="mt-1 line-clamp-2 pl-6 text-xs" />

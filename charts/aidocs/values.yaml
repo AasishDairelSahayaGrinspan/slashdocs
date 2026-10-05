@@ -74,6 +74,12 @@ deployment:
   # fails at rollout. Clients can override per document with the
   # default_permission field and revoke the reported default grant.
   defaultDocPermission: ""
+  # JSON object of sections that the Documents page shows to every user. Keep
+  # it a string: the key order is the section order, and Helm's toJson would
+  # sort the keys. See docs/self-hosting.md ("Featured sections").
+  #   featured: |
+  #     {"Dev tutorials": {"permanent": true, "items": ["fld_abc"]}}
+  featured: ""
 
 # Feature rollout switches. Labels are temporarily disabled by default; set
 # labels to true to re-enable them.
