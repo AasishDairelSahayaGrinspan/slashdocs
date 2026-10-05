@@ -53,6 +53,29 @@ describe("FeaturedItems", () => {
     vi.unstubAllGlobals();
   });
 
+  it("collapses a section and keeps it collapsed after a reload", async () => {
+    const storage = new Map<string, string>();
+    const localStorage = {
+      getItem: (key: string) => storage.get(key) ?? null,
+      setItem: (key: string, value: string) => storage.set(key, value),
+    };
+    vi.stubGlobal("localStorage", localStorage);
+    renderFeatured([tutorials, examples]);
+    await userEvent.click(await screen.findByRole("button", { name: "Examples" }));
+    expect(
+      screen.getByRole("button", { name: /Examples/ }).getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(screen.queryByRole("link", { name: /Getting started/ })).toBeNull();
+    expect(screen.getByRole("link", { name: /Setup/ })).toBeTruthy();
+
+    cleanup();
+    renderFeatured([tutorials, examples]);
+    const toggle = await screen.findByRole("button", { name: /Examples/ });
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    await userEvent.click(toggle);
+    expect(await screen.findByRole("link", { name: /Getting started/ })).toBeTruthy();
+  });
+
   it("shows each section in order with its description and items", async () => {
     renderFeatured([tutorials, examples]);
     const headings = await screen.findAllByRole("heading");

@@ -2,12 +2,22 @@ import { useId } from "react";
 import { Link } from "react-router-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
-import { FileText, Folder as FolderIcon, X } from "lucide-react";
+import { ChevronRight, FileText, Folder as FolderIcon, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { api, docID, docTitle, type FeaturedSection, type FolderEntry } from "@/api";
+import { cn } from "@/lib/cn";
 import { errorMessage } from "@/lib/errors";
+import { createPersistentStore } from "@/lib/persistent-store";
 import { principalLabel } from "@/lib/principals";
 import { queryKeys } from "@/lib/queryKeys";
+
+// collapsedStore holds the titles of the sections that the user collapsed.
+const collapsedStore = createPersistentStore<string[]>(
+  "aidocs:featured-collapsed",
+  [],
+  (parsed) =>
+    Array.isArray(parsed) ? parsed.filter((t) => typeof t === "string") : [],
+);
 
 // FeaturedItems shows the sections of documents and folders that the server
 // features for every user, in the configured order.
@@ -23,24 +33,53 @@ export function FeaturedItems() {
 
 function FeaturedRow({ section }: { section: FeaturedSection }) {
   const headingID = useId();
+  const contentID = useId();
+  const collapsedTitles = collapsedStore.useStore();
+  const collapsed = collapsedTitles.includes(section.title);
+  const toggle = () =>
+    collapsedStore.write(
+      collapsed
+        ? collapsedTitles.filter((t) => t !== section.title)
+        : [...collapsedTitles, section.title],
+    );
   return (
-    <section aria-labelledby={headingID} className="mb-8">
+    <section aria-labelledby={headingID} className={collapsed ? "mb-3" : "mb-8"}>
       <h2 id={headingID} className="text-sm font-semibold">
-        {section.title}
-      </h2>
-      {section.description && (
-        <p className="mt-0.5 text-xs text-[var(--color-fg-muted)]">
-          {section.description}
-        </p>
-      )}
-      <div className="stagger-grid mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        {section.items.map((item) => (
-          <FeaturedCard
-            key={item.folder?.id || docID(item.document!)}
-            item={item}
-            hideable={!section.permanent}
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          aria-controls={contentID}
+          onClick={toggle}
+          className="-ml-1 flex cursor-pointer items-center gap-1 rounded-[6px] py-1 pl-1 pr-1.5 hover:bg-[var(--color-surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+        >
+          <ChevronRight
+            aria-hidden
+            className={cn(
+              "h-3.5 w-3.5 text-[var(--color-fg-muted)] transition-transform duration-200 ease-out",
+              !collapsed && "rotate-90",
+            )}
           />
-        ))}
+          {section.title}
+          {collapsed && (
+            <span className="ml-1 text-xs font-normal tabular-nums text-[var(--color-fg-muted)]">
+              {section.items.length}
+            </span>
+          )}
+        </button>
+      </h2>
+      <div id={contentID} hidden={collapsed}>
+        {section.description && (
+          <p className="text-xs text-[var(--color-fg-muted)]">{section.description}</p>
+        )}
+        <div className="stagger-grid mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+          {section.items.map((item) => (
+            <FeaturedCard
+              key={item.folder?.id || docID(item.document!)}
+              item={item}
+              hideable={!section.permanent}
+            />
+          ))}
+        </div>
       </div>
     </section>
   );
