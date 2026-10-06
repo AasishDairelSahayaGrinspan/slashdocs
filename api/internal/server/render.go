@@ -22,15 +22,15 @@ var ErrUnsafeRenderOrigin = errors.New("app and render origins are not isolated 
 // host-scoped cookies, so rendering it on the app host lets a
 // malicious document script against the app itself (session cookies, API
 // calls). Startup code may downgrade this error to a loud warning when
-// AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN=true opts into the risk (dev/demo only).
+// SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN=true opts into the risk (dev/demo only).
 func ValidateRenderOrigin(appOrigin, renderOrigin string) error {
 	appCanonical, appOK := canonicalHTTPOrigin(appOrigin)
 	if !appOK {
-		return fmt.Errorf("AIDOCS_APP_ORIGIN (%q) is not a valid HTTP origin", appOrigin)
+		return fmt.Errorf("SLASHDOCS_APP_ORIGIN (%q) is not a valid HTTP origin", appOrigin)
 	}
 	renderCanonical, renderOK := canonicalHTTPOrigin(renderOrigin)
 	if !renderOK {
-		return fmt.Errorf("AIDOCS_RENDER_ORIGIN (%q) is not a valid HTTP origin", renderOrigin)
+		return fmt.Errorf("SLASHDOCS_RENDER_ORIGIN (%q) is not a valid HTTP origin", renderOrigin)
 	}
 	appURL, _ := url.Parse(appCanonical)
 	renderURL, _ := url.Parse(renderCanonical)
@@ -39,7 +39,7 @@ func ValidateRenderOrigin(appOrigin, renderOrigin string) error {
 	if appHostname != renderHostname {
 		return nil
 	}
-	return fmt.Errorf("%w: AIDOCS_RENDER_ORIGIN (%q) must use a different hostname from AIDOCS_APP_ORIGIN: the server routes renders by Host, so a scheme or port difference alone cannot isolate untrusted document HTML. Serve renders from a separate hostname, or set AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN=true to accept this risk in non-production setups", ErrUnsafeRenderOrigin, renderOrigin)
+	return fmt.Errorf("%w: SLASHDOCS_RENDER_ORIGIN (%q) must use a different hostname from SLASHDOCS_APP_ORIGIN: the server routes renders by Host, so a scheme or port difference alone cannot isolate untrusted document HTML. Serve renders from a separate hostname, or set SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN=true to accept this risk in non-production setups", ErrUnsafeRenderOrigin, renderOrigin)
 }
 
 // bridgeFS embeds a tracked placeholder so plain Go builds remain valid before
@@ -108,7 +108,7 @@ func validSHA256(value string) bool {
 // wrapperTmpl renders the sandboxed iframe that hosts untrusted user HTML.
 // Using html/template ensures the srcdoc attribute value is correctly escaped
 // (including </script> sequences inside inline scripts).
-var wrapperTmpl = template.Must(template.New("wrapper").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>aidocs render</title><style>html,body{margin:0;height:100%;overflow:hidden}#aidocs-doc{border:0;width:100%;height:100vh}</style><script>try{var u=new URL(location.href);if(u.searchParams.has("token")){u.searchParams.delete("token");history.replaceState(null,"",u.pathname+(u.search||"")+u.hash)}}catch(e){}</script></head><body><iframe id="aidocs-doc" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc="{{.SrcDoc}}"></iframe><script>window.__AIDOCS_APP_ORIGIN__={{.AppOriginJS}};{{.BridgeJS}}</script></body></html>`))
+var wrapperTmpl = template.Must(template.New("wrapper").Parse(`<!doctype html><html><head><meta charset="utf-8"><title>slashdocs render</title><style>html,body{margin:0;height:100%;overflow:hidden}#slashdocs-doc{border:0;width:100%;height:100vh}</style><script>try{var u=new URL(location.href);if(u.searchParams.has("token")){u.searchParams.delete("token");history.replaceState(null,"",u.pathname+(u.search||"")+u.hash)}}catch(e){}</script></head><body><iframe id="slashdocs-doc" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox" srcdoc="{{.SrcDoc}}"></iframe><script>window.__SLASHDOCS_APP_ORIGIN__={{.AppOriginJS}};{{.BridgeJS}}</script></body></html>`))
 
 type wrapperData struct {
 	// SrcDoc is the raw user HTML. html/template escapes it for the
@@ -119,7 +119,9 @@ type wrapperData struct {
 	BridgeJS    template.JS
 }
 
-const bridgePrelude = `<script id="aidocs-bootstrap">(function(){if(window.aidocs&&window.aidocs.kv&&window.aidocs.github&&window.aidocs.github.connect)return;var q=[],gq=[],handlers={kvchange:[]};function enqueue(op,args){return new Promise(function(resolve,reject){q.push({op:op,args:Array.prototype.slice.call(args),resolve:resolve,reject:reject});});}function github(input){return new Promise(function(resolve,reject){gq.push({input:input,resolve:resolve,reject:reject});});}function githubConnect(){window.__aidocsGitHubConnectQueued=true;}function off(event,handler){if(event!=="kvchange")return;handlers.kvchange=handlers.kvchange.filter(function(h){return h!==handler;});}function on(event,handler){if(event==="kvchange"&&typeof handler==="function"){handlers.kvchange.push(handler);return function(){off(event,handler);};}}window.__aidocsKVQueue=q;window.__aidocsGitHubQueue=gq;window.__aidocsKVHandlers=handlers;window.aidocs=Object.assign(window.aidocs||{},{kv:{get:function(){return enqueue("get",arguments);},all:function(){return enqueue("all",arguments);},set:function(){return enqueue("set",arguments);},delete:function(){return enqueue("delete",arguments);},patch:function(){return enqueue("patch",arguments);},undo:function(){return enqueue("undo",arguments);},redo:function(){return enqueue("redo",arguments);}},github:{getRawContent:github,connect:githubConnect},on:on,off:off});})();</script>`
+// bridgePrelude queues document API calls until the bridge loads. Documents
+// written before the rename call window.aidocs, so it is an alias.
+const bridgePrelude = `<script id="slashdocs-bootstrap">(function(){if(window.slashdocs&&window.slashdocs.kv&&window.slashdocs.github&&window.slashdocs.github.connect)return;var q=[],gq=[],handlers={kvchange:[]};function enqueue(op,args){return new Promise(function(resolve,reject){q.push({op:op,args:Array.prototype.slice.call(args),resolve:resolve,reject:reject});});}function github(input){return new Promise(function(resolve,reject){gq.push({input:input,resolve:resolve,reject:reject});});}function githubConnect(){window.__slashdocsGitHubConnectQueued=true;}function off(event,handler){if(event!=="kvchange")return;handlers.kvchange=handlers.kvchange.filter(function(h){return h!==handler;});}function on(event,handler){if(event==="kvchange"&&typeof handler==="function"){handlers.kvchange.push(handler);return function(){off(event,handler);};}}window.__slashdocsKVQueue=q;window.__slashdocsGitHubQueue=gq;window.__slashdocsKVHandlers=handlers;window.slashdocs=window.aidocs=Object.assign(window.slashdocs||{},{kv:{get:function(){return enqueue("get",arguments);},all:function(){return enqueue("all",arguments);},set:function(){return enqueue("set",arguments);},delete:function(){return enqueue("delete",arguments);},patch:function(){return enqueue("patch",arguments);},undo:function(){return enqueue("undo",arguments);},redo:function(){return enqueue("redo",arguments);}},github:{getRawContent:github,connect:githubConnect},on:on,off:off});})();</script>`
 
 func userHTMLWithBridgePrelude(userHTML []byte) string {
 	s := string(userHTML)
@@ -196,7 +198,7 @@ func renderWrapperHTML(userHTML []byte, appOrigin string) []byte {
 }
 
 func printableHTML(userHTML []byte) []byte {
-	const printBootstrap = `<style id="aidocs-print-style">[data-aidocs-comment-id],.aidocs-comment-highlight{background:transparent!important;box-shadow:none!important}@media print{html,body{overflow:visible!important;height:auto!important}}</style><script id="aidocs-print-bootstrap">addEventListener("load",function(){setTimeout(function(){window.print()},150)},{once:true});</script>`
+	const printBootstrap = `<style id="slashdocs-print-style">[data-slashdocs-comment-id],.slashdocs-comment-highlight{background:transparent!important;box-shadow:none!important}@media print{html,body{overflow:visible!important;height:auto!important}}</style><script id="slashdocs-print-bootstrap">addEventListener("load",function(){setTimeout(function(){window.print()},150)},{once:true});</script>`
 	s := string(userHTML)
 	lower := strings.ToLower(s)
 	if idx := strings.LastIndex(lower, "</body>"); idx >= 0 {

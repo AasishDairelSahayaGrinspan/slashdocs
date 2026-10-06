@@ -28,14 +28,15 @@ type Context struct {
 	Pulled     map[string]string `json:"pulled"`
 }
 
-func configPath() string {
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		home, _ := os.UserHomeDir()
-		base = filepath.Join(home, ".config")
+func configBase() string {
+	if base := os.Getenv("XDG_CONFIG_HOME"); base != "" {
+		return base
 	}
-	return filepath.Join(base, "aidocs", "config.json")
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".config")
 }
+
+func configPath() string { return filepath.Join(configBase(), cliName, "config.json") }
 
 func loadConfig() (Config, error) {
 	c := Config{Contexts: map[string]*Context{}}
@@ -100,7 +101,7 @@ func currentContext(g *globals) (string, *Context, Config) {
 }
 
 func currentContextFrom(g *globals, cfg Config) (string, *Context, Config) {
-	srv := first(g.server, os.Getenv("AIDOCS_SERVER"), cfg.ActiveContext)
+	srv := first(g.server, env("SLASHDOCS_SERVER"), cfg.ActiveContext)
 	if srv == "" {
 		// No server anywhere: hand back an unnamed, unsaved context so
 		// read-only callers keep working; anything that needs a real server
@@ -118,9 +119,9 @@ func currentContextFrom(g *globals, cfg Config) (string, *Context, Config) {
 	return name, cx, cfg
 }
 
-const keychainService = "aidocs"
+const keychainService = cliName
 
-func keychainDisabled() bool             { return os.Getenv("AIDOCS_NO_KEYCHAIN") != "" }
+func keychainDisabled() bool             { return env("SLASHDOCS_NO_KEYCHAIN") != "" }
 func tokenRef(contextName string) string { return contextName + ":token" }
 
 func credentialToken(contextName string, cred map[string]any) string {
@@ -137,9 +138,16 @@ func credentialToken(contextName string, cred map[string]any) string {
 	if keychainDisabled() {
 		return ""
 	}
-	t, err := keyring.Get(keychainService, ref)
+	if t, err := keyring.Get(keychainService, ref); err == nil {
+		return t
+	}
+	// Tokens saved before the rename live under the aidocs service. Move them.
+	t, err := keyring.Get(legacyName, ref)
 	if err != nil {
 		return ""
+	}
+	if keyring.Set(keychainService, ref, t) == nil {
+		_ = keyring.Delete(legacyName, ref)
 	}
 	return t
 }

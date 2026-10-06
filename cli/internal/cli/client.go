@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"time"
 )
@@ -19,7 +18,7 @@ import (
 // environment, or config. There is deliberately no built-in default host: the
 // CLI only ever talks to a server the user (or the server's own install.sh)
 // pointed it at.
-var errNoServer = errors.New("no aidocs server configured; pass --server <url> (e.g. --server https://aidocs.example.com), set AIDOCS_SERVER, or run `aidocs auth login <server>`")
+var errNoServer = errors.New("no slashdocs server configured; pass --server <url> (e.g. --server https://slashdocs.example.com), set SLASHDOCS_SERVER, or run `slashdocs auth login <server>`")
 
 // newHTTPClient builds an http.Client with explicit connection and overall
 // timeouts so a slow or unreachable server can never hang the CLI.
@@ -44,7 +43,7 @@ var (
 	updateHTTPClient = newHTTPClient(5 * time.Second)
 )
 
-// Client is a thin HTTP transport for the aidocs API.
+// Client is a thin HTTP transport for the slashdocs API.
 type Client struct {
 	Base, Token string
 	HTTP        *http.Client
@@ -52,8 +51,8 @@ type Client struct {
 
 // client builds a Client from flags, environment, and the active config context.
 func client(g *globals) (*Client, error) {
-	srv := first(g.server, os.Getenv("AIDOCS_SERVER"))
-	tok := first(g.token, os.Getenv("AIDOCS_TOKEN"))
+	srv := first(g.server, env("SLASHDOCS_SERVER"))
+	tok := first(g.token, env("SLASHDOCS_TOKEN"))
 	cfg, err := loadConfig()
 	if err != nil {
 		return nil, err

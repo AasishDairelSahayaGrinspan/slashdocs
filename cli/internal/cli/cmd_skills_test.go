@@ -14,9 +14,9 @@ func TestSkillsUpdateRefreshesFromServer(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
-	skill := "---\nname: aidocs\ndescription: refreshed skill\n---\n"
+	skill := "---\nname: slashdocs\ndescription: refreshed skill\n---\n"
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/skills/aidocs/SKILL.md" {
+		if r.URL.Path != "/skills/slashdocs/SKILL.md" {
 			http.NotFound(w, r)
 			return
 		}
@@ -24,18 +24,18 @@ func TestSkillsUpdateRefreshesFromServer(t *testing.T) {
 		_, _ = io.WriteString(w, skill)
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 
 	got, err := Execute([]string{"skills", "update"})
 	if err != nil {
 		t.Fatalf("skills update returned error: %v", err)
 	}
-	if !strings.Contains(got, "Updated aidocs skill") || !strings.Contains(got, srv.URL) {
+	if !strings.Contains(got, "Updated slashdocs skill") || !strings.Contains(got, srv.URL) {
 		t.Fatalf("unexpected output: %q", got)
 	}
 	for _, p := range []string{
-		filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"),
-		filepath.Join(home, ".claude", "skills", "aidocs", "SKILL.md"),
+		filepath.Join(home, ".agents", "skills", "slashdocs", "SKILL.md"),
+		filepath.Join(home, ".claude", "skills", "slashdocs", "SKILL.md"),
 	} {
 		b := readTestFile(t, p)
 		if string(b) != skill {

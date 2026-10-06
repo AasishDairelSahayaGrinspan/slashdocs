@@ -9,8 +9,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // createVersionResponse is the payload of POST /v1/documents/{id}/versions.
@@ -101,7 +101,7 @@ func (h handlers) createRenderToken(c *gin.Context) {
 	if h.deps.renderOrigin == "" || sameHTTPOrigin(h.deps.appOrigin, h.deps.renderOrigin) {
 		//nolint:gosec // G124: Secure is conditional so explicit local HTTP development remains usable.
 		http.SetCookie(c.Writer, &http.Cookie{
-			Name:     "aidocs_render_token",
+			Name:     "slashdocs_render_token",
 			Value:    token,
 			Path:     renderPath,
 			HttpOnly: true,
@@ -176,7 +176,7 @@ func (h handlers) renderVersion(c *gin.Context) {
 	docID, vid := c.Param("id"), c.Param("version_id")
 	token := c.Query("token")
 	if token == "" {
-		if cookie, err := c.Request.Cookie("aidocs_render_token"); err == nil {
+		if cookie, err := c.Request.Cookie("slashdocs_render_token"); err == nil {
 			token = cookie.Value
 		}
 	}
@@ -300,6 +300,6 @@ func (h handlers) getVersionHTML(c *gin.Context) {
 	incVersion("html_downloaded", actorType(c))
 	c.Header("Content-Security-Policy", "sandbox; default-src 'none'")
 	c.Header("X-Content-Type-Options", "nosniff")
-	c.Header("Content-Disposition", `attachment; filename="aidocs-`+v.ID+`.html"`)
+	c.Header("Content-Disposition", `attachment; filename="slashdocs-`+v.ID+`.html"`)
 	c.Data(http.StatusOK, "text/html; charset=utf-8", b)
 }

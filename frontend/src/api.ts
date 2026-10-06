@@ -117,7 +117,7 @@ export type CommentPatch = {
   mentions?: CommentMention[];
 };
 
-const COMMENT_MENTIONS_MEDIA_TYPE = "application/vnd.aidocs.comment-mentions+json";
+const COMMENT_MENTIONS_MEDIA_TYPE = "application/vnd.slashdocs.comment-mentions+json";
 export type Grant = {
   id: string;
   principal?: Principal;

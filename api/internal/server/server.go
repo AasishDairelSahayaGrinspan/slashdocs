@@ -12,11 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/googlegroups"
-	"github.com/razorpay/aidocs/api/internal/kvevents"
-	"github.com/razorpay/aidocs/api/internal/notifications"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/googlegroups"
+	"github.com/razorpay/slashdocs/api/internal/kvevents"
+	"github.com/razorpay/slashdocs/api/internal/notifications"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // Config holds static configuration for the server.
@@ -215,7 +215,8 @@ func (s *Server) Handler() http.Handler { return s.engine }
 
 func (s *Server) routes(deps dependencies) {
 	h := handlers{deps: deps}
-	s.engine.GET("/.well-known/aidocs.json", h.discovery)
+	s.engine.GET("/.well-known/slashdocs.json", h.discovery)
+	s.engine.GET("/.well-known/aidocs.json", h.discovery) // pre-rename path
 	s.engine.GET("/.well-known/oauth-protected-resource", h.mcpProtectedResourceMetadata)
 	s.engine.GET("/.well-known/oauth-protected-resource/mcp", h.mcpProtectedResourceMetadata)
 	s.engine.GET("/.well-known/oauth-authorization-server", h.mcpAuthorizationServerMetadata)

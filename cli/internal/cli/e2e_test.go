@@ -10,14 +10,14 @@ import (
 	"testing"
 )
 
-// e2eMux builds the mock aidocs API used by the CLI end-to-end tests.
+// e2eMux builds the mock slashdocs API used by the CLI end-to-end tests.
 func e2eMux(t *testing.T) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/me", jsonH(t, map[string]any{"principal": map[string]any{"type": "user", "id": "usr_1"}, "user": map[string]any{"id": "usr_1", "email": "me@example.com", "name": "Me"}}))
 	mux.HandleFunc("/v1/config", jsonH(t, map[string]any{"deployment": "org", "org_name": "Acme", "everyone_label": "Acme"}))
-	mux.HandleFunc("/skills/aidocs/SKILL.md", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/skills/slashdocs/SKILL.md", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		writeTestString(t, w, "---\nname: aidocs\ndescription: e2e skill\n---\n")
+		writeTestString(t, w, "---\nname: slashdocs\ndescription: e2e skill\n---\n")
 	})
 	mux.HandleFunc("/v1/documents", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -136,7 +136,7 @@ func e2eMux(t *testing.T) *http.ServeMux {
 	mux.HandleFunc("/v1/service-accounts/sa_1", jsonH(t, map[string]any{"id": "sa_1", "name": "bot"}))
 	mux.HandleFunc("/v1/service-accounts/sa_1/keys", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == "POST" {
-			writeTestJSON(t, w, map[string]any{"id": "sak_1", "token": "aidocs_sa_x"}) //nolint:gosec // This fixed value is a mock response, not a credential.
+			writeTestJSON(t, w, map[string]any{"id": "sak_1", "token": "slashdocs_sa_x"}) //nolint:gosec // This fixed value is a mock response, not a credential.
 			return
 		}
 		writeTestJSON(t, w, map[string]any{"items": []any{map[string]any{"id": "sak_1", "name": "k"}}})
@@ -159,10 +159,10 @@ func e2eMux(t *testing.T) *http.ServeMux {
 func TestCLICommandsE2E(t *testing.T) {
 	srv := httptest.NewServer(e2eMux(t))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_NO_BROWSER", "1")
+	t.Setenv("SLASHDOCS_NO_BROWSER", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 	out := filepath.Join(t.TempDir(), "out.html")
@@ -185,10 +185,10 @@ func TestCLICommandsE2E(t *testing.T) {
 func TestCommandOutputsAreConversational(t *testing.T) {
 	srv := httptest.NewServer(e2eMux(t))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_NO_BROWSER", "1")
+	t.Setenv("SLASHDOCS_NO_BROWSER", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 	out := filepath.Join(t.TempDir(), "out.html")
@@ -241,8 +241,8 @@ func TestCommandOutputsAreConversational(t *testing.T) {
 func TestJSONOutputStaysMachineReadable(t *testing.T) {
 	srv := httptest.NewServer(e2eMux(t))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	got, err := Execute([]string{"--json", "docs", "update", "doc_1", "--title", "New"})
@@ -263,10 +263,10 @@ func TestJSONOutputStaysMachineReadable(t *testing.T) {
 func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 	srv := httptest.NewServer(e2eMux(t))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_NO_BROWSER", "1")
+	t.Setenv("SLASHDOCS_NO_BROWSER", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
@@ -296,10 +296,10 @@ func TestJSONIncludesDocumentURLAndNudge(t *testing.T) {
 					t.Fatalf("create JSON should pass default_grant through, got %v (output %q)", m["default_grant"], got)
 				}
 				warning, _ := m["warning"].(string)
-				if !strings.Contains(warning, "shared org-wide by default") || !strings.Contains(warning, "aidocs docs grants revoke doc_new gr_new") {
+				if !strings.Contains(warning, "shared org-wide by default") || !strings.Contains(warning, "slashdocs docs grants revoke doc_new gr_new") {
 					t.Fatalf("create JSON should carry the share warning with the real grant id, got %q (output %q)", warning, got)
 				}
-				if msg, ok := m["message"].(string); ok && strings.Contains(msg, "aidocs docs grants add") {
+				if msg, ok := m["message"].(string); ok && strings.Contains(msg, "slashdocs docs grants add") {
 					t.Fatalf("create JSON should not include nudge when auto-granted, got %q", got)
 				}
 			}
@@ -327,10 +327,10 @@ func TestCreateGrantsOrgWideViewerByDefault(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
@@ -344,7 +344,7 @@ func TestCreateGrantsOrgWideViewerByDefault(t *testing.T) {
 	if !strings.Contains(got, "shared org-wide by default") || !strings.Contains(got, "anyone at Acme can read it") {
 		t.Fatalf("expected org-wide share notice, got %q", got)
 	}
-	if !strings.Contains(got, "aidocs docs grants revoke doc_new gr_srv") {
+	if !strings.Contains(got, "slashdocs docs grants revoke doc_new gr_srv") {
 		t.Fatalf("expected revoke recipe with the real grant id, got %q", got)
 	}
 }
@@ -363,10 +363,10 @@ func TestCreateQuietSendsDefaultPermission(t *testing.T) {
 		writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new", "default_grant": map[string]any{"grant_id": "gr_srv", "principal": map[string]any{"type": "anyone"}, "role": "commenter"}})
 	}))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 	t.Setenv(defaultDocPermissionEnv, "commenter")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
@@ -397,10 +397,10 @@ func TestCreatePrivateByDefaultOptsOut(t *testing.T) {
 		writeTestJSON(t, w, map[string]any{"id": "doc_new", "current_version_id": "ver_new"})
 	}))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 	t.Setenv(defaultDocPermissionEnv, "private")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
@@ -460,10 +460,10 @@ func TestCreateWithoutDefaultGrantNudges(t *testing.T) {
 		}
 	}))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
@@ -484,7 +484,7 @@ func TestCreateWithoutDefaultGrantNudges(t *testing.T) {
 		t.Fatalf("--json output is not valid JSON: %q", got)
 	}
 	msg, _ := m["message"].(string)
-	if !strings.Contains(msg, "aidocs docs grants add doc_new --everyone --role viewer") {
+	if !strings.Contains(msg, "slashdocs docs grants add doc_new --everyone --role viewer") {
 		t.Fatalf("JSON create should carry the nudge, got %q (output %q)", msg, got)
 	}
 }
@@ -496,10 +496,10 @@ func TestCreateInvalidDefaultPermissionEnv(t *testing.T) {
 		t.Errorf("invalid override must not reach the server: %s %s", r.Method, r.URL.Path)
 	}))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 	t.Setenv(defaultDocPermissionEnv, "everyone")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
@@ -522,10 +522,10 @@ func TestCreateWithoutIDDoesNotPrintBrokenURL(t *testing.T) {
 		writeTestJSON(t, w, map[string]any{"current_version_id": "ver_new"})
 	}))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 	html := filepath.Join(t.TempDir(), "x.html")
 	writeTestFile(t, html, []byte("<h1>x</h1>"))
 
@@ -552,10 +552,10 @@ func TestWhoamiServiceAccountParity(t *testing.T) {
 		})
 	}))
 	defer srv.Close()
-	t.Setenv("AIDOCS_TOKEN", "tok")
-	t.Setenv("AIDOCS_SERVER", srv.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "tok")
+	t.Setenv("SLASHDOCS_SERVER", srv.URL)
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 
 	got, err := Execute([]string{"auth", "whoami"})
 	if err != nil {
@@ -597,7 +597,7 @@ func TestNormalizeServerUsesHTTPForLocalhost(t *testing.T) {
 	cases := map[string]string{
 		"localhost:8080":        "http://localhost:8080",
 		"127.0.0.1:8080":        "http://127.0.0.1:8080",
-		"aidocs.example.com":    "https://aidocs.example.com",
+		"slashdocs.example.com": "https://slashdocs.example.com",
 		"http://localhost:8080": "http://localhost:8080",
 	}
 	for in, want := range cases {
@@ -631,8 +631,8 @@ func TestExitCodeMapping(t *testing.T) {
 // tells the user how to point it at a server.
 func TestNoServerConfiguredFailsWithGuidance(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	t.Setenv("AIDOCS_SERVER", "")
-	t.Setenv("AIDOCS_TOKEN", "")
+	t.Setenv("SLASHDOCS_SERVER", "")
+	t.Setenv("SLASHDOCS_TOKEN", "")
 	for _, args := range [][]string{{"auth", "login"}, {"docs", "list"}} {
 		t.Run(strings.Join(args, " "), func(t *testing.T) {
 			_, err := Execute(args)
@@ -647,7 +647,7 @@ func TestNoServerConfiguredFailsWithGuidance(t *testing.T) {
 }
 
 func TestSACommandsCanBeDisabled(t *testing.T) {
-	t.Setenv("AIDOCS_DISABLE_SA_COMMANDS", "1")
+	t.Setenv("SLASHDOCS_DISABLE_SA_COMMANDS", "1")
 	_, err := Execute([]string{"sa", "list"})
 	if err == nil || !strings.Contains(err.Error(), "disabled") {
 		t.Fatalf("expected disabled err, got %v", err)

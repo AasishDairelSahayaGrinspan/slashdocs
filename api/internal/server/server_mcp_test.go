@@ -13,9 +13,9 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
-	"github.com/razorpay/aidocs/api/internal/server"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/server"
 )
 
 var expectedMCPTools = []string{
@@ -79,7 +79,7 @@ func TestMCPStreamableHTTPInitializeListAndCall(t *testing.T) {
 		"params": map[string]any{
 			"protocolVersion": mcp.LATEST_PROTOCOL_VERSION,
 			"capabilities":    map[string]any{},
-			"clientInfo":      map[string]any{"name": "aidocs-test", "version": "1"},
+			"clientInfo":      map[string]any{"name": "slashdocs-test", "version": "1"},
 		},
 	})
 	assertStatus(t, initialize, http.StatusOK)
@@ -101,7 +101,7 @@ func TestMCPStreamableHTTPInitializeListAndCall(t *testing.T) {
 		} `json:"result"`
 	}
 	decodeMCPResponse(t, initialize, &initialized)
-	if initialized.Result.ProtocolVersion != mcp.LATEST_PROTOCOL_VERSION || initialized.Result.ServerInfo.Name != "aidocs" || initialized.Result.Capabilities.Tools == nil {
+	if initialized.Result.ProtocolVersion != mcp.LATEST_PROTOCOL_VERSION || initialized.Result.ServerInfo.Name != "slashdocs" || initialized.Result.Capabilities.Tools == nil {
 		t.Fatalf("initialize result = %#v", initialized.Result)
 	}
 
@@ -234,7 +234,7 @@ func TestMCPHTTPTransportSecurityAndMalformedInput(t *testing.T) {
 	})
 
 	t.Run("CLI bearer is rejected", func(t *testing.T) {
-		cliToken, cliHash, err := auth.NewBearerToken("aidocs_cli_")
+		cliToken, cliHash, err := auth.NewBearerToken("slashdocs_cli_")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -739,7 +739,7 @@ func TestMCPGuidelinesProgressiveDisclosure(t *testing.T) {
 
 	theme := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
 		"section": "rendering theme",
-	}), "aidocs guidelines: rendering theme")
+	}), "slashdocs guidelines: rendering theme")
 	if !strings.Contains(theme.Text, "get_authoring_guidelines") {
 		t.Errorf("section page is missing the tool-call translation footer: %s", theme.Text)
 	}
@@ -747,15 +747,15 @@ func TestMCPGuidelinesProgressiveDisclosure(t *testing.T) {
 	// Aliases from the CLI resolve identically.
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
 		"section": "theme",
-	}), "aidocs guidelines: rendering theme")
+	}), "slashdocs guidelines: rendering theme")
 	assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
 		"section": "github",
-	}), "window.aidocs.github.getRawContent")
+	}), "window.slashdocs.github.getRawContent")
 
 	all := assertMCPToolOK(t, callMCPToolHTTP(t, e, token, "get_authoring_guidelines", map[string]any{
 		"section": "all",
-	}), "aidocs guidelines: core")
-	for _, want := range []string{"aidocs guidelines: rendering theme", "aidocs guidelines: interactivity github", "aidocs guidelines: review"} {
+	}), "slashdocs guidelines: core")
+	for _, want := range []string{"slashdocs guidelines: rendering theme", "slashdocs guidelines: interactivity github", "slashdocs guidelines: review"} {
 		if !strings.Contains(all.Text, want) {
 			t.Errorf("guidelines all is missing %q", want)
 		}

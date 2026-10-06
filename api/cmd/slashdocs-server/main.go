@@ -17,14 +17,14 @@ import (
 
 	"golang.org/x/oauth2/google"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/blob"
-	"github.com/razorpay/aidocs/api/internal/db"
-	"github.com/razorpay/aidocs/api/internal/googlegroups"
-	"github.com/razorpay/aidocs/api/internal/kvevents"
-	"github.com/razorpay/aidocs/api/internal/repo"
-	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
-	"github.com/razorpay/aidocs/api/internal/server"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/blob"
+	"github.com/razorpay/slashdocs/api/internal/db"
+	"github.com/razorpay/slashdocs/api/internal/googlegroups"
+	"github.com/razorpay/slashdocs/api/internal/kvevents"
+	"github.com/razorpay/slashdocs/api/internal/repo"
+	pgrepo "github.com/razorpay/slashdocs/api/internal/repo/postgres"
+	"github.com/razorpay/slashdocs/api/internal/server"
 )
 
 // HTTP server timeouts. WriteTimeout is deliberately absent (zero): the KV
@@ -37,13 +37,13 @@ const (
 	shutdownTimeout   = 15 * time.Second
 )
 
-// @title aidocs API
+// @title slashdocs API
 // @version v1
 // @description This API powers a review tool where people can upload one self-contained HTML file, view it, and leave comments anchored to specific text ranges inside that HTML.
 // @BasePath /
 // @securityDefinitions.apikey cookieAuth
 // @in cookie
-// @name aidocs_session
+// @name slashdocs_session
 // @securityDefinitions.apikey bearerAuth
 // @in header
 // @name Authorization
@@ -77,11 +77,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	kvEventsMode, err := kvevents.ParseMode(os.Getenv("AIDOCS_KV_EVENTS_MODE"))
+	kvEventsMode, err := kvevents.ParseMode(os.Getenv("SLASHDOCS_KV_EVENTS_MODE"))
 	if err != nil {
 		return err
 	}
-	if os.Getenv("AIDOCS_MIGRATE") != "false" {
+	if os.Getenv("SLASHDOCS_MIGRATE") != "false" {
 		if err := db.Migrate(databaseURL); err != nil {
 			return err
 		}
@@ -99,7 +99,7 @@ func run() error {
 	listenerFactory := newKVEventListenerFactory(
 		kvEventsMode,
 		databaseURL,
-		os.Getenv("AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL"),
+		os.Getenv("SLASHDOCS_KV_EVENTS_LISTENER_DATABASE_URL"),
 		store.Pool(),
 	)
 	kvEvents, err := kvevents.New(ctx, kvevents.Config{Mode: kvEventsMode}, store, listenerFactory)
@@ -120,7 +120,7 @@ func run() error {
 	workers.Go(func() { srv.RunCommentNotifications(workerCtx) })
 	workers.Go(func() { indexVersions(workerCtx, store) })
 	defer func() { cancelWorkers(); workers.Wait() }()
-	return serve(ctx, srv.Handler(), ":"+envOrDefault("AIDOCS_PORT", "8080"), ":"+envOrDefault("AIDOCS_METRICS_PORT", "9090"))
+	return serve(ctx, srv.Handler(), ":"+envOrDefault("SLASHDOCS_PORT", "8080"), ":"+envOrDefault("SLASHDOCS_METRICS_PORT", "9090"))
 }
 
 // indexVersions gives search text to versions that were created before
@@ -166,25 +166,25 @@ type originSettings struct {
 }
 
 func loadOriginSettings() (originSettings, error) {
-	appOrigin, err := requiredEnv("AIDOCS_APP_ORIGIN")
+	appOrigin, err := requiredEnv("SLASHDOCS_APP_ORIGIN")
 	if err != nil {
 		return originSettings{}, err
 	}
-	if err := validateOrigin("AIDOCS_APP_ORIGIN", appOrigin); err != nil {
+	if err := validateOrigin("SLASHDOCS_APP_ORIGIN", appOrigin); err != nil {
 		return originSettings{}, err
 	}
-	renderOrigin, err := requiredEnv("AIDOCS_RENDER_ORIGIN")
+	renderOrigin, err := requiredEnv("SLASHDOCS_RENDER_ORIGIN")
 	if err != nil {
 		return originSettings{}, err
 	}
-	if err := validateOrigin("AIDOCS_RENDER_ORIGIN", renderOrigin); err != nil {
+	if err := validateOrigin("SLASHDOCS_RENDER_ORIGIN", renderOrigin); err != nil {
 		return originSettings{}, err
 	}
 	if err := server.ValidateRenderOrigin(appOrigin, renderOrigin); err != nil {
-		if !errors.Is(err, server.ErrUnsafeRenderOrigin) || os.Getenv("AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN") != "true" {
+		if !errors.Is(err, server.ErrUnsafeRenderOrigin) || os.Getenv("SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN") != "true" {
 			return originSettings{}, err
 		}
-		slog.Warn("UNSAFE: AIDOCS_RENDER_ORIGIN shares a hostname with AIDOCS_APP_ORIGIN; scheme and port do not isolate host-scoped cookies, so uploaded document HTML can script against the app. Never run production like this.",
+		slog.Warn("UNSAFE: SLASHDOCS_RENDER_ORIGIN shares a hostname with SLASHDOCS_APP_ORIGIN; scheme and port do not isolate host-scoped cookies, so uploaded document HTML can script against the app. Never run production like this.",
 			slog.String("app_origin", appOrigin),
 			slog.String("render_origin", renderOrigin))
 	}
@@ -203,17 +203,17 @@ type deploymentSettings struct {
 }
 
 func loadDeploymentSettings() (deploymentSettings, error) {
-	deployment := envOrDefault("AIDOCS_DEPLOYMENT", server.DeploymentPublic)
+	deployment := envOrDefault("SLASHDOCS_DEPLOYMENT", server.DeploymentPublic)
 	allowedOAuthDomains := splitCSV(os.Getenv("ALLOWED_OAUTH_DOMAINS"))
 	switch deployment {
 	case server.DeploymentPublic:
 	case server.DeploymentOrg:
-		allowedOAuthDomains = splitCSV(os.Getenv("AIDOCS_ORG_DOMAINS"))
+		allowedOAuthDomains = splitCSV(os.Getenv("SLASHDOCS_ORG_DOMAINS"))
 		if len(allowedOAuthDomains) == 0 {
-			return deploymentSettings{}, errors.New("AIDOCS_ORG_DOMAINS is required when AIDOCS_DEPLOYMENT=org")
+			return deploymentSettings{}, errors.New("SLASHDOCS_ORG_DOMAINS is required when SLASHDOCS_DEPLOYMENT=org")
 		}
 	default:
-		return deploymentSettings{}, fmt.Errorf("AIDOCS_DEPLOYMENT must be %q or %q (got %q)", server.DeploymentPublic, server.DeploymentOrg, deployment)
+		return deploymentSettings{}, fmt.Errorf("SLASHDOCS_DEPLOYMENT must be %q or %q (got %q)", server.DeploymentPublic, server.DeploymentOrg, deployment)
 	}
 	defaultDocPermission, err := loadDefaultDocPermission(deployment)
 	if err != nil {
@@ -221,30 +221,30 @@ func loadDeploymentSettings() (deploymentSettings, error) {
 	}
 	return deploymentSettings{
 		name:                 deployment,
-		orgName:              os.Getenv("AIDOCS_ORG_NAME"),
+		orgName:              os.Getenv("SLASHDOCS_ORG_NAME"),
 		allowedOAuthDomains:  allowedOAuthDomains,
 		defaultDocPermission: defaultDocPermission,
 	}, nil
 }
 
-// loadDefaultDocPermission parses AIDOCS_DEFAULT_DOC_PERMISSION, the
+// loadDefaultDocPermission parses SLASHDOCS_DEFAULT_DOC_PERMISSION, the
 // server-wide default sharing applied at document create. Unset means
 // private. Non-private defaults are only meaningful behind an org login
-// gate, so they require AIDOCS_DEPLOYMENT=org.
+// gate, so they require SLASHDOCS_DEPLOYMENT=org.
 func loadDefaultDocPermission(deployment string) (repo.Role, error) {
-	raw := os.Getenv("AIDOCS_DEFAULT_DOC_PERMISSION")
+	raw := os.Getenv("SLASHDOCS_DEFAULT_DOC_PERMISSION")
 	if raw == "" {
 		return repo.RoleNone, nil
 	}
 	role, ok := server.ParseDefaultDocPermission(raw)
 	if !ok {
-		return repo.RoleNone, fmt.Errorf("AIDOCS_DEFAULT_DOC_PERMISSION must be %q, %q, %q or %q (got %q)", repo.RoleViewer, repo.RoleCommenter, repo.RoleEditor, "private", raw)
+		return repo.RoleNone, fmt.Errorf("SLASHDOCS_DEFAULT_DOC_PERMISSION must be %q, %q, %q or %q (got %q)", repo.RoleViewer, repo.RoleCommenter, repo.RoleEditor, "private", raw)
 	}
 	if role != repo.RoleNone && deployment != server.DeploymentOrg {
-		return repo.RoleNone, fmt.Errorf("AIDOCS_DEFAULT_DOC_PERMISSION=%s requires AIDOCS_DEPLOYMENT=org: on a public server the default \"anyone\" grant admits anyone with the link, not just your org", role)
+		return repo.RoleNone, fmt.Errorf("SLASHDOCS_DEFAULT_DOC_PERMISSION=%s requires SLASHDOCS_DEPLOYMENT=org: on a public server the default \"anyone\" grant admits anyone with the link, not just your org", role)
 	}
 	if role == repo.RoleEditor {
-		slog.Warn("AIDOCS_DEFAULT_DOC_PERMISSION=editor grants org-wide write access to every newly created document")
+		slog.Warn("SLASHDOCS_DEFAULT_DOC_PERMISSION=editor grants org-wide write access to every newly created document")
 	}
 	return role, nil
 }
@@ -277,15 +277,15 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
-	featured, err := server.ParseFeatured(os.Getenv("AIDOCS_FEATURED"))
+	featured, err := server.ParseFeatured(os.Getenv("SLASHDOCS_FEATURED"))
 	if err != nil {
-		return nil, fmt.Errorf("AIDOCS_FEATURED: %w", err)
+		return nil, fmt.Errorf("SLASHDOCS_FEATURED: %w", err)
 	}
 	googleGroups, err := loadGoogleGroupsConfig(ctx, deployment.name)
 	if err != nil {
 		return nil, err
 	}
-	labelsEnabled, err := boolEnv("AIDOCS_LABELS_ENABLED", false)
+	labelsEnabled, err := boolEnv("SLASHDOCS_LABELS_ENABLED", false)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 	if err != nil {
 		return nil, err
 	}
-	sender := loadSlackSender(os.Getenv("AIDOCS_SLACK_BOT_TOKEN"))
+	sender := loadSlackSender(os.Getenv("SLASHDOCS_SLACK_BOT_TOKEN"))
 	store.SetNotificationsEnabled(sender != nil)
 	options := []server.Option{
 		server.WithCommentNotificationSender(sender),
@@ -321,8 +321,8 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		OrgName:                   deployment.orgName,
 		DefaultDocPermission:      deployment.defaultDocPermission,
 		Featured:                  featured,
-		GitHubClientID:            os.Getenv("AIDOCS_GITHUB_CLIENT_ID"),
-		GitHubClientSecret:        os.Getenv("AIDOCS_GITHUB_CLIENT_SECRET"),
+		GitHubClientID:            os.Getenv("SLASHDOCS_GITHUB_CLIENT_ID"),
+		GitHubClientSecret:        os.Getenv("SLASHDOCS_GITHUB_CLIENT_SECRET"),
 		GoogleGroupsEnabled:       googleGroups.enabled,
 		GoogleGroupsMembershipTTL: googleGroups.membershipTTL,
 		DisableLabels:             !labelsEnabled,
@@ -439,7 +439,7 @@ type googleGroupsWorkspace struct {
 }
 
 // readGoogleGroupsWorkspaceEnv validates the three Workspace settings that
-// become mandatory when AIDOCS_GOOGLE_GROUPS_ENABLED is true.
+// become mandatory when SLASHDOCS_GOOGLE_GROUPS_ENABLED is true.
 func readGoogleGroupsWorkspaceEnv() (googleGroupsWorkspace, error) {
 	workspace := googleGroupsWorkspace{
 		customerID:      os.Getenv("GOOGLE_GROUPS_CUSTOMER_ID"),
@@ -460,12 +460,12 @@ func readGoogleGroupsWorkspaceEnv() (googleGroupsWorkspace, error) {
 
 func loadGoogleGroupsConfig(ctx context.Context, deployment string) (googleGroupsConfig, error) {
 	var cfg googleGroupsConfig
-	enabledRaw := os.Getenv("AIDOCS_GOOGLE_GROUPS_ENABLED")
+	enabledRaw := os.Getenv("SLASHDOCS_GOOGLE_GROUPS_ENABLED")
 	if enabledRaw == "" {
 		enabledRaw = "false"
 	}
 	if enabledRaw != "true" && enabledRaw != "false" {
-		return cfg, fmt.Errorf("AIDOCS_GOOGLE_GROUPS_ENABLED must be true or false")
+		return cfg, fmt.Errorf("SLASHDOCS_GOOGLE_GROUPS_ENABLED must be true or false")
 	}
 	enabled := enabledRaw == "true"
 	cfg.enabled = enabled
@@ -473,7 +473,7 @@ func loadGoogleGroupsConfig(ctx context.Context, deployment string) (googleGroup
 		return cfg, nil
 	}
 	if deployment != server.DeploymentOrg {
-		return cfg, fmt.Errorf("AIDOCS_GOOGLE_GROUPS_ENABLED requires AIDOCS_DEPLOYMENT=org")
+		return cfg, fmt.Errorf("SLASHDOCS_GOOGLE_GROUPS_ENABLED requires SLASHDOCS_DEPLOYMENT=org")
 	}
 	workspace, err := readGoogleGroupsWorkspaceEnv()
 	if err != nil {

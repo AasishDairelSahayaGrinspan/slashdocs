@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"testing"
 )
 
@@ -20,6 +21,14 @@ func TestGitHubTokenEncryptionRoundTripAndTamperDetection(t *testing.T) {
 	sealed[len(sealed)-1] ^= 1
 	if _, err := openGitHubToken("session-secret", sealed); err == nil {
 		t.Fatal("tampered ciphertext was accepted")
+	}
+}
+
+func TestGitHubTokenKeyKeepsPreRenameSeparator(t *testing.T) {
+	// Tokens stored before the rename from aidocs must still decrypt.
+	want := sha256.Sum256([]byte("aidocs/github-token/v1\x00session-secret"))
+	if !bytes.Equal(tokenKey("session-secret"), want[:]) {
+		t.Fatal("tokenKey changed its domain separator; stored GitHub tokens would not decrypt")
 	}
 }
 

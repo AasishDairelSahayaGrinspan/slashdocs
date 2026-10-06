@@ -10,8 +10,8 @@ import (
 
 	"golang.org/x/net/html"
 
-	"github.com/razorpay/aidocs/api/internal/blob"
-	dbsqlc "github.com/razorpay/aidocs/api/internal/db/sqlc"
+	"github.com/razorpay/slashdocs/api/internal/blob"
+	dbsqlc "github.com/razorpay/slashdocs/api/internal/db/sqlc"
 )
 
 // maxSearchTextBytes keeps a version's tsvector below the PostgreSQL limit of

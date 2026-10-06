@@ -1,8 +1,8 @@
-{{- define "aidocs.name" -}}
+{{- define "slashdocs.name" -}}
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" -}}
 {{- end -}}
 
-{{- define "aidocs.fullname" -}}
+{{- define "slashdocs.fullname" -}}
 {{- if .Values.fullnameOverride -}}
 {{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" -}}
 {{- else -}}
@@ -15,27 +15,27 @@
 {{- end -}}
 {{- end -}}
 
-{{- define "aidocs.labels" -}}
+{{- define "slashdocs.labels" -}}
 helm.sh/chart: {{ .Chart.Name }}-{{ .Chart.Version | replace "+" "_" }}
-app.kubernetes.io/name: {{ include "aidocs.name" . }}
+app.kubernetes.io/name: {{ include "slashdocs.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
 app.kubernetes.io/managed-by: {{ .Release.Service }}
 {{- end -}}
 
-{{- define "aidocs.selectorLabels" -}}
-app.kubernetes.io/name: {{ include "aidocs.name" . }}
+{{- define "slashdocs.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "slashdocs.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end -}}
 
-{{- define "aidocs.serviceAccountName" -}}
+{{- define "slashdocs.serviceAccountName" -}}
 {{- if .Values.serviceAccount.create -}}
-{{- default (include "aidocs.fullname" .) .Values.serviceAccount.name -}}
+{{- default (include "slashdocs.fullname" .) .Values.serviceAccount.name -}}
 {{- else -}}
 {{- default "default" .Values.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
 
-{{- define "aidocs.secretName" -}}
-{{- printf "%s-secrets" (include "aidocs.fullname" .) -}}
+{{- define "slashdocs.secretName" -}}
+{{- printf "%s-secrets" (include "slashdocs.fullname" .) -}}
 {{- end -}}

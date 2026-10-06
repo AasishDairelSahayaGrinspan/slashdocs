@@ -679,10 +679,10 @@ info:
   description: This API powers a review tool where people can upload one self-contained
     HTML file, view it, and leave comments anchored to specific text ranges inside
     that HTML.
-  title: aidocs API
+  title: slashdocs API
   version: v1
 paths:
-  /.well-known/aidocs.json:
+  /.well-known/slashdocs.json:
     get:
       produces:
       - application/json
@@ -1058,8 +1058,8 @@ paths:
     post:
       consumes:
       - application/json
-      - application/vnd.aidocs.comment-mentions+json
-      description: Requests with non-empty mentions must use Content-Type application/vnd.aidocs.comment-mentions+json
+      - application/vnd.slashdocs.comment-mentions+json
+      description: Requests with non-empty mentions must use Content-Type application/vnd.slashdocs.comment-mentions+json
         so mixed-version deployments fail closed instead of dropping metadata.
       parameters:
       - description: Document ID
@@ -1109,9 +1109,9 @@ paths:
     patch:
       consumes:
       - application/json
-      - application/vnd.aidocs.comment-mentions+json
+      - application/vnd.slashdocs.comment-mentions+json
       description: Any request containing the mentions key, including an empty array,
-        must use Content-Type application/vnd.aidocs.comment-mentions+json so mixed-version
+        must use Content-Type application/vnd.slashdocs.comment-mentions+json so mixed-version
         deployments fail closed.
       parameters:
       - description: Document ID
@@ -1223,8 +1223,8 @@ paths:
     post:
       consumes:
       - application/json
-      - application/vnd.aidocs.comment-mentions+json
-      description: Requests with non-empty mentions must use Content-Type application/vnd.aidocs.comment-mentions+json
+      - application/vnd.slashdocs.comment-mentions+json
+      description: Requests with non-empty mentions must use Content-Type application/vnd.slashdocs.comment-mentions+json
         so mixed-version deployments fail closed instead of dropping metadata.
       parameters:
       - description: Document ID
@@ -1842,6 +1842,6 @@ securityDefinitions:
     type: apiKey
   cookieAuth:
     in: cookie
-    name: aidocs_session
+    name: slashdocs_session
     type: apiKey
 swagger: "2.0"

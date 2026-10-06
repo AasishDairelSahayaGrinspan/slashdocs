@@ -3,7 +3,7 @@ package main
 import (
 	"strings"
 
-	"github.com/razorpay/aidocs/api/internal/notifications"
+	"github.com/razorpay/slashdocs/api/internal/notifications"
 )
 
 // Deployment charts inject the bot token from a Kubernetes Secret.

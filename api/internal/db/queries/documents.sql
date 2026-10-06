@@ -14,10 +14,10 @@ SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(d.parent_folder_id,'') AS parent_folder_id
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
--- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+-- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE d.id=$1;
 
 -- name: GetDocumentVersionForUpdate :one
@@ -46,10 +46,10 @@ SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        d.updated_at
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
--- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+-- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE d.parent_folder_id IS NULL
   AND (
    (d.owner_type=$2 AND d.owner_id=$1)
@@ -198,8 +198,8 @@ SELECT d.id, d.title, d.owner_type, d.owner_id,
        COALESCE(u.email,'') AS owner_email
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND d.owner_id=u.id
--- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON d.owner_type='service_account' AND d.owner_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+-- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND d.owner_id=sa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE d.parent_folder_id= @folder_id::text;

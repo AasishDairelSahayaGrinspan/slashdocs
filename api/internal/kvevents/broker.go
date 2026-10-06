@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 const (
@@ -42,7 +42,7 @@ const (
 	ModePoll Mode = "poll"
 )
 
-// ParseMode validates an AIDOCS_KV_EVENTS_MODE value. An empty value selects
+// ParseMode validates a slashdocs_KV_EVENTS_MODE value. An empty value selects
 // automatic detection.
 func ParseMode(raw string) (Mode, error) {
 	mode := Mode(strings.ToLower(strings.TrimSpace(raw)))
@@ -53,7 +53,7 @@ func ParseMode(raw string) (Mode, error) {
 	case ModeAuto, ModeNotify, ModePoll:
 		return mode, nil
 	default:
-		return "", fmt.Errorf("AIDOCS_KV_EVENTS_MODE must be %q, %q, or %q (got %q)", ModeAuto, ModeNotify, ModePoll, raw)
+		return "", fmt.Errorf("SLASHDOCS_KV_EVENTS_MODE must be %q, %q, or %q (got %q)", ModeAuto, ModeNotify, ModePoll, raw)
 	}
 }
 

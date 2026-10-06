@@ -13,7 +13,7 @@ import { queryKeys } from "@/lib/queryKeys";
 
 // collapsedStore holds the titles of the sections that the user collapsed.
 const collapsedStore = createPersistentStore<string[]>(
-  "aidocs:featured-collapsed",
+  "slashdocs:featured-collapsed",
   [],
   (parsed) =>
     Array.isArray(parsed) ? parsed.filter((t) => typeof t === "string") : [],

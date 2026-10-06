@@ -23,7 +23,7 @@ const EMPTY: CommentDraft[] = [];
 type DraftsByDocument = Record<string, CommentDraft[]>;
 
 const store = createPersistentStore<DraftsByDocument>(
-  "aidocs.comment-drafts",
+  "slashdocs.comment-drafts",
   {},
   (parsed) => {
     const oldest = Date.now() - MAX_AGE;

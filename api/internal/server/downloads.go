@@ -20,12 +20,12 @@ var (
 //go:embed download_dist/*
 var downloadDist embed.FS
 
-// Keep this file in sync with ../../../../skills/aidocs/SKILL.md. It is
+// Keep this file in sync with ../../../../skills/slashdocs/SKILL.md. It is
 // embedded into the server binary so self-hosted installs do not depend on
 // GitHub access, npx, or a Node runtime to install the agent skill.
 //
-//go:embed embedded/skills/aidocs/SKILL.md
-var aidocsSkillMD []byte
+//go:embed embedded/skills/slashdocs/SKILL.md
+var slashdocsSkillMD []byte
 
 type cliAsset struct {
 	OS     string `json:"os"`
@@ -50,7 +50,7 @@ var cliPlatforms = []struct{ os, arch string }{
 	{"linux", "amd64"},
 }
 
-func cliAssetName(goos, goarch string) string { return "aidocs-" + goos + "-" + goarch }
+func cliAssetName(goos, goarch string) string { return "slashdocs-" + goos + "-" + goarch }
 
 func embeddedCLIAsset(goos, goarch string) ([]byte, bool) {
 	b, err := downloadDist.ReadFile(path.Join("download_dist", cliAssetName(goos, goarch)))
@@ -72,13 +72,15 @@ func (h handlers) versionJSON(c *gin.Context) {
 }
 
 func (h handlers) downloadSkill(c *gin.Context) {
+	// CLIs released before the rename from aidocs still fetch the skill by
+	// its old name. They get the current skill.
 	name := strings.TrimSpace(c.Param("name"))
-	if name != "aidocs" {
+	if name != "slashdocs" && name != "aidocs" {
 		c.JSON(http.StatusNotFound, errorResponse("not_found", "skill is not available", nil))
 		return
 	}
 	c.Header("Content-Disposition", `attachment; filename="SKILL.md"`)
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", aidocsSkillMD)
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", slashdocsSkillMD)
 }
 
 func (h handlers) downloadCLI(c *gin.Context) {
@@ -109,7 +111,7 @@ func validCLIPlatform(goos, goarch string) bool {
 func (h handlers) installScript(c *gin.Context) {
 	base, ok := h.installBase(c)
 	if !ok {
-		c.Data(http.StatusInternalServerError, "text/plain; charset=utf-8", []byte("aidocs server is missing APP_ORIGIN; cannot generate installer\n"))
+		c.Data(http.StatusInternalServerError, "text/plain; charset=utf-8", []byte("slashdocs server is missing APP_ORIGIN; cannot generate installer\n"))
 		return
 	}
 	c.Data(http.StatusOK, "text/x-shellscript; charset=utf-8", []byte(strings.ReplaceAll(installScriptTemplate, "__BASE_URL__", base)))
@@ -149,7 +151,7 @@ func releaseCommit() string {
 const installScriptTemplate = `#!/usr/bin/env bash
 set -euo pipefail
 
-BASE_URL="${AIDOCS_BASE_URL:-__BASE_URL__}"
+BASE_URL="${SLASHDOCS_BASE_URL:-__BASE_URL__}"
 INSTALL_MODE="user"
 for arg in "$@"; do
   case "$arg" in
@@ -159,14 +161,14 @@ for arg in "$@"; do
   esac
 done
 
-if [ -n "${AIDOCS_INSTALL_DIR:-}" ]; then
-  BIN_DIR="$AIDOCS_INSTALL_DIR"
+if [ -n "${SLASHDOCS_INSTALL_DIR:-}" ]; then
+  BIN_DIR="$SLASHDOCS_INSTALL_DIR"
 elif [ "$INSTALL_MODE" = "system" ]; then
   BIN_DIR="/usr/local/bin"
 else
   BIN_DIR="$HOME/.local/bin"
 fi
-BIN_PATH="$BIN_DIR/aidocs"
+BIN_PATH="$BIN_DIR/slashdocs"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -185,12 +187,13 @@ if command -v brew >/dev/null 2>&1 && brew list aidocs >/dev/null 2>&1; then
   brew uninstall aidocs
 fi
 
-old_path="$(command -v aidocs 2>/dev/null || true)"
-if [ -n "$old_path" ] && [ "$old_path" != "$BIN_PATH" ]; then
+# The CLI was named aidocs before. An install under either name counts.
+old_path="$(command -v slashdocs 2>/dev/null || command -v aidocs 2>/dev/null || true)"
+if [ -n "$old_path" ] && [ "$(dirname "$old_path")" != "$BIN_DIR" ]; then
   old_dir="$(dirname "$old_path")"
-  echo "Existing aidocs install found at $old_path." >&2
+  echo "Existing slashdocs install found at $old_path." >&2
   echo "Remove it first, or install there with:" >&2
-  echo "  curl -fsSL $BASE_URL/install.sh | AIDOCS_INSTALL_DIR=$old_dir bash" >&2
+  echo "  curl -fsSL $BASE_URL/install.sh | SLASHDOCS_INSTALL_DIR=$old_dir bash" >&2
   echo "Target install path: $BIN_PATH" >&2
   exit 1
 fi
@@ -199,12 +202,12 @@ bin_tmp="$(mktemp)"
 skill_tmp="$(mktemp)"
 trap 'rm -f "$bin_tmp" "$skill_tmp"' EXIT
 url="$BASE_URL/cli/$os/$arch"
-echo "Downloading aidocs from $url"
+echo "Downloading slashdocs from $url"
 curl -fsSL "$url" -o "$bin_tmp"
 chmod +x "$bin_tmp"
 
-skill_url="$BASE_URL/skills/aidocs/SKILL.md"
-echo "Downloading aidocs skill from $skill_url"
+skill_url="$BASE_URL/skills/slashdocs/SKILL.md"
+echo "Downloading slashdocs skill from $skill_url"
 curl -fsSL "$skill_url" -o "$skill_tmp"
 
 if [ ! -d "$BIN_DIR" ]; then
@@ -215,17 +218,20 @@ if [ ! -d "$BIN_DIR" ]; then
   fi
 fi
 if [ -w "$BIN_DIR" ]; then
-  mv "$bin_tmp" "$BIN_PATH"
+  sudo=""
 elif [ "$INSTALL_MODE" = "system" ]; then
-  sudo mv "$bin_tmp" "$BIN_PATH"
+  sudo="sudo"
 else
   echo "install dir is not writable: $BIN_DIR" >&2
   echo "Try: curl -fsSL $BASE_URL/install.sh | bash -s -- --system" >&2
-  echo "Or set AIDOCS_INSTALL_DIR to a writable directory." >&2
+  echo "Or set SLASHDOCS_INSTALL_DIR to a writable directory." >&2
   exit 1
 fi
+$sudo mv "$bin_tmp" "$BIN_PATH"
+# The old aidocs name runs the same binary, which tells callers about the rename.
+$sudo ln -sf slashdocs "$BIN_DIR/aidocs"
 
-echo "Installed $($BIN_PATH version 2>/dev/null || echo aidocs) at $BIN_PATH"
+echo "Installed $($BIN_PATH version 2>/dev/null || echo slashdocs) at $BIN_PATH"
 
 install_skill_dir() {
   skill_dir="$1"
@@ -233,20 +239,20 @@ install_skill_dir() {
   cp "$skill_tmp" "$skill_dir/SKILL.md"
 }
 
-install_skill_dir "$HOME/.agents/skills/aidocs"
-install_skill_dir "$HOME/.claude/skills/aidocs"
-echo "Installed aidocs skill at:"
-echo "  $HOME/.agents/skills/aidocs/SKILL.md"
-echo "  $HOME/.claude/skills/aidocs/SKILL.md"
+install_skill_dir "$HOME/.agents/skills/slashdocs"
+install_skill_dir "$HOME/.claude/skills/slashdocs"
+echo "Installed slashdocs skill at:"
+echo "  $HOME/.agents/skills/slashdocs/SKILL.md"
+echo "  $HOME/.claude/skills/slashdocs/SKILL.md"
 
 # Point a fresh CLI at the server this installer came from, so
-# "curl <server>/install.sh | bash" ends with aidocs already configured.
+# "curl <server>/install.sh | bash" ends with slashdocs already configured.
 # An existing config is never touched: it may hold other contexts/credentials.
 configure_default_context() {
-  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/aidocs"
+  config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/slashdocs"
   config_path="$config_dir/config.json"
   if [ -e "$config_path" ]; then
-    echo "Keeping existing aidocs config at $config_path"
+    echo "Keeping existing slashdocs config at $config_path"
     return
   fi
   host="${BASE_URL#*://}"
@@ -265,7 +271,7 @@ configure_default_context() {
 }
 EOF
   chmod 600 "$config_path"
-  echo "Configured aidocs to use $BASE_URL (run 'aidocs auth login' to sign in)."
+  echo "Configured slashdocs to use $BASE_URL (run 'slashdocs auth login' to sign in)."
 }
 
 configure_default_context
@@ -314,7 +320,7 @@ ensure_bin_dir_on_path() {
   fi
   {
     echo ""
-    echo "# Added by aidocs installer"
+    echo "# Added by slashdocs installer"
     echo "$path_line"
   } >> "$profile" || {
     echo "Add $BIN_DIR to PATH to use this install."
@@ -326,9 +332,9 @@ ensure_bin_dir_on_path() {
 
 ensure_bin_dir_on_path
 
-active_path="$(command -v aidocs 2>/dev/null || true)"
+active_path="$(command -v slashdocs 2>/dev/null || true)"
 if [ -n "$active_path" ] && [ "$active_path" != "$BIN_PATH" ]; then
-  echo "Warning: 'aidocs' currently resolves to $active_path."
+  echo "Warning: 'slashdocs' currently resolves to $active_path."
   echo "Move $BIN_DIR earlier in PATH or remove the older install."
 fi
 `

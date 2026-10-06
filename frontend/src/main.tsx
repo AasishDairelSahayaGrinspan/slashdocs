@@ -17,6 +17,7 @@ import { ServiceAccountsPage } from "@/pages/service-accounts";
 import { DevelopersPage } from "@/pages/developers";
 import { ProfilePage } from "@/pages/profile";
 import { StartPage } from "@/pages/start";
+import { migrateLegacyStorage } from "@/lib/legacy-storage";
 
 // Query failures (other than auth, handled by route guards) and any mutation
 // without its own onError surface as a toast.
@@ -79,6 +80,8 @@ function LegacyDocRedirect() {
   const { id = "" } = useParams();
   return <Navigate to={`/app/d/${id}`} replace />;
 }
+
+migrateLegacyStorage();
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>

@@ -12,8 +12,8 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/server"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/server"
 )
 
 const oauthTestSigningMaterial = "test-oauth-session-signing-material"
@@ -66,14 +66,14 @@ func TestMeWithMissingServiceAccountReturnsInternalError(t *testing.T) {
 }
 
 func TestCookieAuthRejectsRenderOriginUnsafeRequest(t *testing.T) {
-	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://aidocs.example.com"})
+	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://slashdocs.example.com"})
 	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/grants", `{
 	  "principal": { "type": "anyone" },
 	  "role": "viewer"
 	}`, map[string]string{
 		"Content-Type":     "application/json",
-		"Cookie":           "aidocs_session=test-session",
-		"Origin":           "https://aidocs-render.example.com",
+		"Cookie":           "slashdocs_session=test-session",
+		"Origin":           "https://slashdocs-render.example.com",
 		"X-Test-Principal": principalHeader(fixtureOwner),
 	})
 
@@ -84,14 +84,14 @@ func TestCookieAuthRejectsRenderOriginUnsafeRequest(t *testing.T) {
 }
 
 func TestCookieAuthAllowsAppOriginUnsafeRequest(t *testing.T) {
-	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://aidocs.example.com"})
+	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://slashdocs.example.com"})
 	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/grants", `{
 	  "principal": { "type": "anyone" },
 	  "role": "viewer"
 	}`, map[string]string{
 		"Content-Type":     "application/json",
-		"Cookie":           "aidocs_session=test-session",
-		"Origin":           "https://aidocs.example.com",
+		"Cookie":           "slashdocs_session=test-session",
+		"Origin":           "https://slashdocs.example.com",
 		"X-Test-Principal": principalHeader(fixtureOwner),
 	})
 
@@ -99,14 +99,14 @@ func TestCookieAuthAllowsAppOriginUnsafeRequest(t *testing.T) {
 }
 
 func TestCookieAuthAllowsAppRefererUnsafeRequest(t *testing.T) {
-	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://aidocs.example.com"})
+	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://slashdocs.example.com"})
 	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/grants", `{
 	  "principal": { "type": "anyone" },
 	  "role": "viewer"
 	}`, map[string]string{
 		"Content-Type":     "application/json",
-		"Cookie":           "aidocs_session=test-session",
-		"Referer":          "https://aidocs.example.com/app/d/" + e.doc.ID,
+		"Cookie":           "slashdocs_session=test-session",
+		"Referer":          "https://slashdocs.example.com/app/d/" + e.doc.ID,
 		"X-Test-Principal": principalHeader(fixtureOwner),
 	})
 
@@ -114,13 +114,13 @@ func TestCookieAuthAllowsAppRefererUnsafeRequest(t *testing.T) {
 }
 
 func TestUnsafeRequestWithoutSessionCookieBypassesCSRFGuard(t *testing.T) {
-	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://aidocs.example.com"})
+	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://slashdocs.example.com"})
 	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+e.doc.ID+"/grants", `{
 	  "principal": { "type": "anyone" },
 	  "role": "viewer"
 	}`, map[string]string{
 		"Content-Type":     "application/json",
-		"Origin":           "https://aidocs-render.example.com",
+		"Origin":           "https://slashdocs-render.example.com",
 		"X-Test-Principal": principalHeader(fixtureOwner),
 	})
 
@@ -393,7 +393,7 @@ func oauthStateCookie(t *testing.T, rr *httptest.ResponseRecorder, state string)
 }
 
 func isOAuthStateCookieName(name string) bool {
-	return strings.HasPrefix(name, "__Host-aidocs_oauth_state_") || strings.HasPrefix(name, "aidocs_oauth_state_")
+	return strings.HasPrefix(name, "__Host-slashdocs_oauth_state_") || strings.HasPrefix(name, "slashdocs_oauth_state_")
 }
 
 func oauthRequestCookie(name, value string) string {

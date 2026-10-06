@@ -27,7 +27,7 @@ type StepKey = keyof OnboardingState["steps"];
 export function StartPage() {
   useTitle("Get started");
   const { state, setStep, skip } = useOnboarding();
-  const loginCmd = `aidocs auth login ${publicURL()}`;
+  const loginCmd = `slashdocs auth login ${publicURL()}`;
   const { done, total } = onboardingProgress(state);
   const nav = useNavigate();
 
@@ -46,12 +46,12 @@ export function StartPage() {
             <Rocket className="h-3 w-3 text-[var(--color-accent)]" /> Setup guide
           </div>
           <h1 className="text-3xl font-semibold tracking-tight">
-            Get your agent publishing to aidocs
+            Get your agent publishing to slashdocs
           </h1>
           <p className="mt-2 max-w-xl text-sm text-[var(--color-fg-muted)]">
-            aidocs is meant to be driven by your AI agent — Claude Code, Codex, Cursor,
-            Pi, OpenCode, Aider, or anything else. These steps wire it up. About 2
-            minutes.
+            slashdocs is meant to be driven by your AI agent — Claude Code, Codex,
+            Cursor, Pi, OpenCode, Aider, or anything else. These steps wire it up. About
+            2 minutes.
           </p>
         </div>
         <button
@@ -69,7 +69,7 @@ export function StartPage() {
             <div className="flex-1">
               <div className="font-medium">You're all set.</div>
               <div className="text-xs text-[var(--color-fg-muted)]">
-                Ask your agent to publish something to aidocs. It'll show up here.
+                Ask your agent to publish something to slashdocs. It'll show up here.
               </div>
             </div>
             <Button asChild size="sm">
@@ -101,21 +101,21 @@ export function StartPage() {
       <ol className="space-y-3">
         <Step
           n={1}
-          title="Install the CLI and aidocs skill"
+          title="Install the CLI and slashdocs skill"
           stepKey="cli_installed"
           state={state}
           setStep={setStep}
         >
           <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time, on the machine where your agent runs. This installs the aidocs CLI
-            plus the bundled agent skill, so your agent knows when to publish docs to
-            aidocs.
+            One-time, on the machine where your agent runs. This installs the slashdocs
+            CLI plus the bundled agent skill, so your agent knows when to publish docs
+            to slashdocs.
           </p>
           <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash
 export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
           <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
-            Works on macOS and Linux. The skill is fetched from this aidocs server and
-            installed into the standard agent skills directory and Claude's skills
+            Works on macOS and Linux. The skill is fetched from this slashdocs server
+            and installed into the standard agent skills directory and Claude's skills
             directory — no GitHub auth or npx step required.
           </p>
         </Step>
@@ -246,16 +246,16 @@ function Step({
 
 function TryItOut() {
   const url = publicURL();
-  const prompt = `Download the aidocs sample report and publish it as a reviewable document:
+  const prompt = `Download the slashdocs sample report and publish it as a reviewable document:
 
 curl -sSL ${url}/onboarding/sample.html -o sample.html
 
-Then use the aidocs CLI to publish sample.html to aidocs. Give me the document URL when you're done.`;
+Then use the slashdocs CLI to publish sample.html to slashdocs. Give me the document URL when you're done.`;
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
         Want to see the loop work without writing anything? Copy this prompt into your
-        agent — it'll fetch a sample report and publish it to aidocs.
+        agent — it'll fetch a sample report and publish it to slashdocs.
       </p>
       <CodeBlock>{prompt}</CodeBlock>
       <div className="mt-4">

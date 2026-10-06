@@ -17,8 +17,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 const githubAPIBase = "https://api.github.com"
@@ -247,6 +247,9 @@ func openGitHubToken(secret string, sealed []byte) (string, error) {
 	plain, err := gcm.Open(nil, sealed[:gcm.NonceSize()], sealed[gcm.NonceSize():], nil)
 	return string(plain), err
 }
+
+// tokenKey keeps the pre-rename "aidocs" domain separator: changing it would
+// make every stored GitHub token undecryptable.
 func tokenKey(secret string) []byte {
 	sum := sha256.Sum256([]byte("aidocs/github-token/v1\x00" + secret))
 	return sum[:]

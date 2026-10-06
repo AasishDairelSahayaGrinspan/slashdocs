@@ -296,7 +296,7 @@ function EmptyDocs() {
         <h3 className="text-base font-semibold">Set up your agent</h3>
         <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
           Documents are published by your AI agent. Walk through the three-step setup so
-          it knows how to use aidocs.
+          it knows how to use slashdocs.
         </p>
         <div className="mt-4">
           <Button asChild>

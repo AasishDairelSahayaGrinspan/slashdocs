@@ -23,10 +23,10 @@ func TestUpdateCLIRefreshesBundledSkillWhenBinaryIsCurrent(t *testing.T) {
 		switch r.URL.Path {
 		case "/version.json":
 			_ = json.NewEncoder(w).Encode(serverVersion{Version: "commit-sha"})
-		case "/skills/aidocs/SKILL.md":
+		case "/skills/slashdocs/SKILL.md":
 			skillHits++
 			w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-			_, _ = w.Write([]byte("---\nname: aidocs\ndescription: test skill\n---\n"))
+			_, _ = w.Write([]byte("---\nname: slashdocs\ndescription: test skill\n---\n"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -50,11 +50,11 @@ func TestUpdateCLIRefreshesBundledSkillWhenBinaryIsCurrent(t *testing.T) {
 		t.Fatalf("skill endpoint hits = %d, want 1", skillHits)
 	}
 	for _, p := range []string{
-		filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"),
-		filepath.Join(home, ".claude", "skills", "aidocs", "SKILL.md"),
+		filepath.Join(home, ".agents", "skills", "slashdocs", "SKILL.md"),
+		filepath.Join(home, ".claude", "skills", "slashdocs", "SKILL.md"),
 	} {
 		b := readTestFile(t, p)
-		if string(b) != "---\nname: aidocs\ndescription: test skill\n---\n" {
+		if string(b) != "---\nname: slashdocs\ndescription: test skill\n---\n" {
 			t.Fatalf("%s content = %q", p, string(b))
 		}
 	}
@@ -72,8 +72,8 @@ func TestUpdateCLIRefreshesBundledSkillFromDevServer(t *testing.T) {
 		switch r.URL.Path {
 		case "/version.json":
 			_ = json.NewEncoder(w).Encode(serverVersion{Version: "dev"})
-		case "/skills/aidocs/SKILL.md":
-			_, _ = w.Write([]byte("---\nname: aidocs\ndescription: dev skill\n---\n"))
+		case "/skills/slashdocs/SKILL.md":
+			_, _ = w.Write([]byte("---\nname: slashdocs\ndescription: dev skill\n---\n"))
 		default:
 			http.NotFound(w, r)
 		}
@@ -93,8 +93,8 @@ func TestUpdateCLIRefreshesBundledSkillFromDevServer(t *testing.T) {
 	if changed {
 		t.Fatalf("changed = true, want false because dev server published no binary asset")
 	}
-	b := readTestFile(t, filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"))
-	if string(b) != "---\nname: aidocs\ndescription: dev skill\n---\n" {
+	b := readTestFile(t, filepath.Join(home, ".agents", "skills", "slashdocs", "SKILL.md"))
+	if string(b) != "---\nname: slashdocs\ndescription: dev skill\n---\n" {
 		t.Fatalf("skill content = %q", string(b))
 	}
 }

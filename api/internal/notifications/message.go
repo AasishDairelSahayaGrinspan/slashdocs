@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // Mask recognizable sensitive fields before truncating, including in fallback

@@ -28,7 +28,7 @@ const HIGHLIGHTS = [
   {
     icon: Sparkles,
     title: "Built for AI output",
-    body: "Your agents publish finished documents straight to aidocs.",
+    body: "Your agents publish finished documents straight to slashdocs.",
   },
   {
     icon: MessageSquareText,

@@ -162,7 +162,7 @@ function accessItems(state: WorkspaceState, resource: "document" | "folder") {
 async function installFakeWorkspace(page: Page, state: WorkspaceState) {
   await page.addInitScript(() => {
     localStorage.setItem(
-      "aidocs.onboarding",
+      "slashdocs.onboarding",
       JSON.stringify({
         status: "skipped",
         steps: {
@@ -177,7 +177,7 @@ async function installFakeWorkspace(page: Page, state: WorkspaceState) {
   await page.route("**/fake-render**", (route) =>
     route.fulfill({
       contentType: "text/html",
-      body: '<!doctype html><title>Rendered group plan</title><body style="min-height:5000px"><p>Visible document content</p><script>document.addEventListener("click",()=>parent.postMessage({type:"aidocs:document-click"},location.origin))</script></body>',
+      body: '<!doctype html><title>Rendered group plan</title><body style="min-height:5000px"><p>Visible document content</p><script>document.addEventListener("click",()=>parent.postMessage({type:"slashdocs:document-click"},location.origin))</script></body>',
     }),
   );
   await page.route("**/v1/**", async (route) => {

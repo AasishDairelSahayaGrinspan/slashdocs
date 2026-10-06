@@ -9,9 +9,9 @@ import (
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	dbsqlc "github.com/razorpay/aidocs/api/internal/db/sqlc"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	dbsqlc "github.com/razorpay/slashdocs/api/internal/db/sqlc"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // folderTreeLockID keys the advisory lock that serializes folder-structure
@@ -19,7 +19,7 @@ import (
 // expressed as database constraints, so every transaction that reshapes the
 // tree takes this transaction-scoped lock first (see AcquireFolderTreeLock in
 // queries/folders.sql).
-const folderTreeLockID int64 = 0x6169646f63735f66 // "aidocs_f"
+const folderTreeLockID int64 = 0x6169646f63735f66 // "slashdocs_f"
 
 // folderMaxDepth is the deepest folder nesting the product allows.
 const folderMaxDepth = 15

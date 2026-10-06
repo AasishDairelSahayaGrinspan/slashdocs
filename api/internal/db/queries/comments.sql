@@ -40,10 +40,10 @@ SELECT
 FROM comment_mentions cm
 LEFT JOIN users u
   ON cm.principal_type = 'user' AND cm.principal_id = u.id
--- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON cm.principal_type = 'service_account' AND cm.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+-- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON cm.principal_type = 'service_account' AND cm.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE cm.comment_id = ANY(@comment_ids::text[])
 ORDER BY cm.comment_id, cm.offset_utf16, cm.principal_type, cm.principal_id;
 
@@ -54,9 +54,9 @@ WHERE id = $1
 FOR KEY SHARE;
 
 -- name: GetMentionServiceAccount :one
--- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+-- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 SELECT id, name
-FROM service_accounts -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+FROM service_accounts -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE id = $1
 FOR KEY SHARE;
 

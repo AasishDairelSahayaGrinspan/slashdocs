@@ -30,9 +30,9 @@ SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        COALESCE(d.parent_folder_id,'') AS parent_folder_id
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE d.id=$1
 `
 
@@ -47,7 +47,7 @@ type GetDocumentRow struct {
 	ParentFolderID   string
 }
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) GetDocument(ctx context.Context, id string) (GetDocumentRow, error) {
 	row := q.db.QueryRow(ctx, getDocument, id)
 	var i GetDocumentRow
@@ -125,9 +125,9 @@ SELECT d.id,d.title,d.current_version_id,d.owner_type,d.owner_id,
        d.updated_at
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND u.id=d.owner_id
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND sa.id=d.owner_id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE d.parent_folder_id IS NULL
   AND (
    (d.owner_type=$2 AND d.owner_id=$1)
@@ -184,7 +184,7 @@ type ListDocumentsRow struct {
 // A bare "anyone" grant alone does NOT list the document: broad access grants
 // access via discovery/link, it does not place the document in every user's
 // workspace until they open it.
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) ListDocuments(ctx context.Context, arg ListDocumentsParams) ([]ListDocumentsRow, error) {
 	rows, err := q.db.Query(ctx, listDocuments, arg.OwnerID, arg.OwnerType, arg.Column3)
 	if err != nil {
@@ -222,9 +222,9 @@ SELECT d.id, d.title, d.owner_type, d.owner_id,
        COALESCE(u.email,'') AS owner_email
 FROM documents d
 LEFT JOIN users u ON d.owner_type='user' AND d.owner_id=u.id
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON d.owner_type='service_account' AND d.owner_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON d.owner_type='service_account' AND d.owner_id=sa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE d.parent_folder_id= $1::text
 `
 
@@ -239,7 +239,7 @@ type ListFolderDocumentsRow struct {
 	OwnerEmail       string
 }
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) ListFolderDocuments(ctx context.Context, folderID string) ([]ListFolderDocumentsRow, error) {
 	rows, err := q.db.Query(ctx, listFolderDocuments, folderID)
 	if err != nil {

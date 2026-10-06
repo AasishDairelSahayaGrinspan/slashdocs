@@ -17,7 +17,7 @@ function documentHTML(heading: string, body = "Select this sentence for review."
 function renderedDocument(page: Page): FrameLocator {
   return page
     .frameLocator('iframe[title="Rendered document"]')
-    .frameLocator("iframe#aidocs-doc");
+    .frameLocator("iframe#slashdocs-doc");
 }
 
 function entryRow(page: Page, title: string): Locator {
@@ -65,7 +65,7 @@ test("the saved browser session came from a complete Dex login", async ({ page }
 
 test("uploads HTML in the UI and renders it only on the render origin", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Browser upload");
   await page.goto("/app/documents");
@@ -84,7 +84,7 @@ test("uploads HTML in the UI and renders it only on the render origin", async ({
   await expect(page).toHaveURL(/\/app\/d\/doc_[^/?]+$/);
   const documentID = new URL(page.url()).pathname.split("/").at(-1);
   expect(documentID).toBeTruthy();
-  aidocs.trackDocument(documentID!);
+  slashdocs.trackDocument(documentID!);
 
   const outerFrame = page.locator('iframe[title="Rendered document"]');
   await expect(outerFrame).toBeVisible();
@@ -97,9 +97,12 @@ test("uploads HTML in the UI and renders it only on the render origin", async ({
   ).toBeVisible();
 });
 
-test("creates a structured mention with a clean API body", async ({ page, aidocs }) => {
+test("creates a structured mention with a clean API body", async ({
+  page,
+  slashdocs,
+}) => {
   const title = uniqueName("Structured mention");
-  const document = await aidocs.createDocument(title, documentHTML(title));
+  const document = await slashdocs.createDocument(title, documentHTML(title));
 
   await page.goto(`/app/d/${document.id}`);
   const selectedText = renderedDocument(page).locator("#comment-target");
@@ -160,9 +163,12 @@ test("creates a structured mention with a clean API body", async ({ page, aidocs
   await expect(renderedMention).toHaveClass(/bg-\[var\(--color-accent-muted\)\]/);
 });
 
-test("shares a document through its general access role", async ({ page, aidocs }) => {
+test("shares a document through its general access role", async ({
+  page,
+  slashdocs,
+}) => {
   const title = uniqueName("General access");
-  const document = await aidocs.createDocument(title, documentHTML(title));
+  const document = await slashdocs.createDocument(title, documentHTML(title));
 
   await page.goto(`/app/d/${document.id}`);
   await page.getByRole("button", { name: "Share", exact: true }).click();
@@ -170,7 +176,7 @@ test("shares a document through its general access role", async ({ page, aidocs 
   const generalAccess = shareSheet.getByLabel("General access role");
   await generalAccess.selectOption("viewer");
   await expect(generalAccess).toHaveValue("viewer");
-  const access = await aidocs.documentAccess(document.id);
+  const access = await slashdocs.documentAccess(document.id);
   expect(
     access.some(
       (item) => item.principal.type === "anyone" && item.effective_role === "viewer",
@@ -180,11 +186,11 @@ test("shares a document through its general access role", async ({ page, aidocs 
 
 test("moves a document into a folder and returns it to root when deleting the folder", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const documentTitle = uniqueName("Folder document");
   const folderTitle = uniqueName("Browser folder");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     documentTitle,
     documentHTML(documentTitle),
   );
@@ -203,7 +209,7 @@ test("moves a document into a folder and returns it to root when deleting the fo
   const createdFolder = (await createFolderResponse.json()) as { id: string };
   expect(createdFolder.id).toMatch(/^fld_/);
   const folderID = createdFolder.id;
-  aidocs.trackFolder(folderID);
+  slashdocs.trackFolder(folderID);
   await expect(entryRow(page, folderTitle)).toBeVisible();
 
   const documentRow = entryRow(page, documentTitle);
@@ -231,18 +237,18 @@ test("moves a document into a folder and returns it to root when deleting the fo
   await deleteDialog.getByRole("button", { name: "Delete", exact: true }).click();
   const deleteResponse = await deleteResponsePromise;
   expect(deleteResponse.ok()).toBeTruthy();
-  aidocs.untrackFolder(folderID);
+  slashdocs.untrackFolder(folderID);
 
   await expect(entryRow(page, folderTitle)).toBeHidden();
   await expect(entryRow(page, documentTitle)).toBeVisible();
-  const movedDocument = await aidocs.getDocument(document.id);
+  const movedDocument = await slashdocs.getDocument(document.id);
   expect(movedDocument.parent_folder_id).toBeFalsy();
 });
 
 test("delivers a KV patch to a second open page through the browser SSE stream", async ({
   page,
   context,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Live KV");
   const key = `live_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -256,15 +262,15 @@ test("delivers a KV patch to a second open page through the browser SSE stream",
     <script>
       const output = document.getElementById("live-value");
       async function renderValue() {
-        const value = await window.aidocs.kv.get(${JSON.stringify(key)});
+        const value = await window.slashdocs.kv.get(${JSON.stringify(key)});
         output.textContent = value === undefined ? "ready" : String(value);
       }
-      window.aidocs.on("kvchange", renderValue);
+      window.slashdocs.on("kvchange", renderValue);
       renderValue();
     </script>
   </body>
 </html>`;
-  const document = await aidocs.createDocument(title, html);
+  const document = await slashdocs.createDocument(title, html);
   const secondPage = await context.newPage();
   const secondPageStream = secondPage.waitForResponse((response) => {
     const url = new URL(response.url());
@@ -282,6 +288,6 @@ test("delivers a KV patch to a second open page through the browser SSE stream",
   await expect(secondOutput).toHaveText("ready");
   await secondPageStream;
 
-  await aidocs.patchKV(document.id, key, value);
+  await slashdocs.patchKV(document.id, key, value);
   await expect(secondOutput).toHaveText(value);
 });

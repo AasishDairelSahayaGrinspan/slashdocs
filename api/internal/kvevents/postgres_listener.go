@@ -16,8 +16,8 @@ import (
 )
 
 const (
-	postgresNotificationChannel = "aidocs_kv_events"
-	probePayloadPrefix          = "__aidocs_kv_probe__:"
+	postgresNotificationChannel = "slashdocs_kv_events"
+	probePayloadPrefix          = "__slashdocs_kv_probe__:"
 	listenerProbeWait           = 3 * time.Second
 )
 

@@ -104,7 +104,7 @@ export function RenderFrame() {
     if (!ready) return;
     if (location.hash.startsWith(TEXT_LINK_PREFIX)) {
       const anchor = parseTextLink(location.hash);
-      if (anchor) postToFrame({ type: "aidocs:navigate-text", anchor });
+      if (anchor) postToFrame({ type: "slashdocs:navigate-text", anchor });
       else toast.error("This text link is invalid.");
       return;
     }
@@ -114,13 +114,13 @@ export function RenderFrame() {
     } catch {
       /* Keep literal malformed fragments. */
     }
-    postToFrame({ type: "aidocs:navigate-heading", id: heading });
+    postToFrame({ type: "slashdocs:navigate-heading", id: heading });
   }, [location.hash, ready, postToFrame]);
 
   const paint = useCallback(() => {
     if (!ready) return;
     postToFrame({
-      type: "aidocs:paint",
+      type: "slashdocs:paint",
       comments: paintPayload,
       active: activeComment,
     });
@@ -153,7 +153,7 @@ export function RenderFrame() {
       if (!(plain && VIM_KEYS.has(event.key)) && !halfPage) return;
       event.preventDefault();
       postToFrame({
-        type: "aidocs:vim-key",
+        type: "slashdocs:vim-key",
         key: event.key,
         ctrlKey: event.ctrlKey,
         metaKey: event.metaKey,
@@ -164,7 +164,7 @@ export function RenderFrame() {
     // A held j or k glides until its key comes up.
     const onKeyUp = (event: KeyboardEvent) => {
       if (VIM_KEYS.has(event.key)) {
-        postToFrame({ type: "aidocs:vim-key", key: event.key, up: true });
+        postToFrame({ type: "slashdocs:vim-key", key: event.key, up: true });
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -191,7 +191,7 @@ export function RenderFrame() {
     (top: number) => {
       const wrapperScrollTop = wrapperRef.current?.scrollTop || 0;
       postToFrame({
-        type: "aidocs:scroll-to",
+        type: "slashdocs:scroll-to",
         top: Math.max(0, (top - wrapperScrollTop) / scaleRef.current),
       });
     },
@@ -232,7 +232,7 @@ export function RenderFrame() {
       requestAnimationFrame(() => {
         el.scrollLeft = docX * newScale - cx;
         el.scrollTop = docY * newScale - cy;
-        postToFrame({ type: "aidocs:request-comment-positions" });
+        postToFrame({ type: "slashdocs:request-comment-positions" });
       });
     },
     [postToFrame],
@@ -250,7 +250,7 @@ export function RenderFrame() {
       cursorRef.current = { x: e.clientX, y: e.clientY };
     };
     const onScroll = () => {
-      postToFrame({ type: "aidocs:request-comment-positions" });
+      postToFrame({ type: "slashdocs:request-comment-positions" });
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     el.addEventListener("mousemove", onMouseMove);
@@ -266,7 +266,7 @@ export function RenderFrame() {
     const onMsg = (e: MessageEvent) => {
       if (!frameOrigin || e.origin !== frameOrigin) return;
       if (e.source !== ref.current?.contentWindow) return;
-      if (e.data?.type === "aidocs:copy-text") {
+      if (e.data?.type === "slashdocs:copy-text") {
         const fragment = textLinkFragment(e.data.anchor);
         if (!fragment) {
           toast.error(
@@ -284,23 +284,23 @@ export function RenderFrame() {
           () => toast.error("Could not copy the text link."),
         );
       }
-      if (e.data?.type === "aidocs:text-unavailable") {
+      if (e.data?.type === "slashdocs:text-unavailable") {
         toast.info(
           "Linked text isn't visible yet. It may be inside a tab or section you need to open.",
         );
       }
-      if (e.data?.type === "aidocs:selection") {
+      if (e.data?.type === "slashdocs:selection") {
         const anchor = e.data.anchor as Partial<Anchor> | undefined;
         const quote = anchor?.quote ?? e.data.quote;
         const top =
           typeof e.data.top === "number" ? e.data.top * scaleRef.current : undefined;
         if (quote) startDraft({ quote, anchor, top });
       }
-      if (e.data?.type === "aidocs:viewport") {
+      if (e.data?.type === "slashdocs:viewport") {
         reportViewport(textLinkAnchor(e.data.anchor) ?? undefined);
       }
       if (
-        e.data?.type === "aidocs:copy-heading" &&
+        e.data?.type === "slashdocs:copy-heading" &&
         typeof e.data.id === "string" &&
         e.data.id.length <= 1024
       ) {
@@ -314,7 +314,7 @@ export function RenderFrame() {
         );
       }
       if (
-        e.data?.type === "aidocs:heading" &&
+        e.data?.type === "slashdocs:heading" &&
         typeof e.data.id === "string" &&
         e.data.id.length <= 1024
       ) {
@@ -323,14 +323,14 @@ export function RenderFrame() {
         url.hash = e.data.id;
         window.history.replaceState(window.history.state, "", url);
       }
-      if (e.data?.type === "aidocs:activate" && typeof e.data.id === "string") {
+      if (e.data?.type === "slashdocs:activate" && typeof e.data.id === "string") {
         handleDocCommentClick(e.data.id);
       }
-      if (e.data?.type === "aidocs:document-click") {
+      if (e.data?.type === "slashdocs:document-click") {
         handleRenderedDocumentClick();
       }
       if (
-        e.data?.type === "aidocs:paint-result" &&
+        e.data?.type === "slashdocs:paint-result" &&
         Array.isArray(e.data.results) &&
         readyRef.current
       ) {
@@ -349,7 +349,7 @@ export function RenderFrame() {
         );
       }
       if (
-        e.data?.type === "aidocs:comment-scroll" &&
+        e.data?.type === "slashdocs:comment-scroll" &&
         typeof e.data.scrollTop === "number" &&
         Number.isFinite(e.data.scrollTop) &&
         readyRef.current
@@ -359,7 +359,7 @@ export function RenderFrame() {
         );
       }
       if (
-        e.data?.type === "aidocs:comment-positions" &&
+        e.data?.type === "slashdocs:comment-positions" &&
         Array.isArray(e.data.positions) &&
         readyRef.current
       ) {
@@ -397,13 +397,13 @@ export function RenderFrame() {
         }
       }
       if (
-        e.data?.type === "aidocs:keydown" &&
+        e.data?.type === "slashdocs:keydown" &&
         typeof e.data.key === "string" &&
         FORWARDED_KEYS.has(e.data.key)
       ) {
         window.dispatchEvent(new KeyboardEvent("keydown", { key: e.data.key }));
       }
-      if (e.data?.type === "aidocs:zoom" && typeof e.data.deltaY === "number") {
+      if (e.data?.type === "slashdocs:zoom" && typeof e.data.deltaY === "number") {
         const frameRect = ref.current?.getBoundingClientRect();
         const cursor =
           frameRect &&
@@ -487,7 +487,7 @@ export function RenderFrame() {
               wrapper.scrollTop = 0;
             }
             window.requestAnimationFrame(() => {
-              postToFrame({ type: "aidocs:request-comment-positions" });
+              postToFrame({ type: "slashdocs:request-comment-positions" });
             });
           }}
           className="sticky bottom-3 left-[calc(100%-3.5rem)] z-10 rounded-full bg-[var(--color-surface)] px-2.5 py-1 text-xs font-medium text-[var(--color-fg-muted)] shadow-md ring-1 ring-[var(--color-border)] transition-opacity hover:text-[var(--color-fg)]"

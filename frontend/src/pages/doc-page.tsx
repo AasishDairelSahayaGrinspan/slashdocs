@@ -54,7 +54,7 @@ const THEME_LABELS = { light: "Light", dark: "Dark", system: "System" } as const
 // The desktop comments panel stays as the reader left it, across documents
 // and visits. The mobile sheet always starts closed.
 const commentsOpenStore = createPersistentStore<boolean>(
-  "aidocs:comments-open",
+  "slashdocs:comments-open",
   true,
   (parsed) => parsed !== false,
 );
@@ -294,7 +294,7 @@ export function DocumentPage() {
   const sheetHistoryRef = useRef(false);
   useEffect(() => {
     if (!mobilePanelOpen) return;
-    window.history.pushState({ aidocsCommentsSheet: true }, "");
+    window.history.pushState({ slashdocsCommentsSheet: true }, "");
     sheetHistoryRef.current = true;
     const onPop = () => {
       sheetHistoryRef.current = false;

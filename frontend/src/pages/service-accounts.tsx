@@ -296,8 +296,8 @@ function ServiceAccountDetail({ sa }: { sa: ServiceAccount }) {
             Use the minted key as a bearer token from any HTTP client, or with the CLI
             in non-interactive mode:
           </p>
-          <CodeBlock>{`aidocs auth login --token <YOUR_KEY>
-aidocs docs create report.html`}</CodeBlock>
+          <CodeBlock>{`slashdocs auth login --token <YOUR_KEY>
+slashdocs docs create report.html`}</CodeBlock>
           <p className="mt-3 text-xs text-[var(--color-fg-muted)]">For raw HTTP:</p>
           <CodeBlock>{`curl -H "Authorization: Bearer <YOUR_KEY>" \\
   ${url}/v1/documents`}</CodeBlock>
@@ -322,7 +322,7 @@ aidocs docs create report.html`}</CodeBlock>
               <div className="mt-4 text-xs text-[var(--color-fg-muted)]">
                 Use it as a bearer token from your headless agent, or:
               </div>
-              <CodeBlock>{`aidocs auth login ${url} --token ${revealToken.token}`}</CodeBlock>
+              <CodeBlock>{`slashdocs auth login ${url} --token ${revealToken.token}`}</CodeBlock>
             </>
           )}
           <DialogFooter>

@@ -139,7 +139,7 @@ export function DocBar({
       <Tooltip label="All documents">
         <Link
           to="/app/documents"
-          aria-label="aidocs home"
+          aria-label="slashdocs home"
           title="All documents"
           className="hidden h-10 shrink-0 items-center rounded-[10px] px-2 hover:bg-[var(--color-surface-muted)] sm:flex"
         >

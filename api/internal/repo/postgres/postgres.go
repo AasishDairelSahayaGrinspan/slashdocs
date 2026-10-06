@@ -15,10 +15,10 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/blob"
-	dbsqlc "github.com/razorpay/aidocs/api/internal/db/sqlc"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/blob"
+	dbsqlc "github.com/razorpay/slashdocs/api/internal/db/sqlc"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // htmlContentType is the content type stored for all version HTML blobs.
@@ -1034,10 +1034,10 @@ func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID strin
 		       COALESCE(gu.email,''),COALESCE(gu.name,gsa.name,'')
 		FROM resource_grants g
 		LEFT JOIN users u ON g.principal_type='user' AND g.principal_id=u.id
-		LEFT JOIN service_accounts sa ON g.principal_type='service_account' AND g.principal_id=sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+		LEFT JOIN service_accounts sa ON g.principal_type='service_account' AND g.principal_id=sa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 		LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
 		LEFT JOIN users gu ON g.granted_by_type='user' AND g.granted_by_user_id=gu.id
-		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`
 	if forUpdate {
 		query += ` FOR UPDATE OF g`

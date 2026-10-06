@@ -20,7 +20,7 @@ import (
 	"github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/auth"
 )
 
 // JSON string escaping can expand a valid HTML document by up to 6x
@@ -67,7 +67,7 @@ func authenticateMCPRequest(w http.ResponseWriter, r *http.Request, authenticato
 func newMCPHTTPHandler(deps dependencies) http.Handler {
 	metrics := newMCPMetricRecorder()
 	protocol := mcpserver.NewMCPServer(
-		"aidocs",
+		"slashdocs",
 		BuildVersion,
 		mcpserver.WithToolCapabilities(false),
 		mcpserver.WithToolHandlerMiddleware(metrics.toolMiddleware),

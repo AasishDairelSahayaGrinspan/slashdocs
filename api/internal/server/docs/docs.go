@@ -15,7 +15,7 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
-        "/.well-known/aidocs.json": {
+        "/.well-known/slashdocs.json": {
             "get": {
                 "produces": [
                     "application/json"
@@ -626,10 +626,10 @@ const docTemplate = `{
                         "cookieAuth": []
                     }
                 ],
-                "description": "Requests with non-empty mentions must use Content-Type application/vnd.aidocs.comment-mentions+json so mixed-version deployments fail closed instead of dropping metadata.",
+                "description": "Requests with non-empty mentions must use Content-Type application/vnd.slashdocs.comment-mentions+json so mixed-version deployments fail closed instead of dropping metadata.",
                 "consumes": [
                     "application/json",
-                    "application/vnd.aidocs.comment-mentions+json"
+                    "application/vnd.slashdocs.comment-mentions+json"
                 ],
                 "tags": [
                     "comments"
@@ -708,10 +708,10 @@ const docTemplate = `{
                         "cookieAuth": []
                     }
                 ],
-                "description": "Any request containing the mentions key, including an empty array, must use Content-Type application/vnd.aidocs.comment-mentions+json so mixed-version deployments fail closed.",
+                "description": "Any request containing the mentions key, including an empty array, must use Content-Type application/vnd.slashdocs.comment-mentions+json so mixed-version deployments fail closed.",
                 "consumes": [
                     "application/json",
-                    "application/vnd.aidocs.comment-mentions+json"
+                    "application/vnd.slashdocs.comment-mentions+json"
                 ],
                 "tags": [
                     "comments"
@@ -872,10 +872,10 @@ const docTemplate = `{
                         "cookieAuth": []
                     }
                 ],
-                "description": "Requests with non-empty mentions must use Content-Type application/vnd.aidocs.comment-mentions+json so mixed-version deployments fail closed instead of dropping metadata.",
+                "description": "Requests with non-empty mentions must use Content-Type application/vnd.slashdocs.comment-mentions+json so mixed-version deployments fail closed instead of dropping metadata.",
                 "consumes": [
                     "application/json",
-                    "application/vnd.aidocs.comment-mentions+json"
+                    "application/vnd.slashdocs.comment-mentions+json"
                 ],
                 "tags": [
                     "comments"
@@ -2933,7 +2933,7 @@ const docTemplate = `{
         },
         "cookieAuth": {
             "type": "apiKey",
-            "name": "aidocs_session",
+            "name": "slashdocs_session",
             "in": "cookie"
         }
     }
@@ -2945,7 +2945,7 @@ var SwaggerInfo = &swag.Spec{
 	Host:             "",
 	BasePath:         "/",
 	Schemes:          []string{},
-	Title:            "aidocs API",
+	Title:            "slashdocs API",
 	Description:      "This API powers a review tool where people can upload one self-contained HTML file, view it, and leave comments anchored to specific text ranges inside that HTML.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,

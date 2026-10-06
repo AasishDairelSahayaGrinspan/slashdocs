@@ -6,11 +6,11 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 func TestSlackMessageContent(t *testing.T) {
-	message := Message{DocumentTitle: "Launch <review>", Highlight: "Ship on Friday", Body: "Please review <!here> & <@U123>", Link: "https://aidocs.example.com/app/d/doc_1?comment=cmt_1", Reply: true}
+	message := Message{DocumentTitle: "Launch <review>", Highlight: "Ship on Friday", Body: "Please review <!here> & <@U123>", Link: "https://slashdocs.example.com/app/d/doc_1?comment=cmt_1", Reply: true}
 	payload := slackMessage("D1", message)
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -73,7 +73,7 @@ func TestSlackMessageContent(t *testing.T) {
 
 func TestSlackAccessMessageContent(t *testing.T) {
 	message := Message{
-		Reason: "access_shared", DocumentTitle: "Roadmap <draft>", Link: "https://aidocs.example.com/app/d/doc_1",
+		Reason: "access_shared", DocumentTitle: "Roadmap <draft>", Link: "https://slashdocs.example.com/app/d/doc_1",
 		Role: repo.RoleCommenter, DirectAccess: true,
 	}
 	payload := slackMessage("D1", message)
@@ -113,7 +113,7 @@ func TestSlackAccessMessageContent(t *testing.T) {
 func TestSlackAccessRequestMessageContent(t *testing.T) {
 	message := Message{
 		Reason: "access_requested", DocumentTitle: "Private roadmap", Requester: "Reader (reader@example.com)",
-		Link: "https://aidocs.example.com/app/d/doc_1",
+		Link: "https://slashdocs.example.com/app/d/doc_1",
 	}
 	payload := slackMessage("D1", message)
 	encoded, err := json.Marshal(payload)
