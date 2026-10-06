@@ -62,6 +62,10 @@ spec:
               value: {{ required "origins.app is required" .Values.origins.app | quote }}
             - name: SLASHDOCS_RENDER_ORIGIN
               value: {{ required "origins.render is required" .Values.origins.render | quote }}
+            {{- with .Values.origins.previous }}
+            - name: SLASHDOCS_PREVIOUS_ORIGINS
+              value: {{ . | quote }}
+            {{- end }}
             - name: SLASHDOCS_DEPLOYMENT
               value: {{ .Values.deployment.mode | quote }}
             - name: SLASHDOCS_GOOGLE_GROUPS_ENABLED

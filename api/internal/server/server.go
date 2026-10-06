@@ -21,9 +21,12 @@ import (
 
 // Config holds static configuration for the server.
 type Config struct {
-	Environment         string
-	AppOrigin           string
-	RenderOrigin        string
+	Environment  string
+	AppOrigin    string
+	RenderOrigin string
+	// PreviousOrigins are app origins that this deployment used before. A
+	// request to one of them is sent to AppOrigin (see movedOriginMiddleware).
+	PreviousOrigins     []string
 	OIDC                auth.OIDC
 	OIDCProviderName    string
 	SessionSecret       string
@@ -190,6 +193,9 @@ func New(cfg Config, opts ...Option) *Server {
 	}
 	r.Use(recoveryMiddleware())
 	r.Use(prometheusMiddleware())
+	if len(cfg.PreviousOrigins) > 0 && cfg.AppOrigin != "" {
+		r.Use(movedOriginMiddleware(cfg.AppOrigin, cfg.PreviousOrigins))
+	}
 	s := &Server{engine: r}
 	if deps.commentNotificationSender != nil {
 		store, ok := deps.repository.(notifications.Store)

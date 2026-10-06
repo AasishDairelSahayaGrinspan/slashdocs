@@ -99,6 +99,9 @@ updateStrategy:
 origins:
   app: https://slashdocs.example.com
   render: https://render.slashdocs.example.com
+  # Comma-separated app origins that this deployment used before. The server
+  # redirects them to `app`. Route these hosts to the Service too.
+  previous: ""
 
 # Sign-in. Configure exactly one of `googleOAuth` and `oidc` (setting
 # oidc.issuerURL switches the chart to the generic OIDC variables).

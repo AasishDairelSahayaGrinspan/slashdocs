@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 )
@@ -24,7 +25,8 @@ var errNoServer = errors.New("no slashdocs server configured; pass --server <url
 // timeouts so a slow or unreachable server can never hang the CLI.
 func newHTTPClient(timeout time.Duration) *http.Client {
 	return &http.Client{
-		Timeout: timeout,
+		Timeout:       timeout,
+		CheckRedirect: keepCredentialsOnMove,
 		Transport: &http.Transport{
 			Proxy:               http.ProxyFromEnvironment,
 			DialContext:         (&net.Dialer{Timeout: 10 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
@@ -43,10 +45,34 @@ var (
 	updateHTTPClient = newHTTPClient(5 * time.Second)
 )
 
+// keepCredentialsOnMove follows redirects like the default policy. A server
+// that moved permanently keeps the caller's credentials: Go removes them on a
+// redirect to another host, so they are added back, except on a downgrade
+// from HTTPS to HTTP.
+func keepCredentialsOnMove(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	auth := via[0].Header.Get("Authorization")
+	if auth != "" && movedPermanently(req) && (req.URL.Scheme == "https" || via[0].URL.Scheme == "http") {
+		//nolint:gosec // G119: intended; only a permanent move of the server the user configured keeps the token.
+		req.Header.Set("Authorization", auth)
+	}
+	return nil
+}
+
+// movedPermanently reports whether req follows a permanent redirect.
+func movedPermanently(req *http.Request) bool {
+	return req.Response != nil && (req.Response.StatusCode == http.StatusMovedPermanently || req.Response.StatusCode == http.StatusPermanentRedirect)
+}
+
 // Client is a thin HTTP transport for the slashdocs API.
 type Client struct {
 	Base, Token string
 	HTTP        *http.Client
+	// saved is true when Base comes from the saved config, which the client
+	// updates when the server moves.
+	saved bool
 }
 
 // client builds a Client from flags, environment, and the active config context.
@@ -57,7 +83,8 @@ func client(g *globals) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if srv == "" && cfg.ActiveContext != "" {
+	saved := srv == "" && cfg.ActiveContext != ""
+	if saved {
 		srv = cfg.Contexts[cfg.ActiveContext].serverOr(srv)
 	}
 	if srv == "" {
@@ -71,7 +98,7 @@ func client(g *globals) (*Client, error) {
 			tok = credentialToken(ctxName(srv), c.Credential)
 		}
 	}
-	return &Client{Base: normalizeServer(srv), Token: tok, HTTP: apiHTTPClient}, nil
+	return &Client{Base: normalizeServer(srv), Token: tok, HTTP: apiHTTPClient, saved: saved}, nil
 }
 
 // APIError represents a non-2xx response from the API.
@@ -111,6 +138,9 @@ func (c *Client) do(method, path string, body io.Reader, ct string) ([]byte, err
 	if err != nil {
 		return nil, err
 	}
+	if res.StatusCode < 400 {
+		c.followMove(res.Request)
+	}
 	if res.StatusCode >= 400 {
 		ae := &APIError{Status: res.StatusCode, Message: strings.TrimSpace(string(b)), Body: string(b)}
 		var payload struct {
@@ -126,6 +156,22 @@ func (c *Client) do(method, path string, body io.Reader, ct string) ([]byte, err
 		return nil, ae
 	}
 	return b, nil
+}
+
+// followMove saves the new server origin after the saved server answered with
+// a permanent redirect to another origin, so later commands go there directly.
+func (c *Client) followMove(final *http.Request) {
+	base, err := url.Parse(c.Base)
+	if !c.saved || err != nil || !movedPermanently(final) || final.URL.Host == base.Host {
+		return
+	}
+	moved := final.URL.Scheme + "://" + final.URL.Host + base.Path
+	if err := moveContext(c.Base, moved); err != nil {
+		fmt.Fprintf(os.Stderr, "The slashdocs server moved to %s, but the CLI config was not updated: %v\n", moved, err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "The slashdocs server moved to %s. The CLI config now uses it.\n", moved)
+	c.Base = moved
 }
 
 func (c *Client) doJSON(method, path string, in any) ([]byte, error) {

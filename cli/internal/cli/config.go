@@ -3,6 +3,7 @@ package cli
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -117,6 +118,38 @@ func currentContextFrom(g *globals, cfg Config) (string, *Context, Config) {
 		cx.Pulled = map[string]string{}
 	}
 	return name, cx, cfg
+}
+
+// moveContext points the saved context of oldServer at newServer, with its
+// credential, and keeps it active. A context that the user already has for
+// newServer wins, and the old one is removed.
+func moveContext(oldServer, newServer string) error {
+	cfg, err := loadConfig()
+	if err != nil {
+		return err
+	}
+	oldName, newName := ctxName(oldServer), ctxName(newServer)
+	cx := cfg.Contexts[oldName]
+	if cx == nil || oldName == newName {
+		return nil
+	}
+	delete(cfg.Contexts, oldName)
+	if cfg.ActiveContext == oldName {
+		cfg.ActiveContext = newName
+	}
+	tok := credentialToken(oldName, cx.Credential)
+	deleteCredentialToken(oldName, cx.Credential)
+	if cfg.Contexts[newName] == nil {
+		cx.Server = normalizeServer(newServer)
+		if tok != "" {
+			cred := maps.Clone(cx.Credential)
+			delete(cred, "token_ref")
+			cred["token"] = tok
+			cx.Credential = storeCredentialToken(newName, cred)
+		}
+		cfg.Contexts[newName] = cx
+	}
+	return saveConfig(cfg)
 }
 
 const keychainService = cliName
