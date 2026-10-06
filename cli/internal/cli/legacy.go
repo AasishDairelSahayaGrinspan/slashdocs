@@ -4,6 +4,7 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 )
@@ -17,8 +18,16 @@ const (
 )
 
 // RenameNotice tells an agent or a person who ran the old name what to do.
-const RenameNotice = "aidocs has been renamed to slashdocs. Run the same command with `slashdocs` instead of `aidocs`.\n" +
-	"The agent skill is now named slashdocs too. Run `slashdocs guidelines` before you write a document.\n"
+// When slashdocs is not on PATH, it also gives the install command.
+func RenameNotice() string {
+	notice := "aidocs has been renamed to slashdocs. Run the same command with `slashdocs` instead of `aidocs`.\n" +
+		"The agent skill is now named slashdocs too. Run `slashdocs guidelines` before you write a document.\n"
+	if _, err := exec.LookPath(cliName); err != nil {
+		_, cx, _ := currentContext(&globals{})
+		notice += "slashdocs is not on PATH. Install it with: curl -fsSL " + first(cx.Server, "<your slashdocs server>") + "/install.sh | bash\n"
+	}
+	return notice
+}
 
 // env reads a SLASHDOCS_* variable and falls back to its pre-rename AIDOCS_*
 // name, so shells and CI jobs set up for aidocs keep working.
@@ -41,17 +50,19 @@ func MigrateLegacyInstall() {
 		return
 	}
 	for _, root := range skillRoots(home) {
+		// Move a real skill directory. Remove a stale copy or a symlink, whose
+		// target keeps the old name. The next update writes a fresh skill.
 		legacy := filepath.Join(root, legacyName)
-		if renameIfFree(legacy, filepath.Join(root, cliName)) != nil {
-			// A stale copy of the old skill would teach agents the old name.
-			_ = os.RemoveAll(legacy)
+		if info, err := os.Lstat(legacy); err == nil && info.Mode()&fs.ModeSymlink == 0 && renameIfFree(legacy, filepath.Join(root, cliName)) == nil {
+			continue
 		}
+		_ = os.RemoveAll(legacy)
 	}
 }
 
 // MigrateLegacyBinary runs when the binary starts as aidocs, which is what a
 // pre-rename auto-update leaves behind. It renames the file to slashdocs and
-// leaves aidocs as a symlink, so the old name keeps printing RenameNotice.
+// leaves aidocs as a symlink, so the old name keeps printing the rename notice.
 func MigrateLegacyBinary() {
 	if exe, err := os.Executable(); err == nil {
 		migrateLegacyBinary(exe)

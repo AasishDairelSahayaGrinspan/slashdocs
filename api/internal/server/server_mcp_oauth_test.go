@@ -331,6 +331,16 @@ func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
 	}
 }
 
+func TestMCPOAuthFlowAcceptsPreRenameClientRegistration(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	signed := strings.TrimPrefix(registeredMCPClientID(t, e, "Claude", []string{mcpTestRedirectURI}), "slashdocs_mcp_client_")
+	clientID := "aidocs_mcp_client_" + signed
+
+	code := approveMCPAuthorization(t, e, clientID, mcpTestRedirectURI, mcpTestVerifier, "legacy-state")
+	exchanged := postMCPToken(t, e, mcpTokenValues(e, code, clientID, mcpTestRedirectURI, mcpTestVerifier))
+	assertStatus(t, exchanged, http.StatusOK)
+}
+
 // Native clients bind an ephemeral loopback port at request time, so a
 // client_id cached across runs carries a stale port. RFC 8252 §7.3 requires
 // the authorization server to accept any port on a loopback IP redirect, and

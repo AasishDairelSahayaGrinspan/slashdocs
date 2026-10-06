@@ -17,8 +17,11 @@ import (
 )
 
 const (
-	mcpScope                    = "mcp"
-	mcpClientIDPrefix           = "slashdocs_mcp_client_"
+	mcpScope          = "mcp"
+	mcpClientIDPrefix = "slashdocs_mcp_client_"
+	// legacyMCPClientIDPrefix marks registrations issued before the rename
+	// from aidocs. They stay valid until they expire.
+	legacyMCPClientIDPrefix     = "aidocs_mcp_client_"
 	mcpClientRegistrationAud    = "mcp-client-registration"
 	mcpClientRegistrationTTL    = 365 * 24 * time.Hour
 	mcpAuthorizationCodeTTLHint = 5 * time.Minute
@@ -297,13 +300,14 @@ func validMCPRedirectURI(raw string) bool {
 }
 
 func (h handlers) parseMCPClient(clientID string) (mcpOAuthClient, bool) {
-	if len(clientID) > maxMCPClientIDBytes || !strings.HasPrefix(clientID, mcpClientIDPrefix) {
+	signed, ok := strings.CutPrefix(clientID, mcpClientIDPrefix)
+	if !ok {
+		signed, ok = strings.CutPrefix(clientID, legacyMCPClientIDPrefix)
+	}
+	if len(clientID) > maxMCPClientIDBytes || !ok {
 		return mcpOAuthClient{}, false
 	}
-	subject, ok := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).VerifyAudience(
-		strings.TrimPrefix(clientID, mcpClientIDPrefix),
-		mcpClientRegistrationAud,
-	)
+	subject, ok := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).VerifyAudience(signed, mcpClientRegistrationAud)
 	if !ok {
 		return mcpOAuthClient{}, false
 	}

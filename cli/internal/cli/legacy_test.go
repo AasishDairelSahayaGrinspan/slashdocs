@@ -3,6 +3,7 @@ package cli
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/zalando/go-keyring"
@@ -59,6 +60,36 @@ func TestMigrateLegacyInstallMovesConfigAndSkills(t *testing.T) {
 	}
 }
 
+func TestMigrateLegacyInstallRemovesSymlinkedSkill(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	writeTree(t, filepath.Join(home, ".agents", "skills", "aidocs", "SKILL.md"), "shared skill")
+	claude := filepath.Join(home, ".claude", "skills")
+	if err := os.MkdirAll(claude, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("..", "..", ".agents", "skills", "aidocs"), filepath.Join(claude, "aidocs")); err != nil {
+		t.Fatal(err)
+	}
+
+	MigrateLegacyInstall()
+
+	assertFile(t, filepath.Join(home, ".agents", "skills", "slashdocs", "SKILL.md"), "shared skill")
+	for _, gone := range []string{filepath.Join(claude, "aidocs"), filepath.Join(claude, "slashdocs")} {
+		if _, err := os.Lstat(gone); !os.IsNotExist(err) {
+			t.Errorf("%s exists after migration; a dangling link would block the next skill install", gone)
+		}
+	}
+}
+
+func TestRenameNoticeGivesInstallCommandWhenSlashdocsIsMissing(t *testing.T) {
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("SLASHDOCS_SERVER", "https://docs.example.com")
+	if got := RenameNotice(); !strings.Contains(got, "curl -fsSL https://docs.example.com/install.sh | bash") {
+		t.Fatalf("notice = %q, want the install command", got)
+	}
+}
+
 func TestMigrateLegacyInstallKeepsBothConfigs(t *testing.T) {
 	config := t.TempDir()
 	t.Setenv("HOME", t.TempDir())
@@ -104,6 +135,22 @@ func TestCredentialTokenMovesLegacyKeychainEntry(t *testing.T) {
 	}
 	if _, err := keyring.Get("aidocs", ref); err == nil {
 		t.Fatal("legacy keychain entry still exists")
+	}
+}
+
+func TestDeleteCredentialTokenRemovesLegacyKeychainEntry(t *testing.T) {
+	keyring.MockInit()
+	t.Setenv("SLASHDOCS_NO_KEYCHAIN", "")
+	t.Setenv("AIDOCS_NO_KEYCHAIN", "")
+	ref := tokenRef("docs.example.com")
+	if err := keyring.Set("aidocs", ref, "secret"); err != nil {
+		t.Fatal(err)
+	}
+
+	deleteCredentialToken("docs.example.com", map[string]any{"token_ref": ref})
+
+	if _, err := keyring.Get("aidocs", ref); err == nil {
+		t.Fatal("legacy keychain entry still exists after logout")
 	}
 }
 

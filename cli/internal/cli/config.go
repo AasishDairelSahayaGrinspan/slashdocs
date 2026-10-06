@@ -182,5 +182,8 @@ func deleteCredentialToken(contextName string, cred map[string]any) {
 			ref = r
 		}
 	}
-	_ = keyring.Delete(keychainService, ref)
+	// A token saved before the rename may still be under the aidocs service.
+	for _, service := range []string{keychainService, legacyName} {
+		_ = keyring.Delete(service, ref)
+	}
 }
