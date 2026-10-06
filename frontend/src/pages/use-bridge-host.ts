@@ -12,7 +12,7 @@ export function useBridgeHost(docId: string, renderURL: string | undefined) {
   const [ready, setReady] = useState(false);
   const theme = useResolvedTheme();
   // Stable handlers read the latest theme and readiness from refs. Handlers
-  // that re-register can miss an aidocs:ready sent during the teardown.
+  // that re-register can miss a slashdocs:ready sent during the teardown.
   const themeRef = useRef(theme);
   themeRef.current = theme;
   const readyRef = useRef(ready);
@@ -34,7 +34,7 @@ export function useBridgeHost(docId: string, renderURL: string | undefined) {
   const frameSrc = useMemo(() => {
     if (!renderURL) return undefined;
     const sep = renderURL.includes("?") ? "&" : "?";
-    return `${renderURL}${sep}aidocs_theme=${themeRef.current}`;
+    return `${renderURL}${sep}slashdocs_theme=${themeRef.current}`;
   }, [renderURL]);
 
   useEffect(() => {
@@ -54,7 +54,7 @@ export function useBridgeHost(docId: string, renderURL: string | undefined) {
   );
 
   useEffect(() => {
-    if (ready) postToFrame({ type: "aidocs:theme", theme });
+    if (ready) postToFrame({ type: "slashdocs:theme", theme });
   }, [theme, ready, postToFrame]);
 
   // A frame that is not ready yet reads the current KV state when it
@@ -65,7 +65,7 @@ export function useBridgeHost(docId: string, renderURL: string | undefined) {
       if (detail.revision <= kvRevision.current) return;
       kvRevision.current = detail.revision;
       postToFrame({
-        type: "aidocs:kv-event",
+        type: "slashdocs:kv-event",
         detail: { ...detail, source: "sync", operation: "sync" },
       });
     },
@@ -84,17 +84,17 @@ export function useBridgeHost(docId: string, renderURL: string | undefined) {
         requestWindow.postMessage(message, frameOrigin);
       };
       const data = e.data as Record<string, unknown> | null;
-      if (data?.type === "aidocs:ready") {
+      if (data?.type === "slashdocs:ready") {
         setReady(true);
-        reply({ type: "aidocs:theme", theme: themeRef.current });
+        reply({ type: "slashdocs:theme", theme: themeRef.current });
       }
-      if (data?.type === "aidocs:kv-request") {
+      if (data?.type === "slashdocs:kv-request") {
         void answerKV(docId, data, reply, kvRevision);
       }
-      if (data?.type === "aidocs:github-request") {
+      if (data?.type === "slashdocs:github-request") {
         void answerGitHub(docId, data, reply);
       }
-      if (data?.type === "aidocs:github-connect") {
+      if (data?.type === "slashdocs:github-connect") {
         window.location.assign(
           api.githubConnectURL(
             window.location.pathname + window.location.search + window.location.hash,
@@ -128,7 +128,7 @@ async function answerKV(
   };
   const requestId = String(data.requestId || "");
   const respond = (result: unknown) =>
-    reply({ type: "aidocs:kv-response", requestId, ok: true, result });
+    reply({ type: "slashdocs:kv-response", requestId, ok: true, result });
   try {
     const operation = String(data.operation || "");
     if (operation === "all" || operation === "hydrate" || operation === "get") {
@@ -160,7 +160,7 @@ async function answerKV(
     respond(result);
     if (!delivered) {
       reply({
-        type: "aidocs:kv-event",
+        type: "slashdocs:kv-event",
         detail: {
           ...result,
           source: String(data.source || "local"),
@@ -170,7 +170,7 @@ async function answerKV(
     }
   } catch (err) {
     reply({
-      type: "aidocs:kv-response",
+      type: "slashdocs:kv-response",
       requestId,
       ok: false,
       error: failure(err, "KV request failed"),
@@ -192,10 +192,10 @@ async function answerGitHub(
       path: String(data.path || ""),
       ref: String(data.ref || ""),
     });
-    reply({ type: "aidocs:github-response", requestId, ok: true, result });
+    reply({ type: "slashdocs:github-response", requestId, ok: true, result });
   } catch (err) {
     reply({
-      type: "aidocs:github-response",
+      type: "slashdocs:github-response",
       requestId,
       ok: false,
       error: failure(err, "GitHub request failed"),

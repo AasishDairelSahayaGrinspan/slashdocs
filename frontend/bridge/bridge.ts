@@ -1,6 +1,7 @@
 import { textLinkAnchor } from "./text-link.ts";
 import { renderedTextFromRange } from "./anchoring/rendered-text.ts";
 import { snapshotForPrint } from "./document-export.ts";
+import { dispatchPublicEvent, PUBLIC_NAMES } from "./public-names.ts";
 import type { RenderedTextWithBrPositions } from "./anchoring/rendered-text.ts";
 import { renderedTextOf } from "./anchoring/rendered-text.ts";
 import { describeAnchor, resolveAnchor } from "./anchoring/index.ts";
@@ -63,7 +64,7 @@ type GitHubFunction = (input: {
 }) => Promise<unknown>;
 type GitHubConnectFunction = () => void;
 
-interface AidocsPublicAPI {
+interface SlashdocsPublicAPI {
   print?: () => void;
   download?: (input: { blob: Blob; filename: string }) => Promise<void>;
   kv?: Record<string, KVFunction>;
@@ -78,16 +79,17 @@ interface AidocsPublicAPI {
 
 declare global {
   interface Window {
-    __AIDOCS_APP_ORIGIN__?: string;
-    __aidocsKVHandlers?: KVHandlers;
-    __aidocsKVQueue?: QueuedKVOperation[];
-    __aidocsGitHubQueue?: Array<{
+    __SLASHDOCS_APP_ORIGIN__?: string;
+    __slashdocsKVHandlers?: KVHandlers;
+    __slashdocsKVQueue?: QueuedKVOperation[];
+    __slashdocsGitHubQueue?: Array<{
       input: Parameters<GitHubFunction>[0];
       resolve(value: unknown): void;
       reject(error: unknown): void;
     }>;
-    __aidocsGitHubConnectQueued?: boolean;
-    aidocs?: AidocsPublicAPI;
+    __slashdocsGitHubConnectQueued?: boolean;
+    slashdocs?: SlashdocsPublicAPI;
+    aidocs?: SlashdocsPublicAPI;
     CustomEvent: typeof CustomEvent;
   }
 }
@@ -102,8 +104,8 @@ interface PaintItem {
 type Theme = "dark" | "light";
 
 (function bridge(): void {
-  const appOrigin = window.__AIDOCS_APP_ORIGIN__ || "*";
-  const frame = document.getElementById("aidocs-doc") as HTMLIFrameElement;
+  const appOrigin = window.__SLASHDOCS_APP_ORIGIN__ || "*";
+  const frame = document.getElementById("slashdocs-doc") as HTMLIFrameElement;
   let kvRequestID = 0;
   const kvPending: Record<string, KVPendingRequest> = {};
   let githubRequestID = 0;
@@ -190,7 +192,7 @@ type Theme = "dark" | "light";
 
   function kvPatchFromSet(key: unknown, value: unknown): KVPatch {
     if (value === undefined) {
-      throw new TypeError("aidocs.kv.set requires a JSON value");
+      throw new TypeError("slashdocs.kv.set requires a JSON value");
     }
     const patch = emptyKVPatch();
     const k = String(key);
@@ -207,7 +209,7 @@ type Theme = "dark" | "light";
 
   function kvPatchFromObject(object: unknown): KVPatch {
     if (!object || typeof object !== "object" || Array.isArray(object)) {
-      throw new TypeError("aidocs.kv.patch requires an object");
+      throw new TypeError("slashdocs.kv.patch requires an object");
     }
     const patch = emptyKVPatch();
     Object.keys(object).forEach((key) => {
@@ -395,7 +397,7 @@ type Theme = "dark" | "light";
       };
       parent.postMessage(
         Object.assign(
-          { type: "aidocs:kv-request", requestId, operation },
+          { type: "slashdocs:kv-request", requestId, operation },
           payload || {},
         ),
         targetOrigin(),
@@ -406,7 +408,7 @@ type Theme = "dark" | "light";
   function githubRawContent(input: Parameters<GitHubFunction>[0]): Promise<unknown> {
     if (!input || typeof input !== "object") {
       return Promise.reject(
-        new TypeError("aidocs.github.getRawContent requires an input object"),
+        new TypeError("slashdocs.github.getRawContent requires an input object"),
       );
     }
     const payload = {
@@ -435,14 +437,14 @@ type Theme = "dark" | "light";
         },
       };
       parent.postMessage(
-        { type: "aidocs:github-request", requestId, operation: "raw", ...payload },
+        { type: "slashdocs:github-request", requestId, operation: "raw", ...payload },
         targetOrigin(),
       );
     });
   }
 
   function githubConnect(): void {
-    parent.postMessage({ type: "aidocs:github-connect" }, targetOrigin());
+    parent.postMessage({ type: "slashdocs:github-connect" }, targetOrigin());
   }
 
   function emitKVChange(detail: unknown): void {
@@ -452,7 +454,8 @@ type Theme = "dark" | "light";
       const ev = new w.CustomEvent("kvchange", { detail });
       w.dispatchEvent(ev);
     } catch (e) {}
-    const handlers = (w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange) || [];
+    const handlers =
+      (w.__slashdocsKVHandlers && w.__slashdocsKVHandlers.kvchange) || [];
     handlers.slice().forEach((handler) => {
       try {
         handler(detail);
@@ -468,7 +471,7 @@ type Theme = "dark" | "light";
   const exportPending = new Map<string, { resolve: () => void; reject: () => void }>();
   let exportID = 0;
   function requestPrint(): void {
-    parent.postMessage({ type: "aidocs:print-request" }, targetOrigin());
+    parent.postMessage({ type: "slashdocs:print-request" }, targetOrigin());
   }
   function requestDownload(input: { blob: Blob; filename: string }): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -493,7 +496,7 @@ type Theme = "dark" | "light";
       });
       parent.postMessage(
         {
-          type: "aidocs:download-request",
+          type: "slashdocs:download-request",
           requestId,
           blob: input.blob,
           filename: input.filename,
@@ -503,16 +506,16 @@ type Theme = "dark" | "light";
     });
   }
 
-  function installAidocsAPI(): void {
+  function installSlashdocsAPI(): void {
     const w = innerWindow();
     if (!w) return;
-    const existing: AidocsPublicAPI =
-      w.aidocs && typeof w.aidocs === "object" ? w.aidocs : {};
+    const existing: SlashdocsPublicAPI =
+      w.slashdocs && typeof w.slashdocs === "object" ? w.slashdocs : {};
     const handlers =
-      w.__aidocsKVHandlers && w.__aidocsKVHandlers.kvchange
-        ? w.__aidocsKVHandlers
+      w.__slashdocsKVHandlers && w.__slashdocsKVHandlers.kvchange
+        ? w.__slashdocsKVHandlers
         : { kvchange: [] };
-    w.__aidocsKVHandlers = handlers;
+    w.__slashdocsKVHandlers = handlers;
 
     function off(event: string, handler: KVChangeHandler): void {
       if (event !== "kvchange") return;
@@ -559,25 +562,25 @@ type Theme = "dark" | "light";
     existing.on = on;
     existing.off = off;
     try {
-      w.aidocs = existing;
+      for (const name of PUBLIC_NAMES) w[name] = existing;
     } catch (e) {}
 
-    const githubQueued = w.__aidocsGitHubQueue || [];
-    w.__aidocsGitHubQueue = [];
+    const githubQueued = w.__slashdocsGitHubQueue || [];
+    w.__slashdocsGitHubQueue = [];
     githubQueued.forEach((entry) => {
       githubRawContent(entry.input).then(entry.resolve, entry.reject);
     });
-    if (w.__aidocsGitHubConnectQueued) {
-      w.__aidocsGitHubConnectQueued = false;
+    if (w.__slashdocsGitHubConnectQueued) {
+      w.__slashdocsGitHubConnectQueued = false;
       githubConnect();
     }
 
-    const queued = w.__aidocsKVQueue || [];
-    w.__aidocsKVQueue = [];
+    const queued = w.__slashdocsKVQueue || [];
+    w.__slashdocsKVQueue = [];
     queued.forEach((entry) => {
       const fn = kv[entry && entry.op];
       if (!fn) {
-        entry.reject && entry.reject(new Error("unknown aidocs KV operation"));
+        entry.reject && entry.reject(new Error("unknown slashdocs KV operation"));
         return;
       }
       Promise.resolve()
@@ -601,11 +604,11 @@ type Theme = "dark" | "light";
 
   function injectStyles(): void {
     const d = doc();
-    if (!d || d.getElementById("aidocs-highlight-style")) return;
+    if (!d || d.getElementById("slashdocs-highlight-style")) return;
     const s = d.createElement("style");
-    s.id = "aidocs-highlight-style";
+    s.id = "slashdocs-highlight-style";
     s.textContent =
-      ".aidocs-mark{background:#fef08a!important;color:#111827!important;-webkit-text-fill-color:#111827!important;box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:2px;box-shadow:0 0 0 1px rgba(202,138,4,.55);cursor:pointer;transition:background-color .15s,box-shadow .15s}.aidocs-mark-active{background:#fde047!important;box-shadow:0 0 0 2px rgba(202,138,4,.95)}.aidocs-svg-mark-text{fill:#111827!important;-webkit-text-fill-color:#111827!important;cursor:pointer}.aidocs-svg-mark-rect{fill:#fef08a;stroke:#ca8a04;stroke-width:1;rx:3;ry:3;pointer-events:auto;opacity:.72}.aidocs-svg-mark-rect.aidocs-mark-active{fill:#fde047;stroke-width:2;opacity:.84}@media print{.aidocs-mark{background:transparent!important;box-shadow:none!important;-webkit-text-fill-color:inherit!important;color:inherit!important}.aidocs-svg-mark-rect{display:none!important}.aidocs-svg-mark-text{fill:inherit!important;-webkit-text-fill-color:inherit!important}}";
+      ".slashdocs-mark{background:#fef08a!important;color:#111827!important;-webkit-text-fill-color:#111827!important;box-decoration-break:clone;-webkit-box-decoration-break:clone;border-radius:2px;box-shadow:0 0 0 1px rgba(202,138,4,.55);cursor:pointer;transition:background-color .15s,box-shadow .15s}.slashdocs-mark-active{background:#fde047!important;box-shadow:0 0 0 2px rgba(202,138,4,.95)}.slashdocs-svg-mark-text{fill:#111827!important;-webkit-text-fill-color:#111827!important;cursor:pointer}.slashdocs-svg-mark-rect{fill:#fef08a;stroke:#ca8a04;stroke-width:1;rx:3;ry:3;pointer-events:auto;opacity:.72}.slashdocs-svg-mark-rect.slashdocs-mark-active{fill:#fde047;stroke-width:2;opacity:.84}@media print{.slashdocs-mark{background:transparent!important;box-shadow:none!important;-webkit-text-fill-color:inherit!important;color:inherit!important}.slashdocs-svg-mark-rect{display:none!important}.slashdocs-svg-mark-text{fill:inherit!important;-webkit-text-fill-color:inherit!important}}";
     (d.head || d.documentElement).appendChild(s);
   }
 
@@ -637,7 +640,7 @@ type Theme = "dark" | "light";
   // edge-triggered card scroll on the sidebar side.
   let revealedActive: string | null = null;
   // Selection restored after a repaint, kept briefly so the resulting
-  // selectionchange does not re-emit aidocs:selection (which would re-open
+  // selectionchange does not re-emit slashdocs:selection (which would re-open
   // the comment composer the user may have dismissed).
   let restoredSelection: Range | null = null;
   let restoredSelectionExpiry = 0;
@@ -720,10 +723,10 @@ type Theme = "dark" | "light";
   function applyActiveOnly(d: Document, active: string | null, scroll: boolean): void {
     let scrollTarget: Element | null = null;
     d.querySelectorAll(
-      "mark.aidocs-mark,.aidocs-svg-mark-rect,.aidocs-svg-mark-text",
+      "mark.slashdocs-mark,.slashdocs-svg-mark-rect,.slashdocs-svg-mark-text",
     ).forEach((el) => {
       const isActive = !!active && (el as HTMLElement).dataset.cid === active;
-      el.classList.toggle("aidocs-mark-active", isActive);
+      el.classList.toggle("slashdocs-mark-active", isActive);
       if (isActive && !scrollTarget) scrollTarget = el;
     });
     if (scroll && scrollTarget) {
@@ -746,7 +749,7 @@ type Theme = "dark" | "light";
     if (!d) return;
     parent.postMessage(
       {
-        type: "aidocs:comment-scroll",
+        type: "slashdocs:comment-scroll",
         scrollTop: d.defaultView?.scrollY || d.documentElement.scrollTop || 0,
       },
       targetOrigin(),
@@ -767,7 +770,7 @@ type Theme = "dark" | "light";
     const view = d?.defaultView;
     if (!d?.body || !view) return;
     parent.postMessage(
-      { type: "aidocs:viewport", anchor: viewportAnchor(d, view) },
+      { type: "slashdocs:viewport", anchor: viewportAnchor(d, view) },
       targetOrigin(),
     );
   }
@@ -819,7 +822,7 @@ type Theme = "dark" | "light";
       const escaped = CSS.escape(id);
       const marks = Array.from(
         d.querySelectorAll(
-          `mark.aidocs-mark[data-cid="${escaped}"],.aidocs-svg-mark-text[data-cid="${escaped}"],.aidocs-svg-mark-rect[data-cid="${escaped}"]`,
+          `mark.slashdocs-mark[data-cid="${escaped}"],.slashdocs-svg-mark-text[data-cid="${escaped}"],.slashdocs-svg-mark-rect[data-cid="${escaped}"]`,
         ),
       );
       let top = Number.POSITIVE_INFINITY;
@@ -836,7 +839,7 @@ type Theme = "dark" | "light";
     }
     parent.postMessage(
       {
-        type: "aidocs:comment-positions",
+        type: "slashdocs:comment-positions",
         positions,
         scrollTop,
         scrollHeight,
@@ -862,10 +865,10 @@ type Theme = "dark" | "light";
     if (!expected) return false;
     const cid = CSS.escape(id);
     let text = "";
-    d.querySelectorAll('mark.aidocs-mark[data-cid="' + cid + '"]').forEach((m) => {
+    d.querySelectorAll('mark.slashdocs-mark[data-cid="' + cid + '"]').forEach((m) => {
       text += m.textContent || "";
     });
-    d.querySelectorAll('.aidocs-svg-mark-text[data-cid="' + cid + '"]').forEach(
+    d.querySelectorAll('.slashdocs-svg-mark-text[data-cid="' + cid + '"]').forEach(
       (el) => {
         text += el.textContent || "";
       },
@@ -963,7 +966,7 @@ type Theme = "dark" | "light";
       resumeMutationObserver();
     }
     parent.postMessage(
-      { type: "aidocs:paint-result", results: lastPaintResults },
+      { type: "slashdocs:paint-result", results: lastPaintResults },
       targetOrigin(),
     );
     scheduleCommentPositions();
@@ -1018,7 +1021,7 @@ type Theme = "dark" | "light";
       revealedActive = activeID;
       applyActiveOnly(d, activeID, reveal);
       parent.postMessage(
-        { type: "aidocs:paint-result", results: lastPaintResults },
+        { type: "slashdocs:paint-result", results: lastPaintResults },
         targetOrigin(),
       );
       scheduleCommentPositions();
@@ -1070,7 +1073,7 @@ type Theme = "dark" | "light";
     }
     // Post even when the inner document is unavailable so the parent never
     // keeps stale "highlight not found" state.
-    parent.postMessage({ type: "aidocs:paint-result", results }, targetOrigin());
+    parent.postMessage({ type: "slashdocs:paint-result", results }, targetOrigin());
     scheduleCommentPositions();
   }
 
@@ -1078,10 +1081,13 @@ type Theme = "dark" | "light";
     const m = (e.target &&
       (e.target as Element).closest &&
       (e.target as Element).closest(
-        "mark.aidocs-mark,.aidocs-svg-mark-text,.aidocs-svg-mark-rect",
+        "mark.slashdocs-mark,.slashdocs-svg-mark-text,.slashdocs-svg-mark-rect",
       )) as HTMLElement | null;
     if (!m || !m.dataset.cid) return;
-    parent.postMessage({ type: "aidocs:activate", id: m.dataset.cid }, targetOrigin());
+    parent.postMessage(
+      { type: "slashdocs:activate", id: m.dataset.cid },
+      targetOrigin(),
+    );
   }
 
   function cssString(s: unknown): string {
@@ -1136,7 +1142,7 @@ type Theme = "dark" | "light";
           d.defaultView!.history.replaceState(null, "", href);
         } catch (err) {}
         parent.postMessage(
-          { type: "aidocs:heading", id: t.id || href.slice(1) },
+          { type: "slashdocs:heading", id: t.id || href.slice(1) },
           targetOrigin(),
         );
       }
@@ -1172,7 +1178,7 @@ type Theme = "dark" | "light";
   let curTheme: Theme | null = null;
   function initialTheme(): Theme | null {
     try {
-      const t = new URLSearchParams(location.search).get("aidocs_theme");
+      const t = new URLSearchParams(location.search).get("slashdocs_theme");
       return t === "dark" || t === "light" ? t : null;
     } catch (e) {
       return null;
@@ -1184,11 +1190,11 @@ type Theme = "dark" | "light";
     curTheme = t;
     const d = doc();
     if (!d || !d.documentElement) return;
-    d.documentElement.setAttribute("data-aidocs-theme", t);
+    for (const name of PUBLIC_NAMES) {
+      d.documentElement.setAttribute(`data-${name}-theme`, t);
+    }
     try {
-      d.defaultView!.dispatchEvent(
-        new CustomEvent("aidocs:theme", { detail: { theme: t } }),
-      );
+      dispatchPublicEvent(d.defaultView!, "theme", { detail: { theme: t } });
     } catch (e) {}
   }
 
@@ -1212,40 +1218,43 @@ type Theme = "dark" | "light";
   }
 
   function labelIcon(button: HTMLButtonElement, label: string): void {
-    button.dataset.aidocsTooltip = label;
+    button.dataset.slashdocsTooltip = label;
     const align = () => {
       const rect = button.getBoundingClientRect();
       const width = button.ownerDocument.defaultView!.innerWidth;
-      button.style.setProperty("--aidocs-tip-enter-y", rect.top < 48 ? "-3px" : "3px");
       button.style.setProperty(
-        "--aidocs-tip-top",
+        "--slashdocs-tip-enter-y",
+        rect.top < 48 ? "-3px" : "3px",
+      );
+      button.style.setProperty(
+        "--slashdocs-tip-top",
         rect.top < 48 ? "calc(100% + 6px)" : "auto",
       );
       button.style.setProperty(
-        "--aidocs-tip-bottom",
+        "--slashdocs-tip-bottom",
         rect.top < 48 ? "auto" : "calc(100% + 6px)",
       );
       button.style.setProperty(
-        "--aidocs-tip-left",
+        "--slashdocs-tip-left",
         rect.left < 120 ? "0%" : rect.right > width - 120 ? "100%" : "50%",
       );
       button.style.setProperty(
-        "--aidocs-tip-shift",
+        "--slashdocs-tip-shift",
         rect.left < 120 ? "0%" : rect.right > width - 120 ? "-100%" : "-50%",
       );
     };
     button.addEventListener("pointerenter", align);
     button.addEventListener("focus", align);
     const d = button.ownerDocument;
-    if (!d.getElementById("aidocs-icon-tooltip-style")) {
+    if (!d.getElementById("slashdocs-icon-tooltip-style")) {
       const style = d.createElement("style");
-      style.id = "aidocs-icon-tooltip-style";
+      style.id = "slashdocs-icon-tooltip-style";
       style.textContent = `
-        [data-aidocs-tooltip]::after{all:initial!important;content:attr(data-aidocs-tooltip)!important;position:absolute!important;z-index:2147483647!important;top:var(--aidocs-tip-top,auto)!important;bottom:var(--aidocs-tip-bottom,calc(100% + 6px))!important;left:var(--aidocs-tip-left,50%)!important;transform:translate(var(--aidocs-tip-shift,-50%),var(--aidocs-tip-enter-y,3px))!important;width:max-content!important;max-width:min(220px,calc(100vw - 16px))!important;box-sizing:border-box!important;padding:6px 10px!important;border-radius:6px!important;background:#18181b!important;color:#fff!important;font:500 12px/1.4 system-ui,sans-serif!important;white-space:normal!important;text-align:center!important;box-shadow:0 2px 8px #0003!important;pointer-events:none!important;visibility:hidden!important;opacity:0!important;transition:opacity .1s ease-out,transform .14s ease-out,visibility 0s linear .1s!important}
-        [data-aidocs-tooltip]:hover::after,[data-aidocs-tooltip]:focus-visible::after{visibility:visible!important;opacity:1!important;transform:translate(var(--aidocs-tip-shift,-50%),0)!important;transition:opacity .14s ease-out .5s,transform .14s ease-out .5s,visibility 0s linear .5s!important}
-        [data-aidocs-tooltip]:focus-visible::after{transition-delay:0s!important}
-        @media(prefers-reduced-motion:reduce){[data-aidocs-tooltip]::after{transition-duration:0s!important;transform:translateX(var(--aidocs-tip-shift,-50%))!important}}
-        @media print{[data-aidocs-tooltip]::after{display:none!important}}`;
+        [data-slashdocs-tooltip]::after{all:initial!important;content:attr(data-slashdocs-tooltip)!important;position:absolute!important;z-index:2147483647!important;top:var(--slashdocs-tip-top,auto)!important;bottom:var(--slashdocs-tip-bottom,calc(100% + 6px))!important;left:var(--slashdocs-tip-left,50%)!important;transform:translate(var(--slashdocs-tip-shift,-50%),var(--slashdocs-tip-enter-y,3px))!important;width:max-content!important;max-width:min(220px,calc(100vw - 16px))!important;box-sizing:border-box!important;padding:6px 10px!important;border-radius:6px!important;background:#18181b!important;color:#fff!important;font:500 12px/1.4 system-ui,sans-serif!important;white-space:normal!important;text-align:center!important;box-shadow:0 2px 8px #0003!important;pointer-events:none!important;visibility:hidden!important;opacity:0!important;transition:opacity .1s ease-out,transform .14s ease-out,visibility 0s linear .1s!important}
+        [data-slashdocs-tooltip]:hover::after,[data-slashdocs-tooltip]:focus-visible::after{visibility:visible!important;opacity:1!important;transform:translate(var(--slashdocs-tip-shift,-50%),0)!important;transition:opacity .14s ease-out .5s,transform .14s ease-out .5s,visibility 0s linear .5s!important}
+        [data-slashdocs-tooltip]:focus-visible::after{transition-delay:0s!important}
+        @media(prefers-reduced-motion:reduce){[data-slashdocs-tooltip]::after{transition-duration:0s!important;transform:translateX(var(--slashdocs-tip-shift,-50%))!important}}
+        @media print{[data-slashdocs-tooltip]::after{display:none!important}}`;
       d.head.appendChild(style);
     }
   }
@@ -1269,7 +1278,7 @@ type Theme = "dark" | "light";
     const scrollTop = d.defaultView?.scrollY || d.documentElement.scrollTop || 0;
     dismissSelectionAction();
     parent.postMessage(
-      { type: "aidocs:selection", anchor, top: rect.top + scrollTop },
+      { type: "slashdocs:selection", anchor, top: rect.top + scrollTop },
       targetOrigin(),
     );
   }
@@ -1313,7 +1322,7 @@ type Theme = "dark" | "light";
     if (selectionDismissed) return;
     if (!selectionAction?.isConnected) {
       selectionAction = d.createElement("div");
-      selectionAction.className = "aidocs-selection-action";
+      selectionAction.className = "slashdocs-selection-action";
       selectionAction.setAttribute("role", "group");
       selectionAction.setAttribute("aria-label", "Selected text actions");
       selectionAction.addEventListener("mousedown", (e) => e.preventDefault());
@@ -1354,24 +1363,24 @@ type Theme = "dark" | "light";
         () => {
           if (!actionRange) return;
           const anchor = describeAnchor(d.body, actionRange);
-          parent.postMessage({ type: "aidocs:copy-text", anchor }, targetOrigin());
+          parent.postMessage({ type: "slashdocs:copy-text", anchor }, targetOrigin());
         },
       );
-      if (!d.getElementById("aidocs-selection-style")) {
+      if (!d.getElementById("slashdocs-selection-style")) {
         const style = d.createElement("style");
-        style.id = "aidocs-selection-style";
+        style.id = "slashdocs-selection-style";
         style.textContent = `
-          .aidocs-selection-action{all:initial!important;position:fixed!important;z-index:2147483647!important;display:flex!important;padding:2px!important;border-radius:10px!important;background:#fff!important;color:#52525b!important;box-shadow:0 0 0 1px #0001,0 4px 16px #0002!important}
-          .aidocs-selection-action button{all:initial!important;position:relative!important;box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;width:40px!important;height:40px!important;border-radius:8px!important;color:inherit!important;cursor:pointer!important;transition:background-color .15s,transform .15s!important}
-          .aidocs-selection-action button:hover{background:#f4f4f5!important;color:#18181b!important}
-          .aidocs-selection-action button:active{transform:scale(.96)!important}
-          .aidocs-selection-action button:focus-visible{outline:2px solid #6366f1!important;outline-offset:-2px!important}
-          .aidocs-selection-action svg{all:initial!important;color:inherit!important;width:17px!important;height:17px!important;fill:none!important;stroke:currentColor!important;stroke-width:1.8!important;stroke-linecap:round!important;stroke-linejoin:round!important;pointer-events:none!important}
-          .aidocs-selection-action path{fill:none!important;stroke:inherit!important;stroke-width:inherit!important}
-          [data-aidocs-theme=dark] .aidocs-selection-action{background:#27272a!important;color:#d4d4d8!important;box-shadow:0 0 0 1px #fff2,0 4px 16px #0004!important}
-          [data-aidocs-theme=dark] .aidocs-selection-action button:hover{background:#3f3f46!important;color:#fff!important}
-          @media(prefers-reduced-motion:reduce){.aidocs-selection-action button{transition:none!important}}
-          @media print{.aidocs-selection-action,.aidocs-text-flash{display:none!important}}`;
+          .slashdocs-selection-action{all:initial!important;position:fixed!important;z-index:2147483647!important;display:flex!important;padding:2px!important;border-radius:10px!important;background:#fff!important;color:#52525b!important;box-shadow:0 0 0 1px #0001,0 4px 16px #0002!important}
+          .slashdocs-selection-action button{all:initial!important;position:relative!important;box-sizing:border-box!important;display:flex!important;align-items:center!important;justify-content:center!important;width:40px!important;height:40px!important;border-radius:8px!important;color:inherit!important;cursor:pointer!important;transition:background-color .15s,transform .15s!important}
+          .slashdocs-selection-action button:hover{background:#f4f4f5!important;color:#18181b!important}
+          .slashdocs-selection-action button:active{transform:scale(.96)!important}
+          .slashdocs-selection-action button:focus-visible{outline:2px solid #6366f1!important;outline-offset:-2px!important}
+          .slashdocs-selection-action svg{all:initial!important;color:inherit!important;width:17px!important;height:17px!important;fill:none!important;stroke:currentColor!important;stroke-width:1.8!important;stroke-linecap:round!important;stroke-linejoin:round!important;pointer-events:none!important}
+          .slashdocs-selection-action path{fill:none!important;stroke:inherit!important;stroke-width:inherit!important}
+          [data-slashdocs-theme=dark] .slashdocs-selection-action{background:#27272a!important;color:#d4d4d8!important;box-shadow:0 0 0 1px #fff2,0 4px 16px #0004!important}
+          [data-slashdocs-theme=dark] .slashdocs-selection-action button:hover{background:#3f3f46!important;color:#fff!important}
+          @media(prefers-reduced-motion:reduce){.slashdocs-selection-action button{transition:none!important}}
+          @media print{.slashdocs-selection-action,.slashdocs-text-flash{display:none!important}}`;
         d.head.appendChild(style);
       }
       d.body.appendChild(selectionAction);
@@ -1445,10 +1454,10 @@ type Theme = "dark" | "light";
   let headingFlash: Animation | undefined;
   function prepareHeadings(d: Document): void {
     const used = new Set(Array.from(d.querySelectorAll("[id]")).map((el) => el.id));
-    if (!d.getElementById("aidocs-heading-link-style")) {
+    if (!d.getElementById("slashdocs-heading-link-style")) {
       const style = d.createElement("style");
-      style.id = "aidocs-heading-link-style";
-      style.textContent = `.aidocs-heading-link{position:relative!important;display:inline-flex!important;vertical-align:middle;width:40px;height:40px;margin:0 0 0 4px;padding:0;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font:20px sans-serif;opacity:0;cursor:pointer;transition:opacity .15s}.aidocs-heading-link::before{content:"#"}h1:hover>.aidocs-heading-link,h2:hover>.aidocs-heading-link,h3:hover>.aidocs-heading-link,h4:hover>.aidocs-heading-link,h5:hover>.aidocs-heading-link,h6:hover>.aidocs-heading-link,.aidocs-heading-link:focus-visible{opacity:.65}.aidocs-heading-link:focus-visible{outline:2px solid currentColor}@media(pointer:coarse){.aidocs-heading-link{opacity:.5}}@media print{.aidocs-heading-link{display:none!important}}`;
+      style.id = "slashdocs-heading-link-style";
+      style.textContent = `.slashdocs-heading-link{position:relative!important;display:inline-flex!important;vertical-align:middle;width:40px;height:40px;margin:0 0 0 4px;padding:0;align-items:center;justify-content:center;border:0;border-radius:6px;background:transparent;color:inherit;font:20px sans-serif;opacity:0;cursor:pointer;transition:opacity .15s}.slashdocs-heading-link::before{content:"#"}h1:hover>.slashdocs-heading-link,h2:hover>.slashdocs-heading-link,h3:hover>.slashdocs-heading-link,h4:hover>.slashdocs-heading-link,h5:hover>.slashdocs-heading-link,h6:hover>.slashdocs-heading-link,.slashdocs-heading-link:focus-visible{opacity:.65}.slashdocs-heading-link:focus-visible{outline:2px solid currentColor}@media(pointer:coarse){.slashdocs-heading-link{opacity:.5}}@media print{.slashdocs-heading-link{display:none!important}}`;
       d.head.appendChild(style);
     }
     Array.from(d.querySelectorAll("h1,h2,h3,h4,h5,h6")).forEach((heading) => {
@@ -1464,10 +1473,10 @@ type Theme = "dark" | "light";
         heading.id = id;
         used.add(id);
       }
-      if (!heading.querySelector(":scope > .aidocs-heading-link")) {
+      if (!heading.querySelector(":scope > .slashdocs-heading-link")) {
         const button = d.createElement("button");
         button.type = "button";
-        button.className = "aidocs-heading-link";
+        button.className = "slashdocs-heading-link";
         button.setAttribute(
           "aria-label",
           `Copy link to ${heading.textContent?.trim() || "heading"}`,
@@ -1477,7 +1486,7 @@ type Theme = "dark" | "light";
           event.preventDefault();
           event.stopPropagation();
           parent.postMessage(
-            { type: "aidocs:copy-heading", id: heading.id },
+            { type: "slashdocs:copy-heading", id: heading.id },
             targetOrigin(),
           );
         });
@@ -1537,7 +1546,7 @@ type Theme = "dark" | "light";
     textVisibilityObserver?.disconnect();
     clearTimeout(textNoticeTimer);
     doc()
-      ?.querySelectorAll(".aidocs-text-flash")
+      ?.querySelectorAll(".slashdocs-text-flash")
       .forEach((el) => el.remove());
     if (!pendingText) return;
     tryNavigateText();
@@ -1553,7 +1562,7 @@ type Theme = "dark" | "light";
         });
       textNoticeTimer = setTimeout(() => {
         if (pendingText)
-          parent.postMessage({ type: "aidocs:text-unavailable" }, targetOrigin());
+          parent.postMessage({ type: "slashdocs:text-unavailable" }, targetOrigin());
       }, 2000);
     }
   }
@@ -1595,7 +1604,7 @@ type Theme = "dark" | "light";
       .forEach((r) => {
         if (!r.width || !r.height) return;
         const flash = d.createElement("span");
-        flash.className = "aidocs-text-flash";
+        flash.className = "slashdocs-text-flash";
         flash.setAttribute("aria-hidden", "true");
         // Keep opacity animatable: an important `all` reset overrides animation values.
         flash.style.cssText = `all:initial;position:fixed!important;pointer-events:none!important;z-index:2147483646!important;left:${r.left}px!important;top:${r.top}px!important;width:${r.width}px!important;height:${r.height}px!important;background:rgba(56,189,248,.32)!important;box-shadow:0 0 0 1px rgba(14,165,233,.65)!important;border-radius:3px!important`;
@@ -1643,7 +1652,7 @@ type Theme = "dark" | "light";
     observeMutations(d);
     resetKVHistory();
     injectStyles();
-    installAidocsAPI();
+    installSlashdocsAPI();
     dismissSelectionAction();
     actionRange = null;
     selectionDismissed = false;
@@ -1651,7 +1660,7 @@ type Theme = "dark" | "light";
       "scroll",
       () => {
         if (Date.now() - textFlashStarted > 100)
-          d.querySelectorAll(".aidocs-text-flash").forEach((el) => el.remove());
+          d.querySelectorAll(".slashdocs-text-flash").forEach((el) => el.remove());
       },
       { passive: true },
     );
@@ -1794,17 +1803,20 @@ type Theme = "dark" | "light";
 
       if (ev.key === "Escape") {
         chordArmedAt = modified ? 0 : Date.now();
-        parent.postMessage({ type: "aidocs:keydown", key: "Escape" }, targetOrigin());
+        parent.postMessage(
+          { type: "slashdocs:keydown", key: "Escape" },
+          targetOrigin(),
+        );
       } else if (chordArmedAt) {
         const withinWindow = Date.now() - chordArmedAt <= 800;
         chordArmedAt = 0;
         const key = ev.key.toLowerCase();
         if (withinWindow && !modified && chordKeys.includes(key)) {
-          parent.postMessage({ type: "aidocs:keydown", key }, targetOrigin());
+          parent.postMessage({ type: "slashdocs:keydown", key }, targetOrigin());
         }
       }
       if (ev.key === "?" && !modified) {
-        parent.postMessage({ type: "aidocs:keydown", key: "?" }, targetOrigin());
+        parent.postMessage({ type: "slashdocs:keydown", key: "?" }, targetOrigin());
       }
 
       const vim = reduceVimScroll(
@@ -1838,7 +1850,7 @@ type Theme = "dark" | "light";
         ev.preventDefault();
         parent.postMessage(
           {
-            type: "aidocs:zoom",
+            type: "slashdocs:zoom",
             deltaY: ev.deltaY,
             clientX: ev.clientX,
             clientY: ev.clientY,
@@ -1852,7 +1864,7 @@ type Theme = "dark" | "light";
     d.addEventListener("click", handleLinkClick);
     d.addEventListener(
       "click",
-      () => parent.postMessage({ type: "aidocs:document-click" }, targetOrigin()),
+      () => parent.postMessage({ type: "slashdocs:document-click" }, targetOrigin()),
       true,
     );
     d.defaultView?.addEventListener("scroll", postCommentScroll, {
@@ -1861,7 +1873,7 @@ type Theme = "dark" | "light";
     d.defaultView?.addEventListener("resize", scheduleCommentPositions);
     // Capture scrolls of nested containers too, not only the window.
     d.addEventListener("scroll", scheduleViewport, { capture: true, passive: true });
-    parent.postMessage({ type: "aidocs:ready" }, targetOrigin());
+    parent.postMessage({ type: "slashdocs:ready" }, targetOrigin());
     scheduleViewport();
     hydrateKV();
   }
@@ -1876,7 +1888,7 @@ type Theme = "dark" | "light";
     if (!e.data) return;
     if (!isParentMessage(e)) return;
     if (
-      e.data.type === "aidocs:print-snapshot" &&
+      e.data.type === "slashdocs:print-snapshot" &&
       typeof e.data.requestId === "string"
     ) {
       const d = doc();
@@ -1886,7 +1898,7 @@ type Theme = "dark" | "light";
         .then((html) => {
           parent.postMessage(
             {
-              type: "aidocs:print-snapshot-result",
+              type: "slashdocs:print-snapshot-result",
               requestId: e.data.requestId,
               html,
               title: d.title,
@@ -1896,28 +1908,31 @@ type Theme = "dark" | "light";
         })
         .catch(() => {
           parent.postMessage(
-            { type: "aidocs:print-snapshot-result", requestId: e.data.requestId },
+            { type: "slashdocs:print-snapshot-result", requestId: e.data.requestId },
             targetOrigin(),
           );
         });
       return;
     }
-    if (e.data.type === "aidocs:print-finished") {
+    if (e.data.type === "slashdocs:print-finished") {
       printPreparing = false;
-      innerWindow()?.dispatchEvent(new Event("afterprint"));
-      innerWindow()?.dispatchEvent(new CustomEvent("aidocs:afterprint"));
+      const view = innerWindow();
+      if (view) {
+        view.dispatchEvent(new Event("afterprint"));
+        dispatchPublicEvent(view, "afterprint");
+      }
       return;
     }
-    if (e.data.type === "aidocs:export-response") {
+    if (e.data.type === "slashdocs:export-response") {
       const pending = exportPending.get(e.data.requestId);
       exportPending.delete(e.data.requestId);
       if (e.data.ok === true) pending?.resolve();
       else pending?.reject();
       return;
     }
-    if (e.data.type === "aidocs:paint") paint(e.data.comments, e.data.active);
-    else if (e.data.type === "aidocs:theme") applyTheme(e.data.theme);
-    else if (e.data.type === "aidocs:kv-response") {
+    if (e.data.type === "slashdocs:paint") paint(e.data.comments, e.data.active);
+    else if (e.data.type === "slashdocs:theme") applyTheme(e.data.theme);
+    else if (e.data.type === "slashdocs:kv-response") {
       const requestId = String(e.data.requestId || "");
       const pending = kvPending[requestId];
       if (!pending) return;
@@ -1927,7 +1942,7 @@ type Theme = "dark" | "light";
         pending.reject(
           new Error((e.data.error && e.data.error.message) || "KV request failed"),
         );
-    } else if (e.data.type === "aidocs:github-response") {
+    } else if (e.data.type === "slashdocs:github-response") {
       const requestId = String(e.data.requestId || "");
       const pending = githubPending[requestId];
       if (!pending) return;
@@ -1937,14 +1952,14 @@ type Theme = "dark" | "light";
         pending.reject(
           new Error((e.data.error && e.data.error.message) || "GitHub request failed"),
         );
-    } else if (e.data.type === "aidocs:navigate-text") {
+    } else if (e.data.type === "slashdocs:navigate-text") {
       navigateText(e.data.anchor);
-    } else if (e.data.type === "aidocs:navigate-heading") {
+    } else if (e.data.type === "slashdocs:navigate-heading") {
       navigateHeading(String(e.data.id || ""));
-    } else if (e.data.type === "aidocs:request-comment-positions") {
+    } else if (e.data.type === "slashdocs:request-comment-positions") {
       scheduleCommentPositions();
     } else if (
-      e.data.type === "aidocs:scroll-to" &&
+      e.data.type === "slashdocs:scroll-to" &&
       typeof e.data.top === "number" &&
       Number.isFinite(e.data.top)
     ) {
@@ -1952,7 +1967,7 @@ type Theme = "dark" | "light";
         top: Math.max(0, e.data.top),
         behavior: "instant",
       });
-    } else if (e.data.type === "aidocs:vim-key") {
+    } else if (e.data.type === "slashdocs:vim-key") {
       const d = doc();
       const KeyboardEventCtor = d?.defaultView?.KeyboardEvent;
       if (!d || !KeyboardEventCtor) return;
@@ -1965,7 +1980,7 @@ type Theme = "dark" | "light";
           repeat: e.data.repeat === true,
         }),
       );
-    } else if (e.data.type === "aidocs:kv-event") {
+    } else if (e.data.type === "slashdocs:kv-event") {
       emitKVChange(e.data.detail || {});
     }
   });

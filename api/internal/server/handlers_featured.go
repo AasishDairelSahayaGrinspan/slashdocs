@@ -11,8 +11,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // FeaturedSection is one titled row of documents and folders that the
@@ -24,7 +24,7 @@ type FeaturedSection struct {
 	Items       []string `json:"items"`     // Document and folder IDs.
 }
 
-// ParseFeatured reads the AIDOCS_FEATURED JSON object. Each key is a section
+// ParseFeatured reads the SLASHDOCS_FEATURED JSON object. Each key is a section
 // title, and the key order is the section order.
 func ParseFeatured(raw string) ([]FeaturedSection, error) {
 	if strings.TrimSpace(raw) == "" {

@@ -1,8 +1,8 @@
 import { useEffect, useState } from "react";
 import { clearCommentDrafts } from "./comment-drafts";
 
-const SIGNED_OUT_KEY = "aidocs.frontend_signed_out";
-const AUTH_STATE_EVENT = "aidocs:auth-state";
+const SIGNED_OUT_KEY = "slashdocs.frontend_signed_out";
+const AUTH_STATE_EVENT = "slashdocs:auth-state";
 
 export function isFrontendSignedOut() {
   try {

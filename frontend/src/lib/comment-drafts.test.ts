@@ -6,7 +6,7 @@ import {
   type CommentDraft,
 } from "./comment-drafts";
 
-const KEY = "aidocs.comment-drafts";
+const KEY = "slashdocs.comment-drafts";
 const draft = (id: string, updatedAt = Date.now()): CommentDraft => ({
   id,
   version: "ver_1",

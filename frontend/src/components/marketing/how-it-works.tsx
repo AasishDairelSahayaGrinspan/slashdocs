@@ -40,7 +40,7 @@ export function HowItWorks() {
   return (
     <section
       id="how-it-works"
-      aria-label="How aidocs works"
+      aria-label="How slashdocs works"
       className="border-t border-[var(--color-border)] bg-[var(--color-bg)] py-24"
     >
       <motion.div
@@ -118,16 +118,16 @@ function SceneAgentPublishes() {
         active={state.cmdStarted}
         height={190}
         lines={[
-          { kind: "cmd", text: "aidocs auth login" },
+          { kind: "cmd", text: "slashdocs auth login" },
           { kind: "out", text: "signed in as alice@example.com" },
-          { kind: "cmd", text: "aidocs docs create report.html" },
+          { kind: "cmd", text: "slashdocs docs create report.html" },
           {
             kind: "out",
             text: "doc_id=doc_8f2a",
           },
           {
             kind: "out",
-            text: "url=https://aidocs.dev/app/d/doc_8f2a",
+            text: "url=https://slashdocs.example.com/app/d/doc_8f2a",
           },
         ]}
       />
@@ -171,7 +171,7 @@ function SceneHumanReviews() {
         active={state.cmdStarted && phase === "open"}
         height={150}
         lines={[
-          { kind: "cmd", text: "aidocs docs comments list doc_8f2a" },
+          { kind: "cmd", text: "slashdocs docs comments list doc_8f2a" },
           { kind: "out", text: "cmt_a1  status=open" },
           { kind: "out", text: '  quote="…impact window…"' },
           { kind: "out", text: "  author=alice@example.com" },
@@ -205,11 +205,11 @@ function SceneAgentResponds() {
         active={state.cmdStarted}
         height={190}
         lines={[
-          { kind: "cmd", text: "aidocs docs push doc_8f2a report.html" },
+          { kind: "cmd", text: "slashdocs docs push doc_8f2a report.html" },
           { kind: "out", text: "version=ver_2" },
           {
             kind: "cmd",
-            text: "aidocs docs comments resolve doc_8f2a cmt_a1",
+            text: "slashdocs docs comments resolve doc_8f2a cmt_a1",
           },
           { kind: "out", text: "ok" },
         ]}

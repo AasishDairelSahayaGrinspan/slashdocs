@@ -8,15 +8,15 @@ import {
 import { fileURLToPath } from "node:url";
 
 export const APP_ORIGIN = new URL(
-  process.env.AIDOCS_E2E_BASE_URL ?? "http://localhost:8080",
+  process.env.SLASHDOCS_E2E_BASE_URL ?? "http://localhost:8080",
 ).origin;
 export const RENDER_ORIGIN =
-  process.env.AIDOCS_E2E_RENDER_ORIGIN ?? "http://127.0.0.1:8080";
+  process.env.SLASHDOCS_E2E_RENDER_ORIGIN ?? "http://127.0.0.1:8080";
 export const AUTH_STATE_PATH = fileURLToPath(
   new URL("./.auth/user.json", import.meta.url),
 );
 
-const DEX_ORIGIN = process.env.AIDOCS_E2E_DEX_ORIGIN ?? "http://localhost:5556";
+const DEX_ORIGIN = process.env.SLASHDOCS_E2E_DEX_ORIGIN ?? "http://localhost:5556";
 const ONBOARDING_STATE = {
   status: "skipped",
   steps: {
@@ -31,9 +31,9 @@ export async function installAppStorage(page: Page) {
   await page.addInitScript(
     ({ appOrigin, onboarding }) => {
       if (window.location.origin !== appOrigin) return;
-      window.localStorage.setItem("aidocs.onboarding", JSON.stringify(onboarding));
-      window.localStorage.removeItem("aidocs.frontend_signed_out");
-      window.localStorage.setItem("aidocs:view-mode", JSON.stringify("list"));
+      window.localStorage.setItem("slashdocs.onboarding", JSON.stringify(onboarding));
+      window.localStorage.removeItem("slashdocs.frontend_signed_out");
+      window.localStorage.setItem("slashdocs:view-mode", JSON.stringify("list"));
     },
     { appOrigin: APP_ORIGIN, onboarding: ONBOARDING_STATE },
   );
@@ -42,7 +42,9 @@ export async function installAppStorage(page: Page) {
 export async function loginThroughDex(page: Page) {
   await installAppStorage(page);
   await page.goto("/login?next=%2Fapp%2Fdocuments");
-  await expect(page.getByRole("heading", { name: "Sign in to aidocs" })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "Sign in to slashdocs" }),
+  ).toBeVisible();
 
   await page.getByRole("link", { name: "Continue with Dex" }).click();
   await expect.poll(() => new URL(page.url()).origin).toBe(new URL(DEX_ORIGIN).origin);
@@ -89,7 +91,7 @@ async function expectCleanupResponse(response: APIResponse, operation: string) {
   );
 }
 
-export class AidocsAPI {
+export class SlashdocsAPI {
   private readonly documentIDs = new Set<string>();
   private readonly folderIDs = new Set<string>();
 
@@ -197,11 +199,11 @@ export class AidocsAPI {
   }
 }
 
-export const test = base.extend<{ aidocs: AidocsAPI }>({
-  aidocs: async ({ page }, use) => {
-    const aidocs = new AidocsAPI(page.request);
-    await use(aidocs);
-    await aidocs.cleanup();
+export const test = base.extend<{ slashdocs: SlashdocsAPI }>({
+  slashdocs: async ({ page }, use) => {
+    const slashdocs = new SlashdocsAPI(page.request);
+    await use(slashdocs);
+    await slashdocs.cleanup();
   },
 });
 

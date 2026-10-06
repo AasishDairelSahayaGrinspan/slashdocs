@@ -85,7 +85,7 @@ function Nav() {
         <nav className="flex items-center gap-2">
           <Tooltip label="GitHub">
             <a
-              href="https://github.com/razorpay/aidocs"
+              href="https://github.com/razorpay/slashdocs"
               target="_blank"
               rel="noreferrer"
               aria-label="GitHub"
@@ -166,7 +166,7 @@ function Hero() {
             variants={fadeUp}
             className="mx-auto mt-6 max-w-2xl text-pretty text-base text-[var(--color-fg-muted)] md:text-lg"
           >
-            aidocs is a Google-Docs-style review layer for self-contained HTML
+            slashdocs is a Google-Docs-style review layer for self-contained HTML
             artifacts. Agents push reports, specs, and RCAs through a CLI. Humans review
             them in the browser with anchored comments and immutable versions.
           </motion.p>
@@ -190,13 +190,13 @@ function Hero() {
 }
 
 function Install() {
-  // Origin comes from the server-injected AIDOCS_APP_ORIGIN (same pattern as
+  // Origin comes from the server-injected SLASHDOCS_APP_ORIGIN (same pattern as
   // the setup guide and developers page), so the snippet matches this
   // instance instead of a hard-coded host.
   const installSnippet = `curl -fsSL ${publicURL()}/install.sh | bash
 
-aidocs auth login ${publicURL()}
-aidocs docs create report.html`;
+slashdocs auth login ${publicURL()}
+slashdocs docs create report.html`;
   return (
     <motion.section
       id="install"
@@ -225,7 +225,7 @@ aidocs docs create report.html`;
         <p className="mt-4 text-center text-sm text-[var(--color-fg-muted)]">
           Other install methods are documented in the{" "}
           <a
-            href="https://github.com/razorpay/aidocs"
+            href="https://github.com/razorpay/slashdocs"
             className="text-[var(--color-fg)] underline-offset-2 hover:underline"
             target="_blank"
             rel="noreferrer"
@@ -307,7 +307,7 @@ function Footer() {
             API docs
           </a>
           <a
-            href="https://github.com/razorpay/aidocs"
+            href="https://github.com/razorpay/slashdocs"
             target="_blank"
             rel="noreferrer"
             className="hover:text-[var(--color-fg)]"

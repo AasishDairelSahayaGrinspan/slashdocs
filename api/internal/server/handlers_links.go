@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/net/html"
 
-	"github.com/razorpay/aidocs/api/internal/notifications"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/notifications"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 type headingResponse struct {

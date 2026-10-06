@@ -1,4 +1,4 @@
-# aidocs Helm values
+# slashdocs Helm values
 
 replicaCount: 1
 
@@ -10,7 +10,7 @@ autoscaling:
   targetMemoryUtilizationPercentage: 70
 
 image:
-  repository: razorpay/aidocs
+  repository: razorpay/slashdocs
   tag: ""
   pullPolicy: IfNotPresent
 
@@ -97,14 +97,17 @@ updateStrategy:
 # a separate host keeps that content outside the authenticated app origin's
 # cookie and same-origin boundary.
 origins:
-  app: https://aidocs.example.com
-  render: https://render.aidocs.example.com
+  app: https://slashdocs.example.com
+  render: https://render.slashdocs.example.com
+  # Comma-separated app origins that this deployment used before. The server
+  # redirects them to `app`. Route these hosts to the Service too.
+  previous: ""
 
 # Sign-in. Configure exactly one of `googleOAuth` and `oidc` (setting
 # oidc.issuerURL switches the chart to the generic OIDC variables).
 
 # Google OAuth web client. Configure the callback URL in Google Cloud as:
-#   https://aidocs.example.com/v1/auth/google/callback
+#   https://slashdocs.example.com/v1/auth/google/callback
 googleOAuth:
   clientID: ""
   clientSecret: ""
@@ -112,15 +115,15 @@ googleOAuth:
   clientIDKey: GOOGLE_OAUTH_CLIENT_ID
   clientSecretKey: GOOGLE_OAUTH_CLIENT_SECRET
 
-# Optional GitHub OAuth App used by window.aidocs.github in rendered documents.
-# Register https://aidocs.example.com/v1/integrations/github/callback.
+# Optional GitHub OAuth App used by window.slashdocs.github in rendered documents.
+# Register https://slashdocs.example.com/v1/integrations/github/callback.
 githubOAuth:
   enabled: false
   clientID: ""
   clientSecret: ""
   existingSecret: ""
-  clientIDKey: AIDOCS_GITHUB_CLIENT_ID
-  clientSecretKey: AIDOCS_GITHUB_CLIENT_SECRET
+  clientIDKey: SLASHDOCS_GITHUB_CLIENT_ID
+  clientSecretKey: SLASHDOCS_GITHUB_CLIENT_SECRET
 
 # Optional Google Workspace group sharing. Requires deployment.mode=org and
 # a Secret containing delegated service-account credentials.
@@ -135,7 +138,7 @@ googleGroups:
 
 # Generic OpenID Connect provider (Okta, Entra ID, Keycloak, Dex, ...).
 # Register the redirect URI with the provider as:
-#   https://aidocs.example.com/v1/auth/oidc/callback
+#   https://slashdocs.example.com/v1/auth/oidc/callback
 oidc:
   issuerURL: ""
   # Display label for the login button ("Continue with <name>"); the server
@@ -147,8 +150,8 @@ oidc:
   clientID: ""
   clientSecret: ""
   existingSecret: ""
-  clientIDKey: AIDOCS_OIDC_CLIENT_ID
-  clientSecretKey: AIDOCS_OIDC_CLIENT_SECRET
+  clientIDKey: SLASHDOCS_OIDC_CLIENT_ID
+  clientSecretKey: SLASHDOCS_OIDC_CLIENT_SECRET
 
 # Session secret must be at least 32 bytes.
 session:
@@ -192,18 +195,18 @@ allowedOAuthDomains: ""
 # Realtime document KV event delivery (see docs/self-hosting.md, "Optional"
 # env vars). Both values render env vars only when set.
 kvEvents:
-  # AIDOCS_KV_EVENTS_MODE: "auto", "notify", or "poll". Empty uses the server
+  # SLASHDOCS_KV_EVENTS_MODE: "auto", "notify", or "poll". Empty uses the server
   # default (auto). Use "poll" when the only database route is a
   # transaction-pooling endpoint (e.g. PgBouncer transaction mode).
   mode: ""
-  # AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL: direct or session-pooled URL to
+  # SLASHDOCS_KV_EVENTS_LISTENER_DATABASE_URL: direct or session-pooled URL to
   # the same database for the dedicated LISTEN connection. Never a
   # transaction-pooling endpoint. Contains credentials, so it is stored in the
   # chart-managed Secret; or reference a pre-created Secret instead via
   # existingSecret + listenerDatabaseURLKey.
   listenerDatabaseURL: ""
   existingSecret: ""
-  listenerDatabaseURLKey: AIDOCS_KV_EVENTS_LISTENER_DATABASE_URL
+  listenerDatabaseURLKey: SLASHDOCS_KV_EVENTS_LISTENER_DATABASE_URL
 
 # Optional runtime revision surfaced at /commit.txt.
 commitSha: ""
@@ -214,7 +217,7 @@ extraEnv: []
 
 extraEnvFrom: []
 # - secretRef:
-#     name: aidocs-extra
+#     name: slashdocs-extra
 
 resources:
   requests:
@@ -243,14 +246,14 @@ ingress:
   className: ""
   annotations: {}
   hosts:
-    - host: aidocs.example.com
+    - host: slashdocs.example.com
       paths:
         - path: /
           pathType: Prefix
   tls: []
-  # - secretName: aidocs-tls
+  # - secretName: slashdocs-tls
   #   hosts:
-  #     - aidocs.example.com
+  #     - slashdocs.example.com
 
 # Traefik IngressRoute (used by clusters that run Traefik CRDs instead of
 # native Ingress). Routes the app host (and optionally a separate render host)

@@ -23,9 +23,9 @@ func TestGoogleGroupGrantFlagsPayloadAndOutput(t *testing.T) {
 		})
 	}))
 	defer server.Close()
-	t.Setenv("AIDOCS_SERVER", server.URL)
-	t.Setenv("AIDOCS_TOKEN", "token")
-	t.Setenv("AIDOCS_DISABLE_AUTO_UPDATE", "1")
+	t.Setenv("SLASHDOCS_SERVER", server.URL)
+	t.Setenv("SLASHDOCS_TOKEN", "token")
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "1")
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 
 	out, err := Execute([]string{"docs", "grants", "add", "doc_1", "--group", "platform@example.com", "--role", "owner"})

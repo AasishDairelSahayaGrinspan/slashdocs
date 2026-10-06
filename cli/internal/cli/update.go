@@ -33,7 +33,7 @@ type serverAsset struct {
 func maybeNudgeUpdate(g *globals, c *Client) { maybeAutoUpdate(g, c) }
 
 func maybeAutoUpdate(g *globals, c *Client) {
-	if Version == "" || os.Getenv("AIDOCS_DISABLE_AUTO_UPDATE") != "" {
+	if Version == "" || env("SLASHDOCS_DISABLE_AUTO_UPDATE") != "" {
 		return
 	}
 	// This check is best-effort housekeeping after a command: use the
@@ -43,20 +43,20 @@ func maybeAutoUpdate(g *globals, c *Client) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	if g.verbose {
-		fmt.Fprintf(os.Stderr, "checking for aidocs update at %s/version.json\n", c.Base)
+		fmt.Fprintf(os.Stderr, "checking for slashdocs update at %s/version.json\n", c.Base)
 	}
 	v, binaryChanged, skillRefreshed, err := updateCLI(ctx, c, false)
 	if g.verbose && err == nil && !binaryChanged && !skillRefreshed {
-		fmt.Fprintf(os.Stderr, "aidocs is up to date or no release is available (local=%s, server=%s).\n", Version, v.Version)
+		fmt.Fprintf(os.Stderr, "slashdocs is up to date or no release is available (local=%s, server=%s).\n", Version, v.Version)
 	}
 	if err != nil {
 		printManualUpdate(c, v, err, g.verbose)
 		return
 	}
 	if binaryChanged {
-		fmt.Fprintf(os.Stderr, "aidocs updated to %s; the next command will use the new CLI.\n", v.Version)
+		fmt.Fprintf(os.Stderr, "slashdocs updated to %s; the next command will use the new CLI.\n", v.Version)
 	} else if skillRefreshed && g.verbose {
-		fmt.Fprintln(os.Stderr, "aidocs skill refreshed.")
+		fmt.Fprintln(os.Stderr, "slashdocs skill refreshed.")
 	}
 }
 
@@ -84,7 +84,7 @@ func updateCLI(ctx context.Context, c *Client, force bool) (serverVersion, bool,
 
 func printManualUpdate(c *Client, v serverVersion, err error, verbose bool) {
 	if verbose {
-		fmt.Fprintf(os.Stderr, "aidocs auto-update failed: %v\n", err)
+		fmt.Fprintf(os.Stderr, "slashdocs auto-update failed: %v\n", err)
 	}
 	install := strings.TrimSpace(v.Install)
 	if install == "" {
@@ -94,7 +94,7 @@ func printManualUpdate(c *Client, v serverVersion, err error, verbose bool) {
 		install = c.Base + install
 	}
 	if v.Version != "" {
-		fmt.Fprintf(os.Stderr, "aidocs %s is available, but auto-update failed. Update with: aidocs update\n", v.Version)
+		fmt.Fprintf(os.Stderr, "slashdocs %s is available, but auto-update failed. Update with: slashdocs update\n", v.Version)
 		fmt.Fprintf(os.Stderr, "Or reinstall with: curl -fsSL %s | bash\n", install)
 	}
 }
@@ -136,7 +136,7 @@ func installBundledSkill(ctx context.Context, c *Client) (bool, error) {
 }
 
 func installBundledSkillFromServer(ctx context.Context, c *Client) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/skills/aidocs/SKILL.md", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/skills/slashdocs/SKILL.md", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -190,10 +190,15 @@ func bundledSkillDirs() []string {
 	if err != nil || strings.TrimSpace(home) == "" {
 		return nil
 	}
-	return []string{
-		filepath.Join(home, ".agents", "skills", "aidocs"),
-		filepath.Join(home, ".claude", "skills", "aidocs"),
+	roots := skillRoots(home)
+	for i, root := range roots {
+		roots[i] = filepath.Join(root, cliName)
 	}
+	return roots
+}
+
+func skillRoots(home string) []string {
+	return []string{filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".claude", "skills")}
 }
 
 func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
@@ -224,7 +229,7 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 		return fmt.Errorf("download returned HTTP %d", res.StatusCode)
 	}
 	dir := filepath.Dir(exe)
-	tmp, err := os.CreateTemp(dir, ".aidocs-update-*")
+	tmp, err := os.CreateTemp(dir, ".slashdocs-update-*")
 	if err != nil {
 		return err
 	}

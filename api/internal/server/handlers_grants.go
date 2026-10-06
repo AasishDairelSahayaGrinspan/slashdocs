@@ -9,10 +9,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/bots"
-	"github.com/razorpay/aidocs/api/internal/googlegroups"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/bots"
+	"github.com/razorpay/slashdocs/api/internal/googlegroups"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // resolveGrantPrincipal turns a grant request's address or inline principal
@@ -39,7 +39,7 @@ func respondGrantPrincipalError(c *gin.Context, err error, principalType auth.Pr
 	case errors.Is(err, errPrincipalIDRequired):
 		badRequest(c, "principal id, user email, or service account name is required")
 	case errors.Is(err, errUnknownUserEmail):
-		badRequest(c, "No aidocs user exists for that email. Ask them to sign in once, then try again.")
+		badRequest(c, "No slashdocs user exists for that email. Ask them to sign in once, then try again.")
 	case errors.Is(err, errGoogleGroupsDisabled):
 		badRequest(c, "Google Group sharing is disabled")
 	case errors.Is(err, errGoogleGroupEmailRequired), googlegroups.IsNotFound(err):

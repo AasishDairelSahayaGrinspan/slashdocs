@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
-	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
-	"github.com/razorpay/aidocs/api/internal/testdb"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
+	pgrepo "github.com/razorpay/slashdocs/api/internal/repo/postgres"
+	"github.com/razorpay/slashdocs/api/internal/testdb"
 )
 
 type testSource struct {

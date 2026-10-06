@@ -10,8 +10,8 @@ import (
 
 	"github.com/pressly/goose/v3"
 
-	aidb "github.com/razorpay/aidocs/api/internal/db"
-	"github.com/razorpay/aidocs/api/internal/testdb"
+	aidb "github.com/razorpay/slashdocs/api/internal/db"
+	"github.com/razorpay/slashdocs/api/internal/testdb"
 )
 
 func TestCommentMentionMigrationsSplitTriggerFromLegacyCleanup(t *testing.T) {

@@ -1,19 +1,23 @@
 ---
-name: aidocs
-description: Use whenever the user mentions aidocs, an aidocs URL, an aidocs document/folder/comment/share/version, or asks to publish, review, open, or update a long-form artifact in aidocs.
+name: slashdocs
+description: Use whenever the user mentions slashdocs (formerly aidocs), a slashdocs or aidocs URL, a slashdocs document/folder/comment/share/version, or asks to publish, review, open, or update a long-form artifact in slashdocs.
 ---
 
-# aidocs
+# slashdocs
 
-Use this skill for **any aidocs-related task**. If the user mentions aidocs or
-points at an aidocs asset, use the `aidocs` CLI to inspect or act on it. If given an aidocs document URL, don't try to curl or web fetch it. Use the aidocs cli.
+slashdocs was formerly named aidocs. Treat an aidocs URL, document, or command
+as a slashdocs one: old aidocs links still work, and the `aidocs` CLI is now
+`slashdocs`.
+
+Use this skill for **any slashdocs-related task**. If the user mentions slashdocs or
+points at a slashdocs asset, use the `slashdocs` CLI to inspect or act on it. If given a slashdocs document URL, don't try to curl or web fetch it. Use the slashdocs cli.
 
 ## First rule: read the guidelines before authoring
 
-Before writing or publishing an aidocs document in a session, run:
+Before writing or publishing a slashdocs document in a session, run:
 
 ```bash
-aidocs guidelines
+slashdocs guidelines
 ```
 
 Treat that command as the source of truth for authoring constraints (single-file
@@ -22,12 +26,12 @@ output and follow it.
 
 ## Common workflows
 
-### Existing aidocs asset
+### Existing slashdocs asset
 
-When the user asks about an existing aidocs document, folder, comment, share,
+When the user asks about an existing slashdocs document, folder, comment, share,
 version, or URL:
 
-1. Use `aidocs --help` and the relevant subcommand help to discover exact syntax.
+1. Use `slashdocs --help` and the relevant subcommand help to discover exact syntax.
 2. Use the CLI to inspect the asset (`docs show`, `docs versions`, `docs pull`,
    `docs comments`, `folders`, `open`, etc. as appropriate).
 3. Perform the requested action through the CLI.
@@ -39,17 +43,17 @@ When the user wants a report, RCA, postmortem, spec, review, analysis, launch
 plan, findings doc, or other long-form artifact and has not specified another
 format:
 
-1. Run `aidocs guidelines` if you have not already done so in this session.
+1. Run `slashdocs guidelines` if you have not already done so in this session.
 2. Write the artifact as a single HTML file that follows those guidelines.
 3. Save it locally (for example `report.html`).
-4. Use `aidocs docs --help` and `aidocs docs create --help` to confirm current
+4. Use `slashdocs docs --help` and `slashdocs docs create --help` to confirm current
    syntax.
 5. Publish with the CLI.
-6. Return the printed aidocs document URL.
+6. Return the printed slashdocs document URL.
 
 ### Updating an existing document
 
-If the user is iterating on an existing aidocs document, push a new version
+If the user is iterating on an existing slashdocs document, push a new version
 instead of creating a duplicate. Use the CLI help to find the current push/update
 syntax and include a short summary of what changed. Write one change per line;
 the version history shows a multi-line summary as a list.
@@ -59,8 +63,8 @@ the version history shows a multi-line summary as a list.
 Use the same Slack-style search language as the web application:
 
 ```bash
-aidocs docs list 'incident from:alice@example.com label:api,review in:"Product Specs"'
-aidocs docs list 'rollout -draft from:me after:last week' --json
+slashdocs docs list 'incident from:alice@example.com label:api,review in:"Product Specs"'
+slashdocs docs list 'rollout -draft from:me after:last week' --json
 ```
 
 Every word must appear in the title or the text of the latest version, and
@@ -76,36 +80,36 @@ before the @, or `me`), `in:` (a folder or any folder above the document),
 Manage labels directly from the CLI:
 
 ```bash
-aidocs docs labels list doc_123
-aidocs docs labels set doc_123 api review-ready
-aidocs docs labels clear doc_123
+slashdocs docs labels list doc_123
+slashdocs docs labels set doc_123 api review-ready
+slashdocs docs labels clear doc_123
 ```
 
 ## MCP server (optional)
 
-The aidocs application server exposes MCP directly over Streamable HTTP at:
+The slashdocs application server exposes MCP directly over Streamable HTTP at:
 
 ```bash
-https://<your-aidocs-host>/mcp
+https://<your-slashdocs-host>/mcp
 ```
 
-Connect the URL from the MCP client; no aidocs CLI installation or local MCP
+Connect the URL from the MCP client; no slashdocs CLI installation or local MCP
 process is required. Interactive clients authenticate through the server's
 browser flow. Headless clients can use a service-account bearer key created in
-the aidocs web application. If the remote aidocs MCP tools are already available
+the slashdocs web application. If the remote slashdocs MCP tools are already available
 in your session, prefer them; otherwise use the CLI commands described above.
 
 ## Authentication and setup
 
-Assume the user installed aidocs and the bundled skill via the server's
+Assume the user installed slashdocs and the bundled skill via the server's
 `curl ... | bash` installer. If the CLI reports that auth is missing or expired,
-run `aidocs auth login` (include the server URL if the current context requires
+run `slashdocs auth login` (include the server URL if the current context requires
 it), then retry the requested CLI action. If login cannot be completed in the
 environment, explain that clearly and ask the user to authenticate.
 
 ## When not to publish
 
-Do not publish to aidocs if the user explicitly asks for Markdown, plain text, a
-PDF, inline chat only, or another destination. If they mention aidocs while asking
+Do not publish to slashdocs if the user explicitly asks for Markdown, plain text, a
+PDF, inline chat only, or another destination. If they mention slashdocs while asking
 for one of those formats, still use the CLI when relevant to inspect or reference
-the aidocs asset, but respect the requested output format.
+the slashdocs asset, but respect the requested output format.

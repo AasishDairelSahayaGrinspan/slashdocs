@@ -9,9 +9,9 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/razorpay/aidocs/api/internal/kvevents"
-	"github.com/razorpay/aidocs/api/internal/repo"
-	"github.com/razorpay/aidocs/api/internal/server"
+	"github.com/razorpay/slashdocs/api/internal/kvevents"
+	"github.com/razorpay/slashdocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/server"
 )
 
 func TestServeShutsDownSiblingWhenListenerFails(t *testing.T) {
@@ -55,14 +55,14 @@ func TestLoadDeploymentSettingsDefaultDocPermission(t *testing.T) {
 		{name: "viewer on org", deployment: "org", orgDomains: "example.com", value: "viewer", want: repo.RoleViewer},
 		{name: "editor on org warns but loads", deployment: "org", orgDomains: "example.com", value: "editor", want: repo.RoleEditor},
 		{name: "private allowed on public", deployment: "public", value: "private", want: repo.RoleNone},
-		{name: "non-private requires org", deployment: "public", value: "viewer", wantErr: "requires AIDOCS_DEPLOYMENT=org"},
-		{name: "invalid value", deployment: "org", orgDomains: "example.com", value: "everyone", wantErr: "AIDOCS_DEFAULT_DOC_PERMISSION must be"},
+		{name: "non-private requires org", deployment: "public", value: "viewer", wantErr: "requires SLASHDOCS_DEPLOYMENT=org"},
+		{name: "invalid value", deployment: "org", orgDomains: "example.com", value: "everyone", wantErr: "SLASHDOCS_DEFAULT_DOC_PERMISSION must be"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("AIDOCS_DEPLOYMENT", tc.deployment)
-			t.Setenv("AIDOCS_ORG_DOMAINS", tc.orgDomains)
-			t.Setenv("AIDOCS_DEFAULT_DOC_PERMISSION", tc.value)
+			t.Setenv("SLASHDOCS_DEPLOYMENT", tc.deployment)
+			t.Setenv("SLASHDOCS_ORG_DOMAINS", tc.orgDomains)
+			t.Setenv("SLASHDOCS_DEFAULT_DOC_PERMISSION", tc.value)
 			settings, err := loadDeploymentSettings()
 			if tc.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tc.wantErr) {
@@ -81,16 +81,16 @@ func TestLoadDeploymentSettingsDefaultDocPermission(t *testing.T) {
 }
 
 func TestBoolEnv(t *testing.T) {
-	t.Setenv("AIDOCS_TEST_FEATURE_ENABLED", "")
-	if got, err := boolEnv("AIDOCS_TEST_FEATURE_ENABLED", false); err != nil || got {
+	t.Setenv("SLASHDOCS_TEST_FEATURE_ENABLED", "")
+	if got, err := boolEnv("SLASHDOCS_TEST_FEATURE_ENABLED", false); err != nil || got {
 		t.Fatalf("unset boolEnv = %v, %v; want false, nil", got, err)
 	}
-	t.Setenv("AIDOCS_TEST_FEATURE_ENABLED", "true")
-	if got, err := boolEnv("AIDOCS_TEST_FEATURE_ENABLED", false); err != nil || !got {
+	t.Setenv("SLASHDOCS_TEST_FEATURE_ENABLED", "true")
+	if got, err := boolEnv("SLASHDOCS_TEST_FEATURE_ENABLED", false); err != nil || !got {
 		t.Fatalf("true boolEnv = %v, %v; want true, nil", got, err)
 	}
-	t.Setenv("AIDOCS_TEST_FEATURE_ENABLED", "yes")
-	if _, err := boolEnv("AIDOCS_TEST_FEATURE_ENABLED", false); err == nil {
+	t.Setenv("SLASHDOCS_TEST_FEATURE_ENABLED", "yes")
+	if _, err := boolEnv("SLASHDOCS_TEST_FEATURE_ENABLED", false); err == nil {
 		t.Fatal("boolEnv accepted a non-boolean value")
 	}
 }
@@ -136,9 +136,9 @@ func TestValidateOrigin(t *testing.T) {
 }
 
 func TestUnsafeRenderOriginOverrideDoesNotAllowInvalidOrigins(t *testing.T) {
-	t.Setenv("AIDOCS_APP_ORIGIN", "http://127.1:8080")
-	t.Setenv("AIDOCS_RENDER_ORIGIN", "http://127.0.0.1:8080")
-	t.Setenv("AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN", "true")
+	t.Setenv("SLASHDOCS_APP_ORIGIN", "http://127.1:8080")
+	t.Setenv("SLASHDOCS_RENDER_ORIGIN", "http://127.0.0.1:8080")
+	t.Setenv("SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN", "true")
 	t.Setenv("SESSION_SECRET", "test-session-secret-at-least-32-bytes")
 
 	if _, err := loadOriginSettings(); err == nil {
@@ -147,9 +147,9 @@ func TestUnsafeRenderOriginOverrideDoesNotAllowInvalidOrigins(t *testing.T) {
 }
 
 func TestUnsafeRenderOriginOverrideAllowsValidSameHostname(t *testing.T) {
-	t.Setenv("AIDOCS_APP_ORIGIN", "http://localhost:8080")
-	t.Setenv("AIDOCS_RENDER_ORIGIN", "https://LOCALHOST:9090")
-	t.Setenv("AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN", "true")
+	t.Setenv("SLASHDOCS_APP_ORIGIN", "http://localhost:8080")
+	t.Setenv("SLASHDOCS_RENDER_ORIGIN", "https://LOCALHOST:9090")
+	t.Setenv("SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN", "true")
 	t.Setenv("SESSION_SECRET", "test-session-secret-at-least-32-bytes")
 
 	if _, err := loadOriginSettings(); err != nil {
@@ -158,9 +158,9 @@ func TestUnsafeRenderOriginOverrideAllowsValidSameHostname(t *testing.T) {
 }
 
 func TestOriginSettingsRejectSameHostnameAcrossSchemeAndPort(t *testing.T) {
-	t.Setenv("AIDOCS_APP_ORIGIN", "https://app.example")
-	t.Setenv("AIDOCS_RENDER_ORIGIN", "http://APP.EXAMPLE:8080")
-	t.Setenv("AIDOCS_ALLOW_UNSAFE_RENDER_ORIGIN", "")
+	t.Setenv("SLASHDOCS_APP_ORIGIN", "https://app.example")
+	t.Setenv("SLASHDOCS_RENDER_ORIGIN", "http://APP.EXAMPLE:8080")
+	t.Setenv("SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN", "")
 	t.Setenv("SESSION_SECRET", "test-session-secret-at-least-32-bytes")
 
 	if _, err := loadOriginSettings(); !errors.Is(err, server.ErrUnsafeRenderOrigin) {

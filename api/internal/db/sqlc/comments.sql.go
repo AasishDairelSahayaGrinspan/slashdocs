@@ -174,7 +174,7 @@ func (q *Queries) GetCommentForUpdate(ctx context.Context, id string) (GetCommen
 
 const getMentionServiceAccount = `-- name: GetMentionServiceAccount :one
 SELECT id, name
-FROM service_accounts -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+FROM service_accounts -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE id = $1
 FOR KEY SHARE
 `
@@ -184,7 +184,7 @@ type GetMentionServiceAccountRow struct {
 	Name string
 }
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) GetMentionServiceAccount(ctx context.Context, id string) (GetMentionServiceAccountRow, error) {
 	row := q.db.QueryRow(ctx, getMentionServiceAccount, id)
 	var i GetMentionServiceAccountRow
@@ -339,9 +339,9 @@ SELECT
 FROM comment_mentions cm
 LEFT JOIN users u
   ON cm.principal_type = 'user' AND cm.principal_id = u.id
-LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-  -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type, not a Google credential.
-  ON cm.principal_type = 'service_account' AND cm.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+LEFT JOIN service_accounts sa -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+  -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type, not a Google credential.
+  ON cm.principal_type = 'service_account' AND cm.principal_id = sa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE cm.comment_id = ANY($1::text[])
 ORDER BY cm.comment_id, cm.offset_utf16, cm.principal_type, cm.principal_id
 `
@@ -358,7 +358,7 @@ type ListCommentMentionsRow struct {
 	LabelText           string
 }
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) ListCommentMentions(ctx context.Context, commentIds []string) ([]ListCommentMentionsRow, error) {
 	rows, err := q.db.Query(ctx, listCommentMentions, commentIds)
 	if err != nil {

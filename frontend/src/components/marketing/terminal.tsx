@@ -69,7 +69,7 @@ export function Terminal({
         <span className="h-2.5 w-2.5 rounded-full bg-red-400/80" />
         <span className="h-2.5 w-2.5 rounded-full bg-yellow-400/80" />
         <span className="h-2.5 w-2.5 rounded-full bg-green-400/80" />
-        <span className="ml-2 text-[11px] text-zinc-500">~ aidocs</span>
+        <span className="ml-2 text-[11px] text-zinc-500">~ slashdocs</span>
       </div>
       <div className="p-4" style={{ height, overflow: "hidden" }} aria-live="polite">
         {lines.map((l, i) => {

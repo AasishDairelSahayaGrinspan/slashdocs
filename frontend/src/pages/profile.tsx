@@ -120,7 +120,7 @@ export function ProfilePage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-sm">Appearance</CardTitle>
-            <CardDescription>Choose how aidocs looks to you.</CardDescription>
+            <CardDescription>Choose how slashdocs looks to you.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-3 gap-2">

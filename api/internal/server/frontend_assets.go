@@ -39,7 +39,7 @@ func registerFrontendRoutes(r *gin.Engine, publicURL string) {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		c.Header("Content-Disposition", `attachment; filename="aidocs-sample.html"`)
+		c.Header("Content-Disposition", `attachment; filename="slashdocs-sample.html"`)
 		c.Data(http.StatusOK, "text/html; charset=utf-8", b)
 	})
 
@@ -59,7 +59,7 @@ func registerFrontendRoutes(r *gin.Engine, publicURL string) {
 			c.Status(http.StatusNotFound)
 			return
 		}
-		index = bytes.ReplaceAll(index, []byte("__AIDOCS_PUBLIC_URL_VALUE__"), []byte(publicURL))
+		index = bytes.ReplaceAll(index, []byte("__SLASHDOCS_PUBLIC_URL_VALUE__"), []byte(publicURL))
 		c.Data(http.StatusOK, "text/html; charset=utf-8", index)
 	})
 }

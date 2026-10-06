@@ -13,11 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/razorpay/aidocs/api/internal/server"
+	"github.com/razorpay/slashdocs/api/internal/server"
 )
 
 func TestLoadGoogleGroupsConfigDisabledByDefault(t *testing.T) {
-	t.Setenv("AIDOCS_GOOGLE_GROUPS_ENABLED", "")
+	t.Setenv("SLASHDOCS_GOOGLE_GROUPS_ENABLED", "")
 	cfg, err := loadGoogleGroupsConfig(context.Background(), server.DeploymentPublic)
 	if err != nil || cfg.enabled || cfg.directory != nil {
 		t.Fatalf("cfg=%+v err=%v", cfg, err)
@@ -25,11 +25,11 @@ func TestLoadGoogleGroupsConfigDisabledByDefault(t *testing.T) {
 }
 
 func TestLoadGoogleGroupsConfigRejectsMalformedOrIncompleteConfiguration(t *testing.T) {
-	t.Setenv("AIDOCS_GOOGLE_GROUPS_ENABLED", "yes")
+	t.Setenv("SLASHDOCS_GOOGLE_GROUPS_ENABLED", "yes")
 	if _, err := loadGoogleGroupsConfig(context.Background(), server.DeploymentOrg); err == nil {
 		t.Fatal("malformed enabled value accepted")
 	}
-	t.Setenv("AIDOCS_GOOGLE_GROUPS_ENABLED", "true")
+	t.Setenv("SLASHDOCS_GOOGLE_GROUPS_ENABLED", "true")
 	if _, err := loadGoogleGroupsConfig(context.Background(), server.DeploymentPublic); err == nil {
 		t.Fatal("public deployment accepted")
 	}
@@ -40,7 +40,7 @@ func TestLoadGoogleGroupsConfigRejectsMalformedOrIncompleteConfiguration(t *test
 
 func TestLoadGoogleGroupsConfigBuildsDelegatedDirectoryWithoutLiveCall(t *testing.T) {
 	credentials := serviceAccountCredentials(t)
-	t.Setenv("AIDOCS_GOOGLE_GROUPS_ENABLED", "true")
+	t.Setenv("SLASHDOCS_GOOGLE_GROUPS_ENABLED", "true")
 	t.Setenv("GOOGLE_GROUPS_CUSTOMER_ID", "C123")
 	t.Setenv("GOOGLE_GROUPS_ADMIN_EMAIL", "admin@example.com")
 	t.Setenv("GOOGLE_GROUPS_CREDENTIALS_FILE", credentials)

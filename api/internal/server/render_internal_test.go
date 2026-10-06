@@ -59,7 +59,7 @@ func requireBridgePattern(t *testing.T, pattern string) {
 }
 
 func TestRenderWrapperPreservesInlineScriptClosingTag(t *testing.T) {
-	userHTML := []byte(`<html><body><script>window.__aidocsRegression=42;</script></body></html>`)
+	userHTML := []byte(`<html><body><script>window.__slashdocsRegression=42;</script></body></html>`)
 	out := string(renderWrapperHTML(userHTML, "https://app.example"))
 
 	for _, needle := range []string{`<\/script`, `&lt;\/script`, `<\\/script`} {
@@ -76,9 +76,9 @@ func TestRenderWrapperPreservesInlineScriptClosingTag(t *testing.T) {
 func TestBridgeImplementsThemeContract(t *testing.T) {
 	bridge := requireEmbeddedBridge(t)
 	for _, needle := range []string{
-		"data-aidocs-theme",
-		"aidocs_theme",
-		"aidocs:theme",
+		"data-slashdocs-theme",
+		"slashdocs_theme",
+		"slashdocs:theme",
 	} {
 		if !strings.Contains(bridge, needle) {
 			t.Fatalf("bridge.js missing theme-handshake hook %q", needle)
@@ -101,18 +101,18 @@ func TestBridgePreservesPostMessageSecurityBoundary(t *testing.T) {
 func TestBridgePreservesWireMessageFamilies(t *testing.T) {
 	bridge := requireEmbeddedBridge(t)
 	for _, messageType := range []string{
-		"aidocs:activate",
-		"aidocs:github-connect",
-		"aidocs:keydown",
-		"aidocs:kv-event",
-		"aidocs:kv-request",
-		"aidocs:kv-response",
-		"aidocs:paint",
-		"aidocs:ready",
-		"aidocs:selection",
-		"aidocs:theme",
-		"aidocs:viewport",
-		"aidocs:zoom",
+		"slashdocs:activate",
+		"slashdocs:github-connect",
+		"slashdocs:keydown",
+		"slashdocs:kv-event",
+		"slashdocs:kv-request",
+		"slashdocs:kv-response",
+		"slashdocs:paint",
+		"slashdocs:ready",
+		"slashdocs:selection",
+		"slashdocs:theme",
+		"slashdocs:viewport",
+		"slashdocs:zoom",
 	} {
 		if !strings.Contains(bridge, messageType) {
 			t.Fatalf("embedded bridge is missing wire message %q", messageType)
@@ -121,8 +121,8 @@ func TestBridgePreservesWireMessageFamilies(t *testing.T) {
 }
 
 func TestBridgePreludeExposesGitHubConnectBeforeDocumentScriptsRun(t *testing.T) {
-	withPrelude := userHTMLWithBridgePrelude([]byte(`<html><head><script>window.aidocs.github.connect()</script></head><body></body></html>`))
-	for _, needle := range []string{"githubConnect", "__aidocsGitHubConnectQueued", "connect:githubConnect"} {
+	withPrelude := userHTMLWithBridgePrelude([]byte(`<html><head><script>window.slashdocs.github.connect()</script></head><body></body></html>`))
+	for _, needle := range []string{"githubConnect", "__slashdocsGitHubConnectQueued", "connect:githubConnect"} {
 		if !strings.Contains(withPrelude, needle) {
 			t.Fatalf("bridge prelude is missing GitHub connect hook %q: %s", needle, withPrelude)
 		}
@@ -156,11 +156,11 @@ func TestBridgeHandlesDocumentLinks(t *testing.T) {
 func TestBridgeDoesNotExposeManualEditContract(t *testing.T) {
 	bridge := requireEmbeddedBridge(t)
 	for _, needle := range []string{
-		"aidocs:edit-mode",
-		"aidocs:edit-dirty",
-		"aidocs:edit-request-html",
-		"aidocs:edit-html",
-		"aidocs-edit-mode",
+		"slashdocs:edit-mode",
+		"slashdocs:edit-dirty",
+		"slashdocs:edit-request-html",
+		"slashdocs:edit-html",
+		"slashdocs-edit-mode",
 	} {
 		if strings.Contains(bridge, needle) {
 			t.Fatalf("bridge.js still exposes manual edit hook %q", needle)
@@ -171,10 +171,10 @@ func TestBridgeDoesNotExposeManualEditContract(t *testing.T) {
 func TestBridgeImplementsDocumentKVContract(t *testing.T) {
 	bridge := requireEmbeddedBridge(t)
 	for _, needle := range []string{
-		"w.aidocs",
-		"aidocs:kv-request",
-		"aidocs:kv-response",
-		"aidocs:kv-event",
+		"w.slashdocs",
+		"slashdocs:kv-request",
+		"slashdocs:kv-response",
+		"slashdocs:kv-event",
 		"kvchange",
 	} {
 		if !strings.Contains(bridge, needle) {
@@ -280,9 +280,9 @@ func TestValidateEmbeddedBridgeSource(t *testing.T) {
 func TestRenderWrapperInstallsKVBootstrap(t *testing.T) {
 	out := string(renderWrapperHTML([]byte(`<html><body>hello</body></html>`), "https://app.example"))
 	for _, needle := range []string{
-		"aidocs-bootstrap",
-		"__aidocsKVQueue",
-		"window.aidocs",
+		"slashdocs-bootstrap",
+		"__slashdocsKVQueue",
+		"window.slashdocs=window.aidocs=", // Documents written before the rename use window.aidocs.
 		`undo:function(){return enqueue(&#34;undo&#34;,arguments);}`,
 		`redo:function(){return enqueue(&#34;redo&#34;,arguments);}`,
 	} {
@@ -298,7 +298,7 @@ func TestBridgePreludePreservesDocumentDoctype(t *testing.T) {
 	if !strings.HasPrefix(strings.ToLower(withPrelude), "<!doctype html>") {
 		t.Fatalf("bridge prelude moved the user doctype out of first position: %s", withPrelude)
 	}
-	preludeAt := strings.Index(withPrelude, "aidocs-bootstrap")
+	preludeAt := strings.Index(withPrelude, "slashdocs-bootstrap")
 	titleAt := strings.Index(withPrelude, "<title>")
 	if preludeAt < 0 || titleAt < 0 || preludeAt > titleAt {
 		t.Fatalf("bridge prelude should be installed before user head scripts/content: %s", withPrelude)

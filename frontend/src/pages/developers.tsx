@@ -22,7 +22,7 @@ export function DevelopersPage() {
           Developers
         </h1>
         <p className="mt-1 text-pretty text-sm text-[var(--color-fg-muted)]">
-          Connect an agent over MCP, use aidocs from a terminal, or build directly
+          Connect an agent over MCP, use slashdocs from a terminal, or build directly
           against the API.
         </p>
       </div>
@@ -34,15 +34,15 @@ export function DevelopersPage() {
               <Cable className="h-4 w-4" /> Connect an MCP client
             </CardTitle>
             <CardDescription>
-              Connect directly to this aidocs server. There is no CLI, local bridge, or
-              separate MCP process to install.
+              Connect directly to this slashdocs server. There is no CLI, local bridge,
+              or separate MCP process to install.
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             <CodeBlock>{`${url}/mcp`}</CodeBlock>
             <p className="text-pretty text-xs text-[var(--color-fg-muted)]">
               Paste this URL into a remote MCP client. Interactive clients open the
-              normal aidocs sign-in flow automatically; unattended agents can use a
+              normal slashdocs sign-in flow automatically; unattended agents can use a
               service-account token.
             </p>
           </CardContent>
@@ -54,7 +54,7 @@ export function DevelopersPage() {
               <Rocket className="h-4 w-4" /> Set up the CLI
             </CardTitle>
             <CardDescription>
-              Prefer working from a terminal or letting a local agent run aidocs
+              Prefer working from a terminal or letting a local agent run slashdocs
               commands? Install the CLI and bundled agent skill.
             </CardDescription>
           </CardHeader>
@@ -82,7 +82,7 @@ export function DevelopersPage() {
               <p className="mt-1 text-pretty text-xs text-[var(--color-fg-muted)]">
                 OpenID Connect through this server's configured identity provider.
                 Remote MCP clients open the sign-in flow automatically; the CLI uses it
-                when you run <code className="font-mono">aidocs auth login</code>.
+                when you run <code className="font-mono">slashdocs auth login</code>.
               </p>
             </div>
             <div>

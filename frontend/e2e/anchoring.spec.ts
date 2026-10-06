@@ -4,7 +4,7 @@ import { expect, test, uniqueName } from "./fixtures";
 function renderedDocument(page: Page): FrameLocator {
   return page
     .frameLocator('iframe[title="Rendered document"]')
-    .frameLocator("iframe#aidocs-doc");
+    .frameLocator("iframe#slashdocs-doc");
 }
 
 function documentHTML(heading: string, body: string) {
@@ -58,10 +58,10 @@ async function postComment(
 
 test("highlights a selection spanning inline markup end to end", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Cross-element anchor");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(
       title,
@@ -84,7 +84,7 @@ test("highlights a selection spanning inline markup end to end", async ({
   expect(comment.anchor.end_offset).toBeGreaterThan(comment.anchor.start_offset);
   expect(comment.anchor.quote).toContain("stale connection");
 
-  const marks = doc.locator("mark.aidocs-mark");
+  const marks = doc.locator("mark.slashdocs-mark");
   await expect(marks.first()).toBeVisible();
   const paragraphText = (await paragraph.innerText()).replace(/\s+/g, " ").trim();
   await expect
@@ -96,13 +96,13 @@ test("highlights a selection spanning inline markup end to end", async ({
 
 test("copies a text link without opening a comment and reveals the selected occurrence", async ({
   page,
-  aidocs,
+  slashdocs,
   context,
 }) => {
   await context.grantPermissions(["clipboard-read", "clipboard-write"]);
   const title = uniqueName("Text link");
   const quote = "A linked passage with inline formatting & punctuation.";
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(
       title,
@@ -128,17 +128,17 @@ test("copies a text link without opening a comment and reveals the selected occu
   await page.goto(link);
   await expect(doc.locator("details")).toHaveAttribute("open", "");
   await expect(doc.locator("#linked")).toBeInViewport();
-  await expect(doc.locator(".aidocs-text-flash").first()).toBeVisible();
+  await expect(doc.locator(".slashdocs-text-flash").first()).toBeVisible();
   await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
-  await expect(doc.locator(".aidocs-text-flash")).toHaveCount(0, { timeout: 4000 });
+  await expect(doc.locator(".slashdocs-text-flash")).toHaveCount(0, { timeout: 4000 });
 });
 
 test("re-anchors a comment on content rendered by script after load", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Late content anchor");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(
       title,
@@ -160,7 +160,7 @@ test("re-anchors a comment on content rendered by script after load", async ({
   // After the reload the paragraph does not exist yet when comments paint;
   // the bridge must re-anchor on its own once the script inserts it.
   const mark = renderedDocument(page)
-    .locator("mark.aidocs-mark")
+    .locator("mark.slashdocs-mark")
     .filter({ hasText: "Late content appears after load." });
   await expect(mark.first()).toBeVisible({ timeout: 20_000 });
 
@@ -175,10 +175,10 @@ test("re-anchors a comment on content rendered by script after load", async ({
 
 test("flags a comment whose text vanished from the new version", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Orphaned anchor");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(
       title,
@@ -195,7 +195,7 @@ test("flags a comment whose text vanished from the new version", async ({
 
   // Replace the document with entirely unrelated prose so not even fuzzy
   // matching can rescue the original quote.
-  await aidocs.pushVersion(
+  await slashdocs.pushVersion(
     document.id,
     documentHTML(
       title,
@@ -215,12 +215,15 @@ test("flags a comment whose text vanished from the new version", async ({
   ).toBeVisible({
     timeout: 20_000,
   });
-  await expect(renderedDocument(page).locator("mark.aidocs-mark")).toHaveCount(0);
+  await expect(renderedDocument(page).locator("mark.slashdocs-mark")).toHaveCount(0);
 });
 
-test("text links wait for a custom panel to be revealed", async ({ page, aidocs }) => {
+test("text links wait for a custom panel to be revealed", async ({
+  page,
+  slashdocs,
+}) => {
   const title = uniqueName("Hidden text link");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(
       title,
@@ -232,16 +235,16 @@ test("text links wait for a custom panel to be revealed", async ({ page, aidocs 
   const doc = renderedDocument(page);
   await expect(page.getByText(/Linked text isn.t visible yet/)).toBeVisible();
   await doc.getByRole("button", { name: "Reveal", exact: true }).click();
-  await expect(doc.locator(".aidocs-text-flash").first()).toBeVisible();
+  await expect(doc.locator(".slashdocs-text-flash").first()).toBeVisible();
   await expect(page.getByPlaceholder("Add a comment…")).toBeHidden();
 });
 
 test("comments on a selection with C and lists every shortcut with ?", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Shortcuts");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(title, "<p>Keys beat clicks.</p>"),
   );
@@ -265,10 +268,10 @@ test("comments on a selection with C and lists every shortcut with ?", async ({
 
 test("holding j scrolls faster than tapping it and stops on release", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Glide");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(title, '<p>Top</p><div style="height:20000px"></div>'),
   );
@@ -292,10 +295,10 @@ test("holding j scrolls faster than tapping it and stops on release", async ({
 
 test("a comment started with the comments hidden hides them again when it posts", async ({
   page,
-  aidocs,
+  slashdocs,
 }) => {
   const title = uniqueName("Peek");
-  const document = await aidocs.createDocument(
+  const document = await slashdocs.createDocument(
     title,
     documentHTML(title, "<p>Comment on me while the rail is hidden.</p>"),
   );

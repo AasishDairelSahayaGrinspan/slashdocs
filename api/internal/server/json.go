@@ -3,8 +3,8 @@ package server
 import (
 	"strings"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // principalResponse renders a principal with its optional identity fields.

@@ -2,12 +2,12 @@
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:
-  name: {{ include "aidocs.fullname" . }}
+  name: {{ include "slashdocs.fullname" . }}
   labels:
-    {{- include "aidocs.labels" . | nindent 4 }}
+    {{- include "slashdocs.labels" . | nindent 4 }}
 spec:
   minAvailable: {{ .Values.podDisruptionBudget.minAvailable }}
   selector:
     matchLabels:
-      {{- include "aidocs.selectorLabels" . | nindent 6 }}
+      {{- include "slashdocs.selectorLabels" . | nindent 6 }}
 {{- end }}

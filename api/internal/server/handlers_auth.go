@@ -12,8 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 const webOAuthStateAudience = "oauth-state"
@@ -31,7 +31,7 @@ type cliExchangePrincipal struct {
 	Email string `json:"email"`
 }
 
-// discoveryResponse is the payload of GET /.well-known/aidocs.json.
+// discoveryResponse is the payload of GET /.well-known/slashdocs.json.
 type discoveryResponse struct {
 	Name       string        `json:"name"`
 	APIVersion string        `json:"api_version"`
@@ -264,7 +264,8 @@ func (h handlers) validWebOAuthStateBinding(c *gin.Context, st auth.LoginState, 
 // the exact, verified issuer identifier with the subject so equal subjects
 // from different issuers cannot collide. The versioned domain separator keeps
 // the namespace deterministic and bounded without treating issuer host aliases
-// as equivalent identifiers.
+// as equivalent identifiers. The separator keeps the pre-rename "aidocs" name:
+// changing it would give every existing OIDC user a new identity.
 func oidcIdentityKeys(issuer, subject string) (userID, externalSubject string) {
 	if issuer == auth.GoogleIssuer {
 		return googleUserIDPrefix + subject, subject
@@ -276,7 +277,7 @@ func oidcIdentityKeys(issuer, subject string) (userID, externalSubject string) {
 
 func webOAuthStateCookieName(state string, secure bool) string {
 	digest := sha256.Sum256([]byte(state))
-	prefix := "aidocs_oauth_state_"
+	prefix := "slashdocs_oauth_state_"
 	if secure {
 		// Browsers only accept __Host- cookies when they are Secure, host-only,
 		// and scoped to Path=/, preventing sibling subdomains from cookie tossing.
@@ -347,7 +348,7 @@ func (h handlers) cliExchange(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, errorResponse("unauthorized", "invalid cli code", nil))
 		return
 	}
-	token, hash, err := auth.NewBearerToken("aidocs_cli_")
+	token, hash, err := auth.NewBearerToken("slashdocs_cli_")
 	if err != nil {
 		internalErr(c, err)
 		return
@@ -419,9 +420,9 @@ func (h handlers) setSessionCookie(c *gin.Context, p auth.Principal) {
 // @Tags discovery
 // @Produce json
 // @Success 200 {object} discoveryResponse
-// @Router /.well-known/aidocs.json [get]
+// @Router /.well-known/slashdocs.json [get]
 func (h handlers) discovery(c *gin.Context) {
-	c.JSON(http.StatusOK, discoveryResponse{Name: "aidocs", APIVersion: "v1", Auth: discoveryAuth{Modes: []string{authModeWeb, authModeCLI, "mcp"}}})
+	c.JSON(http.StatusOK, discoveryResponse{Name: "slashdocs", APIVersion: "v1", Auth: discoveryAuth{Modes: []string{authModeWeb, authModeCLI, "mcp"}}})
 }
 
 // everyoneLabel is the human label for the "anyone" grant on this deployment.
@@ -438,7 +439,7 @@ func everyoneLabel(deployment, orgName string) string {
 }
 
 // defaultProviderName labels the login button; "SSO" is the neutral fallback
-// for deployments that predate AIDOCS_OIDC_PROVIDER_NAME.
+// for deployments that predate SLASHDOCS_OIDC_PROVIDER_NAME.
 func defaultProviderName(name string) string {
 	if name == "" {
 		return "SSO"
@@ -486,7 +487,7 @@ func defaultDocPermissionLabel(role repo.Role) string {
 func (h handlers) commitTXT(c *gin.Context) {
 	sha := releaseCommit()
 	if sha == "" {
-		sha = os.Getenv("AIDOCS_COMMIT_SHA")
+		sha = os.Getenv("SLASHDOCS_COMMIT_SHA")
 	}
 	if sha == "" {
 		sha = os.Getenv("COMMIT_SHA")

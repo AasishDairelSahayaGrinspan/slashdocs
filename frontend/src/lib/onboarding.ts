@@ -22,7 +22,7 @@ const initial: OnboardingState = {
 };
 
 const store = createPersistentStore<OnboardingState>(
-  "aidocs.onboarding",
+  "slashdocs.onboarding",
   initial,
   (parsed) => {
     const p = parsed as Partial<OnboardingState>;

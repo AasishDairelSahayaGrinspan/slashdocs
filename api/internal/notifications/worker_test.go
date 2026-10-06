@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
-	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
-	"github.com/razorpay/aidocs/api/internal/testdb"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
+	pgrepo "github.com/razorpay/slashdocs/api/internal/repo/postgres"
+	"github.com/razorpay/slashdocs/api/internal/testdb"
 )
 
 type recordingSender struct {
@@ -56,7 +56,7 @@ func TestOutboxDeliveryPreferencesAndAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &recordingSender{}
-	w := Worker{Store: store, Sender: sender, AppOrigin: "https://aidocs.example.com"}
+	w := Worker{Store: store, Sender: sender, AppOrigin: "https://slashdocs.example.com"}
 	create := func(body string, mentions []repo.CommentMention) repo.Comment {
 		t.Helper()
 		c, err := store.CreateComment(ctx, doc.ID, v.ID, body, repo.Anchor{Quote: "Review"}, author, mentions)
@@ -304,7 +304,7 @@ func TestDocumentAccessNotifications(t *testing.T) {
 		t.Fatal(err)
 	}
 	sender := &recordingSender{}
-	w := Worker{Store: store, Sender: sender, AppOrigin: "https://aidocs.example.com"}
+	w := Worker{Store: store, Sender: sender, AppOrigin: "https://slashdocs.example.com"}
 	count := func() int {
 		t.Helper()
 		var n int
@@ -438,7 +438,7 @@ func TestDocumentAccessRequestNotification(t *testing.T) {
 		t.Fatalf("queued=%d err=%v, want one owner notification", queued, err)
 	}
 	sender := &recordingSender{}
-	w := Worker{Store: store, Sender: sender, AppOrigin: "https://aidocs.example.com"}
+	w := Worker{Store: store, Sender: sender, AppOrigin: "https://slashdocs.example.com"}
 	if err := w.DeliverNextDocumentAccessRequest(ctx); err != nil {
 		t.Fatal(err)
 	}

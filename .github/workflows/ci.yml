@@ -1,4 +1,4 @@
-name: aidocs CI
+name: slashdocs CI
 
 on:
   pull_request:
@@ -11,7 +11,7 @@ permissions:
 
 jobs:
   test:
-    name: Test aidocs
+    name: Test slashdocs
     runs-on: ubuntu-latest
     # Go tests need PostgreSQL. A service container skips the per-package
     # testcontainers startup; locally, plain `go test ./...` starts a
@@ -59,7 +59,7 @@ jobs:
       - name: Test Go
         run: go test ./...
         env:
-          AIDOCS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          SLASHDOCS_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
 
   e2e:
     name: E2E compose and browser
@@ -93,17 +93,17 @@ jobs:
           context: .
           file: Dockerfile
           load: true
-          tags: aidocs-e2e:ci
+          tags: slashdocs-e2e:ci
           build-args: |
-            AIDOCS_VERSION=${{ github.sha }}
-            AIDOCS_COMMIT_SHA=${{ github.sha }}
+            SLASHDOCS_VERSION=${{ github.sha }}
+            SLASHDOCS_COMMIT_SHA=${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
       - name: Run compose smoke suite
         run: scripts/e2e.sh
         env:
-          AIDOCS_IMAGE: aidocs-e2e:ci
+          SLASHDOCS_IMAGE: slashdocs-e2e:ci
 
       - name: Install frontend dependencies
         run: npm ci --prefix frontend
@@ -144,13 +144,13 @@ jobs:
       - name: Checkout Codebase
         uses: actions/checkout@v4
 
-      - name: Build Docker Image For aidocs
+      - name: Build Docker Image For slashdocs
         uses: razorpay/actions/docker-image-build-push@master
         with:
           username: ${{ secrets.HARBOR_DOCKER_USERNAME }}
           password: ${{ secrets.HARBOR_DOCKER_PASSWORD }}
           registry: c.rzp.io
-          repository: aidocs
+          repository: slashdocs
           enable-login: true
           push: true
           context: .
@@ -160,6 +160,6 @@ jobs:
           # tag with the pushed head so image tags match `git log` SHAs.
           custom-tag: ${{ github.event.pull_request.head.sha || github.sha }}
           build-args: |
-            AIDOCS_VERSION=${{ github.event.pull_request.head.sha || github.sha }}
-            AIDOCS_COMMIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}
+            SLASHDOCS_VERSION=${{ github.event.pull_request.head.sha || github.sha }}
+            SLASHDOCS_COMMIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}
             BASE_IMAGE_PREFIX=c.rzp.io/proxy_dockerhub/

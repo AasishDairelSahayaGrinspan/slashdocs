@@ -117,7 +117,7 @@ func folderGrantsCmd(g *globals, out io.Writer) *cobra.Command {
 
 	var address, group, principal, role string
 	var everyone bool
-	add := &cobra.Command{Use: "add <folder_id>", Short: "Share a folder", Long: "Share a folder with a person, bot, verified Google Group, or everyone.\n\nExamples:\n  aidocs folders grants add fld_… --to user@org.example --role editor\n  aidocs folders grants add fld_… --group tech-infra@org.example --role viewer\n  aidocs folders grants add fld_… --everyone --role viewer", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+	add := &cobra.Command{Use: "add <folder_id>", Short: "Share a folder", Long: "Share a folder with a person, bot, verified Google Group, or everyone.\n\nExamples:\n  slashdocs folders grants add fld_… --to user@org.example --role editor\n  slashdocs folders grants add fld_… --group tech-infra@org.example --role viewer\n  slashdocs folders grants add fld_… --everyone --role viewer", Args: exactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		body := map[string]any{"role": role}
 		var target string
 		selected := 0
@@ -234,7 +234,7 @@ func renderFolderList(out io.Writer, b []byte) error {
 		}
 	}
 	if resp.HasMore {
-		if _, err := fmt.Fprintln(out, "Showing the first 50 folders. There are more. Use `aidocs folders search <name>` to find a folder."); err != nil {
+		if _, err := fmt.Fprintln(out, "Showing the first 50 folders. There are more. Use `slashdocs folders search <name>` to find a folder."); err != nil {
 			return err
 		}
 	}

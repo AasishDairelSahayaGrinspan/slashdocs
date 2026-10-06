@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	pgrepo "github.com/razorpay/aidocs/api/internal/repo/postgres"
-	"github.com/razorpay/aidocs/api/internal/server"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	pgrepo "github.com/razorpay/slashdocs/api/internal/repo/postgres"
+	"github.com/razorpay/slashdocs/api/internal/server"
 )
 
 const (
@@ -67,7 +67,7 @@ func newMCPOAuthTestEnvConfig(t *testing.T, mutate func(*server.Config)) *mcpOAu
 	).Handler()
 	session := (auth.SessionCodec{Secret: []byte(oauthTestSigningMaterial)}).Sign(fixtureUser.ID)
 	//nolint:gosec // G124: this test-only cookie is injected directly into httptest requests; no network transport is used.
-	cookie := (&http.Cookie{Name: "aidocs_session", Value: session}).String()
+	cookie := (&http.Cookie{Name: "slashdocs_session", Value: session}).String()
 	return &mcpOAuthTestEnv{
 		h:          h,
 		store:      store,
@@ -80,10 +80,10 @@ func newMCPOAuthTestEnvConfig(t *testing.T, mutate func(*server.Config)) *mcpOAu
 func TestMCPDiscoveryAndOAuthMetadata(t *testing.T) {
 	e := newMCPOAuthTestEnv(t)
 
-	discovery := do(t, e.h, http.MethodGet, "/.well-known/aidocs.json", "", nil)
+	discovery := do(t, e.h, http.MethodGet, "/.well-known/slashdocs.json", "", nil)
 	assertStatus(t, discovery, http.StatusOK)
 	assertJSON(t, discovery.Body.Bytes(), `{
-	  "name": "aidocs",
+	  "name": "slashdocs",
 	  "api_version": "v1",
 	  "auth": { "modes": ["web", "cli", "mcp"] }
 	}`)
@@ -129,15 +129,15 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 		"http://127.0.0.1:3210/callback",
 		"http://[::1]:3210/callback",
 		// Private-use app schemes (RFC 8252 §7.1) used by native MCP clients.
-		"cursor://anysphere.cursor-retrieval/oauth/user-aidocs/callback",
+		"cursor://anysphere.cursor-retrieval/oauth/user-slashdocs/callback",
 		"vscode://ms-vscode.remote-server/oauth/callback",
 		"claude://oauth/callback",
 	} {
 		t.Run("allows "+redirectURI, func(t *testing.T) {
 			rr := registerMCPClient(t, e, "Conformance client", []string{redirectURI})
 			assertStatus(t, rr, http.StatusCreated)
-			if got := jsonField(t, rr.Body.Bytes(), "client_id"); !strings.HasPrefix(got, "aidocs_mcp_client_") {
-				t.Fatalf("client_id = %q, want signed aidocs MCP client id", got)
+			if got := jsonField(t, rr.Body.Bytes(), "client_id"); !strings.HasPrefix(got, "slashdocs_mcp_client_") {
+				t.Fatalf("client_id = %q, want signed slashdocs MCP client id", got)
 			}
 			if got := rr.Header().Get("Cache-Control"); got != "no-store" {
 				t.Fatalf("Cache-Control = %q, want no-store", got)
@@ -198,7 +198,7 @@ func TestMCPDynamicClientRegistrationValidatesRedirectURIs(t *testing.T) {
 		body := `{"client_name":"mcp2cli","redirect_uris":["http://localhost:4100/callback"],"token_endpoint_auth_method":"none","grant_types":["authorization_code","refresh_token"],"response_types":["code"]}`
 		rr := do(t, e.h, http.MethodPost, "/oauth/register", body, map[string]string{"Content-Type": "application/json"})
 		assertStatus(t, rr, http.StatusCreated)
-		if got := jsonField(t, rr.Body.Bytes(), "client_id"); !strings.HasPrefix(got, "aidocs_mcp_client_") {
+		if got := jsonField(t, rr.Body.Bytes(), "client_id"); !strings.HasPrefix(got, "slashdocs_mcp_client_") {
 			t.Fatalf("client_id = %q, want signed client id", got)
 		}
 	})
@@ -313,7 +313,7 @@ func TestMCPAuthorizeRequiresBrowserSessionAndExplicitConsent(t *testing.T) {
 // (RFC 8252 §7.1); the whole flow must work end to end for them.
 func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
 	e := newMCPOAuthTestEnv(t)
-	redirectURI := "cursor://anysphere.cursor-retrieval/oauth/user-aidocs/callback"
+	redirectURI := "cursor://anysphere.cursor-retrieval/oauth/user-slashdocs/callback"
 	clientID := registeredMCPClientID(t, e, "Cursor", []string{redirectURI})
 
 	values := mcpAuthorizeValues(e, clientID, redirectURI, mcpTestVerifier, "cursor-state")
@@ -329,6 +329,16 @@ func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
 	if got := jsonField(t, exchanged.Body.Bytes(), "access_token"); !strings.HasPrefix(got, auth.MCPAccessTokenPrefix) {
 		t.Fatalf("access_token = %q, want %q prefix", got, auth.MCPAccessTokenPrefix)
 	}
+}
+
+func TestMCPOAuthFlowAcceptsPreRenameClientRegistration(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	signed := strings.TrimPrefix(registeredMCPClientID(t, e, "Claude", []string{mcpTestRedirectURI}), "slashdocs_mcp_client_")
+	clientID := "aidocs_mcp_client_" + signed
+
+	code := approveMCPAuthorization(t, e, clientID, mcpTestRedirectURI, mcpTestVerifier, "legacy-state")
+	exchanged := postMCPToken(t, e, mcpTokenValues(e, code, clientID, mcpTestRedirectURI, mcpTestVerifier))
+	assertStatus(t, exchanged, http.StatusOK)
 }
 
 // Native clients bind an ephemeral loopback port at request time, so a
@@ -471,7 +481,7 @@ func TestMCPAuthenticatorRequiresAudienceBoundBearerTokens(t *testing.T) {
 	})
 
 	t.Run("CLI credential is never MCP authentication", func(t *testing.T) {
-		cliToken, cliHash, err := auth.NewBearerToken("aidocs_cli_")
+		cliToken, cliHash, err := auth.NewBearerToken("slashdocs_cli_")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -513,6 +523,23 @@ func TestMCPAuthenticatorRequiresAudienceBoundBearerTokens(t *testing.T) {
 			t.Fatalf("revoke service-account key: %v", err)
 		}
 		assertMCPUnauthorized(t, authenticator, token, "")
+	})
+
+	t.Run("service-account keys issued before the rename still work", func(t *testing.T) {
+		sa, err := e.store.CreateServiceAccount(context.Background(), fixtureOwner, "legacy-mcp-bot")
+		if err != nil {
+			t.Fatalf("create service account: %v", err)
+		}
+		token, hash, err := auth.NewBearerToken("aidocs_sa_")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := e.store.CreateServiceAccountKey(context.Background(), sa.ID, "legacy", hash); err != nil {
+			t.Fatalf("create service-account key: %v", err)
+		}
+		if got := authenticateMCP(t, authenticator, token, ""); got.ID != sa.ID {
+			t.Fatalf("legacy service-account principal = %#v, want id %s", got, sa.ID)
+		}
 	})
 }
 

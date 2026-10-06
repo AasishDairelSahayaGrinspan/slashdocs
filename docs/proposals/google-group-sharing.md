@@ -1,10 +1,10 @@
-# Google Group sharing for aidocs
+# Google Group sharing for slashdocs
 
 Status: Proposed
 
 ## Summary
 
-Extend the existing aidocs ACL model with a `google_group` principal so that
+Extend the existing slashdocs ACL model with a `google_group` principal so that
 documents and folders can be shared with verified, organization-owned Google
 Groups.
 
@@ -79,7 +79,7 @@ Add a case-insensitive unique index on canonical email.
 
 | Column | Purpose |
 | --- | --- |
-| `user_id` | aidocs user receiving derived group access. |
+| `user_id` | slashdocs user receiving derived group access. |
 | `group_id` | Referenced immutable Google Group ID. |
 | `synced_at` | Time this membership was observed. |
 
@@ -90,7 +90,7 @@ user and group records.
 
 | Column | Purpose |
 | --- | --- |
-| `user_id` | aidocs user whose membership was refreshed. |
+| `user_id` | slashdocs user whose membership was refreshed. |
 | `last_attempt_at` | Most recent refresh attempt. |
 | `last_success_at` | Most recent complete, successful snapshot. |
 | `last_error_code` | Low-cardinality failure category for diagnostics. |
@@ -112,7 +112,7 @@ status. These fields must never appear in API responses or logs.
 
 After normal cookie or bearer authentication:
 
-1. Skip group resolution for aidocs service accounts.
+1. Skip group resolution for slashdocs service accounts.
 2. Read the user's shared membership snapshot from Postgres.
 3. Attach the cached group IDs when `last_success_at` is less than one minute
    old.
@@ -165,7 +165,7 @@ Owner-level grant invariants:
 - Only the canonical owner may demote or revoke an existing owner-level group
   grant.
 - Group-derived co-owners cannot alter owner-level grants.
-- Owner-level grants remain unsupported for individual users and aidocs
+- Owner-level grants remain unsupported for individual users and slashdocs
   service accounts.
 - The canonical owner continues to appear separately in effective-access and
   UI representations.
@@ -227,11 +227,11 @@ payloads remain compatible.
 Add mutually exclusive group syntax for documents and folders:
 
 ```bash
-aidocs docs grants add <doc_id> \
+slashdocs docs grants add <doc_id> \
   --group tech-infra-common-platforms@razorpay.com \
   --role commenter
 
-aidocs folders grants add <folder_id> \
+slashdocs folders grants add <folder_id> \
   --group tech-infra-common-platforms@razorpay.com \
   --role viewer
 ```
@@ -269,7 +269,7 @@ Add the following server settings:
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
-| `AIDOCS_GOOGLE_GROUPS_ENABLED` | `false` | Enables the capability. |
+| `SLASHDOCS_GOOGLE_GROUPS_ENABLED` | `false` | Enables the capability. |
 | `GOOGLE_GROUPS_CUSTOMER_ID` | none | Workspace customer ID beginning with `C`. |
 | `GOOGLE_GROUPS_ADMIN_EMAIL` | none | Delegated administrator subject. |
 | `GOOGLE_GROUPS_CREDENTIALS_FILE` | none | Mounted service-account JSON file. |
@@ -278,7 +278,7 @@ Add the following server settings:
 
 When enabled, startup must:
 
-- Require `AIDOCS_DEPLOYMENT=org`.
+- Require `SLASHDOCS_DEPLOYMENT=org`.
 - Validate all group settings.
 - Validate that the credential file is present and readable.
 - Fail startup for malformed or incomplete configuration.

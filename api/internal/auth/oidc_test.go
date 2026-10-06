@@ -17,7 +17,7 @@ import (
 	"github.com/go-jose/go-jose/v4"
 	"golang.org/x/oauth2"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/auth"
 )
 
 type countingRoundTripper struct {

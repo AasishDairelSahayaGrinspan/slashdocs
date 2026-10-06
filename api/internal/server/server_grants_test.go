@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/auth"
 )
 
 func TestGrantDocumentAccessToServiceAccount(t *testing.T) {
@@ -63,7 +63,7 @@ func TestGrantDocumentAccessRejectsUnknownUserEmail(t *testing.T) {
 	})
 
 	assertStatus(t, rr, http.StatusBadRequest)
-	if !strings.Contains(rr.Body.String(), "No aidocs user exists") {
+	if !strings.Contains(rr.Body.String(), "No slashdocs user exists") {
 		t.Fatalf("response = %s", rr.Body.String())
 	}
 }

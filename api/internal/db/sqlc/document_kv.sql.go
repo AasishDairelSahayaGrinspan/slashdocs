@@ -261,7 +261,7 @@ func (q *Queries) LockDocumentForKV(ctx context.Context, id string) (string, err
 }
 
 const notifyDocumentKVEvent = `-- name: NotifyDocumentKVEvent :exec
-SELECT pg_notify('aidocs_kv_events', $1::text)
+SELECT pg_notify('slashdocs_kv_events', $1::text)
 `
 
 func (q *Queries) NotifyDocumentKVEvent(ctx context.Context, documentID string) error {

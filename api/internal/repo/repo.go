@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/auth"
 )
 
 type Role string

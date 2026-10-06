@@ -8,8 +8,8 @@ import (
 	_ "time/tzdata" // Searchers send IANA time zones, and the image has no zoneinfo.
 	"unicode"
 
-	"github.com/razorpay/aidocs/api/internal/auth"
-	"github.com/razorpay/aidocs/api/internal/repo"
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 )
 
 // Document search follows Slack's search language. Every word must appear in

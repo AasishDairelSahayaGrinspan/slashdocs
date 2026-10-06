@@ -1,77 +1,77 @@
-# aidocs CLI
+# slashdocs CLI
 
-`aidocs` is the scriptable CLI for the aidocs HTML review service.
+`slashdocs` is the scriptable CLI for the slashdocs HTML review service.
 
 ## Install from source
 
 ```bash
-go build -o bin/aidocs ./cli
+go build -o bin/slashdocs ./cli
 ```
 
 ## Auth
 
 ```bash
-aidocs auth login aidocs.example.com       # log in to your aidocs server
-aidocs auth login                          # reuses the active context's server
-aidocs auth whoami
-aidocs auth logout                         # revokes server credential by default
-AIDOCS_NO_KEYCHAIN=1 aidocs auth login ... # force file-only token storage
+slashdocs auth login slashdocs.example.com       # log in to your slashdocs server
+slashdocs auth login                          # reuses the active context's server
+slashdocs auth whoami
+slashdocs auth logout                         # revokes server credential by default
+SLASHDOCS_NO_KEYCHAIN=1 slashdocs auth login ... # force file-only token storage
 ```
 
-There is no built-in default server. Installing via `curl https://<your-server>/install.sh | bash` preconfigures the CLI to use that server; otherwise pass the server URL to `aidocs auth login`, use `--server`, or set `AIDOCS_SERVER`.
+There is no built-in default server. Installing via `curl https://<your-server>/install.sh | bash` preconfigures the CLI to use that server; otherwise pass the server URL to `slashdocs auth login`, use `--server`, or set `SLASHDOCS_SERVER`.
 
-Self-hosted login only needs the server URL. The server owns the OIDC configuration (generic `AIDOCS_OIDC_*` variables or the Google aliases); the CLI uses server-mediated loopback PKCE.
+Self-hosted login only needs the server URL. The server owns the OIDC configuration (generic `SLASHDOCS_OIDC_*` variables or the Google aliases); the CLI uses server-mediated loopback PKCE.
 
-By default, login stores the secret token in the OS keychain when available and keeps only metadata plus a `token_ref` in `~/.config/aidocs/config.json`. If the keychain is unavailable, it falls back to storing the token in the config file with `0600` permissions. Set `AIDOCS_NO_KEYCHAIN=1` to force file-only storage.
+By default, login stores the secret token in the OS keychain when available and keeps only metadata plus a `token_ref` in `~/.config/slashdocs/config.json`. If the keychain is unavailable, it falls back to storing the token in the config file with `0600` permissions. Set `SLASHDOCS_NO_KEYCHAIN=1` to force file-only storage.
 
 For CI/bots:
 
 ```bash
-export AIDOCS_SERVER=https://aidocs.example.com
-export AIDOCS_TOKEN=aidocs_sa_...
+export SLASHDOCS_SERVER=https://slashdocs.example.com
+export SLASHDOCS_TOKEN=slashdocs_sa_...
 ```
 
 ## Core agent loop
 
 ```bash
-aidocs docs list
-aidocs docs list 'incident author:alice@example.com labels:api,review in:"Product Specs"'
-aidocs docs list 'author:/@razorpay\.com$/ labels:/^api-/'
-aidocs docs labels set doc_123 api review-ready
-aidocs docs labels list doc_123
-aidocs docs pull doc_123 --out report.html
-aidocs docs comments list doc_123 --json > review.json
+slashdocs docs list
+slashdocs docs list 'incident author:alice@example.com labels:api,review in:"Product Specs"'
+slashdocs docs list 'author:/@razorpay\.com$/ labels:/^api-/'
+slashdocs docs labels set doc_123 api review-ready
+slashdocs docs labels list doc_123
+slashdocs docs pull doc_123 --out report.html
+slashdocs docs comments list doc_123 --json > review.json
 # edit report.html
-aidocs docs push doc_123 report.html --summary "Address review comments"
-aidocs docs comments resolve doc_123 cmt_1 cmt_2
+slashdocs docs push doc_123 report.html --summary "Address review comments"
+slashdocs docs comments resolve doc_123 cmt_1 cmt_2
 ```
 
 ## Service accounts
 
 ```bash
-aidocs sa create report-bot
-aidocs sa key create sa_123 --name prod-ci
-aidocs sa key revoke sa_123 sak_123
+slashdocs sa create report-bot
+slashdocs sa key create sa_123 --name prod-ci
+slashdocs sa key revoke sa_123 sak_123
 ```
 
 Disable all `sa` commands in a packaged environment:
 
 ```bash
-AIDOCS_DISABLE_SA_COMMANDS=1 aidocs sa list
+SLASHDOCS_DISABLE_SA_COMMANDS=1 slashdocs sa list
 ```
 
 ## MCP server
 
-The aidocs application server exposes a remote Streamable HTTP MCP endpoint at:
+The slashdocs application server exposes a remote Streamable HTTP MCP endpoint at:
 
 ```bash
-https://<your-aidocs-host>/mcp
+https://<your-slashdocs-host>/mcp
 ```
 
 Connect that URL directly from an MCP client—there is no local MCP process or
 CLI installation to manage. Interactive clients use the server's browser OAuth
 flow. Headless clients can send a service-account key as an `Authorization:
-Bearer …` header; create one in the aidocs web application's service-account
+Bearer …` header; create one in the slashdocs web application's service-account
 settings.
 
 The remote server exposes document, version, comment, sharing, and folder
@@ -81,13 +81,13 @@ or CLI to mint credentials.
 
 ## Skills
 
-Refresh the bundled agent skill from the connected aidocs server:
+Refresh the bundled agent skill from the connected slashdocs server:
 
 ```bash
-aidocs skills update
+slashdocs skills update
 ```
 
-The command installs the latest server-served `aidocs` skill into `~/.agents/skills/aidocs/SKILL.md` and `~/.claude/skills/aidocs/SKILL.md`.
+The command installs the latest server-served `slashdocs` skill into `~/.agents/skills/slashdocs/SKILL.md` and `~/.claude/skills/slashdocs/SKILL.md`.
 
 ## Output
 

@@ -156,8 +156,8 @@ func (q *Queries) ResolveCLIToken(ctx context.Context, tokenHash string) (Resolv
 }
 
 const resolveServiceAccountToken = `-- name: ResolveServiceAccountToken :one
-SELECT 'service_account'::text AS principal_type, sa.id, ''::text AS email, sa.name, ''::text AS picture_url -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-FROM service_account_keys k JOIN service_accounts sa ON sa.id=k.service_account_id -- nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+SELECT 'service_account'::text AS principal_type, sa.id, ''::text AS email, sa.name, ''::text AS picture_url -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+FROM service_account_keys k JOIN service_accounts sa ON sa.id=k.service_account_id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 WHERE k.token_hash=$1 AND k.revoked_at IS NULL AND sa.disabled_at IS NULL
 `
 
@@ -169,8 +169,8 @@ type ResolveServiceAccountTokenRow struct {
 	PictureUrl    string
 }
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) ResolveServiceAccountToken(ctx context.Context, tokenHash string) (ResolveServiceAccountTokenRow, error) {
 	row := q.db.QueryRow(ctx, resolveServiceAccountToken, tokenHash)
 	var i ResolveServiceAccountTokenRow
@@ -250,7 +250,7 @@ const touchServiceAccountToken = `-- name: TouchServiceAccountToken :exec
 UPDATE service_account_keys SET last_used_at=now() WHERE token_hash=$1
 `
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) TouchServiceAccountToken(ctx context.Context, tokenHash string) error {
 	_, err := q.db.Exec(ctx, touchServiceAccountToken, tokenHash)
 	return err
@@ -277,7 +277,7 @@ type UpsertGoogleUserParams struct {
 	PictureUrl string
 }
 
-// nosemgrep: detected-google-gcm-service-account - aidocs-native principal type/table, not a Google credential.
+// nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
 func (q *Queries) UpsertGoogleUser(ctx context.Context, arg UpsertGoogleUserParams) error {
 	_, err := q.db.Exec(ctx, upsertGoogleUser,
 		arg.ID,

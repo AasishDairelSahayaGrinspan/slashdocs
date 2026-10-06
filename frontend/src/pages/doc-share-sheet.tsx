@@ -450,7 +450,7 @@ export function ShareSheet({
                   <p className="mt-1.5 text-[11px] text-[var(--color-fg-muted)]">
                     {shareMode === "groups"
                       ? "Select a server-verified organization group before sharing."
-                      : "Search existing aidocs users by email, or add a bot by its address."}
+                      : "Search existing slashdocs users by email, or add a bot by its address."}
                   </p>
                   {shareMode === "groups" && selectedGroup ? (
                     <div className="mt-2 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2">
@@ -522,8 +522,8 @@ export function ShareSheet({
                     !debouncedAddress.includes(BOT_DOMAIN_SUFFIX) &&
                     !userSearch.isFetching ? (
                     <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface-muted)] px-3 py-2 text-xs text-[var(--color-fg-muted)]">
-                      No matching aidocs users. They need to sign in once before you can
-                      share with them.
+                      No matching slashdocs users. They need to sign in once before you
+                      can share with them.
                     </div>
                   ) : null}
                 </div>

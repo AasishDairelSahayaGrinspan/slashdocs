@@ -1,4 +1,4 @@
-aidocs has been installed.
+slashdocs has been installed.
 
 App origin:
   {{ .Values.origins.app }}
@@ -6,7 +6,7 @@ App origin:
 If ingress is enabled, verify DNS and TLS point to this release.
 
 CLI login:
-  aidocs auth login {{ .Values.origins.app }}
+  slashdocs auth login {{ .Values.origins.app }}
 
 API docs:
   {{ .Values.origins.app }}/api-docs
