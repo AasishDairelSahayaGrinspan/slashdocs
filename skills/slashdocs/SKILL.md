@@ -1,9 +1,13 @@
 ---
 name: slashdocs
-description: Use whenever the user mentions slashdocs, a slashdocs URL, a slashdocs document/folder/comment/share/version, or asks to publish, review, open, or update a long-form artifact in slashdocs.
+description: Use whenever the user mentions slashdocs (formerly aidocs), a slashdocs or aidocs URL, a slashdocs document/folder/comment/share/version, or asks to publish, review, open, or update a long-form artifact in slashdocs.
 ---
 
 # slashdocs
+
+slashdocs was formerly named aidocs. Treat an aidocs URL, document, or command
+as a slashdocs one: old aidocs links still work, and the `aidocs` CLI is now
+`slashdocs`.
 
 Use this skill for **any slashdocs-related task**. If the user mentions slashdocs or
 points at a slashdocs asset, use the `slashdocs` CLI to inspect or act on it. If given a slashdocs document URL, don't try to curl or web fetch it. Use the slashdocs cli.
