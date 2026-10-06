@@ -98,10 +98,11 @@ func TestMCPStreamableHTTPInitializeListAndCall(t *testing.T) {
 			ServerInfo struct {
 				Name string `json:"name"`
 			} `json:"serverInfo"`
+			Instructions string `json:"instructions"`
 		} `json:"result"`
 	}
 	decodeMCPResponse(t, initialize, &initialized)
-	if initialized.Result.ProtocolVersion != mcp.LATEST_PROTOCOL_VERSION || initialized.Result.ServerInfo.Name != "slashdocs" || initialized.Result.Capabilities.Tools == nil {
+	if initialized.Result.ProtocolVersion != mcp.LATEST_PROTOCOL_VERSION || initialized.Result.ServerInfo.Name != "slashdocs" || initialized.Result.Capabilities.Tools == nil || !strings.Contains(initialized.Result.Instructions, "formerly named aidocs") {
 		t.Fatalf("initialize result = %#v", initialized.Result)
 	}
 

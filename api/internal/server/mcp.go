@@ -64,6 +64,11 @@ func authenticateMCPRequest(w http.ResponseWriter, r *http.Request, authenticato
 	return principal
 }
 
+// mcpInstructions tells agents that links and names from before the rename
+// refer to this server, so a pasted aidocs link resolves here.
+const mcpInstructions = "slashdocs was formerly named aidocs. Treat an aidocs URL, document, or command as a slashdocs one. " +
+	"A document link ends in its ID (doc_...), which is the same on both names. Call get_authoring_guidelines before you create or update a document."
+
 func newMCPHTTPHandler(deps dependencies) http.Handler {
 	metrics := newMCPMetricRecorder()
 	protocol := mcpserver.NewMCPServer(
@@ -73,6 +78,7 @@ func newMCPHTTPHandler(deps dependencies) http.Handler {
 		mcpserver.WithToolHandlerMiddleware(metrics.toolMiddleware),
 		mcpserver.WithRecovery(),
 		mcpserver.WithHooks(metrics.hooks()),
+		mcpserver.WithInstructions(mcpInstructions),
 	)
 	api := mcpAPIAdapter{handlers: handlers{deps: deps}}
 	registerMCPTools(protocol, api)
