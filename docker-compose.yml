@@ -72,7 +72,9 @@ services:
   slashdocs:
     build: .
     # CI prebuilds this image once with a shared layer cache and injects the
-    # tag; local runs fall back to an ordinary compose build.
+    # tag; local runs fall back to an ordinary compose build. The image is built
+    # here, not pulled from a registry.
+    # nosemgrep: razorpay.custom-docker-base-image-check-docker-compose
     image: ${SLASHDOCS_IMAGE:-slashdocs-e2e:local}
     ports:
       - "8080:8080"
