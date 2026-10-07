@@ -243,19 +243,27 @@ function Step({
   );
 }
 
-const TRY_IT_PROMPT = `Write a short explainer, "How GPS knows where you are", for technical readers who are not GPS experts. Cover:
+const TRY_IT_PROMPT = `Write an explainer, "How GPS knows where you are", for technical readers who are not GPS experts. Cover:
 - how a receiver finds its position from the distances to four satellites
 - why the satellite clocks must agree to a few nanoseconds
 - why relativity makes those clocks drift, and how the system corrects it
 
-Include one diagram and one table. Run "slashdocs guidelines" first and follow it. Then publish the explainer with the slashdocs CLI and give me the document URL.`;
+Make it visual. Use as many diagrams and illustrations as the story needs. For example:
+- circles that grow from three satellites and meet at one point
+- a slider that turns a clock error in nanoseconds into a position error in meters
+- two clocks, one on the ground and one in orbit, that drift apart by 38 microseconds a day
+- a map pin that wanders about 10 km a day when nobody corrects the drift
+
+These are ideas, not a checklist. Use your creative liberty and add your own touch.
+
+Run "slashdocs guidelines" first and follow it. Then publish the explainer with the slashdocs CLI and give me the document URL.`;
 
 function TryItOut() {
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-        Copy this prompt into your agent. It writes a short explainer and publishes it
-        to slashdocs.
+        Copy this prompt into your agent. It writes an illustrated explainer and
+        publishes it to slashdocs.
       </p>
       <CodeBlock wrap>{TRY_IT_PROMPT}</CodeBlock>
       <div className="mt-4">
