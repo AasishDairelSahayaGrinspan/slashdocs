@@ -21,7 +21,7 @@ import {
   type Line,
 } from "./agent-loop-script";
 
-const STEPS = ["Agent publishes", "People comment", "Agent revises"];
+const STEPS = ["The agent publishes", "People comment", "The agent revises"];
 
 // [position %, length %, delay ms, tilt deg] of each streak in the wind.
 const STREAKS = [
@@ -52,7 +52,7 @@ export function AgentLoop() {
   return (
     <div ref={ref}>
       <div className="grid md:grid-cols-[1fr_clamp(4rem,10vw,9rem)_1fr]">
-        <Window label="Your agent" bar="agent — zsh" buzz={!!send} dark>
+        <Window label="Your agent" bar="zsh" buzz={!!send} dark>
           <Terminal lines={lines} animate={!still} />
         </Window>
         <div className="relative h-20 md:h-auto">
@@ -68,18 +68,24 @@ export function AgentLoop() {
           <Browser doc={doc} animate={!still} />
         </Window>
       </div>
-      <ol className="mt-6 flex flex-wrap gap-x-8 gap-y-2 font-mono text-xs uppercase tracking-[0.12em]">
+      <ol className="mt-6 flex flex-wrap gap-x-8 gap-y-3 text-sm">
         {STEPS.map((label, i) => (
           <li
             key={label}
             className={cn(
-              "transition-colors duration-300",
-              i === step
-                ? "text-[var(--color-accent)]"
-                : "text-[var(--color-fg-muted)]",
+              "flex items-center gap-2.5 transition-colors duration-300",
+              i === step ? "text-[var(--color-fg)]" : "text-[var(--color-fg-muted)]",
             )}
           >
-            0{i + 1} · {label}
+            <span
+              className={cn(
+                "h-0.5 w-5 rounded-full transition-colors duration-300",
+                i === step
+                  ? "bg-[var(--color-accent)]"
+                  : "bg-[var(--color-border-strong)]",
+              )}
+            />
+            {label}
           </li>
         ))}
       </ol>
@@ -124,7 +130,7 @@ function Window({
 }) {
   return (
     <figure className="min-w-0">
-      <figcaption className="mb-3 inline-block bg-[var(--color-accent)] px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-accent-fg)]">
+      <figcaption className="mb-3 text-sm font-medium text-[var(--color-fg-muted)]">
         {label}
       </figcaption>
       <div
