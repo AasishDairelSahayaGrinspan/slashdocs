@@ -2,46 +2,77 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* Blade fonts (OFL 1.1, see src/assets/fonts): TASA Orbiter for headings,
+   Inter for text. The fallbacks match their metrics to stop layout shift. */
+@font-face {
+  font-family: "TASA Orbiter";
+  src: url("./assets/fonts/tasa-orbiter.woff2") format("woff2-variations");
+  font-weight: 125 950;
+  font-stretch: 75% 125%;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Inter";
+  src: url("./assets/fonts/inter-latin.woff2") format("woff2-variations");
+  font-weight: 100 900;
+  font-display: swap;
+}
+@font-face {
+  font-family: "TASA Orbiter Fallback";
+  src: local(Arial);
+  size-adjust: 98%;
+  line-gap-override: 7%;
+}
+@font-face {
+  font-family: "Inter Fallback";
+  src: local(Arial);
+  size-adjust: 105%;
+  line-gap-override: 5%;
+}
+
+/* Tokens from the Blade design system (bladeTheme, @razorpay/blade 12). */
 @theme {
-  --font-sans:
-    "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  --font-sans: "Inter", "Inter Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-heading:
+    "TASA Orbiter", "TASA Orbiter Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
 
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 14px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
 
-  --color-bg: #fafafa;
+  --color-bg: #f7f7f7;
   --color-surface: #ffffff;
   --color-surface-muted: #f4f4f5;
-  --color-border: #e4e4e7;
-  --color-border-strong: #d4d4d8;
-  --color-fg: #18181b;
-  --color-fg-muted: #71717a;
-  --color-accent: #2028ff;
+  --color-border: #dee1e3;
+  --color-border-strong: #c8cdd0;
+  --color-fg: #050505;
+  --color-fg-muted: #616d75;
+  --color-accent: #1364f1;
+  --color-accent-strong: #0e54cd;
   --color-accent-fg: #ffffff;
-  --color-accent-muted: #eef0ff;
-  --color-danger: #dc2626;
+  --color-accent-muted: #eaf1fe;
+  --color-danger: #d01e11;
   --color-danger-fg: #ffffff;
-  --color-warning: #d97706;
-  --color-success: #16a34a;
+  --color-warning: #c75300;
+  --color-success: #00753b;
 }
 
 .dark {
-  --color-bg: #09090b;
-  --color-surface: #111113;
-  --color-surface-muted: #18181b;
-  --color-border: #27272a;
-  --color-border-strong: #3f3f46;
-  --color-fg: #fafafa;
-  --color-fg-muted: #a1a1aa;
-  --color-accent: #818cff;
-  --color-accent-fg: #0a0a0f;
-  --color-accent-muted: #1a1d3a;
-  --color-danger: #f87171;
-  --color-warning: #fbbf24;
-  --color-success: #4ade80;
+  --color-bg: #131415;
+  --color-surface: #1b1c1d;
+  --color-surface-muted: #1f2123;
+  --color-border: #3b3d40;
+  --color-border-strong: #585c5f;
+  --color-fg: #ffffff;
+  --color-fg-muted: #aeb0b2;
+  --color-accent: #4287ff;
+  --color-accent-strong: #1364f1;
+  --color-accent-fg: #ffffff;
+  --color-accent-muted: #192d50;
+  --color-danger: #e86559;
+  --color-warning: #ff8742;
+  --color-success: #3aa670;
 }
 
 @layer base {
@@ -65,6 +96,7 @@
   h2,
   h3,
   h4 {
+    font-family: var(--font-heading);
     text-wrap: balance;
   }
   p,
@@ -80,22 +112,28 @@
   }
 }
 
-/* ── Shadow elevation tokens ────────────────────────────── */
+/* ── Shadow elevation tokens (Blade elevation and button shadows) ── */
 :root {
   --shadow-border:
-    0 0 0 1px rgba(0, 0, 0, 0.06), 0 1px 2px -1px rgba(0, 0, 0, 0.06),
-    0 2px 4px 0 rgba(0, 0, 0, 0.04);
+    0 0 0 1px hsl(206 10% 29% / 0.12), 0 2px 4px 0 hsl(200 10% 18% / 0.06);
   --shadow-border-hover:
-    0 0 0 1px rgba(0, 0, 0, 0.08), 0 2px 4px -1px rgba(0, 0, 0, 0.08),
-    0 4px 8px 0 rgba(0, 0, 0, 0.06);
+    0 0 0 1px hsl(206 10% 29% / 0.18), 0 8px 24px -4px hsl(200 10% 18% / 0.06);
   --shadow-elevated:
-    0 0 0 1px rgba(0, 0, 0, 0.06), 0 4px 8px -2px rgba(0, 0, 0, 0.1),
-    0 8px 16px -4px rgba(0, 0, 0, 0.08);
+    0 0 0 1px hsl(206 10% 29% / 0.12), 0 8px 24px -4px hsl(200 10% 18% / 0.12);
+  /* Blade's raised primary and secondary buttons. */
+  --shadow-button-primary:
+    inset 0 -1.5px 0 var(--color-accent-strong), inset 0 0 0 0.5px var(--color-accent),
+    inset 0 1.5px 0 hsl(0 0% 100% / 0.18), inset 0 -2px 0 hsl(0 0% 100% / 0.18);
+  --shadow-button-secondary:
+    inset 0 -1px 0.5px hsl(0 0% 0% / 0.18), inset 0 0 0 1px var(--color-border),
+    inset 0 -1.5px 0 var(--color-border);
 }
 .dark {
-  --shadow-border: 0 0 0 1px rgba(255, 255, 255, 0.08);
-  --shadow-border-hover: 0 0 0 1px rgba(255, 255, 255, 0.13);
-  --shadow-elevated: 0 0 0 1px rgba(255, 255, 255, 0.1), 0 4px 12px rgba(0, 0, 0, 0.4);
+  --shadow-border: 0 0 0 1px hsl(207 4% 52% / 0.18), 0 2px 4px 0 hsl(0 0% 0% / 0.32);
+  --shadow-border-hover:
+    0 0 0 1px hsl(207 4% 52% / 0.32), 0 8px 24px -4px hsl(0 0% 0% / 0.32);
+  --shadow-elevated:
+    0 0 0 1px hsl(207 4% 52% / 0.18), 0 8px 24px -4px hsl(0 0% 0% / 0.32);
 }
 
 /* ── Surface elevation utilities ────────────────────────── */

@@ -289,7 +289,7 @@ export function DocumentsPage() {
 function EmptyDocs() {
   return (
     <div className="mx-auto max-w-xl space-y-4">
-      <div className="rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
           <Sparkles className="h-5 w-5" />
         </div>

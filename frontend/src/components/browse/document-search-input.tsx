@@ -167,7 +167,7 @@ export function DocumentSearchInput({
           id="document-search-suggestions"
           role="listbox"
           aria-label={suggestions.heading}
-          className="absolute right-0 top-[calc(100%+6px)] z-50 w-full min-w-[320px] rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
+          className="absolute right-0 top-[calc(100%+6px)] z-50 w-full min-w-[320px] rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
         >
           <p className="px-3 pb-1 pt-2 text-xs font-medium text-[var(--color-fg-muted)]">
             {suggestions.heading}

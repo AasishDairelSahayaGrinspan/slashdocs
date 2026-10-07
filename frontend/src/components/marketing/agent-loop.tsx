@@ -135,7 +135,7 @@ function Window({
       </figcaption>
       <div
         className={cn(
-          "flex h-[300px] flex-col overflow-hidden rounded-[14px] shadow-[var(--shadow-elevated)] md:h-[400px]",
+          "flex h-[300px] flex-col overflow-hidden rounded-md shadow-[var(--shadow-elevated)] md:h-[400px]",
           dark ? "bg-[#0b0b10] text-zinc-300" : "bg-[var(--color-surface)]",
           buzz && "buzz",
         )}
@@ -254,7 +254,7 @@ function Browser({ doc, animate }: { doc: Doc; animate: boolean }) {
       {doc === "none" ? (
         <div className="p-4">
           <div className="text-[15px] font-semibold tracking-tight">Documents</div>
-          <div className="mt-4 rounded-[10px] border border-dashed border-[var(--color-border)] p-6 text-center text-[var(--color-fg-muted)]">
+          <div className="mt-4 rounded-sm border border-dashed border-[var(--color-border)] p-6 text-center text-[var(--color-fg-muted)]">
             No documents yet.
           </div>
         </div>
@@ -328,7 +328,7 @@ function Card({ children }: { children: React.ReactNode }) {
     <div
       className={cn(
         rise,
-        "flex flex-col gap-1.5 rounded-[10px] bg-[var(--color-surface)] p-2.5 ring-1 ring-[var(--color-border)]",
+        "flex flex-col gap-1.5 rounded-sm bg-[var(--color-surface)] p-2.5 ring-1 ring-[var(--color-border)]",
       )}
     >
       {children}

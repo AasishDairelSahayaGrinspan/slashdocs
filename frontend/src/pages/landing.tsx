@@ -10,9 +10,11 @@ import {
   siteLink,
 } from "@/components/layout/site-chrome";
 import { AgentLoop } from "@/components/marketing/agent-loop";
+import { RazorSense } from "@/vendor/razorsense";
 import { cn } from "@/lib/cn";
 import { publicURL } from "@/lib/config";
 import { useMe } from "@/lib/hooks";
+import { usePrefersReducedMotion } from "@/lib/use-media-query";
 import { useTitle } from "@/lib/use-title";
 
 const PILLARS = [
@@ -69,9 +71,9 @@ const SELF_HOST = [
   ["MIT licensed", "Read the source, change it, and run it as you like."],
 ];
 
-const h2 = "text-3xl font-semibold tracking-[-0.03em] md:text-5xl";
+const h2 = "text-3xl font-semibold tracking-[-0.02em] md:text-5xl";
 const lead = "max-w-[60ch] text-lg text-[var(--color-fg-muted)]";
-const tile = "min-w-0 rounded-[14px] border border-[var(--color-border)] p-6 md:p-8";
+const tile = "min-w-0 rounded-md border border-[var(--color-border)] p-6 md:p-8";
 
 export function LandingPage() {
   useTitle();
@@ -94,21 +96,28 @@ export function LandingPage() {
       </SiteHeader>
       <main>
         <section className="mx-auto max-w-6xl px-6 pb-24 pt-12 md:pt-20">
-          <p className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--color-accent)]">
-            Open source, self-hosted
-          </p>
-          <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.02] tracking-[-0.04em] md:text-6xl">
-            The collaborative workspace for agentic organizations.
-          </h1>
-          <p className={cn(lead, "mt-6 md:text-xl")}>
-            Agents publish HTML documents. Your team comments on the exact words. Agents
-            read the comments and ship the next version.
-          </p>
-          <div className="mt-10 flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-center">
-            <CodeBlock className="min-w-0 flex-1 bg-[var(--color-surface)]">{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
-            <Button asChild size="lg">
-              <Link to="/login">Sign in</Link>
-            </Button>
+          <div className="grid gap-x-10 md:grid-cols-[1.1fr_1fr]">
+            <div className="relative z-10 md:col-span-2">
+              <p className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--color-accent)]">
+                Open source, self-hosted
+              </p>
+              <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-6xl">
+                The collaborative workspace for agentic organizations.
+              </h1>
+            </div>
+            <div className="relative z-10 min-w-0">
+              <p className={cn(lead, "mt-6 md:text-xl")}>
+                Agents publish HTML documents. Your team comments on the exact words.
+                Agents read the comments and ship the next version.
+              </p>
+              <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
+                <CodeBlock className="min-w-0 flex-1 bg-[var(--color-surface)]">{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
+                <Button asChild size="lg">
+                  <Link to="/login">Sign in</Link>
+                </Button>
+              </div>
+            </div>
+            <Spark />
           </div>
           <div className="mt-16 md:mt-20">
             <AgentLoop />
@@ -127,7 +136,7 @@ export function LandingPage() {
             <ol className="grid gap-14">
               {PILLARS.map((p) => (
                 <li key={p.title} className="grid grid-cols-[auto_1fr] gap-x-5">
-                  <span className="grid h-10 w-10 place-items-center rounded-[10px] bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
+                  <span className="grid h-10 w-10 place-items-center rounded-sm bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
                     <p.icon className="h-5 w-5" strokeWidth={1.75} />
                   </span>
                   <div>
@@ -228,6 +237,24 @@ docker compose up --build`}</CodeBlock>
   );
 }
 
+// Blade's RazorSense glass: Razorpay's signature light, as the hero visual.
+function Spark() {
+  const still = usePrefersReducedMotion();
+  // The canvas paints white in light mode and black in dark mode. The blend
+  // mode drops that backdrop, so only the glass shows on the page.
+  return (
+    <div
+      aria-hidden
+      className="relative h-72 mix-blend-darken max-md:-mx-6 md:-mt-36 md:h-[420px] dark:mix-blend-lighten"
+    >
+      <RazorSense
+        edgeFeather={[0.4, 0.4, 0.4, 0.4]}
+        {...(still && { paused: true, startTime: 10 })}
+      />
+    </div>
+  );
+}
+
 // Each way to connect an agent, with the commands for the selected one.
 function Connect() {
   const [active, setActive] = useState(0);
@@ -241,7 +268,7 @@ function Connect() {
             aria-selected={i === active}
             onClick={() => setActive(i)}
             className={cn(
-              "rounded-[14px] border p-5 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]",
+              "rounded-md border p-5 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]",
               i === active
                 ? "border-[var(--color-border-strong)] bg-[var(--color-surface)]"
                 : "border-transparent hover:bg-[var(--color-surface-muted)]",

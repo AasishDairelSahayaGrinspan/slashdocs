@@ -82,11 +82,11 @@ export function ServiceAccountsPage() {
               <Skeleton className="h-12 w-full" />
             </>
           ) : sas.error ? (
-            <div className="rounded-[12px] border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-danger)]">
+            <div className="rounded-md border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-danger)]">
               Could not load bots.
             </div>
           ) : items.length === 0 ? (
-            <div className="rounded-[12px] border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-fg-muted)]">
+            <div className="rounded-md border border-dashed border-[var(--color-border)] p-6 text-center text-sm text-[var(--color-fg-muted)]">
               No bots yet. Create one to share docs with it.
             </div>
           ) : (
@@ -441,7 +441,7 @@ function NewBotDialog({
               </DialogDescription>
             </DialogHeader>
             <CodeBlock>{result.name}</CodeBlock>
-            <div className="mt-5 rounded-[10px] border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3">
+            <div className="mt-5 rounded-sm border border-[var(--color-warning)]/40 bg-[var(--color-warning)]/10 p-3">
               <div className="mb-1 text-xs font-medium uppercase tracking-wide text-[var(--color-fg-muted)]">
                 Bot key
               </div>

@@ -5,7 +5,7 @@ export function Card({ className, ...p }: React.HTMLAttributes<HTMLDivElement>) 
   return (
     <div
       className={cn(
-        "elevate-subtle rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)]",
+        "elevate-subtle rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]",
         className,
       )}
       {...p}

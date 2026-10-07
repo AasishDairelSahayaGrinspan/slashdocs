@@ -27,7 +27,7 @@ export function DropdownContent({
           if (closedByPointer.current) event.preventDefault();
         }}
         className={cn(
-          "z-50 min-w-[200px] rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg transition-[opacity,transform] duration-150 ease-out data-[state=closed]:translate-y-1 data-[state=open]:translate-y-0 data-[state=closed]:scale-[0.98] data-[state=open]:scale-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
+          "z-50 min-w-[200px] rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg transition-[opacity,transform] duration-150 ease-out data-[state=closed]:translate-y-1 data-[state=open]:translate-y-0 data-[state=closed]:scale-[0.98] data-[state=open]:scale-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
           className,
         )}
         {...p}

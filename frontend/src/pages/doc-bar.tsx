@@ -141,7 +141,7 @@ export function DocBar({
           to="/app/documents"
           aria-label="slashdocs home"
           title="All documents"
-          className="hidden h-10 shrink-0 items-center rounded-[10px] px-2 hover:bg-[var(--color-surface-muted)] sm:flex"
+          className="hidden h-10 shrink-0 items-center rounded-sm px-2 hover:bg-[var(--color-surface-muted)] sm:flex"
         >
           <Logo className="h-4 w-auto" />
         </Link>

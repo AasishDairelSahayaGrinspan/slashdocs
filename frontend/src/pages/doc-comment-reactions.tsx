@@ -177,7 +177,7 @@ export function ReactionBar({
               title="Add reaction"
               aria-disabled={toggle.isPending}
               className={cn(
-                "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] data-[state=open]:bg-[var(--color-accent)]/10 data-[state=open]:text-[var(--color-accent)] aria-disabled:cursor-wait",
+                "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] data-[state=open]:bg-[var(--color-accent)]/10 data-[state=open]:text-[var(--color-accent)] aria-disabled:cursor-wait",
                 feedback,
               )}
             >

@@ -33,7 +33,7 @@ export function CodeBlock({
   return (
     <div
       className={cn(
-        "group relative rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface-muted)] font-mono text-xs",
+        "group relative rounded-sm border border-[var(--color-border)] bg-[var(--color-surface-muted)] font-mono text-xs",
         className,
       )}
     >
@@ -87,7 +87,7 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-[14px] border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-10 text-center",
+        "flex flex-col items-center justify-center rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-10 text-center",
         className,
       )}
     >
