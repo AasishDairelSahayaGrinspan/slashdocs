@@ -539,7 +539,7 @@ function VersionHistoryDialog({
                   <ChangeSummary version={v} />
                   <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--color-fg-muted)]">
                     <span>Created by {principalLabel(v.created_by)}</span>
-                    {v.created_at ? <span>{formatTimestamp(v.created_at)}</span> : null}
+                    {v.created_at ? <span>Created {formatTimestamp(v.created_at)}</span> : null}
                     <span className="font-mono">{v.id}</span>
                   </div>
                 </div>
