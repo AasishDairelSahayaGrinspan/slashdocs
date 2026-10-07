@@ -14,7 +14,16 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import { CheckCircle2, Trash2, Link2, Reply, RotateCcw, Send, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Link2,
+  MessageSquareText,
+  Reply,
+  RotateCcw,
+  Send,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -434,7 +443,7 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
     >
       <div
         ref={headerRef}
-        className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 pt-3"
+        className="shrink-0 border-b border-[var(--color-border)] px-4 pt-3"
       >
         <div className="flex items-center gap-2 pr-10 md:pr-0">
           <h2 className="text-sm font-semibold">Comments</h2>
@@ -506,6 +515,7 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
 function CommentsEmptyState({ filter }: { filter: CommentFilter }) {
   return (
     <EmptyState
+      icon={<MessageSquareText className="h-5 w-5" />}
       title={
         filter === COMMENT_STATUS.resolved
           ? "No resolved comments yet"

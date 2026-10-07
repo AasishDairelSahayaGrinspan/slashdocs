@@ -10,11 +10,10 @@ import {
   siteLink,
 } from "@/components/layout/site-chrome";
 import { AgentLoop } from "@/components/marketing/agent-loop";
-import { RazorSense } from "@/vendor/razorsense";
+import { RazorSenseBackdrop } from "@/components/razorsense-backdrop";
 import { cn } from "@/lib/cn";
 import { publicURL } from "@/lib/config";
 import { useMe } from "@/lib/hooks";
-import { usePrefersReducedMotion } from "@/lib/use-media-query";
 import { useTitle } from "@/lib/use-title";
 
 const PILLARS = [
@@ -73,7 +72,9 @@ const SELF_HOST = [
 
 const h2 = "text-3xl font-semibold tracking-[-0.02em] md:text-5xl";
 const lead = "max-w-[60ch] text-lg text-[var(--color-fg-muted)]";
-const tile = "min-w-0 rounded-md border border-[var(--color-border)] p-6 md:p-8";
+// Slash's card: a hairline in light, a borderless lift in dark.
+const tile =
+  "min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-card)] md:p-8 dark:border-transparent";
 
 export function LandingPage() {
   useTitle();
@@ -81,7 +82,7 @@ export function LandingPage() {
   if (me.data) return <Navigate to="/app/documents" replace />;
   return (
     <div className="relative isolate min-h-full overflow-x-clip bg-[var(--color-bg)]">
-      <Halo />
+      <RazorSenseBackdrop framing="halo" className="h-[600px]" />
       <SiteHeader>
         <a
           href={SELF_HOSTING_URL}
@@ -120,7 +121,7 @@ export function LandingPage() {
           </div>
         </section>
 
-        <section className="border-y border-[var(--color-border)] bg-[var(--color-surface)]">
+        <section className="border-y border-[var(--color-border)] bg-[var(--color-surface-muted)]">
           <div className="mx-auto grid max-w-6xl gap-14 px-6 py-24 md:grid-cols-[5fr_6fr] md:gap-20 md:py-32">
             <div className="md:sticky md:top-24 md:self-start">
               <h2 className={h2}>Agent work should not end in a chat window.</h2>
@@ -159,7 +160,7 @@ export function LandingPage() {
             and dashboards.
           </p>
           <div className="mt-12 grid gap-4 md:grid-cols-3">
-            <div className={cn(tile, "bg-[var(--color-surface)] md:col-span-2")}>
+            <div className={cn(tile, "md:col-span-2")}>
               <Feature title="Shared state">
                 Approvals, checklists, and trackers save to the document. Everyone sees
                 the same state.
@@ -169,7 +170,12 @@ export function LandingPage() {
   by: "pm@example.com",
 });`}</CodeBlock>
             </div>
-            <div className={cn(tile, "bg-[var(--color-accent-muted)]")}>
+            <div
+              className={cn(
+                tile,
+                "razorsense-ring bg-[radial-gradient(ellipse_at_85%_0%,color-mix(in_srgb,var(--razorsense-wash-from)_30%,transparent),transparent_70%)]",
+              )}
+            >
               <Feature title="Charts, diagrams, and screenshots">
                 Inline SVG, Mermaid diagrams, and images embedded in the file. One file
                 holds the whole document.
@@ -180,7 +186,7 @@ export function LandingPage() {
                 Documents follow the theme of the reader, and they print cleanly.
               </Feature>
             </div>
-            <div className={cn(tile, "bg-[var(--color-surface)] md:col-span-2")}>
+            <div className={cn(tile, "md:col-span-2")}>
               <Feature title="Files from GitHub">
                 Show a file from a repository at a branch, a tag, or a commit. The token
                 stays on the server.
@@ -233,29 +239,6 @@ docker compose up --build`}</CodeBlock>
   );
 }
 
-// The RazorSense halo behind the top of the page, as in Slash: one paused
-// frame of the glass, zoomed in, with only the light sweep moving. The blend
-// mode drops the canvas backdrop (white in light mode, black in dark mode).
-function Halo() {
-  if (usePrefersReducedMotion()) return null;
-  return (
-    <div
-      aria-hidden
-      className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[600px] mix-blend-darken [mask-image:linear-gradient(black_55%,transparent)] dark:mix-blend-screen"
-    >
-      <RazorSense
-        paused
-        startTime={8}
-        animateLightIndependently
-        lightStartFrame={0}
-        slitAngle={(20 * Math.PI) / 180}
-        numSegments={20}
-        zoom={3}
-      />
-    </div>
-  );
-}
-
 // Each way to connect an agent, with the commands for the selected one.
 function Connect() {
   const [active, setActive] = useState(0);
@@ -282,7 +265,7 @@ function Connect() {
           </button>
         ))}
       </div>
-      <div role="tabpanel" className={cn(tile, "bg-[var(--color-surface)]")}>
+      <div role="tabpanel" className={tile}>
         <h3 className="text-sm font-medium text-[var(--color-fg-muted)]">
           {CONNECT[active].title}
         </h3>

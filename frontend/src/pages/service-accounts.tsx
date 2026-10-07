@@ -1,3 +1,4 @@
+import { Page, PageHeader } from "@/components/layout/page";
 import { useTitle } from "@/lib/use-title";
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -45,26 +46,16 @@ export function ServiceAccountsPage() {
   const selected = items.find((s) => s.id === selectedId) || items[0] || null;
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
-      <div className="mb-6 flex items-start justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Bots</h1>
-          <p className="mt-1 max-w-2xl text-sm text-[var(--color-fg-muted)]">
-            Bots are their own identities — share docs with them just like you would
-            with a person. Use them for n8n workflows, scheduled jobs, or anything that
-            runs without you.
-          </p>
-        </div>
-        <Button
-          onClick={() => setCreating(true)}
-          className="shrink-0 px-3 sm:px-4"
-          aria-label="New bot"
-          tooltip="New bot"
-        >
-          <Plus className="h-4 w-4 sm:mr-1" />
-          <span className="hidden sm:inline">New bot</span>
-        </Button>
-      </div>
+    <Page>
+      <PageHeader
+        title="Bots"
+        description="Bots are their own identities — share docs with them just like you would with a person. Use them for n8n workflows, scheduled jobs, or anything that runs without you."
+        actions={
+          <Button onClick={() => setCreating(true)}>
+            <Plus className="h-4 w-4" /> New bot
+          </Button>
+        }
+      />
       <NewBotDialog
         open={creating}
         onOpenChange={setCreating}
@@ -98,7 +89,8 @@ export function ServiceAccountsPage() {
                   <li key={id}>
                     <button
                       onClick={() => setSelectedId(id)}
-                      className={`flex w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition-colors ${active ? "border-[var(--color-accent)] bg-[var(--color-accent-muted)]" : "border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-muted)]"}`}
+                      aria-current={active || undefined}
+                      className="rail-link flex w-full items-center gap-3 rounded-sm px-3 py-2.5 text-left text-sm"
                     >
                       <Bot className="h-4 w-4 shrink-0 text-[var(--color-fg-muted)]" />
                       <div className="min-w-0 flex-1">
@@ -128,7 +120,7 @@ export function ServiceAccountsPage() {
           )}
         </div>
       </div>
-    </div>
+    </Page>
   );
 }
 

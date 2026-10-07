@@ -62,7 +62,7 @@ export function onboardingProgress(s: OnboardingState) {
   return { done, total: requiredSteps.length };
 }
 
-export function shouldShowPill(s: OnboardingState) {
+export function onboardingActive(s: OnboardingState) {
   return s.status === "active";
 }
 

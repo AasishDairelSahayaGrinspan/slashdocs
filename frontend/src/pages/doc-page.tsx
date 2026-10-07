@@ -697,7 +697,7 @@ export function DocumentPage() {
                   animate={{ width: 360, opacity: 1 }}
                   exit={{ width: 0, opacity: 0 }}
                   transition={{ type: "spring", duration: 0.35, bounce: 0 }}
-                  className="relative hidden shrink-0 overflow-hidden bg-[var(--color-surface-muted)] md:block"
+                  className="relative hidden shrink-0 overflow-hidden bg-[var(--color-rail)] md:block"
                 >
                   <div className="h-full w-[360px]">
                     <Comments />

@@ -25,9 +25,9 @@ export function UnifiedTable({
   pinnedIds?: Set<string>;
 }) {
   return (
-    <div className="overflow-hidden rounded-md border border-[var(--color-border)] bg-[var(--color-surface)]">
+    <div className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] dark:border-transparent">
       <table className="w-full text-sm">
-        <thead className="bg-[var(--color-surface-muted)]/50 text-[11px] uppercase tracking-wider text-[var(--color-fg-muted)]">
+        <thead className="text-[11px] uppercase tracking-[0.08em] text-[var(--color-fg-muted)]">
           <tr>
             <th className="px-4 py-2.5 text-left font-medium">Name</th>
             <th className="px-4 py-2.5 text-left font-medium">Owner</th>
@@ -113,7 +113,7 @@ function DraggableEntryRow({
       }}
       {...listeners}
       {...attributes}
-      className={`group border-t transition-colors ${isOver ? "bg-[var(--color-accent)]/10 border-[var(--color-accent)]" : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]/40"} ${isDragging ? "opacity-40" : ""}`}
+      className={`group border-t transition-colors ${isOver ? "bg-[var(--color-accent)]/10 border-[var(--color-accent)]" : "border-[var(--color-border)] hover:bg-[var(--color-surface-muted)] dark:border-white/5"} ${isDragging ? "opacity-40" : ""}`}
     >
       <td className="px-4 py-3">
         <Link

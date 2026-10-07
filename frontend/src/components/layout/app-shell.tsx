@@ -1,8 +1,9 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { TopBar } from "./topbar";
+import { Rail } from "./rail";
 import { useMe } from "@/lib/hooks";
 import { Center } from "@/components/ui/misc";
+import { cn } from "@/lib/cn";
 
 export function AppShell() {
   const me = useMe();
@@ -20,13 +21,15 @@ export function AppShell() {
   const documentPage = loc.pathname.startsWith("/app/d/");
   const fullscreenDocument =
     documentPage && new URLSearchParams(loc.search).get("fullscreen") === "1";
+  // A document is a focused view with its own bar, so the rail steps aside.
   return (
-    <div className="flex h-full flex-col">
-      {!documentPage && <TopBar user={user} />}
+    <div className="flex h-full flex-col md:flex-row">
+      {!documentPage && <Rail user={user} />}
       <main
-        className={
-          fullscreenDocument ? "flex-1 overflow-hidden" : "flex-1 overflow-auto"
-        }
+        className={cn(
+          "min-w-0 flex-1",
+          fullscreenDocument ? "overflow-hidden" : "overflow-auto",
+        )}
       >
         <Outlet />
       </main>

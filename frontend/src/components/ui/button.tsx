@@ -5,14 +5,15 @@ import { cn } from "@/lib/cn";
 import { Tooltip } from "./tooltip";
 
 // Blade's button: raised primary and secondary shadows, an 8px radius (12px
-// when large), and a soft 4px focus ring.
+// when large), and a soft 4px focus ring. A disabled primary goes neutral, as
+// Slash retunes it, because a faded blue reads as broken on a dark canvas.
 const buttonVariants = cva(
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-sm font-medium transition-[background-color,color,opacity,transform,box-shadow] duration-150 ease-out active:scale-[0.97] focus-visible:outline-4 focus-visible:outline-[color-mix(in_srgb,var(--color-accent)_24%,transparent)] disabled:pointer-events-none disabled:scale-100 disabled:opacity-50",
   {
     variants: {
       variant: {
         primary:
-          "bg-[var(--color-accent)] text-[var(--color-accent-fg)] shadow-[var(--shadow-button-primary)] hover:bg-[var(--color-accent-strong)]",
+          "bg-[var(--color-accent)] text-[var(--color-accent-fg)] shadow-[var(--shadow-button-primary)] hover:bg-[var(--color-accent-strong)] disabled:bg-[var(--color-surface-muted)] disabled:text-[var(--color-fg-muted)] disabled:opacity-100 disabled:shadow-[var(--shadow-button-secondary)]",
         secondary:
           "bg-[var(--color-surface-muted)] text-[var(--color-fg)] hover:bg-[var(--color-border)]",
         outline:

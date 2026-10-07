@@ -13,6 +13,7 @@ import {
   Share2,
   Trash2,
 } from "lucide-react";
+import { Page } from "@/components/layout/page";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Center, Skeleton, EmptyState } from "@/components/ui/misc";
@@ -178,10 +179,10 @@ export function FolderPage() {
 
   if (folder.isLoading || contents.isLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+      <Page backdrop={false}>
         <Skeleton className="mb-3 h-9 w-48" />
         <Skeleton className="h-64 w-full" />
-      </div>
+      </Page>
     );
   }
   if (folder.error || contents.error) {
@@ -238,7 +239,7 @@ export function FolderPage() {
       onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
     >
-      <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
+      <Page>
         {/* Breadcrumbs */}
         <nav className="mb-4 flex min-w-0 items-center gap-1 overflow-x-auto whitespace-nowrap text-sm text-[var(--color-fg-muted)]">
           <DroppableBreadcrumb
@@ -263,11 +264,13 @@ export function FolderPage() {
         </nav>
 
         {/* Header */}
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mb-8 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-3">
-            <FolderIcon className="h-6 w-6 shrink-0 text-[var(--color-accent)]" />
+            <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
+              <FolderIcon className="h-5 w-5" />
+            </span>
             <div className="min-w-0">
-              <h1 className="truncate text-2xl font-semibold tracking-tight">
+              <h1 className="enter truncate text-xl font-semibold tracking-[-0.01em] md:text-2xl">
                 {f.title}
               </h1>
               <p className="truncate text-sm text-[var(--color-fg-muted)]">
@@ -417,7 +420,7 @@ export function FolderPage() {
           warning={accessWarning}
           onClose={() => setAccessWarning(null)}
         />
-      </div>
+      </Page>
       <BrowseDragOverlay activeDrag={activeDrag} viewMode={viewMode} />
     </DndContext>
   );

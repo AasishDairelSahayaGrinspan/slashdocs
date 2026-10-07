@@ -98,7 +98,7 @@ function FeaturedCard({ item, hideable }: { item: FolderEntry; hideable: boolean
   const Icon = isFolder ? FolderIcon : FileText;
 
   return (
-    <div className="group relative flex items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] transition-[background-color,transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:bg-[var(--color-surface-muted)] hover:shadow-md">
+    <div className="group relative flex items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] transition-[border-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-[var(--color-border-strong)] dark:border-transparent dark:hover:border-[var(--color-border)]">
       <Link
         to={isFolder ? `/app/folders/${id}` : `/app/d/${id}`}
         className={`flex min-w-0 flex-1 items-center gap-3 p-2 ${hideable ? "pr-12" : ""}`}

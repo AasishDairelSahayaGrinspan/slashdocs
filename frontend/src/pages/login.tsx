@@ -5,6 +5,7 @@ import { LoaderCircle } from "lucide-react";
 import { api } from "@/api";
 import { Button } from "@/components/ui/button";
 import { SiteFooter, SiteHeader } from "@/components/layout/site-chrome";
+import { RazorSenseBackdrop } from "@/components/razorsense-backdrop";
 import { publicURL } from "@/lib/config";
 import { useMe } from "@/lib/hooks";
 import { queryKeys } from "@/lib/queryKeys";
@@ -30,14 +31,15 @@ export function LoginPage() {
   }, []);
   if (me.data) return <Navigate to={next} replace />;
   return (
-    <div className="flex min-h-full flex-col bg-[var(--color-bg)]">
+    <div className="relative isolate flex min-h-full flex-col overflow-x-clip bg-[var(--color-bg)]">
+      <RazorSenseBackdrop framing="halo" className="h-[760px]" />
       <SiteHeader />
       <main className="flex flex-1 items-center justify-center px-6 py-16">
-        <div className="w-full max-w-sm">
-          <h1 className="text-2xl font-semibold tracking-tight">
+        <div className="glass-card enter w-full max-w-sm rounded-lg p-8 text-center">
+          <h1 className="text-2xl font-normal tracking-[-0.02em]">
             Sign in to slashdocs
           </h1>
-          <p className="mt-2 font-mono text-sm text-[var(--color-fg-muted)]">
+          <p className="mt-2 font-mono text-xs text-[var(--color-fg-muted)]">
             {new URL(publicURL()).host}
           </p>
           <Button

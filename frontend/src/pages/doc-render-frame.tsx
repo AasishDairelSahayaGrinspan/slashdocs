@@ -12,7 +12,6 @@ import { api, type Anchor } from "@/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { matchesCommentFilter } from "@/lib/constants";
 import { Center } from "@/components/ui/misc";
-import { useResolvedTheme } from "@/lib/theme";
 import { CHORD_KEYS } from "@/lib/esc-chord";
 import { useDocumentExport } from "./use-document-export";
 import { useDoc } from "./doc-context";
@@ -51,7 +50,6 @@ export function RenderFrame() {
   const versionRef = useRef(version);
   versionRef.current = version;
   const location = useLocation();
-  const theme = useResolvedTheme();
 
   const token = useQuery({
     queryKey: queryKeys.render(version),
@@ -469,7 +467,9 @@ export function RenderFrame() {
             height: `${100 / scale}%`,
             transform: `scale(${scale})`,
             transformOrigin: "0 0",
-            background: theme === "dark" ? "#0b0d12" : "#fff",
+            // Paper white: theming is opt-in, so a document that ignores the
+            // theme keeps its light look in a dark app.
+            background: "#fff",
           }}
           src={frameSrc}
           sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"

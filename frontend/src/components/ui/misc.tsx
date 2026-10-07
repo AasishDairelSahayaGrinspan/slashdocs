@@ -87,16 +87,16 @@ export function EmptyState({
   return (
     <div
       className={cn(
-        "flex flex-col items-center justify-center rounded-md border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-10 text-center",
+        "flex flex-col items-center justify-center rounded-lg bg-[radial-gradient(ellipse_at_50%_0%,color-mix(in_srgb,var(--razorsense-wash-from)_14%,transparent),transparent_70%)] px-6 py-10 text-center",
         className,
       )}
     >
       {icon && (
-        <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[var(--color-surface-muted)] text-[var(--color-fg-muted)]">
+        <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
           {icon}
         </div>
       )}
-      <h3 className="text-balance text-base font-semibold">{title}</h3>
+      <h3 className="text-balance font-heading text-base font-medium">{title}</h3>
       {description && (
         <p className="mt-1 max-w-md text-pretty text-sm text-[var(--color-fg-muted)]">
           {description}
