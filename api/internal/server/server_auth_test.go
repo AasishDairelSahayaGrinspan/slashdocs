@@ -26,6 +26,17 @@ func TestMeRequiresAuth(t *testing.T) {
 	}`)
 }
 
+func TestLogoutDeletesSessionCookie(t *testing.T) {
+	rr := do(t, newTestEnv(t).h, http.MethodPost, "/v1/auth/logout", "", map[string]string{
+		"Cookie": "slashdocs_session=test-session",
+	})
+	assertStatus(t, rr, http.StatusNoContent)
+	cookies := rr.Result().Cookies()
+	if len(cookies) != 1 || cookies[0].Name != "slashdocs_session" || cookies[0].Value != "" || cookies[0].MaxAge >= 0 || cookies[0].Path != "/" || !cookies[0].HttpOnly {
+		t.Fatalf("logout did not delete the session cookie: %+v", cookies)
+	}
+}
+
 func TestMeWithUserPrincipal(t *testing.T) {
 	rr := do(t, newTestEnv(t).h, http.MethodGet, "/v1/me", "", map[string]string{
 		"X-Test-Principal": principalHeader(fixtureUser),

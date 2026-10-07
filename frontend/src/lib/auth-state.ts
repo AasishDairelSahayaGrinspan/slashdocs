@@ -1,42 +1,34 @@
-import { useEffect, useState } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "react-router-dom";
+import { api } from "@/api";
 import { clearCommentDrafts } from "./comment-drafts";
 
-const SIGNED_OUT_KEY = "slashdocs.frontend_signed_out";
-const AUTH_STATE_EVENT = "slashdocs:auth-state";
+// Sign-out once only set this flag and kept the session cookie.
+const LEGACY_SIGNED_OUT_KEY = "slashdocs.frontend_signed_out";
 
-export function isFrontendSignedOut() {
-  try {
-    return localStorage.getItem(SIGNED_OUT_KEY) === "true";
-  } catch {
-    return false;
-  }
-}
-
-export function setFrontendSignedOut(signedOut: boolean) {
-  try {
-    if (signedOut) {
-      localStorage.setItem(SIGNED_OUT_KEY, "true");
+// Ends the browser session and forgets everything cached for the user.
+export function useSignOut() {
+  const qc = useQueryClient();
+  const nav = useNavigate();
+  return useMutation({
+    mutationFn: api.logout,
+    onSuccess: () => {
       // Unsent comments must not outlive the session on a shared browser.
       clearCommentDrafts();
-    } else {
-      localStorage.removeItem(SIGNED_OUT_KEY);
-    }
-  } catch {}
-  window.dispatchEvent(new Event(AUTH_STATE_EVENT));
+      qc.clear();
+      nav("/", { replace: true });
+    },
+  });
 }
 
-export function useFrontendSignedOut() {
-  const [signedOut, setSignedOut] = useState(isFrontendSignedOut);
-
-  useEffect(() => {
-    const refresh = () => setSignedOut(isFrontendSignedOut());
-    window.addEventListener(AUTH_STATE_EVENT, refresh);
-    window.addEventListener("storage", refresh);
-    return () => {
-      window.removeEventListener(AUTH_STATE_EVENT, refresh);
-      window.removeEventListener("storage", refresh);
-    };
-  }, []);
-
-  return signedOut;
+// Ends the session of a user who signed out with the legacy flag, so the
+// upgrade does not sign them back in.
+export async function finishLegacySignOut() {
+  try {
+    if (localStorage.getItem(LEGACY_SIGNED_OUT_KEY) !== "true") return;
+    await api.logout();
+    localStorage.removeItem(LEGACY_SIGNED_OUT_KEY);
+  } catch {
+    // Storage is blocked or the server is down. The next start tries again.
+  }
 }

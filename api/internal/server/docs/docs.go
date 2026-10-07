@@ -254,6 +254,20 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/logout": {
+            "post": {
+                "description": "Clears the session cookie. CLI credentials stay valid.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "End the browser session",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/auth/oidc/callback": {
             "get": {
                 "tags": [

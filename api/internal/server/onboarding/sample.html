@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>Sample report — Q3 payments incident (demo)</title>
+    <title>How DNS resolution works</title>
     <style>
       :root {
         --page: #fff;
@@ -13,9 +13,6 @@
         --surface: #f4f4f5;
         --accent: #2028ff;
         --accent-soft: #eef0ff;
-        --danger: #dc2626;
-        --warning: #d97706;
-        --success: #16a34a;
       }
 
       /*
@@ -32,43 +29,27 @@
         --surface: #171a21;
         --accent: #8b93ff;
         --accent-soft: #1b2030;
-        --danger: #f87171;
-        --warning: #fbbf24;
-        --success: #4ade80;
       }
       html { color-scheme: light; }
       :root[data-slashdocs-theme="dark"] { color-scheme: dark; }
       * { box-sizing: border-box; }
       body {
-        font: 15px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI",
-          Inter, system-ui, sans-serif;
+        font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter,
+          system-ui, sans-serif;
         color: var(--fg);
         background: var(--page);
         margin: 0;
-        padding: 40px 24px 80px;
+        padding: 48px 24px 96px;
       }
-      .wrap { max-width: 760px; margin: 0 auto; }
-      h1 { font-size: 28px; margin: 0 0 8px; letter-spacing: -0.01em; }
-      h2 { font-size: 18px; margin: 32px 0 10px; }
-      h3 { font-size: 14px; margin: 20px 0 6px; color: var(--fg-muted); text-transform: uppercase; letter-spacing: 0.06em; }
-      p { margin: 0 0 12px; }
-      .meta {
-        display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
-        font-size: 12px; color: var(--fg-muted);
-        margin-bottom: 24px;
-      }
-      .pill {
-        display: inline-flex; align-items: center; padding: 2px 8px;
-        border-radius: 999px; font-size: 11px; font-weight: 600;
-      }
-      .pill.sev { background: #fee2e2; color: var(--danger); }
-      .pill.tag { background: var(--surface); color: var(--fg); }
-      .pill.ok { background: #dcfce7; color: var(--success); }
+      .wrap { max-width: 720px; margin: 0 auto; }
+      h1 { font-size: 32px; line-height: 1.2; margin: 0 0 8px; letter-spacing: -0.01em; }
+      h2 { font-size: 20px; margin: 40px 0 12px; }
+      p { margin: 0 0 14px; }
+      .lede { font-size: 18px; color: var(--fg-muted); margin-bottom: 28px; }
+      .meta { font-size: 13px; color: var(--fg-muted); margin-bottom: 28px; }
 
-      /* Inline code only — do not stack inside <pre>. */
       :not(pre) > code {
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-        font-size: 13px;
+        font: 14px ui-monospace, SFMono-Regular, Menlo, monospace;
         background: var(--surface);
         padding: 1px 5px;
         border-radius: 4px;
@@ -78,307 +59,189 @@
         color: #e4e4e7;
         padding: 14px 16px;
         border-radius: 8px;
-        font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, monospace;
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, monospace;
         overflow-x: auto;
-        margin: 8px 0 16px;
+        margin: 8px 0 18px;
       }
-      pre code, pre * {
-        background: transparent !important;
-        color: inherit !important;
-        padding: 0 !important;
-      }
-      .tok-kw { color: #c084fc; }
-      .tok-fn { color: #93c5fd; }
-      .tok-str { color: #86efac; }
-      .tok-cmt { color: #71717a; font-style: italic; }
+      .dim { color: #71717a; }
+      .hl { color: #93c5fd; }
 
-      table {
-        width: 100%; border-collapse: collapse; margin: 8px 0 16px;
-        font-size: 13px;
+      table { width: 100%; border-collapse: collapse; margin: 8px 0 18px; font-size: 14px; }
+      th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+      th {
+        font-size: 12px; font-weight: 600; color: var(--fg-muted);
+        text-transform: uppercase; letter-spacing: 0.05em;
       }
-      th, td {
-        text-align: left; padding: 8px 10px;
-        border-bottom: 1px solid var(--border);
-      }
-      th { font-weight: 600; color: var(--fg-muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; }
-      .num { font-family: ui-monospace, Menlo, monospace; font-variant-numeric: tabular-nums; }
+      td:first-child { font-family: ui-monospace, Menlo, monospace; white-space: nowrap; }
 
-      /* Stacked bar inside table cells */
-      .bar {
-        display: inline-block;
-        height: 6px;
-        border-radius: 3px;
-        background: var(--accent);
-        vertical-align: middle;
-      }
-      .bar.warn { background: var(--warning); }
-      .bar.bad { background: var(--danger); }
-
-      .chart {
-        display: flex; align-items: flex-end; gap: 4px;
-        height: 90px; padding: 8px;
-        background: var(--surface); border-radius: 8px;
-        margin: 8px 0 4px;
-        position: relative;
-      }
-      .chart > div {
-        flex: 1; border-radius: 3px 3px 0 0;
-        background: var(--accent); opacity: 0.85;
-        position: relative;
-        transition: opacity 0.15s;
-      }
-      .chart > div:hover { opacity: 1; }
-      .chart > div::after {
-        content: attr(data-label);
-        position: absolute;
-        bottom: -16px;
-        left: 50%;
-        transform: translateX(-50%);
-        font-size: 9px;
-        color: var(--fg-muted);
-      }
-      .chart .hi { background: var(--danger); }
-      .chart-cap { font-size: 11px; color: var(--fg-muted); margin: 24px 0 16px; }
-
-      ul { padding-left: 20px; margin: 4px 0 12px; }
-      li { margin-bottom: 6px; }
+      ol.steps { padding-left: 22px; }
+      ol.steps li { margin-bottom: 10px; padding-left: 4px; }
 
       .callout {
         border-left: 3px solid var(--accent);
         background: var(--accent-soft);
-        padding: 10px 14px;
+        padding: 12px 16px;
         border-radius: 0 8px 8px 0;
-        margin: 16px 0;
-        font-size: 13.5px;
+        margin: 20px 0;
+        font-size: 15px;
       }
-      .callout.warn { border-left-color: var(--warning); background: var(--accent-soft); }
 
       details {
         border: 1px solid var(--border);
         border-radius: 8px;
-        padding: 10px 14px;
-        margin: 8px 0 14px;
-        background: var(--page);
+        padding: 12px 16px;
+        margin: 8px 0 18px;
       }
-      details > summary {
-        cursor: pointer;
-        font-weight: 600;
-        font-size: 13px;
-      }
+      details > summary { cursor: pointer; font-weight: 600; }
       details[open] > summary { margin-bottom: 10px; }
 
-      .timeline {
-        position: relative;
-        padding-left: 16px;
-        border-left: 2px solid var(--border);
-      }
-      .timeline > .ev {
-        position: relative;
-        padding-bottom: 14px;
-      }
-      .timeline > .ev::before {
-        content: "";
-        position: absolute;
-        left: -22px;
-        top: 6px;
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: var(--accent);
-        border: 2px solid #fff;
-        box-shadow: 0 0 0 1px var(--border);
-      }
-      .timeline > .ev.bad::before { background: var(--danger); }
-      .timeline > .ev.ok::before { background: var(--success); }
-      .timeline .t {
-        font-family: ui-monospace, Menlo, monospace;
-        font-size: 12px;
-        color: var(--fg-muted);
-        margin-right: 8px;
-      }
+      svg.flow { width: 100%; height: auto; margin: 8px 0 4px; }
+      svg.flow .node { fill: var(--surface); stroke: var(--border); }
+      svg.flow .node.you { fill: var(--accent-soft); stroke: var(--accent); }
+      svg.flow text { fill: var(--fg); font: 13px -apple-system, system-ui, sans-serif; }
+      svg.flow .label { fill: var(--fg-muted); font-size: 11px; }
+      svg.flow .edge { stroke: var(--fg-muted); stroke-width: 1.5; fill: none; }
+      svg.flow .arrow { fill: var(--fg-muted); }
+      .caption { font-size: 13px; color: var(--fg-muted); margin-bottom: 18px; }
 
       .footer {
-        margin-top: 40px; padding-top: 16px;
+        margin-top: 48px; padding-top: 16px;
         border-top: 1px solid var(--border);
-        font-size: 12px; color: var(--fg-muted);
-      }
-      svg.flow { width: 100%; height: auto; }
-
-      a.cite {
-        text-decoration: none;
-        background: var(--accent-soft);
-        color: var(--accent);
-        padding: 0 4px;
-        border-radius: 3px;
-        font-size: 11px;
-        vertical-align: super;
+        font-size: 13px; color: var(--fg-muted);
       }
     </style>
   </head>
   <body>
     <div class="wrap">
-      <h1>Q3 payments incident — postmortem</h1>
-      <div class="meta">
-        <span>Sept 14, 2025</span>
-        <span>·</span>
-        <span class="pill sev">Sev-1</span>
-        <span>·</span>
-        <span class="pill ok">resolved</span>
-        <span>·</span>
-        <span>owner: payments-platform</span>
-        <span>·</span>
-        <span class="pill tag">demo</span>
-      </div>
+      <h1>How DNS resolution works</h1>
+      <p class="lede">
+        What happens between typing a name in the address bar and the first
+        byte of the page.
+      </p>
+      <div class="meta">An explainer for new teammates · 5 minute read</div>
 
       <div class="callout">
-        This is a sample document the slashdocs setup guide handed your
-        agent to publish. Try highlighting a sentence to leave an
-        anchored comment — that's the whole point.
+        This is the sample document from the slashdocs setup guide. Select
+        any sentence and leave a comment. Your agent can read the comment
+        and publish a new version.
       </div>
 
-      <h2>Summary</h2>
+      <h2>The short version</h2>
       <p>
-        On Sept 14, the payments API returned <code>5xx</code> errors
-        for roughly 12 minutes during the impact window, affecting
-        3.2% of merchants. The root cause was a stale connection
-        being returned from the upstream pool after the idle timeout
-        elapsed mid-request<a class="cite" href="#timeline">[1]</a>.
+        Computers connect to IP addresses, not names. The Domain Name System
+        (DNS) is the distributed phone book that turns a name such as
+        <code>example.com</code> into an address such as
+        <code>93.184.215.14</code>. No single server knows every answer.
+        Instead, a <em>recursive resolver</em> asks a chain of servers, each
+        of which knows who to ask next.
       </p>
 
-      <h2>Impact</h2>
+      <h2>The lookup, step by step</h2>
+      <svg class="flow" viewBox="0 0 700 210" role="img" aria-label="A resolver asks the root, the .com servers, and the example.com servers in turn">
+        <defs>
+          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+            <path class="arrow" d="M0,0 L10,5 L0,10 Z" />
+          </marker>
+        </defs>
+        <rect class="node you" x="10" y="85" width="110" height="44" rx="8" />
+        <text x="65" y="112" text-anchor="middle">Your laptop</text>
+        <rect class="node" x="200" y="85" width="140" height="44" rx="8" />
+        <text x="270" y="112" text-anchor="middle">Recursive resolver</text>
+        <rect class="node" x="470" y="10" width="200" height="40" rx="8" />
+        <text x="570" y="35" text-anchor="middle">Root servers</text>
+        <rect class="node" x="470" y="87" width="200" height="40" rx="8" />
+        <text x="570" y="112" text-anchor="middle">.com TLD servers</text>
+        <rect class="node" x="470" y="164" width="200" height="40" rx="8" />
+        <text x="570" y="189" text-anchor="middle">example.com name servers</text>
+        <path class="edge" d="M120 107 H198" marker-end="url(#arr)" />
+        <path class="edge" d="M340 100 C400 100 410 30 468 30" marker-end="url(#arr)" />
+        <path class="edge" d="M340 107 H468" marker-end="url(#arr)" />
+        <path class="edge" d="M340 114 C400 114 410 184 468 184" marker-end="url(#arr)" />
+        <text class="label" x="160" y="98" text-anchor="middle">1</text>
+        <text class="label" x="452" y="22" text-anchor="middle">2</text>
+        <text class="label" x="452" y="100" text-anchor="middle">3</text>
+        <text class="label" x="452" y="176" text-anchor="middle">4</text>
+      </svg>
+      <p class="caption">The resolver does the walking. Your laptop asks one question and waits.</p>
+      <ol class="steps">
+        <li>
+          Your laptop checks its own cache. On a miss, it sends the question
+          to the recursive resolver that the network gave it, usually run by
+          your ISP or a public service such as <code>1.1.1.1</code>.
+        </li>
+        <li>
+          The resolver asks a root server. The root does not know the answer,
+          but it knows which servers handle <code>.com</code>.
+        </li>
+        <li>
+          The resolver asks a <code>.com</code> server. That server knows
+          which name servers handle <code>example.com</code>.
+        </li>
+        <li>
+          The resolver asks an <code>example.com</code> name server. This
+          server is <em>authoritative</em>: it holds the real record and
+          returns the address.
+        </li>
+      </ol>
+
+      <h2>Caching and TTL</h2>
+      <p>
+        Every answer carries a time to live (TTL) in seconds. Until the TTL
+        expires, the resolver answers from its cache and skips the walk. This
+        is why a cold lookup can take 100 ms or more, but a warm lookup takes
+        a few milliseconds.
+      </p>
+      <p>
+        It is also why a DNS change does not "propagate". Nothing is pushed.
+        Each cache keeps the old answer until its copy expires, so lower the
+        TTL a day before you plan to move a record.
+      </p>
+
+      <h2>Record types you will see</h2>
       <table>
         <thead>
-          <tr>
-            <th>Metric</th>
-            <th>Value</th>
-            <th>Severity</th>
-          </tr>
+          <tr><th>Type</th><th>Holds</th><th>Example</th></tr>
         </thead>
         <tbody>
-          <tr>
-            <td>Failed requests</td>
-            <td class="num">14,203</td>
-            <td><span class="bar bad" style="width: 78%"></span></td>
-          </tr>
-          <tr>
-            <td>Merchants affected</td>
-            <td class="num">3.2%</td>
-            <td><span class="bar warn" style="width: 38%"></span></td>
-          </tr>
-          <tr>
-            <td>Revenue at risk</td>
-            <td class="num">$48,200</td>
-            <td><span class="bar warn" style="width: 52%"></span></td>
-          </tr>
-          <tr>
-            <td>Time to detect</td>
-            <td class="num">2m 14s</td>
-            <td><span class="bar" style="width: 22%"></span></td>
-          </tr>
-          <tr>
-            <td>Time to mitigate</td>
-            <td class="num">11m 48s</td>
-            <td><span class="bar warn" style="width: 60%"></span></td>
-          </tr>
+          <tr><td>A</td><td>An IPv4 address</td><td>example.com → 93.184.215.14</td></tr>
+          <tr><td>AAAA</td><td>An IPv6 address</td><td>example.com → 2606:2800:21f:cb07::1</td></tr>
+          <tr><td>CNAME</td><td>An alias to another name</td><td>www → example.com</td></tr>
+          <tr><td>MX</td><td>The mail servers for the domain</td><td>10 mail.example.com</td></tr>
+          <tr><td>TXT</td><td>Free text, often for verification</td><td>"v=spf1 -all"</td></tr>
+          <tr><td>NS</td><td>The authoritative name servers</td><td>a.iana-servers.net</td></tr>
         </tbody>
       </table>
 
-      <h2>Error rate during the incident</h2>
-      <div class="chart" aria-label="Error rate timeline">
-        <div style="height:14%" data-label="14:02"></div>
-        <div style="height:18%" data-label=""></div>
-        <div style="height:16%" data-label=""></div>
-        <div style="height:22%" data-label="14:10"></div>
-        <div class="hi" style="height:88%" data-label=""></div>
-        <div class="hi" style="height:95%" data-label="14:13"></div>
-        <div class="hi" style="height:76%" data-label=""></div>
-        <div style="height:30%" data-label=""></div>
-        <div style="height:14%" data-label="14:22"></div>
-        <div style="height:11%" data-label=""></div>
-        <div style="height:9%" data-label=""></div>
-        <div style="height:10%" data-label="14:32"></div>
-      </div>
-      <div class="chart-cap">
-        Red bars mark the 5xx spike window. Returned to baseline at 14:23.
-      </div>
-
-      <h2>Architecture diagram</h2>
-      <svg class="flow" viewBox="0 0 580 160" xmlns="http://www.w3.org/2000/svg">
-        <defs>
-          <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M0,0 L10,5 L0,10 Z" fill="#71717a" />
-          </marker>
-          <marker id="arr-bad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
-            <path d="M0,0 L10,5 L0,10 Z" fill="#dc2626" />
-          </marker>
-        </defs>
-        <g font-family="ui-sans-serif, system-ui" font-size="12" fill="#18181b">
-          <rect x="10" y="60" width="100" height="40" rx="8" fill="#f4f4f5" stroke="#e4e4e7"/>
-          <text x="60" y="84" text-anchor="middle">Merchant</text>
-
-          <rect x="160" y="60" width="120" height="40" rx="8" fill="#eef0ff" stroke="#c7d2fe"/>
-          <text x="220" y="84" text-anchor="middle">Payments API</text>
-
-          <rect x="330" y="60" width="120" height="40" rx="8" fill="#f4f4f5" stroke="#e4e4e7"/>
-          <text x="390" y="84" text-anchor="middle">Conn pool</text>
-
-          <rect x="490" y="60" width="80" height="40" rx="8" fill="#fee2e2" stroke="#fecaca"/>
-          <text x="530" y="84" text-anchor="middle">Upstream</text>
-
-          <line x1="110" y1="80" x2="160" y2="80" stroke="#71717a" stroke-width="1.5" marker-end="url(#arr)"/>
-          <line x1="280" y1="80" x2="330" y2="80" stroke="#71717a" stroke-width="1.5" marker-end="url(#arr)"/>
-          <line x1="450" y1="80" x2="490" y2="80" stroke="#dc2626" stroke-width="1.8" marker-end="url(#arr-bad)" stroke-dasharray="4 3"/>
-
-          <text x="470" y="55" text-anchor="middle" font-size="10" fill="#dc2626">stale conn</text>
-        </g>
-      </svg>
-
-      <h2>Root cause</h2>
+      <h2>Try it yourself</h2>
       <p>
-        The connection pool's idle-timeout check ran <em>before</em>
-        the context deadline check, so connections that had just
-        crossed the idle threshold were returned for active requests
-        and immediately rejected by the upstream.
+        <code>dig</code> shows each step. The <code>+trace</code> flag makes it
+        walk the tree itself instead of asking your resolver.
       </p>
-      <pre><span class="tok-kw">if</span> conn.<span class="tok-fn">IdleTimeout</span> &lt; ctx.<span class="tok-fn">Deadline</span>() {
-  <span class="tok-cmt">// pool returned a stale conn → 5xx</span>
-  <span class="tok-kw">return</span> ErrUpstream
-}</pre>
+      <pre><span class="dim">$</span> dig +trace example.com
+<span class="dim">.                  518400  IN  NS   a.root-servers.net.</span>
+<span class="dim">com.               172800  IN  NS   a.gtld-servers.net.</span>
+<span class="dim">example.com.       172800  IN  NS   a.iana-servers.net.</span>
+<span class="hl">example.com.       3600    IN  A    93.184.215.14</span></pre>
 
       <details>
-        <summary>The fix (one-line reorder)</summary>
-        <pre><span class="tok-kw">if</span> ctx.<span class="tok-fn">Deadline</span>() <span class="tok-cmt">// check deadline first</span>
-   &amp;&amp; conn.<span class="tok-fn">IdleTimeout</span> &gt; <span class="tok-fn">remaining</span>(ctx) {
-  <span class="tok-kw">return</span> pool.<span class="tok-fn">Drop</span>(conn)
-}</pre>
+        <summary>Why does the root not get every query on the internet?</summary>
+        <p>
+          Resolvers cache the root and TLD answers too, with TTLs of one to
+          six days. A busy resolver asks the root about <code>.com</code>
+          a few times a week, not once per lookup.
+        </p>
       </details>
 
-      <h2 id="timeline">Timeline</h2>
-      <div class="timeline">
-        <div class="ev"><span class="t">14:02</span>Deploy of upstream-pool <code>v1.7.3</code>.</div>
-        <div class="ev bad"><span class="t">14:11</span>Error-rate alert fires (p99 latency &gt; 2s).</div>
-        <div class="ev"><span class="t">14:13</span>On-call paged.</div>
-        <div class="ev"><span class="t">14:18</span>Rollback initiated.</div>
-        <div class="ev ok"><span class="t">14:23</span>Error rate back to baseline.</div>
-      </div>
-
-      <h2>Action items</h2>
+      <h2>Common misconceptions</h2>
       <ul>
-        <li>Reorder pool checks: deadline first, then idle timeout.</li>
-        <li>Add a synthetic probe for stale-conn behavior on every release.</li>
-        <li>Raise alert sensitivity for payment-success-rate dips below 99.5%.</li>
+        <li><strong>"DNS is one server."</strong> It is millions of servers, each responsible for one zone.</li>
+        <li><strong>"Changes propagate."</strong> Caches expire. Nothing is pushed.</li>
+        <li><strong>"Flushing my cache fixes it."</strong> Only your cache. The resolver keeps its own copy.</li>
       </ul>
 
-      <div class="callout warn">
-        <b>Reviewer:</b> this paragraph deliberately contains a subtle
-        ambiguity — try selecting the phrase
-        <em>"during the impact window"</em> above and leaving a
-        comment asking for the exact start and end times.
-      </div>
-
       <div class="footer">
-        Generated by the slashdocs setup guide. This is a demo file —
-        delete it after exploring.
+        Published by the slashdocs setup guide. You can delete this document
+        when you finish.
       </div>
     </div>
   </body>

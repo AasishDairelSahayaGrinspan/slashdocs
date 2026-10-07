@@ -76,22 +76,8 @@
     text-decoration: none;
   }
   ::selection {
-    background: var(--color-accent-muted);
+    background: color-mix(in srgb, var(--color-accent) 24%, transparent);
   }
-}
-
-@keyframes caret-blink {
-  0%,
-  50% {
-    opacity: 1;
-  }
-  51%,
-  100% {
-    opacity: 0;
-  }
-}
-.caret {
-  animation: caret-blink 1s steps(1) infinite;
 }
 
 /* ── Shadow elevation tokens ────────────────────────────── */
@@ -119,28 +105,6 @@
 }
 .elevate-subtle:hover {
   box-shadow: var(--shadow-border-hover);
-}
-
-.glow-terminal {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.06),
-    0 0 60px -12px rgba(32, 40, 255, 0.2),
-    0 20px 25px -5px rgb(0 0 0 / 0.15),
-    0 8px 10px -6px rgb(0 0 0 / 0.1);
-}
-.glow-surface {
-  box-shadow:
-    0 0 0 1px rgba(0, 0, 0, 0.04),
-    0 0 40px -8px rgba(32, 40, 255, 0.06),
-    0 20px 25px -5px rgb(0 0 0 / 0.08),
-    0 8px 10px -6px rgb(0 0 0 / 0.06);
-}
-.dark .glow-surface {
-  box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.06),
-    0 0 40px -8px rgba(129, 140, 255, 0.1),
-    0 20px 25px -5px rgb(0 0 0 / 0.3),
-    0 8px 10px -6px rgb(0 0 0 / 0.2);
 }
 
 /* ── Input focus glow ───────────────────────────────────── */
@@ -176,30 +140,6 @@
   );
   background-size: 800px 100%;
   animation: shimmer 1.6s ease-in-out infinite;
-}
-
-/* ── Hero floating gradient ─────────────────────────────── */
-@keyframes float {
-  0%,
-  100% {
-    transform: translateY(0px) scale(1);
-  }
-  50% {
-    transform: translateY(-20px) scale(1.02);
-  }
-}
-
-/* ── Glow pulse ─────────────────────────────────────────── */
-@keyframes glow-pulse {
-  0%,
-  100% {
-    opacity: 0.5;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.8;
-    transform: scale(1.03);
-  }
 }
 
 /* ── Pill shimmer ───────────────────────────────────────── */

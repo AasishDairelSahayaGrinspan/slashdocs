@@ -161,15 +161,6 @@ for arg in "$@"; do
   esac
 done
 
-if [ -n "${SLASHDOCS_INSTALL_DIR:-}" ]; then
-  BIN_DIR="$SLASHDOCS_INSTALL_DIR"
-elif [ "$INSTALL_MODE" = "system" ]; then
-  BIN_DIR="/usr/local/bin"
-else
-  BIN_DIR="$HOME/.local/bin"
-fi
-BIN_PATH="$BIN_DIR/slashdocs"
-
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
 case "$os" in
@@ -189,6 +180,27 @@ fi
 
 # The CLI was named aidocs before. An install under either name counts.
 old_path="$(command -v slashdocs 2>/dev/null || command -v aidocs 2>/dev/null || true)"
+
+# Replace an existing install in place. Otherwise prefer a writable dir that
+# is already on PATH, so slashdocs works in this terminal with no extra step.
+on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; esac; return 1; }
+if [ -n "${SLASHDOCS_INSTALL_DIR:-}" ]; then
+  BIN_DIR="$SLASHDOCS_INSTALL_DIR"
+elif [ "$INSTALL_MODE" = "system" ]; then
+  BIN_DIR="/usr/local/bin"
+elif [ -n "$old_path" ]; then
+  BIN_DIR="$(dirname "$old_path")"
+else
+  BIN_DIR="$HOME/.local/bin"
+  for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
+    if on_path "$dir" && [ -w "$dir" ]; then
+      BIN_DIR="$dir"
+      break
+    fi
+  done
+fi
+BIN_PATH="$BIN_DIR/slashdocs"
+
 if [ -n "$old_path" ] && [ "$(dirname "$old_path")" != "$BIN_DIR" ]; then
   old_dir="$(dirname "$old_path")"
   echo "Existing slashdocs install found at $old_path." >&2

@@ -832,6 +832,15 @@ paths:
       summary: Start OIDC login
       tags:
       - auth
+  /v1/auth/logout:
+    post:
+      description: Clears the session cookie. CLI credentials stay valid.
+      responses:
+        "204":
+          description: No Content
+      summary: End the browser session
+      tags:
+      - auth
   /v1/auth/oidc/callback:
     get:
       parameters:

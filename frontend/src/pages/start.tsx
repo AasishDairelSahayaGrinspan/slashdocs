@@ -111,8 +111,7 @@ export function StartPage() {
             CLI plus the bundled agent skill, so your agent knows when to publish docs
             to slashdocs.
           </p>
-          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash
-export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
+          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash`}</CodeBlock>
           <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
             Works on macOS and Linux. The skill is fetched from this slashdocs server
             and installed into the standard agent skills directory and Claude's skills
@@ -136,7 +135,7 @@ export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
 
         <Step
           n={3}
-          title="Try it end-to-end (optional)"
+          title="Try it end-to-end"
           stepKey="first_doc_seen"
           state={state}
           setStep={setStep}
@@ -246,7 +245,7 @@ function Step({
 
 function TryItOut() {
   const url = publicURL();
-  const prompt = `Download the slashdocs sample report and publish it as a reviewable document:
+  const prompt = `Download the slashdocs sample explainer and publish it as a reviewable document:
 
 curl -sSL ${url}/onboarding/sample.html -o sample.html
 
@@ -254,8 +253,7 @@ Then use the slashdocs CLI to publish sample.html to slashdocs. Give me the docu
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-        Want to see the loop work without writing anything? Copy this prompt into your
-        agent — it'll fetch a sample report and publish it to slashdocs.
+        Copy this prompt into your agent. It publishes a short explainer about DNS.
       </p>
       <CodeBlock>{prompt}</CodeBlock>
       <div className="mt-4">

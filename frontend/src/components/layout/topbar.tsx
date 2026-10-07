@@ -22,7 +22,7 @@ import {
 } from "@/components/ui/dropdown";
 import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/misc";
-import { setFrontendSignedOut } from "@/lib/auth-state";
+import { useSignOut } from "@/lib/auth-state";
 import { useTheme } from "@/lib/theme";
 import type { Principal } from "@/api";
 
@@ -42,6 +42,7 @@ export function TopBar({ user }: { user: Principal }) {
 
 export function AccountMenu({ user }: { user: Principal }) {
   const nav = useNavigate();
+  const signOut = useSignOut();
   const { theme, setTheme } = useTheme();
   const { reset } = useOnboarding();
   return (
@@ -99,12 +100,7 @@ export function AccountMenu({ user }: { user: Principal }) {
           </DropdownItem>
         ))}
         <DropdownSeparator />
-        <DropdownItem
-          onSelect={() => {
-            setFrontendSignedOut(true);
-            nav("/");
-          }}
-        >
+        <DropdownItem disabled={signOut.isPending} onSelect={() => signOut.mutate()}>
           <LogOut className="h-4 w-4" /> Sign out
         </DropdownItem>
       </DropdownContent>

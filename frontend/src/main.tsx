@@ -9,6 +9,7 @@ import { APIError } from "@/api";
 import { errorMessage } from "@/lib/errors";
 import { ThemeProvider } from "@/lib/theme";
 import { AppShell } from "@/components/layout/app-shell";
+import { LandingPage } from "@/pages/landing";
 import { LoginPage } from "@/pages/login";
 import { DocumentsPage } from "@/pages/documents";
 import { DocumentPage } from "@/pages/document";
@@ -18,6 +19,7 @@ import { DevelopersPage } from "@/pages/developers";
 import { ProfilePage } from "@/pages/profile";
 import { StartPage } from "@/pages/start";
 import { migrateLegacyStorage } from "@/lib/legacy-storage";
+import { finishLegacySignOut } from "@/lib/auth-state";
 
 // Query failures (other than auth, handled by route guards) and any mutation
 // without its own onError surface as a toast.
@@ -44,8 +46,7 @@ function App() {
         <TooltipProvider>
           <BrowserRouter>
             <Routes>
-              {/* The landing page (pages/landing.tsx) is hidden for now. */}
-              <Route path="/" element={<Navigate to="/login" replace />} />
+              <Route path="/" element={<LandingPage />} />
               <Route path="/login" element={<LoginPage />} />
               <Route path="/app" element={<AppShell />}>
                 <Route index element={<Navigate to="documents" replace />} />
@@ -83,8 +84,10 @@ function LegacyDocRedirect() {
 
 migrateLegacyStorage();
 
-createRoot(document.getElementById("root")!).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
+void finishLegacySignOut().then(() =>
+  createRoot(document.getElementById("root")!).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  ),
 );

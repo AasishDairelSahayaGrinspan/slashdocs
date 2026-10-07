@@ -43,7 +43,9 @@ export function CodeBlock({
             variant="ghost"
             size="icon"
             onClick={onCopy}
-            className="absolute right-2 top-2 min-h-10 min-w-10 rounded-md p-1.5 text-[var(--color-fg-muted)] opacity-0 transition-[background-color,color,opacity,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-border)] hover:text-[var(--color-fg)] group-hover:opacity-100 focus:opacity-100"
+            // 32px tall at 6px from the top: centered on the first line, so a
+            // one-line block centers it too.
+            className="absolute right-1.5 top-1.5 h-8 min-h-8 w-8 rounded-md text-[var(--color-fg-muted)] opacity-0 transition-[background-color,color,opacity,transform] duration-150 ease-out active:scale-[0.96] hover:bg-[var(--color-border)] hover:text-[var(--color-fg)] group-hover:opacity-100 focus:opacity-100"
             aria-label={copied ? "Copied" : "Copy"}
           >
             {copied ? (

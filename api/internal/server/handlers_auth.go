@@ -401,13 +401,28 @@ func (h handlers) revokeCLICredential(c *gin.Context) {
 	c.Status(http.StatusNoContent)
 }
 
+// Logout godoc
+// @Summary End the browser session
+// @Description Clears the session cookie. CLI credentials stay valid.
+// @Tags auth
+// @Success 204
+// @Router /v1/auth/logout [post]
+func (h handlers) logout(c *gin.Context) {
+	h.writeSessionCookie(c, "", -1)
+	c.Status(http.StatusNoContent)
+}
+
 func (h handlers) setSessionCookie(c *gin.Context, p auth.Principal) {
-	cookie := (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).Sign(p.ID)
+	h.writeSessionCookie(c, (auth.SessionCodec{Secret: []byte(h.deps.sessionSecret)}).Sign(p.ID), sessionTTLSeconds)
+}
+
+// writeSessionCookie sets the session cookie. A negative maxAge deletes it.
+func (h handlers) writeSessionCookie(c *gin.Context, value string, maxAge int) {
 	//nolint:gosec // G124: Secure is deliberately false only for configured local HTTP development origins.
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     sessionCookieName,
-		Value:    cookie,
-		MaxAge:   sessionTTLSeconds,
+		Value:    value,
+		MaxAge:   maxAge,
 		Path:     "/",
 		Secure:   secureCookiesForOrigin(h.deps.appOrigin),
 		HttpOnly: true,

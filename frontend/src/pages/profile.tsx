@@ -1,5 +1,4 @@
 import { NotificationToggle } from "@/components/notification-toggle";
-import { useNavigate } from "react-router-dom";
 import { useTitle } from "@/lib/use-title";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
@@ -16,14 +15,14 @@ import {
 import { useMe } from "@/lib/hooks";
 import { useTheme } from "@/lib/theme";
 import { cn } from "@/lib/cn";
-import { setFrontendSignedOut } from "@/lib/auth-state";
+import { useSignOut } from "@/lib/auth-state";
 import { api } from "@/api";
 import { errorMessage } from "@/lib/errors";
 
 export function ProfilePage() {
   useTitle("Profile");
   const me = useMe();
-  const nav = useNavigate();
+  const signOut = useSignOut();
   const { theme, setTheme } = useTheme();
   const user = me.data?.user || me.data?.principal;
   const qc = useQueryClient();
@@ -151,10 +150,8 @@ export function ProfilePage() {
           <CardContent className="pt-5">
             <Button
               variant="outline"
-              onClick={() => {
-                setFrontendSignedOut(true);
-                nav("/");
-              }}
+              disabled={signOut.isPending}
+              onClick={() => signOut.mutate()}
             >
               <LogOut className="h-4 w-4" /> Sign out
             </Button>
