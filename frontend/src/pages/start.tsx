@@ -243,19 +243,21 @@ function Step({
   );
 }
 
+const TRY_IT_PROMPT = `Write a short explainer, "How GPS knows where you are", for technical readers who are not GPS experts. Cover:
+- how a receiver finds its position from the distances to four satellites
+- why the satellite clocks must agree to a few nanoseconds
+- why relativity makes those clocks drift, and how the system corrects it
+
+Include one diagram and one table. Run "slashdocs guidelines" first and follow it. Then publish the explainer with the slashdocs CLI and give me the document URL.`;
+
 function TryItOut() {
-  const url = publicURL();
-  const prompt = `Download the slashdocs sample explainer and publish it as a reviewable document:
-
-curl -sSL ${url}/onboarding/sample.html -o sample.html
-
-Then use the slashdocs CLI to publish sample.html to slashdocs. Give me the document URL when you're done.`;
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-        Copy this prompt into your agent. It publishes a short explainer about DNS.
+        Copy this prompt into your agent. It writes a short explainer and publishes it
+        to slashdocs.
       </p>
-      <CodeBlock>{prompt}</CodeBlock>
+      <CodeBlock wrap>{TRY_IT_PROMPT}</CodeBlock>
       <div className="mt-4">
         <Button asChild variant="ghost" size="sm">
           <Link to="/app/documents">

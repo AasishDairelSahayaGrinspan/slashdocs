@@ -574,8 +574,6 @@ GET /commit.txt                Build revision (controlled by SLASHDOCS_COMMIT_SH
 GET /livez                     Liveness JSON: {"status":"ok"}
 GET /readyz                    Readiness JSON with dependency checks
 GET /.well-known/slashdocs.json   Deployment discovery
-GET /onboarding/sample.html    Bundled sample explainer used by the in-app
-                               setup guide. Downloadable, no auth.
 ```
 
 ## How the frontend gets its public URL

@@ -10,10 +10,13 @@ export function Skeleton({ className, ...p }: React.HTMLAttributes<HTMLDivElemen
 export function CodeBlock({
   children,
   copy = true,
+  wrap = false,
   className,
 }: {
   children: string;
   copy?: boolean;
+  // Wrap long lines. Use it for prose, such as a prompt, not for commands.
+  wrap?: boolean;
   className?: string;
 }) {
   const [copied, setCopied] = React.useState(false);
@@ -34,7 +37,12 @@ export function CodeBlock({
         className,
       )}
     >
-      <pre className="overflow-x-auto p-3 pr-10 leading-relaxed text-[var(--color-fg)]">
+      <pre
+        className={cn(
+          "overflow-x-auto p-3 pr-10 leading-relaxed text-[var(--color-fg)]",
+          wrap && "whitespace-pre-wrap",
+        )}
+      >
         {children}
       </pre>
       {copy && (
