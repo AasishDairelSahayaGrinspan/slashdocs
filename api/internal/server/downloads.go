@@ -148,8 +148,9 @@ func releaseCommit() string {
 	return ""
 }
 
-const installScriptTemplate = `#!/usr/bin/env bash
-set -euo pipefail
+const installScriptTemplate = `#!/bin/sh
+# POSIX sh: users run "curl <server>/install.sh | sh".
+set -eu
 
 BASE_URL="${SLASHDOCS_BASE_URL:-__BASE_URL__}"
 INSTALL_MODE="user"
@@ -205,7 +206,7 @@ if [ -n "$old_path" ] && [ "$(dirname "$old_path")" != "$BIN_DIR" ]; then
   old_dir="$(dirname "$old_path")"
   echo "Existing slashdocs install found at $old_path." >&2
   echo "Remove it first, or install there with:" >&2
-  echo "  curl -fsSL $BASE_URL/install.sh | SLASHDOCS_INSTALL_DIR=$old_dir bash" >&2
+  echo "  curl -fsSL $BASE_URL/install.sh | SLASHDOCS_INSTALL_DIR=$old_dir sh" >&2
   echo "Target install path: $BIN_PATH" >&2
   exit 1
 fi
@@ -235,7 +236,7 @@ elif [ "$INSTALL_MODE" = "system" ]; then
   sudo="sudo"
 else
   echo "install dir is not writable: $BIN_DIR" >&2
-  echo "Try: curl -fsSL $BASE_URL/install.sh | bash -s -- --system" >&2
+  echo "Try: curl -fsSL $BASE_URL/install.sh | sh -s -- --system" >&2
   echo "Or set SLASHDOCS_INSTALL_DIR to a writable directory." >&2
   exit 1
 fi
@@ -258,7 +259,7 @@ echo "  $HOME/.agents/skills/slashdocs/SKILL.md"
 echo "  $HOME/.claude/skills/slashdocs/SKILL.md"
 
 # Point a fresh CLI at the server this installer came from, so
-# "curl <server>/install.sh | bash" ends with slashdocs already configured.
+# "curl <server>/install.sh | sh" ends with slashdocs already configured.
 # An existing config is never touched: it may hold other contexts/credentials.
 configure_default_context() {
   config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/slashdocs"

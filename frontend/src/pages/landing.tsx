@@ -81,7 +81,7 @@ export function LandingPage() {
             with a new version.
           </p>
           <div className="mt-10 flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-center">
-            <CodeBlock className="min-w-0 flex-1">{`curl -fsSL ${publicURL()}/install.sh | bash`}</CodeBlock>
+            <CodeBlock className="min-w-0 flex-1">{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
             <Button asChild size="lg">
               <Link to="/login">Sign in</Link>
             </Button>

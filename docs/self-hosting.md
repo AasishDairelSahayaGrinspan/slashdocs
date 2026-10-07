@@ -641,7 +641,7 @@ Once you've shipped a release, users (and their agents) install the CLI
 with:
 
 ```bash
-curl -fsSL https://slashdocs.example.com/install.sh | bash
+curl -fsSL https://slashdocs.example.com/install.sh | sh
 slashdocs auth login https://slashdocs.example.com
 ```
 
@@ -650,7 +650,7 @@ first writable directory that is already on `PATH` from `~/.local/bin`,
 `~/bin`, and `/usr/local/bin`, so `slashdocs` works in the same terminal. If
 none of them is on `PATH`, it installs to `~/.local/bin` and adds that
 directory to the shell profile for new terminals. For a system install, run
-`curl -fsSL https://slashdocs.example.com/install.sh | bash -s -- --system`.
+`curl -fsSL https://slashdocs.example.com/install.sh | sh -s -- --system`.
 Set `SLASHDOCS_INSTALL_DIR` to choose the directory.
 
 For self-hosted instances, pass the URL to `slashdocs auth login` so the

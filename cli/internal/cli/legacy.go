@@ -24,7 +24,7 @@ func RenameNotice() string {
 		"The agent skill is now named slashdocs too. Run `slashdocs guidelines` before you write a document.\n"
 	if _, err := exec.LookPath(cliName); err != nil {
 		_, cx, _ := currentContext(&globals{})
-		notice += "slashdocs is not on PATH. Install it with: curl -fsSL " + first(cx.Server, "<your slashdocs server>") + "/install.sh | bash\n"
+		notice += "slashdocs is not on PATH. Install it with: curl -fsSL " + first(cx.Server, "<your slashdocs server>") + "/install.sh | sh\n"
 	}
 	return notice
 }

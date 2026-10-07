@@ -102,7 +102,7 @@ in your session, prefer them; otherwise use the CLI commands described above.
 ## Authentication and setup
 
 Assume the user installed slashdocs and the bundled skill via the server's
-`curl ... | bash` installer. If the CLI reports that auth is missing or expired,
+`curl ... | sh` installer. If the CLI reports that auth is missing or expired,
 run `slashdocs auth login` (include the server URL if the current context requires
 it), then retry the requested CLI action. If login cannot be completed in the
 environment, explain that clearly and ask the user to authenticate.
