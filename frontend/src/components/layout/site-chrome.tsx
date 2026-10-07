@@ -5,14 +5,14 @@ export const REPO_URL = "https://github.com/razorpay/slashdocs";
 export const SELF_HOSTING_URL = `${REPO_URL}/blob/master/docs/self-hosting.md`;
 
 export const siteLink =
-  "rounded-md px-3 py-2 text-sm text-[var(--color-fg-muted)] transition-colors hover:text-[var(--color-fg)]";
+  "whitespace-nowrap rounded-md px-3 py-2 text-sm text-[var(--color-fg-muted)] transition-colors hover:text-[var(--color-fg)]";
 
 // The header and footer of the public pages (landing and sign in).
 export function SiteHeader({ children }: { children?: React.ReactNode }) {
   return (
-    <header className="mx-auto flex h-16 w-full max-w-5xl items-center justify-between px-6">
+    <header className="mx-auto flex h-16 w-full max-w-6xl items-center justify-between px-6">
       <Link to="/" aria-label="slashdocs home">
-        <Logo className="h-5 w-auto" />
+        <Logo className="h-4 w-auto sm:h-5" />
       </Link>
       <nav className="-mr-3 flex items-center gap-1">
         <a href={REPO_URL} target="_blank" rel="noreferrer" className={siteLink}>
@@ -27,7 +27,7 @@ export function SiteHeader({ children }: { children?: React.ReactNode }) {
 export function SiteFooter() {
   return (
     <footer className="border-t border-[var(--color-border)]">
-      <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-8 text-sm text-[var(--color-fg-muted)]">
+      <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-x-6 gap-y-2 px-6 py-8 text-sm text-[var(--color-fg-muted)]">
         <span>slashdocs is open source under the MIT License.</span>
         <nav className="-mx-3 flex flex-wrap">
           <a href={REPO_URL} target="_blank" rel="noreferrer" className={siteLink}>

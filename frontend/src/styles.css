@@ -381,6 +381,122 @@
   }
 }
 
+/* ── Landing: the agent and people loop ─────────────────── */
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* Both windows buzz at a handoff, like two phones that share a contact. */
+@keyframes buzz {
+  0%,
+  100% {
+    translate: 0;
+    rotate: 0deg;
+  }
+  20% {
+    translate: -2px 0;
+    rotate: -0.4deg;
+  }
+  40% {
+    translate: 2px 0;
+    rotate: 0.4deg;
+  }
+  60% {
+    translate: -1.5px 0;
+    rotate: -0.2deg;
+  }
+  80% {
+    translate: 1px 0;
+    rotate: 0.1deg;
+  }
+}
+.buzz {
+  animation: buzz 180ms linear 3;
+}
+
+/* The wind: streaks rush from the sender to the receiver. They run down on
+   small screens, where the windows stack, and across on wide ones. */
+.wind {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  container-type: size;
+}
+.wind[data-reverse] {
+  scale: 1 -1;
+}
+.wind > i {
+  position: absolute;
+  top: 0;
+  left: var(--at);
+  width: 1.5px;
+  height: var(--length);
+  border-radius: 1px;
+  background: linear-gradient(transparent, var(--color-accent));
+  filter: drop-shadow(0 0 3px var(--color-accent));
+  animation: wind-down 520ms cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@keyframes wind-down {
+  from {
+    opacity: 0;
+    transform: translateY(-100%);
+  }
+  25% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateY(100cqh);
+  }
+}
+@keyframes wind-across {
+  from {
+    opacity: 0;
+    transform: translateX(-100%) rotate(var(--tilt));
+  }
+  25% {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+    transform: translateX(100cqw) rotate(var(--tilt));
+  }
+}
+@media (min-width: 48rem) {
+  .wind[data-reverse] {
+    scale: -1 1;
+  }
+  .wind > i {
+    top: var(--at);
+    left: 0;
+    width: var(--length);
+    height: 1.5px;
+    background: linear-gradient(to right, transparent, var(--color-accent));
+    animation-name: wind-across;
+  }
+}
+
+/* A text selection that grows across the words, as a mouse drags. */
+.select-sweep {
+  background: linear-gradient(
+      color-mix(in srgb, var(--color-accent) 24%, transparent),
+      color-mix(in srgb, var(--color-accent) 24%, transparent)
+    )
+    no-repeat;
+  animation: select-sweep 450ms ease-out both;
+}
+@keyframes select-sweep {
+  from {
+    background-size: 0 100%;
+  }
+  to {
+    background-size: 100% 100%;
+  }
+}
+
 /* Respect reduced-motion preferences everywhere */
 @media (prefers-reduced-motion: reduce) {
   *,
