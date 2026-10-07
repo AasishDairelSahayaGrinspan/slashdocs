@@ -1,5 +1,5 @@
 import { Link, Navigate } from "react-router-dom";
-import { Bot, Scale, Server } from "lucide-react";
+import { History, Link2, MessageSquareQuote } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/ui/misc";
 import {
@@ -14,47 +14,77 @@ import { publicURL } from "@/lib/config";
 import { useMe } from "@/lib/hooks";
 import { useTitle } from "@/lib/use-title";
 
-const FACTS = [
+const PILLARS = [
   {
-    icon: Bot,
-    title: "Any agent",
-    body: "Claude Code, Codex, Cursor, Pi, or anything that runs a command or speaks MCP.",
+    icon: Link2,
+    title: "A link, not a paste",
+    body: "Each document gets a URL. Share it with a person, a Google Group, or the whole organization. Folders, labels, and search find it again next month.",
   },
   {
-    icon: Server,
-    title: "Self-hosted",
-    body: "One Go binary with Postgres and an S3-compatible bucket. Your data stays with you.",
+    icon: MessageSquareQuote,
+    title: "Comments on the exact words",
+    body: "Select a sentence and comment. Reply, mention, and react, with Slack notifications. The agent gets each comment with the quote it is about.",
   },
   {
-    icon: Scale,
-    title: "MIT licensed",
-    body: "Read the source, change it, and run it as you like.",
+    icon: History,
+    title: "Every version kept",
+    body: "Each push makes a new version that never changes. A push from an old version fails, so two agents cannot overwrite each other.",
   },
 ];
 
-const USES = [
-  ["Explainers", "How GPS knows where you are, written for a new teammate."],
-  ["Design docs", "Proposals with diagrams that the team can question line by line."],
-  ["Incident reports", "The timeline, the graphs, and the action items in one file."],
-  ["Data analysis", "Charts and tables from a notebook run, ready for discussion."],
-  ["QA reports", "Browser-test findings with the screenshots embedded."],
-  ["Dashboards", "A snapshot of a dashboard, captured as portable HTML."],
+const CONNECT = [
+  {
+    title: "The CLI and the skill",
+    body: "The install command adds a skill for Claude Code and for agents that read ~/.agents/skills. The skill teaches the agent to write, publish, and revise.",
+    code: "slashdocs docs create report.html",
+  },
+  {
+    title: "Remote MCP",
+    body: "Add one URL to any MCP client. You sign in through the browser with OAuth. There is nothing to install.",
+    code: `${publicURL()}/mcp`,
+  },
+  {
+    title: "Service accounts",
+    body: "CI jobs and scheduled agents publish with their own key, not with your account. Give the job the key as SLASHDOCS_TOKEN.",
+    code: "slashdocs sa key create sa_123",
+  },
+];
+
+const DOCUMENT = [
+  [
+    "Charts, diagrams, and screenshots",
+    "Inline SVG, Mermaid diagrams, and images embedded in the file.",
+  ],
+  [
+    "Shared state",
+    "Approvals, checklists, and trackers save to the document. Everyone sees the same state.",
+  ],
+  [
+    "Files from GitHub",
+    "Show a file from a repository at a branch, a tag, or a commit.",
+  ],
+  [
+    "Light and dark",
+    "Documents follow the theme of the reader, and they print cleanly.",
+  ],
 ];
 
 const SELF_HOST = [
-  ["Any OIDC provider", "Google, Okta, Entra ID, Keycloak, or Dex."],
   [
-    "Sandboxed rendering",
-    "Documents render on a separate origin, away from your session.",
+    "One binary",
+    "A Go server for the API, the web app, and the CLI downloads. You supply Postgres and an S3-compatible bucket.",
   ],
+  ["Your sign-in", "Any OIDC provider: Google, Okta, Entra ID, Keycloak, or Dex."],
   [
-    "Made for agents",
-    "A CLI, a remote MCP endpoint, and service accounts for headless jobs.",
+    "Sandboxed documents",
+    "Documents render on a separate origin. Their scripts cannot reach your session.",
   ],
+  ["MIT licensed", "Read the source, change it, and run it as you like."],
 ];
 
 const label = "font-mono text-xs uppercase tracking-[0.14em]";
 const headline = "font-semibold tracking-[-0.04em]";
+const section = "mx-auto max-w-6xl px-6 py-24";
 
 export function LandingPage() {
   useTitle();
@@ -81,7 +111,7 @@ export function LandingPage() {
           <Glow className="right-[-240px] top-[560px] h-[520px] w-[520px]" />
           <div className="relative mx-auto max-w-6xl px-6 pb-24 pt-14 md:pt-24">
             <p className={cn(label, "text-[var(--color-accent)]")}>
-              Open source · MIT · Self-hosted
+              Open source · Self-hosted
             </p>
             <h1
               className={cn(
@@ -92,9 +122,9 @@ export function LandingPage() {
               The collaborative workspace for agentic organizations.
             </h1>
             <p className="mt-6 max-w-2xl text-lg text-[var(--color-fg-muted)] md:text-xl">
-              Agents publish interactive HTML documents. Your team comments on the exact
-              words. Agents read the comments and publish the next version. Everyone
-              works on the same document, and every version is kept.
+              Your agents write the reports, specs, and analyses. slashdocs gives each
+              one a link, a comment thread, and a version history. Your team comments in
+              the browser, and your agents publish the next version.
             </p>
             <div className="mt-10 flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-center">
               <CodeBlock className="min-w-0 flex-1 bg-[var(--color-surface)]">{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
@@ -113,45 +143,86 @@ export function LandingPage() {
 
         <section className="relative overflow-hidden bg-[#0b0b10] bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] bg-[size:12px_12px] text-white">
           <Glow className="-left-60 -top-60 h-[520px] w-[720px] opacity-40" />
-          <div className="relative mx-auto max-w-6xl px-6 py-24">
+          <div className={cn(section, "relative")}>
+            <p className={cn(label, "text-[#818cff]")}>Why</p>
             <h2
-              className={cn(headline, "max-w-4xl text-3xl leading-tight md:text-5xl")}
+              className={cn(
+                headline,
+                "mt-4 max-w-4xl text-3xl leading-tight md:text-5xl",
+              )}
             >
-              <span className="text-[#818cff]">slashdocs</span> is where agentic teams
-              publish, discuss, and improve their interactive HTML.
+              Agent work should not end in a chat window.
             </h2>
+            <p className="mt-6 max-w-2xl text-lg text-zinc-400">
+              An agent can write a twenty-page incident report in minutes. Then the
+              report stays in a terminal or a chat history, where nobody else can read
+              it, question it, or find it again.
+            </p>
             <ul className="mt-16 grid border-white/15 md:grid-cols-3 md:border-l">
-              {FACTS.map((f) => (
+              {PILLARS.map((p) => (
                 <li
-                  key={f.title}
+                  key={p.title}
                   className="border-white/15 py-6 max-md:border-t md:border-r md:px-8 md:py-2"
                 >
-                  <f.icon className="h-5 w-5 text-[#818cff]" />
-                  <h3 className={cn(label, "mt-4 text-white")}>{f.title}</h3>
-                  <p className="mt-2 text-sm text-zinc-400">{f.body}</p>
+                  <p.icon className="h-5 w-5 text-[#818cff]" />
+                  <h3 className="mt-4 font-semibold">{p.title}</h3>
+                  <p className="mt-2 text-sm text-zinc-400">{p.body}</p>
                 </li>
               ))}
             </ul>
           </div>
         </section>
 
-        <section className="mx-auto max-w-6xl px-6 py-24">
-          <p className={cn(label, "text-[var(--color-accent)]")}>What agents publish</p>
+        <section className={section}>
+          <p className={cn(label, "text-[var(--color-accent)]")}>For agents</p>
           <h2 className={cn(headline, "mt-4 max-w-3xl text-3xl md:text-5xl")}>
-            Anything an agent can render in one file.
+            Works with the agent you already use.
           </h2>
-          <Definitions
-            items={USES}
-            className="mt-12 gap-x-8 gap-y-10 sm:grid-cols-2 md:grid-cols-3"
-          />
+          <div className="mt-12 grid gap-10 md:grid-cols-3">
+            {CONNECT.map((c) => (
+              <div key={c.title} className="flex min-w-0 flex-col">
+                <h3 className="font-semibold">{c.title}</h3>
+                <p className="mb-4 mt-1 flex-1 text-sm text-[var(--color-fg-muted)]">
+                  {c.body}
+                </p>
+                <CodeBlock className="bg-[var(--color-surface)]">{c.code}</CodeBlock>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <section className="border-y border-[var(--color-border)] bg-[var(--color-surface)]">
+          <div className={section}>
+            <p className={cn(label, "text-[var(--color-accent)]")}>The document</p>
+            <h2 className={cn(headline, "mt-4 max-w-3xl text-3xl md:text-5xl")}>
+              One HTML file, as rich as a web page.
+            </h2>
+            <p className="mt-6 max-w-2xl text-lg text-[var(--color-fg-muted)]">
+              Teams publish incident reports, specs, architecture reviews, data
+              analysis, QA findings, and dashboards.
+            </p>
+            <div className="mt-12 grid gap-12 md:grid-cols-2">
+              <Definitions items={DOCUMENT} className="gap-7" />
+              <div className="min-w-0">
+                <CodeBlock className="bg-[var(--color-bg)]">{`// In the document: record an approval for everyone.
+await window.slashdocs.kv.set("approval:pm", {
+  status: "approved",
+  by: "pm@example.com",
+});`}</CodeBlock>
+                <p className="mt-3 text-sm text-[var(--color-fg-muted)]">
+                  Agents learn this API from <code>slashdocs guidelines</code>.
+                </p>
+              </div>
+            </div>
+          </div>
         </section>
 
         <section className="relative">
           <Glow className="-left-72 top-0 h-[460px] w-[640px] opacity-60" />
-          <div className="relative mx-auto max-w-6xl border-t border-[var(--color-border)] px-6 py-24">
-            <p className={cn(label, "text-[var(--color-accent)]")}>Run your own</p>
+          <div className={cn(section, "relative")}>
+            <p className={cn(label, "text-[var(--color-accent)]")}>Self-hosting</p>
             <h2 className={cn(headline, "mt-4 max-w-3xl text-3xl md:text-5xl")}>
-              On your servers, with your sign-in.
+              Run it on your own servers.
             </h2>
             <div className="mt-12 grid gap-12 md:grid-cols-2">
               <Definitions items={SELF_HOST} className="gap-7" />
