@@ -80,7 +80,8 @@ export function LandingPage() {
   const me = useMe();
   if (me.data) return <Navigate to="/app/documents" replace />;
   return (
-    <div className="min-h-full overflow-x-clip bg-[var(--color-bg)]">
+    <div className="relative isolate min-h-full overflow-x-clip bg-[var(--color-bg)]">
+      <Halo />
       <SiteHeader>
         <a
           href={SELF_HOSTING_URL}
@@ -96,28 +97,23 @@ export function LandingPage() {
       </SiteHeader>
       <main>
         <section className="mx-auto max-w-6xl px-6 pb-24 pt-12 md:pt-20">
-          <div className="grid gap-x-10 md:grid-cols-[1.1fr_1fr]">
-            <div className="relative z-10 md:col-span-2">
-              <p className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--color-accent)]">
-                Open source, self-hosted
-              </p>
-              <h1 className="mt-5 max-w-4xl text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-6xl">
-                The collaborative workspace for agentic organizations.
-              </h1>
+          <div className="mx-auto max-w-3xl text-center">
+            <p className="font-mono text-xs uppercase tracking-[0.14em] text-[var(--color-accent)]">
+              Open source, self-hosted
+            </p>
+            <h1 className="mt-5 text-4xl font-semibold leading-[1.05] tracking-[-0.02em] md:text-6xl">
+              The collaborative workspace for agentic organizations.
+            </h1>
+            <p className={cn(lead, "mx-auto mt-6 md:text-xl")}>
+              Agents publish HTML documents. Your team comments on the exact words.
+              Agents read the comments and ship the next version.
+            </p>
+            <div className="mx-auto mt-10 flex max-w-xl flex-col gap-3 sm:flex-row sm:items-center">
+              <CodeBlock className="min-w-0 flex-1 bg-[var(--color-surface)] text-left">{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
+              <Button asChild size="lg">
+                <Link to="/login">Sign in</Link>
+              </Button>
             </div>
-            <div className="relative z-10 min-w-0">
-              <p className={cn(lead, "mt-6 md:text-xl")}>
-                Agents publish HTML documents. Your team comments on the exact words.
-                Agents read the comments and ship the next version.
-              </p>
-              <div className="mt-10 flex flex-col gap-3 sm:flex-row sm:items-center">
-                <CodeBlock className="min-w-0 flex-1 bg-[var(--color-surface)]">{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
-                <Button asChild size="lg">
-                  <Link to="/login">Sign in</Link>
-                </Button>
-              </div>
-            </div>
-            <Spark />
           </div>
           <div className="mt-16 md:mt-20">
             <AgentLoop />
@@ -237,19 +233,24 @@ docker compose up --build`}</CodeBlock>
   );
 }
 
-// Blade's RazorSense glass: Razorpay's signature light, as the hero visual.
-function Spark() {
-  const still = usePrefersReducedMotion();
-  // The canvas paints white in light mode and black in dark mode. The blend
-  // mode drops that backdrop, so only the glass shows on the page.
+// The RazorSense halo behind the top of the page, as in Slash: one paused
+// frame of the glass, zoomed in, with only the light sweep moving. The blend
+// mode drops the canvas backdrop (white in light mode, black in dark mode).
+function Halo() {
+  if (usePrefersReducedMotion()) return null;
   return (
     <div
       aria-hidden
-      className="relative h-72 mix-blend-darken max-md:-mx-6 md:-mt-36 md:h-[420px] dark:mix-blend-lighten"
+      className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[600px] mix-blend-darken [mask-image:linear-gradient(black_55%,transparent)] dark:mix-blend-screen"
     >
       <RazorSense
-        edgeFeather={[0.4, 0.4, 0.4, 0.4]}
-        {...(still && { paused: true, startTime: 10 })}
+        paused
+        startTime={8}
+        animateLightIndependently
+        lightStartFrame={0}
+        slitAngle={(20 * Math.PI) / 180}
+        numSegments={20}
+        zoom={3}
       />
     </div>
   );
