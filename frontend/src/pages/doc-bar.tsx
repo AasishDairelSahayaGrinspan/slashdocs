@@ -48,7 +48,7 @@ import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
 import { api, type Principal, type Version } from "@/api";
 import { canManageSharing, ROLE_RANK } from "@/lib/constants";
 import { changeSummaryLines } from "@/lib/change-summary";
-import { formatTimestamp } from "@/lib/format-date";
+import { formatRelativeTime, formatTimestamp } from "@/lib/format-date";
 import { queryKeys } from "@/lib/queryKeys";
 import { samePrincipal } from "@/lib/principals";
 import { ShareSheet } from "./doc-share-sheet";
@@ -102,6 +102,8 @@ export function DocBar({
   const backTo = parentFolder ? `/app/folders/${parentFolder.id}` : "/app/documents";
   const config = useQuery({ queryKey: queryKeys.config(), queryFn: api.getConfig });
   const currentVersion = versions.find((v) => v.id === current);
+  const currentVersionCreated = currentVersion?.created_at;
+  const currentVersionCreatedLabel = formatTimestamp(currentVersionCreated);
   const isViewingOlder = !!current && !!latest && current !== latest;
   const canManage = samePrincipal(principal, owner);
   const access = useQuery({
@@ -172,9 +174,16 @@ export function DocBar({
         {currentVersion && (
           <span
             className={`hidden shrink-0 text-xs tabular-nums sm:inline ${isViewingOlder ? "text-amber-600 dark:text-amber-300" : "text-[var(--color-fg-muted)]"}`}
-            title={isViewingOlder ? "Viewing an older version" : "Latest version"}
+            title={`${isViewingOlder ? "Viewing an older version" : "Latest version"}${
+              currentVersionCreatedLabel
+                ? ` · Created ${currentVersionCreatedLabel}`
+                : ""
+            }`}
           >
             v{currentVersion.number}
+            {currentVersionCreated
+              ? ` · ${formatRelativeTime(currentVersionCreated)}`
+              : ""}
             {isViewingOlder ? " · older" : ""}
           </span>
         )}
