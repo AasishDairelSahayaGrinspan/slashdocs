@@ -50,30 +50,25 @@ const QUESTIONS = [
   },
 ];
 
+// What the bridge does for the reader. The agent writes the code for it.
 const BRIDGE = [
   {
     art: <ReceiptsArt />,
-    title: "A key-value store",
-    body: "A document saves state that every reader sees: trackers, approvals, or read receipts with confetti at the end.",
-    code: `const kv = window.slashdocs.kv;
-await kv.set("read:maya", 5);`,
+    title: "Documents that remember",
+    body: "Clicks, checkboxes, and answers save to the document. Every reader sees the same state.",
+    uses: ["Trackers", "Approvals", "Checklists", "Read receipts"],
   },
   {
     art: <GitHubArt />,
-    title: "Files from GitHub",
-    body: "Render an OpenAPI spec, a README, or data from a repository. When the file changes, the document does too. The token stays on the server.",
-    code: `const gh = window.slashdocs.github;
-const spec = await gh.getRawContent({
-  owner, repo, path: "openapi.json",
-});`,
+    title: "Live files from GitHub",
+    body: "A document shows a file straight from a repository, so it stays current when the file changes.",
+    uses: ["OpenAPI specs", "READMEs", "Repository data"],
   },
   {
     art: <ThemeArt />,
     title: "Your theme, diagrams included",
-    body: "The document gets the reader's light or dark theme and styles itself. SVG diagrams switch too, so the lines stay readable.",
-    code: `[data-slashdocs-theme="dark"] {
-  --paper: #111316;
-}`,
+    body: "The document follows the reader's light or dark theme. Diagrams switch too, so every line stays readable.",
+    uses: ["Text", "Tables", "SVG diagrams"],
   },
 ];
 
@@ -231,9 +226,16 @@ export function LandingPage() {
             {BRIDGE.map((b) => (
               <Shot key={b.title} art={b.art} title={b.title}>
                 {b.body}
-                <CodeBlock copy={false} className="mt-4 bg-[var(--color-bg)] text-xs">
-                  {b.code}
-                </CodeBlock>
+                <ul className="mt-4 flex flex-wrap gap-1.5">
+                  {b.uses.map((use) => (
+                    <li
+                      key={use}
+                      className="rounded-full bg-[var(--color-surface-muted)] px-2.5 py-1 text-xs text-[var(--color-fg)] ring-1 ring-[var(--color-border)] dark:ring-transparent"
+                    >
+                      {use}
+                    </li>
+                  ))}
+                </ul>
               </Shot>
             ))}
           </div>
