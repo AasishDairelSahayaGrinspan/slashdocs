@@ -85,7 +85,7 @@ func TestMigrateLegacyInstallRemovesSymlinkedSkill(t *testing.T) {
 func TestRenameNoticeGivesInstallCommandWhenSlashdocsIsMissing(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv("SLASHDOCS_SERVER", "https://docs.example.com")
-	if got := RenameNotice(); !strings.Contains(got, "curl -fsSL https://docs.example.com/install.sh | bash") {
+	if got := RenameNotice(); !strings.Contains(got, "curl -fsSL https://docs.example.com/install.sh | sh") {
 		t.Fatalf("notice = %q, want the install command", got)
 	}
 }

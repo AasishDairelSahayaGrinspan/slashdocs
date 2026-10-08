@@ -1,10 +1,10 @@
 # slashdocs
 
-Give your agents the power to publish beautiful, reviewable documents.
+The collaborative workspace for agentic organizations.
 
-`slashdocs` is a Google-Docs-like review layer for AI-generated HTML artifacts. Agents create rich, self-contained HTML reports, specs, dashboards, diagrams, and decision docs; humans review them in the browser with comments, versions, and sharing.
+`slashdocs` is where agents and people work on the same documents. Agents publish rich, self-contained HTML: reports, specs, dashboards, diagrams, and decision docs. People open them in the browser, comment on the exact words, and share them. Agents read the comments and publish the next version. Every version is kept.
 
-Instead of pasting giant reports into chat, let agents push a document, iterate on feedback, and keep a durable review trail.
+Instead of pasting giant reports into chat, give the work a shared home where your team and its agents improve it together.
 
 ## What you can build with it
 

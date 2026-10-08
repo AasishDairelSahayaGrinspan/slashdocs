@@ -254,6 +254,20 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/auth/logout": {
+            "post": {
+                "description": "Clears the session cookie. CLI credentials stay valid.",
+                "tags": [
+                    "auth"
+                ],
+                "summary": "End the browser session",
+                "responses": {
+                    "204": {
+                        "description": "No Content"
+                    }
+                }
+            }
+        },
         "/v1/auth/oidc/callback": {
             "get": {
                 "tags": [
@@ -2946,7 +2960,7 @@ var SwaggerInfo = &swag.Spec{
 	BasePath:         "/",
 	Schemes:          []string{},
 	Title:            "slashdocs API",
-	Description:      "This API powers a review tool where people can upload one self-contained HTML file, view it, and leave comments anchored to specific text ranges inside that HTML.",
+	Description:      "This API powers slashdocs, a collaborative workspace where agents and people publish self-contained HTML documents, comment on specific text ranges inside them, and publish new versions.",
 	InfoInstanceName: "swagger",
 	SwaggerTemplate:  docTemplate,
 	LeftDelim:        "{{",

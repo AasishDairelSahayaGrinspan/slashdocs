@@ -14,7 +14,16 @@ import { useSearchParams } from "react-router-dom";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
-import { CheckCircle2, Trash2, Link2, Reply, RotateCcw, Send, X } from "lucide-react";
+import {
+  CheckCircle2,
+  Link2,
+  MessageSquareText,
+  Reply,
+  RotateCcw,
+  Send,
+  Trash2,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -434,7 +443,7 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
     >
       <div
         ref={headerRef}
-        className="shrink-0 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-4 pt-3"
+        className="shrink-0 border-b border-[var(--color-border)] px-4 pt-3"
       >
         <div className="flex items-center gap-2 pr-10 md:pr-0">
           <h2 className="text-sm font-semibold">Comments</h2>
@@ -506,6 +515,7 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
 function CommentsEmptyState({ filter }: { filter: CommentFilter }) {
   return (
     <EmptyState
+      icon={<MessageSquareText className="h-5 w-5" />}
       title={
         filter === COMMENT_STATUS.resolved
           ? "No resolved comments yet"
@@ -592,7 +602,7 @@ function CommentComposer({ draft }: { draft: CommentDraft }) {
       ref={formRef}
       onFocusCapture={() => setActiveComment(draft.id)}
       className={cn(
-        "space-y-2 rounded-[14px] bg-[var(--color-surface)] p-3 shadow-lg ring-1",
+        "space-y-2 rounded-md bg-[var(--color-surface)] p-3 shadow-lg ring-1",
         active
           ? "ring-2 ring-[var(--color-border-strong)]"
           : "ring-[var(--color-border)]",
@@ -839,12 +849,12 @@ function CommentRail({
     >
       {commentsLoading ? (
         <div className="sticky top-0 space-y-3 px-3 py-3">
-          <Skeleton className="h-28 w-full rounded-[14px]" />
-          <Skeleton className="h-28 w-full rounded-[14px]" />
+          <Skeleton className="h-28 w-full rounded-md" />
+          <Skeleton className="h-28 w-full rounded-md" />
         </div>
       ) : commentsError ? (
         <div className="sticky top-0 px-3 py-3">
-          <div className="rounded-[14px] bg-[var(--color-surface)] p-3 text-sm text-[var(--color-fg-muted)] shadow-lg ring-1 ring-[var(--color-border)]">
+          <div className="rounded-md bg-[var(--color-surface)] p-3 text-sm text-[var(--color-fg-muted)] shadow-lg ring-1 ring-[var(--color-border)]">
             Could not load comments.
           </div>
         </div>
@@ -954,7 +964,7 @@ function MeasuredRailItem({
       <div
         ref={contentRef}
         className={
-          priority ? "overflow-y-auto overscroll-contain rounded-[14px]" : undefined
+          priority ? "overflow-y-auto overscroll-contain rounded-md" : undefined
         }
         style={{ maxHeight: priority ? maxHeight : undefined }}
       >
@@ -1030,7 +1040,7 @@ function CommentCard({
       data-comment-id={c.id}
       role="button"
       tabIndex={0}
-      className={`group cursor-pointer rounded-[14px] bg-[var(--color-surface)] p-3 shadow-sm ring-1 transition-shadow duration-200 ease-out hover:shadow-md ${active ? "ring-2 ring-[var(--color-border-strong)]" : "ring-[var(--color-border)]"}`}
+      className={`group cursor-pointer rounded-md bg-[var(--color-surface)] p-3 shadow-sm ring-1 transition-shadow duration-200 ease-out hover:shadow-md ${active ? "ring-2 ring-[var(--color-border-strong)]" : "ring-[var(--color-border)]"}`}
       onClick={toggleActive}
       onFocusCapture={(event) => {
         if (event.target instanceof HTMLTextAreaElement) setActiveComment(c.id);

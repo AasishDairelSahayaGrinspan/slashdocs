@@ -255,6 +255,7 @@ func (s *Server) routes(deps dependencies) {
 	v1.GET("/auth/oidc/start", h.oauthStart)
 	v1.GET("/auth/oidc/callback", h.oauthCallback)
 	v1.POST("/auth/cli/exchange", h.cliExchange)
+	v1.POST("/auth/logout", h.logout)
 
 	// Every route below requires authentication.
 	authed := v1.Group("", requireAuth(deps.authenticator, deps.appOrigin, deps.googleGroupResolver))

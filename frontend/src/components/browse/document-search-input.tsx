@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Calendar, Folder, Search, SlidersHorizontal, UserRound } from "lucide-react";
 import { api } from "@/api";
-import { Input } from "@/components/ui/input";
 import { Avatar } from "@/components/ui/misc";
 import { queryKeys } from "@/lib/queryKeys";
 import {
@@ -106,9 +105,12 @@ export function DocumentSearchInput({
   }
 
   return (
-    <div className="relative min-w-0 flex-1 sm:flex-initial">
-      <Search className="pointer-events-none absolute left-3 top-1/2 z-10 h-4 w-4 -translate-y-1/2 text-[var(--color-fg-muted)]" />
-      <Input
+    // The search is the page's composer, so it takes Slash's RazorSense ring.
+    // The ring isolates its stacking context, so the z-index lifts the whole
+    // box, suggestions included, above the cards that follow it.
+    <div className="razorsense-ring z-20 w-full rounded-[18px]">
+      <Search className="pointer-events-none absolute left-5 top-1/2 z-10 h-5 w-5 -translate-y-1/2 text-[var(--color-fg-muted)]" />
+      <input
         ref={inputRef}
         value={value}
         onChange={(event) => {
@@ -141,7 +143,7 @@ export function DocumentSearchInput({
           }
         }}
         placeholder="Search every word, even the footnotes…"
-        className="w-full pl-9 text-transparent caret-[var(--color-fg)] sm:w-[360px]"
+        className="h-14 w-full rounded-[18px] bg-[var(--color-surface)] pl-14 pr-5 text-base text-transparent caret-[var(--color-fg)] shadow-[0_12px_40px_rgb(20_30_48/0.1)] outline-none placeholder:text-[var(--color-fg-muted)] dark:shadow-[0_14px_36px_rgb(0_0_0/0.42)]"
         role="combobox"
         aria-label="Search documents"
         aria-autocomplete="list"
@@ -154,11 +156,11 @@ export function DocumentSearchInput({
         }
       />
       {/* The input text is transparent. This copy draws it with modifiers
-          highlighted, clipped to the input's content box: 1px border + pl-9 / pr-3. */}
+          highlighted, clipped to the input's content box: pl-14 / pr-5. */}
       <div
         ref={mirrorRef}
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-[37px] right-[13px] flex items-center overflow-hidden whitespace-pre text-sm text-[var(--color-fg)]"
+        className="pointer-events-none absolute inset-y-0 left-14 right-5 flex items-center overflow-hidden whitespace-pre text-base text-[var(--color-fg)]"
       >
         <HighlightedQuery value={value} />
       </div>
@@ -167,7 +169,7 @@ export function DocumentSearchInput({
           id="document-search-suggestions"
           role="listbox"
           aria-label={suggestions.heading}
-          className="absolute right-0 top-[calc(100%+6px)] z-50 w-full min-w-[320px] rounded-[12px] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg"
+          className="absolute inset-x-0 top-[calc(100%+8px)] z-50 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 text-left shadow-[var(--shadow-pop)] dark:border-transparent"
         >
           <p className="px-3 pb-1 pt-2 text-xs font-medium text-[var(--color-fg-muted)]">
             {suggestions.heading}
@@ -179,7 +181,7 @@ export function DocumentSearchInput({
               type="button"
               role="option"
               aria-selected={index === activeIndex}
-              className="flex min-h-10 w-full items-center gap-3 rounded-lg px-3 py-2 text-left transition-[background-color,color] duration-150 ease-out hover:bg-[var(--color-surface-muted)] aria-selected:bg-[var(--color-surface-muted)]"
+              className="flex min-h-10 w-full items-center gap-3 rounded-sm px-3 py-2 text-left transition-[background-color,color] duration-150 ease-out hover:bg-[var(--color-surface-muted)] aria-selected:bg-[var(--color-surface-muted)]"
               onMouseDown={(event) => event.preventDefault()}
               onMouseEnter={() => setActiveIndex(index)}
               onClick={() => choose(index)}

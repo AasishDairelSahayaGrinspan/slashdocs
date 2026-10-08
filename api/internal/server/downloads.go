@@ -148,8 +148,9 @@ func releaseCommit() string {
 	return ""
 }
 
-const installScriptTemplate = `#!/usr/bin/env bash
-set -euo pipefail
+const installScriptTemplate = `#!/bin/sh
+# POSIX sh: users run "curl <server>/install.sh | sh".
+set -eu
 
 BASE_URL="${SLASHDOCS_BASE_URL:-__BASE_URL__}"
 INSTALL_MODE="user"
@@ -160,15 +161,6 @@ for arg in "$@"; do
     *) echo "unknown option: $arg" >&2; exit 2 ;;
   esac
 done
-
-if [ -n "${SLASHDOCS_INSTALL_DIR:-}" ]; then
-  BIN_DIR="$SLASHDOCS_INSTALL_DIR"
-elif [ "$INSTALL_MODE" = "system" ]; then
-  BIN_DIR="/usr/local/bin"
-else
-  BIN_DIR="$HOME/.local/bin"
-fi
-BIN_PATH="$BIN_DIR/slashdocs"
 
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"
@@ -189,11 +181,32 @@ fi
 
 # The CLI was named aidocs before. An install under either name counts.
 old_path="$(command -v slashdocs 2>/dev/null || command -v aidocs 2>/dev/null || true)"
+
+# Replace an existing install in place. Otherwise prefer a writable dir that
+# is already on PATH, so slashdocs works in this terminal with no extra step.
+on_path() { case ":$PATH:" in *":$1:"*) return 0 ;; esac; return 1; }
+if [ -n "${SLASHDOCS_INSTALL_DIR:-}" ]; then
+  BIN_DIR="$SLASHDOCS_INSTALL_DIR"
+elif [ "$INSTALL_MODE" = "system" ]; then
+  BIN_DIR="/usr/local/bin"
+elif [ -n "$old_path" ]; then
+  BIN_DIR="$(dirname "$old_path")"
+else
+  BIN_DIR="$HOME/.local/bin"
+  for dir in "$HOME/.local/bin" "$HOME/bin" /usr/local/bin; do
+    if on_path "$dir" && [ -w "$dir" ]; then
+      BIN_DIR="$dir"
+      break
+    fi
+  done
+fi
+BIN_PATH="$BIN_DIR/slashdocs"
+
 if [ -n "$old_path" ] && [ "$(dirname "$old_path")" != "$BIN_DIR" ]; then
   old_dir="$(dirname "$old_path")"
   echo "Existing slashdocs install found at $old_path." >&2
   echo "Remove it first, or install there with:" >&2
-  echo "  curl -fsSL $BASE_URL/install.sh | SLASHDOCS_INSTALL_DIR=$old_dir bash" >&2
+  echo "  curl -fsSL $BASE_URL/install.sh | SLASHDOCS_INSTALL_DIR=$old_dir sh" >&2
   echo "Target install path: $BIN_PATH" >&2
   exit 1
 fi
@@ -223,7 +236,7 @@ elif [ "$INSTALL_MODE" = "system" ]; then
   sudo="sudo"
 else
   echo "install dir is not writable: $BIN_DIR" >&2
-  echo "Try: curl -fsSL $BASE_URL/install.sh | bash -s -- --system" >&2
+  echo "Try: curl -fsSL $BASE_URL/install.sh | sh -s -- --system" >&2
   echo "Or set SLASHDOCS_INSTALL_DIR to a writable directory." >&2
   exit 1
 fi
@@ -246,7 +259,7 @@ echo "  $HOME/.agents/skills/slashdocs/SKILL.md"
 echo "  $HOME/.claude/skills/slashdocs/SKILL.md"
 
 # Point a fresh CLI at the server this installer came from, so
-# "curl <server>/install.sh | bash" ends with slashdocs already configured.
+# "curl <server>/install.sh | sh" ends with slashdocs already configured.
 # An existing config is never touched: it may hold other contexts/credentials.
 configure_default_context() {
   config_dir="${XDG_CONFIG_HOME:-$HOME/.config}/slashdocs"

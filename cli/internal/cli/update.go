@@ -95,7 +95,7 @@ func printManualUpdate(c *Client, v serverVersion, err error, verbose bool) {
 	}
 	if v.Version != "" {
 		fmt.Fprintf(os.Stderr, "slashdocs %s is available, but auto-update failed. Update with: slashdocs update\n", v.Version)
-		fmt.Fprintf(os.Stderr, "Or reinstall with: curl -fsSL %s | bash\n", install)
+		fmt.Fprintf(os.Stderr, "Or reinstall with: curl -fsSL %s | sh\n", install)
 	}
 }
 

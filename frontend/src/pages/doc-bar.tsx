@@ -126,7 +126,7 @@ export function DocBar({
   });
   const { printDocument: exportPDF } = useDoc();
   return (
-    <header className="flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-surface)] px-2 sm:gap-2 sm:px-3">
+    <header className="flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-chrome)] px-2 sm:gap-2 sm:px-3">
       <Button asChild variant="ghost" size="icon" className="shrink-0">
         <Link
           to={backTo}
@@ -141,7 +141,7 @@ export function DocBar({
           to="/app/documents"
           aria-label="slashdocs home"
           title="All documents"
-          className="hidden h-10 shrink-0 items-center rounded-[10px] px-2 hover:bg-[var(--color-surface-muted)] sm:flex"
+          className="hidden h-10 shrink-0 items-center rounded-sm px-2 hover:bg-[var(--color-surface-muted)] sm:flex"
         >
           <Logo className="h-4 w-auto" />
         </Link>

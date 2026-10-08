@@ -4,16 +4,17 @@ import { Link, useNavigate } from "react-router-dom";
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   Circle,
   ExternalLink,
   PartyPopper,
-  Rocket,
   Sparkles,
   X,
 } from "lucide-react";
 import { publicURL } from "@/lib/config";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Page } from "@/components/layout/page";
+import { beat } from "@/lib/enter";
 import { CodeBlock } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
 import {
@@ -39,66 +40,66 @@ export function StartPage() {
   const allRequiredDone = state.steps.cli_installed && state.steps.cli_authed;
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-10">
-      <div className="mb-8 flex items-start justify-between gap-4">
-        <div>
-          <div className="mb-2 inline-flex items-center gap-2 rounded-full border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1 text-xs font-medium text-[var(--color-fg-muted)]">
-            <Rocket className="h-3 w-3 text-[var(--color-accent)]" /> Setup guide
-          </div>
-          <h1 className="text-3xl font-semibold tracking-tight">
-            Get your agent publishing to slashdocs
-          </h1>
-          <p className="mt-2 max-w-xl text-sm text-[var(--color-fg-muted)]">
-            slashdocs is meant to be driven by your AI agent — Claude Code, Codex,
-            Cursor, Pi, OpenCode, Aider, or anything else. These steps wire it up. About
-            2 minutes.
-          </p>
-        </div>
-        <button
-          onClick={skipTutorial}
-          className="flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs text-[var(--color-fg-muted)] hover:bg-[var(--color-surface-muted)] hover:text-[var(--color-fg)]"
-        >
-          Skip tutorial <X className="h-3 w-3" />
-        </button>
+    <Page lane="focus" backdrop="halo">
+      <div className="flex justify-end">
+        <Button variant="ghost" size="sm" onClick={skipTutorial}>
+          Skip tutorial <X className="h-3.5 w-3.5" />
+        </Button>
       </div>
+      <header className="pb-10 pt-6 text-center md:pt-10">
+        <p className="enter text-lg text-[var(--color-fg-muted)]">
+          Setup guide · about 2 minutes
+        </p>
+        <h1
+          className="enter mt-2 text-[32px] font-normal leading-tight tracking-[-0.02em] md:text-[40px]"
+          style={beat(1)}
+        >
+          Get your agent publishing to slashdocs
+        </h1>
+        <p
+          className="enter mx-auto mt-3 max-w-xl text-sm text-[var(--color-fg-muted)]"
+          style={beat(2)}
+        >
+          slashdocs is meant to be driven by your AI agent — Claude Code, Codex, Cursor,
+          Pi, OpenCode, Aider, or anything else. These steps wire it up.
+        </p>
+      </header>
 
       {allRequiredDone && state.status !== "skipped" && (
-        <Card className="mb-6 border-[var(--color-accent)]/30 bg-[var(--color-accent-muted)]/40">
-          <CardContent className="flex items-center gap-3 pt-5">
-            <PartyPopper className="h-5 w-5 text-[var(--color-accent)]" />
-            <div className="flex-1">
-              <div className="font-medium">You're all set.</div>
-              <div className="text-xs text-[var(--color-fg-muted)]">
-                Ask your agent to publish something to slashdocs. It'll show up here.
-              </div>
+        <div className="glass-card enter mb-6 flex items-center gap-4 rounded-lg p-5">
+          <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
+            <PartyPopper className="h-5 w-5" />
+          </span>
+          <div className="flex-1">
+            <div className="font-heading font-medium">You're all set.</div>
+            <div className="text-sm text-[var(--color-fg-muted)]">
+              Ask your agent to publish something to slashdocs. It'll show up here.
             </div>
-            <Button asChild size="sm">
-              <Link to="/app/documents">
-                Open documents <ArrowRight className="h-4 w-4" />
-              </Link>
-            </Button>
-          </CardContent>
-        </Card>
+          </div>
+          <Button asChild size="sm">
+            <Link to="/app/documents">
+              Open documents <ArrowRight className="h-4 w-4" />
+            </Link>
+          </Button>
+        </div>
       )}
 
-      <div className="mb-3 flex items-center gap-2 text-xs text-[var(--color-fg-muted)]">
-        <div className="h-1 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-muted)]">
+      <div
+        className="enter mb-4 flex items-center gap-3 text-xs text-[var(--color-fg-muted)]"
+        style={beat(3)}
+      >
+        <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-surface-muted)] ring-1 ring-[var(--color-border)] dark:ring-transparent">
           <div
-            className="relative h-full overflow-hidden bg-[var(--color-accent)] transition-all"
+            className="h-full rounded-full bg-[image:var(--razorsense-border)] bg-[length:240%_100%] transition-[width] duration-500 ease-[var(--ease-slash)]"
             style={{ width: `${(done / total) * 100}%` }}
-          >
-            <div
-              aria-hidden
-              className="absolute inset-0 animate-[pill-shimmer_2s_ease-in-out_infinite] bg-gradient-to-r from-transparent via-white/25 to-transparent"
-            />
-          </div>
+          />
         </div>
-        <span className="font-mono">
+        <span className="font-mono tabular-nums">
           {done}/{total} complete
         </span>
       </div>
 
-      <ol className="space-y-3">
+      <ol className="enter space-y-3" style={beat(4)}>
         <Step
           n={1}
           title="Install the CLI and slashdocs skill"
@@ -111,8 +112,7 @@ export function StartPage() {
             CLI plus the bundled agent skill, so your agent knows when to publish docs
             to slashdocs.
           </p>
-          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | bash
-export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
+          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
           <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
             Works on macOS and Linux. The skill is fetched from this slashdocs server
             and installed into the standard agent skills directory and Claude's skills
@@ -136,7 +136,7 @@ export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
 
         <Step
           n={3}
-          title="Try it end-to-end (optional)"
+          title="Try it end-to-end"
           stepKey="first_doc_seen"
           state={state}
           setStep={setStep}
@@ -145,7 +145,7 @@ export PATH="$HOME/.local/bin:$PATH"`}</CodeBlock>
           <TryItOut />
         </Step>
       </ol>
-    </div>
+    </Page>
   );
 }
 
@@ -174,60 +174,53 @@ function Step({
   const expanded = forced ?? (done ? false : firstIncomplete === stepKey);
   return (
     <li>
-      <Card
+      <div
         className={cn(
-          "transition-colors",
-          done && "bg-[var(--color-surface-muted)]/50",
+          "glass-card rounded-lg transition-shadow",
+          expanded && !done && "razorsense-ring",
         )}
       >
         <button
           type="button"
+          aria-expanded={expanded}
           onClick={() => setForced((v) => (v === null ? !expanded : !v))}
           className="flex w-full items-center gap-3 px-5 py-4 text-left"
         >
           <span
             className={cn(
-              "flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-xs font-semibold",
+              "flex h-7 w-7 shrink-0 items-center justify-center rounded-full font-mono text-xs",
               done
                 ? "bg-[var(--color-success)] text-white"
-                : "border-2 border-[var(--color-border-strong)] text-[var(--color-fg-muted)]",
+                : "bg-[var(--color-surface)] text-[var(--color-fg-muted)] ring-1 ring-[var(--color-border)]",
             )}
           >
-            {done ? <Check className="h-3.5 w-3.5" /> : n}
+            {done ? <Check className="h-4 w-4" /> : n}
           </span>
-          <div className="flex-1">
-            <div
-              className={cn(
-                "font-medium",
-                done && "text-[var(--color-fg-muted)] line-through decoration-1",
-              )}
-            >
-              {title}
-              {optional && (
-                <span className="ml-2 rounded-full bg-[var(--color-surface-muted)] px-1.5 py-px text-[10px] font-medium text-[var(--color-fg-muted)]">
-                  optional
-                </span>
-              )}
-            </div>
-          </div>
-          {!done && (
-            <span className="text-xs text-[var(--color-fg-muted)]">
-              {expanded ? "Collapse" : "Show"}
-            </span>
-          )}
+          <span
+            className={cn(
+              "flex-1 font-heading font-medium",
+              done && "text-[var(--color-fg-muted)]",
+            )}
+          >
+            {title}
+            {optional && (
+              <span className="ml-2 rounded-full bg-[var(--color-surface-muted)] px-2 py-0.5 font-sans text-[11px] font-normal text-[var(--color-fg-muted)]">
+                optional
+              </span>
+            )}
+          </span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-[var(--color-fg-muted)] transition-transform",
+              expanded && "rotate-180",
+            )}
+          />
         </button>
         {expanded && (
-          <div className="border-t border-[var(--color-border)] px-5 pb-5 pt-4">
+          <div className="px-5 pb-5 pl-[60px]">
             {children}
-            {!done && (
-              <div className="mt-4 flex justify-end">
-                <Button size="sm" onClick={() => setStep(stepKey, true)}>
-                  <Check className="h-3.5 w-3.5" /> Mark done
-                </Button>
-              </div>
-            )}
-            {done && (
-              <div className="mt-3 flex justify-end">
+            <div className="mt-4 flex justify-end">
+              {done ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -235,29 +228,42 @@ function Step({
                 >
                   <Circle className="h-3.5 w-3.5" /> Mark incomplete
                 </Button>
-              </div>
-            )}
+              ) : (
+                <Button size="sm" onClick={() => setStep(stepKey, true)}>
+                  <Check className="h-3.5 w-3.5" /> Mark done
+                </Button>
+              )}
+            </div>
           </div>
         )}
-      </Card>
+      </div>
     </li>
   );
 }
 
+const TRY_IT_PROMPT = `Write an explainer, "How GPS knows where you are", for technical readers who are not GPS experts. Cover:
+- how a receiver finds its position from the distances to four satellites
+- why the satellite clocks must agree to a few nanoseconds
+- why relativity makes those clocks drift, and how the system corrects it
+
+Make it visual. Use as many diagrams and illustrations as the story needs. For example:
+- circles that grow from three satellites and meet at one point
+- a slider that turns a clock error in nanoseconds into a position error in meters
+- two clocks, one on the ground and one in orbit, that drift apart by 38 microseconds a day
+- a map pin that wanders about 10 km a day when nobody corrects the drift
+
+These are ideas, not a checklist. Use your creative liberty and add your own touch.
+
+Run "slashdocs guidelines" first and follow it. Then publish the explainer with the slashdocs CLI and give me the document URL.`;
+
 function TryItOut() {
-  const url = publicURL();
-  const prompt = `Download the slashdocs sample report and publish it as a reviewable document:
-
-curl -sSL ${url}/onboarding/sample.html -o sample.html
-
-Then use the slashdocs CLI to publish sample.html to slashdocs. Give me the document URL when you're done.`;
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-        Want to see the loop work without writing anything? Copy this prompt into your
-        agent — it'll fetch a sample report and publish it to slashdocs.
+        Copy this prompt into your agent. It writes an illustrated explainer and
+        publishes it to slashdocs.
       </p>
-      <CodeBlock>{prompt}</CodeBlock>
+      <CodeBlock wrap>{TRY_IT_PROMPT}</CodeBlock>
       <div className="mt-4">
         <Button asChild variant="ghost" size="sm">
           <Link to="/app/documents">

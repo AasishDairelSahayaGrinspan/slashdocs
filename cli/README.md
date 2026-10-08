@@ -18,7 +18,7 @@ slashdocs auth logout                         # revokes server credential by def
 SLASHDOCS_NO_KEYCHAIN=1 slashdocs auth login ... # force file-only token storage
 ```
 
-There is no built-in default server. Installing via `curl https://<your-server>/install.sh | bash` preconfigures the CLI to use that server; otherwise pass the server URL to `slashdocs auth login`, use `--server`, or set `SLASHDOCS_SERVER`.
+There is no built-in default server. Installing via `curl https://<your-server>/install.sh | sh` preconfigures the CLI to use that server; otherwise pass the server URL to `slashdocs auth login`, use `--server`, or set `SLASHDOCS_SERVER`.
 
 Self-hosted login only needs the server URL. The server owns the OIDC configuration (generic `SLASHDOCS_OIDC_*` variables or the Google aliases); the CLI uses server-mediated loopback PKCE.
 

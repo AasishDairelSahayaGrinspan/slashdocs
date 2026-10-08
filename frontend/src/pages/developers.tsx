@@ -1,3 +1,5 @@
+import { Page, PageHeader } from "@/components/layout/page";
+import { beat } from "@/lib/enter";
 import { useTitle } from "@/lib/use-title";
 import { Bot, Cable, ExternalLink, KeyRound, Rocket } from "lucide-react";
 import { Link } from "react-router-dom";
@@ -16,18 +18,13 @@ export function DevelopersPage() {
   useTitle("Developers");
   const url = publicURL();
   return (
-    <div className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-10">
-      <div className="mb-6">
-        <h1 className="text-balance text-2xl font-semibold tracking-tight">
-          Developers
-        </h1>
-        <p className="mt-1 text-pretty text-sm text-[var(--color-fg-muted)]">
-          Connect an agent over MCP, use slashdocs from a terminal, or build directly
-          against the API.
-        </p>
-      </div>
+    <Page lane="focus">
+      <PageHeader
+        title="Developers"
+        description="Connect an agent over MCP, use slashdocs from a terminal, or build directly against the API."
+      />
 
-      <div className="space-y-4">
+      <div className="enter space-y-4" style={beat(2)}>
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -153,6 +150,6 @@ export function DevelopersPage() {
           </CardContent>
         </Card>
       </div>
-    </div>
+    </Page>
   );
 }

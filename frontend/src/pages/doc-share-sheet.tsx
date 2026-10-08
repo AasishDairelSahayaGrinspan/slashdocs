@@ -531,7 +531,7 @@ export function ShareSheet({
                   value={role}
                   onChange={(e) => setRole(e.target.value)}
                   aria-label="Access role"
-                  className="h-9 w-full rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm disabled:cursor-not-allowed"
+                  className="h-9 w-full rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-sm disabled:cursor-not-allowed"
                 >
                   {ROLES.map((r) => (
                     <option key={r.value} value={r.value}>
@@ -675,7 +675,7 @@ export function ShareSheet({
                               }
                             }}
                             aria-label="Access role"
-                            className="h-8 shrink-0 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                            className="h-8 shrink-0 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {ROLES.map((r) => (
                               <option key={r.value} value={r.value}>
@@ -716,7 +716,7 @@ export function ShareSheet({
                     }
                   }}
                   aria-label="General access role"
-                  className="h-8 rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                  className="h-8 rounded-sm border border-[var(--color-border)] bg-[var(--color-surface)] px-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <option value={GENERAL_ACCESS_NONE}>No access</option>
                   {ROLES.map((r) => (

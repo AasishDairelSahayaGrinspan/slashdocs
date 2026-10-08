@@ -50,7 +50,7 @@ function FeaturedRow({ section }: { section: FeaturedSection }) {
           aria-expanded={!collapsed}
           aria-controls={contentID}
           onClick={toggle}
-          className="-ml-1 flex cursor-pointer items-center gap-1 rounded-[6px] py-1 pl-1 pr-1.5 hover:bg-[var(--color-surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
+          className="-ml-1 flex cursor-pointer items-center gap-1 rounded-sm py-1 pl-1 pr-1.5 hover:bg-[var(--color-surface-muted)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]"
         >
           <ChevronRight
             aria-hidden
@@ -98,12 +98,12 @@ function FeaturedCard({ item, hideable }: { item: FolderEntry; hideable: boolean
   const Icon = isFolder ? FolderIcon : FileText;
 
   return (
-    <div className="group relative flex items-center rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] transition-[background-color,transform,box-shadow] duration-200 ease-out hover:-translate-y-0.5 hover:bg-[var(--color-surface-muted)] hover:shadow-md">
+    <div className="group relative flex items-center rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] transition-[border-color,transform] duration-200 ease-out hover:-translate-y-0.5 hover:border-[var(--color-border-strong)] dark:border-transparent dark:hover:border-[var(--color-border)]">
       <Link
         to={isFolder ? `/app/folders/${id}` : `/app/d/${id}`}
         className={`flex min-w-0 flex-1 items-center gap-3 p-2 ${hideable ? "pr-12" : ""}`}
       >
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[6px] bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
           <Icon className="h-[18px] w-[18px]" />
         </span>
         <span className="min-w-0">

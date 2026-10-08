@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
 import { MoreHorizontal, Plus, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Page } from "@/components/layout/page";
+import { beat } from "@/lib/enter";
 import { Skeleton, EmptyState } from "@/components/ui/misc";
 import { Dropdown, DropdownContent, DropdownTrigger } from "@/components/ui/dropdown";
 import { api, docID, docTitle, type Folder, type FolderEntry } from "@/api";
@@ -183,26 +185,41 @@ export function DocumentsPage() {
 
   if (docs.isLoading) {
     return (
-      <div className="mx-auto max-w-6xl px-6 py-10">
-        <Skeleton className="mb-3 h-9 w-48" />
+      <Page backdrop={false}>
+        <Skeleton className="mx-auto mb-8 mt-16 h-14 max-w-2xl rounded-[18px]" />
         <Skeleton className="h-64 w-full" />
-      </div>
+      </Page>
     );
   }
   const searching = debouncedQ.length > 0;
   const empty = !searching && documents.length === 0 && folders.length === 0;
 
+  const name = (me.data?.user || me.data?.principal)?.name?.split(" ")[0];
+
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-10">
-      <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between sm:gap-4">
-        <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Documents</h1>
-          <p className="mt-1 text-sm text-[var(--color-fg-muted)]">
-            Documents your agents have published.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
+    <Page backdrop="halo">
+      <section className="pb-12 pt-8 text-center md:pb-16 md:pt-16">
+        <p className="enter text-lg text-[var(--color-fg-muted)]">
+          {name ? `Hi, ${name}` : "Welcome back"}
+        </p>
+        <h1
+          className="enter mt-2 text-[32px] font-normal leading-tight tracking-[-0.02em] md:text-[44px]"
+          style={beat(1)}
+        >
+          What did your agents publish?
+        </h1>
+        <div className="enter mx-auto mt-8 max-w-2xl" style={beat(2)}>
           <DocumentSearchInput value={q} onChange={setQ} />
+        </div>
+      </section>
+      <div
+        className="enter mb-4 flex items-center justify-between gap-2"
+        style={beat(3)}
+      >
+        <h2 className="text-base font-semibold">
+          {searching ? "Results" : "Documents"}
+        </h2>
+        <div className="flex items-center gap-2">
           <ViewModeToggle />
           <Button
             variant="outline"
@@ -282,14 +299,14 @@ export function DocumentsPage() {
         warning={accessWarning}
         onClose={() => setAccessWarning(null)}
       />
-    </div>
+    </Page>
   );
 }
 
 function EmptyDocs() {
   return (
     <div className="mx-auto max-w-xl space-y-4">
-      <div className="rounded-[14px] border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
+      <div className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-6">
         <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
           <Sparkles className="h-5 w-5" />
         </div>

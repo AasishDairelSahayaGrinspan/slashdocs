@@ -73,7 +73,7 @@ func TestInstallScriptSeedsCLIConfig(t *testing.T) {
 	}
 }
 
-func TestInstallScriptIsValidBash(t *testing.T) {
+func TestInstallScriptIsValidPOSIXShell(t *testing.T) {
 	e := newConfiguredTestEnv(t, server.Config{Environment: "test", AppOrigin: "https://slashdocs.example", SessionSecret: "test-secret"})
 	req := httptest.NewRequest(http.MethodGet, "/install.sh", nil)
 	rr := httptest.NewRecorder()
@@ -81,11 +81,11 @@ func TestInstallScriptIsValidBash(t *testing.T) {
 
 	assertStatus(t, rr, http.StatusOK)
 	body := rr.Body.String()
-	cmd := exec.Command("bash", "-n")
+	cmd := exec.Command("sh", "-n")
 	cmd.Stdin = strings.NewReader(body)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		t.Fatalf("install script is not valid bash: %v\n%s\nscript:\n%s", err, out, body)
+		t.Fatalf("install script is not valid sh: %v\n%s\nscript:\n%s", err, out, body)
 	}
 }
 

@@ -27,7 +27,7 @@ export function DropdownContent({
           if (closedByPointer.current) event.preventDefault();
         }}
         className={cn(
-          "z-50 min-w-[200px] rounded-[10px] border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-lg transition-[opacity,transform] duration-150 ease-out data-[state=closed]:translate-y-1 data-[state=open]:translate-y-0 data-[state=closed]:scale-[0.98] data-[state=open]:scale-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
+          "z-50 min-w-[200px] rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-1 shadow-[var(--shadow-pop)] dark:border-[var(--color-surface-muted)] transition-[opacity,transform] duration-150 ease-out data-[state=closed]:translate-y-1 data-[state=open]:translate-y-0 data-[state=closed]:scale-[0.98] data-[state=open]:scale-100 data-[state=closed]:opacity-0 data-[state=open]:opacity-100 focus:outline-none",
           className,
         )}
         {...p}
@@ -42,7 +42,7 @@ export function DropdownItem({
   return (
     <DM.Item
       className={cn(
-        "flex min-h-10 cursor-pointer select-none items-center gap-2 rounded-md px-2 py-1.5 text-sm outline-none transition-[background-color,color] duration-150 ease-out data-[highlighted]:bg-[var(--color-surface-muted)]",
+        "flex min-h-10 cursor-pointer select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-[background-color,color] duration-150 ease-out data-[highlighted]:bg-[var(--color-surface-muted)]",
         className,
       )}
       {...p}

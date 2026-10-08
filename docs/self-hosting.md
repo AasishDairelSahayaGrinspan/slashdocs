@@ -227,7 +227,7 @@ The server does not start if the JSON is not valid.
 ### MCP Server
 
 Although the preferred usage method is via the CLI, every deployment serves
-a remote Streamable HTTP MCP endpoint at `$SLASHDOCS_APP_ORIGIN/mcp`. 
+a remote Streamable HTTP MCP endpoint at `$SLASHDOCS_APP_ORIGIN/mcp`.
 The idea is to allow agents that might not have access to a shell environment
 to still use Slashdocs. It can also be used for operating systems with weird installation processes like windows.
 The server publishes OAuth protected-resource and authorization-server
@@ -419,25 +419,25 @@ Sealed Secrets, etc.).
 
 ### Useful chart values
 
-| Path                                                                       | Purpose                                                                                                                      |
-| -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `replicaCount`                                                             | Number of pod replicas.                                                                                                      |
-| `image.{repository,tag,pullPolicy}`                                        | Container image.                                                                                                             |
-| `origins.{app,render}`                                                     | Public URLs. `app` is injected into the served frontend.                                                                     |
-| `database.{host,user,password,name,port,sslMode,migrate}`                  | Postgres connection pieces (composed into a DSN at runtime); `migrate: false` skips startup migrations.                      |
-| `blob.{bucket,region,endpoint,forcePathStyle,accessKeyID,secretAccessKey}` | S3 settings.                                                                                                                 |
-| `googleOAuth.{clientID,clientSecret}`                                      | Google OAuth credentials.                                                                                                    |
-| `oidc.{issuerURL,providerName,internalIssuerURL,clientID,clientSecret}`    | Generic OIDC provider; used instead of `googleOAuth` when `issuerURL` is set.                                                |
-| `session.secret`                                                           | At least 32 random bytes.                                                                                                    |
-| `deployment.{mode,orgDomains,orgName,defaultDocPermission}`                | `public` (default) or `org`; org mode gates login to `orgDomains` and may set a sharing default for new documents.           |
-| `allowedOAuthDomains`                                                      | Comma-separated email domain allowlist (public mode); empty = no gate.                                                       |
+| Path                                                                       | Purpose                                                                                                                         |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `replicaCount`                                                             | Number of pod replicas.                                                                                                         |
+| `image.{repository,tag,pullPolicy}`                                        | Container image.                                                                                                                |
+| `origins.{app,render}`                                                     | Public URLs. `app` is injected into the served frontend.                                                                        |
+| `database.{host,user,password,name,port,sslMode,migrate}`                  | Postgres connection pieces (composed into a DSN at runtime); `migrate: false` skips startup migrations.                         |
+| `blob.{bucket,region,endpoint,forcePathStyle,accessKeyID,secretAccessKey}` | S3 settings.                                                                                                                    |
+| `googleOAuth.{clientID,clientSecret}`                                      | Google OAuth credentials.                                                                                                       |
+| `oidc.{issuerURL,providerName,internalIssuerURL,clientID,clientSecret}`    | Generic OIDC provider; used instead of `googleOAuth` when `issuerURL` is set.                                                   |
+| `session.secret`                                                           | At least 32 random bytes.                                                                                                       |
+| `deployment.{mode,orgDomains,orgName,defaultDocPermission}`                | `public` (default) or `org`; org mode gates login to `orgDomains` and may set a sharing default for new documents.              |
+| `allowedOAuthDomains`                                                      | Comma-separated email domain allowlist (public mode); empty = no gate.                                                          |
 | `kvEvents.{mode,listenerDatabaseURL,existingSecret}`                       | Realtime KV events: `SLASHDOCS_KV_EVENTS_MODE` and the dedicated LISTEN connection URL (secret-backed). Rendered only when set. |
-| `commitSha`                                                                | Optional revision surfaced at `/commit.txt`.                                                                                 |
-| `ingress`                                                                  | Standard ingress block; supports multiple hosts.                                                                             |
-| `extraEnv` / `extraEnvFrom`                                                | Append arbitrary env vars / envFrom sources.                                                                                 |
-| `resources`                                                                | CPU/memory requests and limits.                                                                                              |
-| `livenessProbe` / `readinessProbe`                                         | HTTP probes against `/livez` and `/readyz`.                                                                                  |
-| `podDisruptionBudget`                                                      | Optional PDB for safer upgrades.                                                                                             |
+| `commitSha`                                                                | Optional revision surfaced at `/commit.txt`.                                                                                    |
+| `ingress`                                                                  | Standard ingress block; supports multiple hosts.                                                                                |
+| `extraEnv` / `extraEnvFrom`                                                | Append arbitrary env vars / envFrom sources.                                                                                    |
+| `resources`                                                                | CPU/memory requests and limits.                                                                                                 |
+| `livenessProbe` / `readinessProbe`                                         | HTTP probes against `/livez` and `/readyz`.                                                                                     |
+| `podDisruptionBudget`                                                      | Optional PDB for safer upgrades.                                                                                                |
 
 See [`charts/slashdocs/values.yaml`](../charts/slashdocs/values.yaml) for the
 full schema with defaults.
@@ -490,20 +490,20 @@ Terminate TLS at nginx, Caddy, or any reverse proxy of your choice.
 
 ### Required
 
-| Variable               | Purpose                                                                                                                                                              |
-| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DATABASE_URL`         | Postgres connection string. Auto-runs migrations at startup unless disabled.                                                                                         |
-| `BLOB_BUCKET`          | S3-compatible bucket name for stored HTML versions.                                                                                                                  |
+| Variable                  | Purpose                                                                                                                                                              |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`            | Postgres connection string. Auto-runs migrations at startup unless disabled.                                                                                         |
+| `BLOB_BUCKET`             | S3-compatible bucket name for stored HTML versions.                                                                                                                  |
 | `SLASHDOCS_APP_ORIGIN`    | Public URL where the web UI is served. Also injected into the served `index.html` so the frontend can render correct copy-paste commands (CLI, curl, agent prompts). |
-| `SLASHDOCS_RENDER_ORIGIN` | Public URL where uploaded HTML is sandbox-rendered. Must use a different hostname from `SLASHDOCS_APP_ORIGIN` (see `SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`).                |
-| `SESSION_SECRET`       | Session signing key. At least 32 random bytes.                                                                                                                       |
+| `SLASHDOCS_RENDER_ORIGIN` | Public URL where uploaded HTML is sandbox-rendered. Must use a different hostname from `SLASHDOCS_APP_ORIGIN` (see `SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`).          |
+| `SESSION_SECRET`          | Session signing key. At least 32 random bytes.                                                                                                                       |
 
 ### Sign-in (exactly one provider)
 
-| Variable                          | Purpose                                                                                                                                        |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GOOGLE_OAUTH_CLIENT_ID`          | Google OAuth web client ID.                                                                                                                    |
-| `GOOGLE_OAUTH_CLIENT_SECRET`      | Google OAuth web client secret.                                                                                                                |
+| Variable                             | Purpose                                                                                                                                        |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GOOGLE_OAUTH_CLIENT_ID`             | Google OAuth web client ID.                                                                                                                    |
+| `GOOGLE_OAUTH_CLIENT_SECRET`         | Google OAuth web client secret.                                                                                                                |
 | `SLASHDOCS_OIDC_ISSUER_URL`          | Issuer URL of a generic OIDC provider (Okta, Entra ID, Keycloak, Dex, ...). Endpoints are discovered from `/.well-known/openid-configuration`. |
 | `SLASHDOCS_OIDC_CLIENT_ID`           | OIDC client ID.                                                                                                                                |
 | `SLASHDOCS_OIDC_CLIENT_SECRET`       | OIDC client secret.                                                                                                                            |
@@ -517,27 +517,27 @@ both. The redirect URI to register is
 
 ### Optional
 
-| Variable                                 | Default     | Purpose                                                                                                                               |
-| ---------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `SLASHDOCS_PORT`                            | `8080`      | Public app/API listen port.                                                                                                           |
-| `SLASHDOCS_METRICS_PORT`                    | `9090`      | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain. |
-| `SLASHDOCS_MIGRATE`                         | `true`      | Run database migrations on boot. Set `false` to skip.                                                                                 |
-| `SLASHDOCS_DEFAULT_DOC_PERMISSION`          | `private`   | Server-wide default sharing applied when a document is created: `viewer`, `commenter`, `editor`, or `private` (no grant). Non-private values require `SLASHDOCS_DEPLOYMENT=org`; requests may override per document via the `default_permission` form field. |
-| `SLASHDOCS_FEATURED`                        | unset       | JSON object of sections that the Documents page shows above each user's own items. See [Featured sections](#featured-sections).     |
-| `SLASHDOCS_KV_EVENTS_MODE`                  | `auto`      | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                              |
-| `SLASHDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset       | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.      |
-| `SLASHDOCS_PREVIOUS_ORIGINS`              | unset       | Comma-separated app origins that this deployment used before. Requests to them get a permanent redirect to the same path on `SLASHDOCS_APP_ORIGIN`, and the CLI saves the new URL. MCP clients on an old origin get one tool that tells the agent the new MCP URL. Route these hosts to the server. |
-| `SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`     | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.         |
-| `SLASHDOCS_COMMIT_SHA` / `COMMIT_SHA`       | unset       | Build revision exposed at `/commit.txt`.                                                                                              |
-| `ALLOWED_OAUTH_DOMAINS`                  | unset       | Comma-separated email-domain allowlist for OAuth logins (public deployments).                                                         |
-| `SLASHDOCS_DEPLOYMENT`                      | `public`    | `public` or `org`. An org deployment gates login to `SLASHDOCS_ORG_DOMAINS`.                                                             |
-| `SLASHDOCS_ORG_DOMAINS`                     | unset       | Comma-separated org domains. Required when `SLASHDOCS_DEPLOYMENT=org`; also the login gate.                                              |
-| `SLASHDOCS_ORG_NAME`                        | unset       | Org display name used in share UI copy (e.g. "Anyone in Acme").                                                                       |
-| `BLOB_REGION`                            | `us-east-1` | AWS region for the S3 client.                                                                                                         |
-| `BLOB_ENDPOINT`                          | unset       | Custom S3 endpoint (MinIO, R2, etc.).                                                                                                 |
-| `BLOB_ACCESS_KEY_ID`                     | unset       | Override AWS-SDK default credential chain.                                                                                            |
-| `BLOB_SECRET_ACCESS_KEY`                 | unset       | Override AWS-SDK default credential chain.                                                                                            |
-| `BLOB_FORCE_PATH_STYLE`                  | `false`     | Set to `true` for MinIO and most non-AWS S3 implementations.                                                                          |
+| Variable                                    | Default     | Purpose                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `SLASHDOCS_PORT`                            | `8080`      | Public app/API listen port.                                                                                                                                                                                                                                                                         |
+| `SLASHDOCS_METRICS_PORT`                    | `9090`      | Port for the separate listener that serves `/metrics`. Keep private (scrape over internal networking); never give it a public domain.                                                                                                                                                               |
+| `SLASHDOCS_MIGRATE`                         | `true`      | Run database migrations on boot. Set `false` to skip.                                                                                                                                                                                                                                               |
+| `SLASHDOCS_DEFAULT_DOC_PERMISSION`          | `private`   | Server-wide default sharing applied when a document is created: `viewer`, `commenter`, `editor`, or `private` (no grant). Non-private values require `SLASHDOCS_DEPLOYMENT=org`; requests may override per document via the `default_permission` form field.                                        |
+| `SLASHDOCS_FEATURED`                        | unset       | JSON object of sections that the Documents page shows above each user's own items. See [Featured sections](#featured-sections).                                                                                                                                                                     |
+| `SLASHDOCS_KV_EVENTS_MODE`                  | `auto`      | `auto`, `notify`, or `poll`; controls how document KV streams discover persisted events.                                                                                                                                                                                                            |
+| `SLASHDOCS_KV_EVENTS_LISTENER_DATABASE_URL` | unset       | Direct or session-pooled URL to the same database for the dedicated LISTEN connection. Never use a transaction-pooling endpoint.                                                                                                                                                                    |
+| `SLASHDOCS_PREVIOUS_ORIGINS`                | unset       | Comma-separated app origins that this deployment used before. Requests to them get a permanent redirect to the same path on `SLASHDOCS_APP_ORIGIN`, and the CLI saves the new URL. MCP clients on an old origin get one tool that tells the agent the new MCP URL. Route these hosts to the server. |
+| `SLASHDOCS_ALLOW_UNSAFE_RENDER_ORIGIN`      | `false`     | Set `true` to allow app and render origins on the same hostname. Unsafe: documents can script against the app. Never in prod.                                                                                                                                                                       |
+| `SLASHDOCS_COMMIT_SHA` / `COMMIT_SHA`       | unset       | Build revision exposed at `/commit.txt`.                                                                                                                                                                                                                                                            |
+| `ALLOWED_OAUTH_DOMAINS`                     | unset       | Comma-separated email-domain allowlist for OAuth logins (public deployments).                                                                                                                                                                                                                       |
+| `SLASHDOCS_DEPLOYMENT`                      | `public`    | `public` or `org`. An org deployment gates login to `SLASHDOCS_ORG_DOMAINS`.                                                                                                                                                                                                                        |
+| `SLASHDOCS_ORG_DOMAINS`                     | unset       | Comma-separated org domains. Required when `SLASHDOCS_DEPLOYMENT=org`; also the login gate.                                                                                                                                                                                                         |
+| `SLASHDOCS_ORG_NAME`                        | unset       | Org display name used in share UI copy (e.g. "Anyone in Acme").                                                                                                                                                                                                                                     |
+| `BLOB_REGION`                               | `us-east-1` | AWS region for the S3 client.                                                                                                                                                                                                                                                                       |
+| `BLOB_ENDPOINT`                             | unset       | Custom S3 endpoint (MinIO, R2, etc.).                                                                                                                                                                                                                                                               |
+| `BLOB_ACCESS_KEY_ID`                        | unset       | Override AWS-SDK default credential chain.                                                                                                                                                                                                                                                          |
+| `BLOB_SECRET_ACCESS_KEY`                    | unset       | Override AWS-SDK default credential chain.                                                                                                                                                                                                                                                          |
+| `BLOB_FORCE_PATH_STYLE`                     | `false`     | Set to `true` for MinIO and most non-AWS S3 implementations.                                                                                                                                                                                                                                        |
 
 `SLASHDOCS_KV_EVENTS_MODE=auto` attempts `LISTEN/NOTIFY` only when
 `SLASHDOCS_KV_EVENTS_LISTENER_DATABASE_URL` is explicitly set. Without that URL it
@@ -574,8 +574,6 @@ GET /commit.txt                Build revision (controlled by SLASHDOCS_COMMIT_SH
 GET /livez                     Liveness JSON: {"status":"ok"}
 GET /readyz                    Readiness JSON with dependency checks
 GET /.well-known/slashdocs.json   Deployment discovery
-GET /onboarding/sample.html    Bundled sample report used by the in-app
-                               setup guide. Downloadable, no auth.
 ```
 
 ## How the frontend gets its public URL
@@ -641,15 +639,17 @@ Once you've shipped a release, users (and their agents) install the CLI
 with:
 
 ```bash
-curl -fsSL https://slashdocs.example.com/install.sh | bash
-export PATH="$HOME/.local/bin:$PATH"
+curl -fsSL https://slashdocs.example.com/install.sh | sh
 slashdocs auth login https://slashdocs.example.com
 ```
 
-The installer defaults to a user-local install under `~/.local/bin`. For a
-system install, run `curl -fsSL https://slashdocs.example.com/install.sh | bash -s -- --system`.
-If the selected install directory is not already on `PATH`, the installer adds
-it to the current user's shell profile for future terminals.
+The installer replaces an existing install in place. Otherwise it uses the
+first writable directory that is already on `PATH` from `~/.local/bin`,
+`~/bin`, and `/usr/local/bin`, so `slashdocs` works in the same terminal. If
+none of them is on `PATH`, it installs to `~/.local/bin` and adds that
+directory to the shell profile for new terminals. For a system install, run
+`curl -fsSL https://slashdocs.example.com/install.sh | sh -s -- --system`.
+Set `SLASHDOCS_INSTALL_DIR` to choose the directory.
 
 For self-hosted instances, pass the URL to `slashdocs auth login` so the
 CLI knows which server to authenticate against.
