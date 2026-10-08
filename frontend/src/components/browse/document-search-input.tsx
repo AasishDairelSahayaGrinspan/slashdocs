@@ -106,7 +106,9 @@ export function DocumentSearchInput({
 
   return (
     // The search is the page's composer, so it takes Slash's RazorSense ring.
-    <div className="razorsense-ring w-full rounded-[18px]">
+    // The ring isolates its stacking context, so the z-index lifts the whole
+    // box, suggestions included, above the cards that follow it.
+    <div className="razorsense-ring z-20 w-full rounded-[18px]">
       <Search className="pointer-events-none absolute left-5 top-1/2 z-10 h-5 w-5 -translate-y-1/2 text-[var(--color-fg-muted)]" />
       <input
         ref={inputRef}
