@@ -10,20 +10,22 @@ import {
   siteLink,
 } from "@/components/layout/site-chrome";
 import { AgentLoop } from "@/components/marketing/agent-loop";
+import {
+  DeckArt,
+  GitHubArt,
+  MagazineArt,
+  PrototypeArt,
+  ReceiptsArt,
+  ReportArt,
+  ScreenerArt,
+  SketchArt,
+  ThemeArt,
+} from "@/components/marketing/doc-art";
 import { RazorSenseBackdrop } from "@/components/razorsense-backdrop";
 import { cn } from "@/lib/cn";
 import { publicURL } from "@/lib/config";
 import { useMe } from "@/lib/hooks";
 import { useTitle } from "@/lib/use-title";
-import e2eReport from "@/assets/showcase/e2e-report.webp";
-import magazine from "@/assets/showcase/magazine.webp";
-import openapi from "@/assets/showcase/openapi.webp";
-import pitchDeck from "@/assets/showcase/pitch-deck.webp";
-import prExplainer from "@/assets/showcase/pr-explainer.webp";
-import prototype from "@/assets/showcase/prototype.webp";
-import readReceipts from "@/assets/showcase/read-receipts.webp";
-import screener from "@/assets/showcase/screener.webp";
-import theme from "@/assets/showcase/theme.webp";
 
 // The questions an HTML host leaves open, from the launch post.
 const QUESTIONS = [
@@ -51,14 +53,14 @@ const QUESTIONS = [
 
 const BRIDGE = [
   {
-    src: readReceipts,
+    art: <ReceiptsArt />,
     title: "A key-value store",
     body: "A document saves state that every reader sees: trackers, approvals, or read receipts with confetti at the end.",
     code: `const kv = window.slashdocs.kv;
 await kv.set("read:maya", 5);`,
   },
   {
-    src: openapi,
+    art: <GitHubArt />,
     title: "Files from GitHub",
     body: "Render an OpenAPI spec, a README, or data from a repository. When the file changes, the document does too. The token stays on the server.",
     code: `const gh = window.slashdocs.github;
@@ -67,7 +69,7 @@ const spec = await gh.getRawContent({
 });`,
   },
   {
-    src: theme,
+    art: <ThemeArt />,
     title: "Your theme, diagrams included",
     body: "The document gets the reader's light or dark theme and styles itself. SVG diagrams switch too, so the lines stay readable.",
     code: `[data-slashdocs-theme="dark"] {
@@ -172,21 +174,21 @@ export function LandingPage() {
           <h2 className={h2}>What agents make when the format is open.</h2>
           <p className={cn(lead, "mt-6")}>
             Each document is one HTML file, so it can be anything a web page can be.
-            These are real documents from Razorpay, with names and numbers changed.
+            Each drawing below is based on a real document at Razorpay.
           </p>
           <div className="mt-12 grid gap-4 md:grid-cols-3">
-            <Shot src={e2eReport} title="A report that updates itself" wide>
+            <Shot art={<ReportArt />} title="A report that updates itself" wide>
               An agent reads the E2E test logs twice a day and updates this report. It
               runs the daily stand-up.
             </Shot>
-            <Shot src={pitchDeck} title="A slide deck">
+            <Shot art={<DeckArt />} title="A slide deck">
               Animated slides, reviewed like a spec: one comment per slide.
             </Shot>
-            <Shot src={magazine} title="A magazine">
+            <Shot art={<MagazineArt />} title="A magazine">
               The new-joiner bootcamp recap, with photos and awards, in place of an
               email.
             </Shot>
-            <Shot src={prExplainer} title="An animated PR explainer" wide>
+            <Shot art={<SketchArt />} title="An animated PR explainer" wide>
               A hand-drawn diagram of the change, attached to the pull request, so
               reviewers understand it faster.
             </Shot>
@@ -220,10 +222,9 @@ export function LandingPage() {
               </ol>
             </div>
             <Shot
-              src={prototype}
+              art={<PrototypeArt />}
               title="302 comments, 37 versions"
               className="razorsense-ring mt-16 md:mt-24"
-              imageClassName="md:h-[520px]"
             >
               A team reviewed a clickable prototype of self-serve alerts. Reviewers
               tried the flow and argued about validation rules on the prototype itself.
@@ -239,7 +240,7 @@ export function LandingPage() {
           </p>
           <div className="mt-12 grid gap-4 md:grid-cols-3">
             {BRIDGE.map((b) => (
-              <Shot key={b.title} src={b.src} title={b.title} imageClassName="md:h-52">
+              <Shot key={b.title} art={b.art} title={b.title}>
                 {b.body}
                 <CodeBlock copy={false} className="mt-4 bg-[var(--color-bg)] text-xs">
                   {b.code}
@@ -262,7 +263,7 @@ export function LandingPage() {
             </p>
             <div className="mt-12 grid gap-8 md:grid-cols-2 md:items-center md:gap-12">
               <Connect />
-              <Shot src={screener} title="A bot that reviews">
+              <Shot art={<ScreenerArt />} title="A bot that reviews">
                 A screener bot commented on every Day 0 hackathon idea. Teams pushed new
                 versions, and the bot read them again.
               </Shot>
@@ -314,35 +315,23 @@ docker compose up --build`}</CodeBlock>
   );
 }
 
-// A real document as a card: the screenshot on top, what it shows below.
-// Cards in a row share one image height, so the captions line up.
+// A real document as a card: its drawing on top, what it shows below.
 function Shot({
-  src,
+  art,
   title,
   wide,
   className,
-  imageClassName,
   children,
 }: {
-  src: string;
+  art: React.ReactNode;
   title: string;
   wide?: boolean;
   className?: string;
-  imageClassName?: string;
   children: React.ReactNode;
 }) {
   return (
-    <figure className={cn(card, wide && "md:col-span-2", className)}>
-      <img
-        src={src}
-        alt={title}
-        loading="lazy"
-        decoding="async"
-        className={cn(
-          "h-56 w-full border-b border-[var(--color-border)] object-cover object-left-top md:h-72",
-          imageClassName,
-        )}
-      />
+    <figure className={cn(card, "group", wide && "md:col-span-2", className)}>
+      {art}
       <figcaption className="p-5 md:p-6">
         <h3 className="text-lg font-semibold tracking-[-0.02em]">{title}</h3>
         <div className="mt-1 text-sm text-[var(--color-fg-muted)]">{children}</div>
