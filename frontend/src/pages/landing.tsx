@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
-import { History, Link2, MessageSquareQuote } from "lucide-react";
+import { History, MessageSquareQuote, ShieldCheck, Users } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { CodeBlock } from "@/components/ui/misc";
 import {
@@ -15,41 +15,83 @@ import { cn } from "@/lib/cn";
 import { publicURL } from "@/lib/config";
 import { useMe } from "@/lib/hooks";
 import { useTitle } from "@/lib/use-title";
+import e2eReport from "@/assets/showcase/e2e-report.webp";
+import magazine from "@/assets/showcase/magazine.webp";
+import openapi from "@/assets/showcase/openapi.webp";
+import pitchDeck from "@/assets/showcase/pitch-deck.webp";
+import prExplainer from "@/assets/showcase/pr-explainer.webp";
+import prototype from "@/assets/showcase/prototype.webp";
+import readReceipts from "@/assets/showcase/read-receipts.webp";
+import screener from "@/assets/showcase/screener.webp";
+import theme from "@/assets/showcase/theme.webp";
 
-const PILLARS = [
+// The questions an HTML host leaves open, from the launch post.
+const QUESTIONS = [
   {
-    icon: Link2,
-    title: "A link, not a paste",
-    body: "Every document gets a URL. Share it with a person, a Google Group, or the whole organization, and find it again with search.",
+    icon: Users,
+    title: "Who can open it?",
+    body: "Give a person, a Google Group, a bot, or the whole organization the viewer, commenter, or editor role. Share a folder to share everything in it.",
   },
   {
     icon: MessageSquareQuote,
-    title: "Comments on the exact words",
-    body: "Select a sentence and comment. Replies, mentions, and Slack notifications keep people in the loop. Agents get each comment with its quote.",
+    title: "Where does feedback go?",
+    body: "On the exact words. Comments stay through new versions, with replies and reactions. Agents pull them, then revise or reply.",
   },
   {
     icon: History,
-    title: "Every version kept",
-    body: "Each push makes a new version that never changes. A push from an old version fails, so two agents cannot overwrite each other.",
+    title: "Which copy is current?",
+    body: "Each push makes a version that never changes, and the history keeps all of them. A push from an old version fails, so two agents cannot overwrite each other.",
+  },
+  {
+    icon: ShieldCheck,
+    title: "Is it safe to open?",
+    body: "Documents render in a locked iframe on a separate origin. One bridge, which the platform controls, decides what a document can do.",
+  },
+];
+
+const BRIDGE = [
+  {
+    src: readReceipts,
+    title: "A key-value store",
+    body: "A document saves state that every reader sees: trackers, approvals, or read receipts with confetti at the end.",
+    code: `const kv = window.slashdocs.kv;
+await kv.set("read:maya", 5);`,
+  },
+  {
+    src: openapi,
+    title: "Files from GitHub",
+    body: "Render an OpenAPI spec, a README, or data from a repository. When the file changes, the document does too. The token stays on the server.",
+    code: `const gh = window.slashdocs.github;
+const spec = await gh.getRawContent({
+  owner, repo, path: "openapi.json",
+});`,
+  },
+  {
+    src: theme,
+    title: "Your theme, diagrams included",
+    body: "The document gets the reader's light or dark theme and styles itself. SVG diagrams switch too, so the lines stay readable.",
+    code: `[data-slashdocs-theme="dark"] {
+  --paper: #111316;
+}`,
   },
 ];
 
 const CONNECT = [
   {
-    title: "The CLI and the skill",
-    body: "One command installs the CLI and a skill for Claude Code and other agents. The skill teaches the agent to publish and revise.",
+    title: "CLI and skill",
+    body: "One command installs the CLI and a skill for Claude Code and other agents. The CLI covers everything the web app does.",
     code: `curl -fsSL ${publicURL()}/install.sh | sh
 slashdocs auth login ${publicURL()}
 slashdocs docs create report.html --title "Q3 incident review"`,
   },
   {
     title: "Remote MCP",
-    body: "Add one URL to any MCP client. You sign in through the browser, and there is nothing to install.",
+    body: "For agents without a terminal. Add one URL to the client and sign in through the browser.",
     code: `claude mcp add --transport http slashdocs ${publicURL()}/mcp`,
   },
   {
-    title: "Service accounts",
-    body: "CI jobs and scheduled agents publish with their own key, not with your account.",
+    title: "Bots",
+    body: "A bot has its own address, its own keys, and its own role on each document. Scheduled jobs and cloud agents publish as bots.",
     code: `slashdocs sa create nightly-reports
 slashdocs sa key create sa_123
 # In CI, set SLASHDOCS_TOKEN to the key, then:
@@ -58,23 +100,20 @@ slashdocs docs create report.html --title "Nightly report"`,
 ];
 
 const SELF_HOST = [
+  ["One binary", "A Go server with the web app built in."],
+  ["Compose or Helm", "Docker Compose to try it, a Helm chart to run it in a cluster."],
   [
-    "One binary",
-    "A Go server for the API, the web app, and the CLI downloads, with Postgres and an S3-compatible bucket.",
+    "Your infrastructure",
+    "Your Postgres, your S3-compatible bucket, and any OIDC sign-in.",
   ],
-  ["Your sign-in", "Any OIDC provider: Google, Okta, Entra ID, Keycloak, or Dex."],
-  [
-    "Sandboxed documents",
-    "Documents render on a separate origin. Their scripts cannot reach your session.",
-  ],
-  ["MIT licensed", "Read the source, change it, and run it as you like."],
+  ["Ready to watch", "A Grafana dashboard comes with it."],
 ];
 
 const h2 = "text-3xl font-semibold tracking-[-0.02em] md:text-5xl";
 const lead = "max-w-[60ch] text-lg text-[var(--color-fg-muted)]";
 // Slash's card: a hairline in light, a borderless lift in dark.
-const tile =
-  "min-w-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 shadow-[var(--shadow-card)] md:p-8 dark:border-transparent";
+const card =
+  "min-w-0 overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] shadow-[var(--shadow-card)] dark:border-transparent";
 
 export function LandingPage() {
   useTitle();
@@ -106,8 +145,9 @@ export function LandingPage() {
               The collaborative workspace for agentic organizations.
             </h1>
             <p className={cn(lead, "mx-auto mt-6 md:text-xl")}>
-              Agents publish HTML documents. Your team comments on the exact words.
-              Agents read the comments and ship the next version.
+              Agents choose the words and the form: the layout, the visuals, and how the
+              document behaves. People comment in the browser. Agents read the comments
+              and publish the next version.
             </p>
             <div className="mx-auto mt-10 flex max-w-xl flex-col gap-3 sm:flex-row sm:items-center">
               <CodeBlock className="min-w-0 flex-1 bg-[var(--color-surface)] text-left">{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
@@ -115,85 +155,117 @@ export function LandingPage() {
                 <Link to="/login">Sign in</Link>
               </Button>
             </div>
+            <p className="mt-8 text-sm text-[var(--color-fg-muted)]">
+              At Razorpay:{" "}
+              <strong className="font-semibold text-[var(--color-fg)]">28k+</strong>{" "}
+              documents and{" "}
+              <strong className="font-semibold text-[var(--color-fg)]">60+</strong>{" "}
+              bots.
+            </p>
           </div>
           <div className="mt-16 md:mt-20">
             <AgentLoop />
           </div>
         </section>
 
+        <section className="mx-auto max-w-6xl px-6 pb-24 md:pb-32">
+          <h2 className={h2}>What agents make when the format is open.</h2>
+          <p className={cn(lead, "mt-6")}>
+            Each document is one HTML file, so it can be anything a web page can be.
+            These are real documents from Razorpay, with names and numbers changed.
+          </p>
+          <div className="mt-12 grid gap-4 md:grid-cols-3">
+            <Shot src={e2eReport} title="A report that updates itself" wide>
+              An agent reads the E2E test logs twice a day and updates this report. It
+              runs the daily stand-up.
+            </Shot>
+            <Shot src={pitchDeck} title="A slide deck">
+              Animated slides, reviewed like a spec: one comment per slide.
+            </Shot>
+            <Shot src={magazine} title="A magazine">
+              The new-joiner bootcamp recap, with photos and awards, in place of an
+              email.
+            </Shot>
+            <Shot src={prExplainer} title="An animated PR explainer" wide>
+              A hand-drawn diagram of the change, attached to the pull request, so
+              reviewers understand it faster.
+            </Shot>
+          </div>
+        </section>
+
         <section className="border-y border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-          <div className="mx-auto grid max-w-6xl gap-14 px-6 py-24 md:grid-cols-[5fr_6fr] md:gap-20 md:py-32">
-            <div className="md:sticky md:top-24 md:self-start">
-              <h2 className={h2}>Agent work should not end in a chat window.</h2>
-              <p className={cn(lead, "mt-6")}>
-                An agent writes a twenty-page report in minutes. Then the report stays
-                in a terminal, where nobody else can read it or question it.
-              </p>
+          <div className="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <div className="grid gap-14 md:grid-cols-[5fr_6fr] md:gap-20">
+              <div className="md:sticky md:top-24 md:self-start">
+                <h2 className={h2}>More than a link to an HTML file.</h2>
+                <p className={cn(lead, "mt-6")}>
+                  A host gives you a link. A team needs four more answers, and the agent
+                  needs a place in the conversation.
+                </p>
+              </div>
+              <ol className="grid gap-12">
+                {QUESTIONS.map((q) => (
+                  <li key={q.title} className="grid grid-cols-[auto_1fr] gap-x-5">
+                    <span className="grid h-10 w-10 place-items-center rounded-sm bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
+                      <q.icon className="h-5 w-5" strokeWidth={1.75} />
+                    </span>
+                    <div>
+                      <h3 className="text-xl font-semibold tracking-[-0.02em] md:text-2xl">
+                        {q.title}
+                      </h3>
+                      <p className="mt-2 text-[var(--color-fg-muted)]">{q.body}</p>
+                    </div>
+                  </li>
+                ))}
+              </ol>
             </div>
-            <ol className="grid gap-14">
-              {PILLARS.map((p) => (
-                <li key={p.title} className="grid grid-cols-[auto_1fr] gap-x-5">
-                  <span className="grid h-10 w-10 place-items-center rounded-sm bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
-                    <p.icon className="h-5 w-5" strokeWidth={1.75} />
-                  </span>
-                  <div>
-                    <h3 className="text-xl font-semibold tracking-[-0.02em] md:text-2xl">
-                      {p.title}
-                    </h3>
-                    <p className="mt-2 text-[var(--color-fg-muted)]">{p.body}</p>
-                  </div>
-                </li>
-              ))}
-            </ol>
+            <Shot
+              src={prototype}
+              title="302 comments, 37 versions"
+              className="razorsense-ring mt-16 md:mt-24"
+              imageClassName="md:h-[520px]"
+            >
+              A team reviewed a clickable prototype of self-serve alerts. Reviewers
+              tried the flow and argued about validation rules on the prototype itself.
+            </Shot>
           </div>
         </section>
 
         <section className="mx-auto max-w-6xl px-6 py-24 md:py-32">
-          <h2 className={h2}>Works with the agent you already use.</h2>
-          <Connect />
-        </section>
-
-        <section className="mx-auto max-w-6xl px-6 pb-24 md:pb-32">
-          <h2 className={h2}>One HTML file, as rich as a web page.</h2>
+          <h2 className={h2}>HTML that does more than display.</h2>
           <p className={cn(lead, "mt-6")}>
-            Incident reports, specs, architecture reviews, data analysis, QA findings,
-            and dashboards.
+            The platform gives each document a small bridge. A document can keep state,
+            read from GitHub, and follow the reader's theme.
           </p>
           <div className="mt-12 grid gap-4 md:grid-cols-3">
-            <div className={cn(tile, "md:col-span-2")}>
-              <Feature title="Shared state">
-                Approvals, checklists, and trackers save to the document. Everyone sees
-                the same state.
-              </Feature>
-              <CodeBlock className="mt-6 bg-[var(--color-bg)]">{`await window.slashdocs.kv.set("approval:pm", {
-  status: "approved",
-  by: "pm@example.com",
-});`}</CodeBlock>
-            </div>
-            <div
-              className={cn(
-                tile,
-                "razorsense-ring bg-[radial-gradient(ellipse_at_85%_0%,color-mix(in_srgb,var(--razorsense-wash-from)_30%,transparent),transparent_70%)]",
-              )}
-            >
-              <Feature title="Charts, diagrams, and screenshots">
-                Inline SVG, Mermaid diagrams, and images embedded in the file. One file
-                holds the whole document.
-              </Feature>
-            </div>
-            <div className={cn(tile, "bg-[var(--color-surface-muted)]")}>
-              <Feature title="Light and dark">
-                Documents follow the theme of the reader, and they print cleanly.
-              </Feature>
-            </div>
-            <div className={cn(tile, "md:col-span-2")}>
-              <Feature title="Files from GitHub">
-                Show a file from a repository at a branch, a tag, or a commit. The token
-                stays on the server.
-              </Feature>
-              <CodeBlock className="mt-6 bg-[var(--color-bg)]">{`await window.slashdocs.github.getRawContent({
-  owner: "razorpay", repo: "slashdocs", path: "README.md", ref: "main",
-});`}</CodeBlock>
+            {BRIDGE.map((b) => (
+              <Shot key={b.title} src={b.src} title={b.title} imageClassName="md:h-52">
+                {b.body}
+                <CodeBlock copy={false} className="mt-4 bg-[var(--color-bg)] text-xs">
+                  {b.code}
+                </CodeBlock>
+              </Shot>
+            ))}
+          </div>
+          <p className="mt-8 text-sm text-[var(--color-fg-muted)]">
+            Also: Vim keys to scroll, live presence to follow a reader, and Export as
+            PDF with the live state of the document.
+          </p>
+        </section>
+
+        <section className="border-t border-[var(--color-border)]">
+          <div className="mx-auto max-w-6xl px-6 py-24 md:py-32">
+            <h2 className={h2}>Anything a person can do, an agent can do.</h2>
+            <p className={cn(lead, "mt-6")}>
+              The CLI and MCP give every agent the same authoring guidelines, so the
+              first draft fits the platform, whichever model wrote it.
+            </p>
+            <div className="mt-12 grid gap-8 md:grid-cols-2 md:items-center md:gap-12">
+              <Connect />
+              <Shot src={screener} title="A bot that reviews">
+                A screener bot commented on every Day 0 hackathon idea. Teams pushed new
+                versions, and the bot read them again.
+              </Shot>
             </div>
           </div>
         </section>
@@ -201,6 +273,9 @@ export function LandingPage() {
         <section className="border-t border-[var(--color-border)]">
           <div className="mx-auto max-w-6xl px-6 py-24 md:py-32">
             <h2 className={h2}>Run it on your own servers.</h2>
+            <p className={cn(lead, "mt-6")}>
+              Your documents and your data stay with you. slashdocs is MIT licensed.
+            </p>
             <div className="mt-12 grid gap-12 md:grid-cols-2">
               <div className="min-w-0">
                 <CodeBlock className="bg-[var(--color-surface)]">{`git clone https://github.com/razorpay/slashdocs.git
@@ -239,54 +314,70 @@ docker compose up --build`}</CodeBlock>
   );
 }
 
-// Each way to connect an agent, with the commands for the selected one.
-function Connect() {
-  const [active, setActive] = useState(0);
+// A real document as a card: the screenshot on top, what it shows below.
+// Cards in a row share one image height, so the captions line up.
+function Shot({
+  src,
+  title,
+  wide,
+  className,
+  imageClassName,
+  children,
+}: {
+  src: string;
+  title: string;
+  wide?: boolean;
+  className?: string;
+  imageClassName?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div className="mt-12 grid gap-8 md:grid-cols-[2fr_3fr] md:gap-12">
-      <div role="tablist" aria-label="Ways to connect an agent" className="grid gap-2">
-        {CONNECT.map((c, i) => (
-          <button
-            key={c.title}
-            role="tab"
-            aria-selected={i === active}
-            onClick={() => setActive(i)}
-            className={cn(
-              "rounded-md border p-5 text-left transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)]",
-              i === active
-                ? "border-[var(--color-border-strong)] bg-[var(--color-surface)]"
-                : "border-transparent hover:bg-[var(--color-surface-muted)]",
-            )}
-          >
-            <span className="font-semibold">{c.title}</span>
-            <span className="mt-1 block text-sm text-[var(--color-fg-muted)]">
-              {c.body}
-            </span>
-          </button>
-        ))}
-      </div>
-      <div role="tabpanel" className={tile}>
-        <h3 className="text-sm font-medium text-[var(--color-fg-muted)]">
-          {CONNECT[active].title}
-        </h3>
-        <CodeBlock
-          key={active}
-          className="mt-4 animate-[rise_300ms_ease-out] bg-[var(--color-bg)]"
-        >
-          {CONNECT[active].code}
-        </CodeBlock>
-      </div>
-    </div>
+    <figure className={cn(card, wide && "md:col-span-2", className)}>
+      <img
+        src={src}
+        alt={title}
+        loading="lazy"
+        decoding="async"
+        className={cn(
+          "h-56 w-full border-b border-[var(--color-border)] object-cover object-left-top md:h-72",
+          imageClassName,
+        )}
+      />
+      <figcaption className="p-5 md:p-6">
+        <h3 className="text-lg font-semibold tracking-[-0.02em]">{title}</h3>
+        <div className="mt-1 text-sm text-[var(--color-fg-muted)]">{children}</div>
+      </figcaption>
+    </figure>
   );
 }
 
-function Feature({ title, children }: { title: string; children: React.ReactNode }) {
+// Each way to connect an agent, with the commands for the selected one.
+function Connect() {
+  const [active, setActive] = useState(0);
+  const c = CONNECT[active];
   return (
-    <>
-      <h3 className="text-lg font-semibold tracking-[-0.02em]">{title}</h3>
-      <p className="mt-2 max-w-[52ch] text-sm text-[var(--color-fg-muted)]">
-        {children}
-      </p>
-    </>
+    <div className="min-w-0">
+      <div
+        role="tablist"
+        aria-label="Ways to connect an agent"
+        className="flex w-fit gap-0.5 rounded-sm bg-[var(--color-surface-muted)] p-0.5 ring-1 ring-[var(--color-border)] dark:ring-transparent"
+      >
+        {CONNECT.map((t, i) => (
+          <button
+            key={t.title}
+            role="tab"
+            aria-selected={i === active}
+            onClick={() => setActive(i)}
+            className="rounded-[6px] px-3 py-1.5 text-sm text-[var(--color-fg-muted)] transition-colors duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-accent)] aria-selected:bg-[var(--color-surface)] aria-selected:text-[var(--color-fg)] aria-selected:shadow-[var(--shadow-border)]"
+          >
+            {t.title}
+          </button>
+        ))}
+      </div>
+      <div role="tabpanel" key={active} className="mt-6 animate-[rise_300ms_ease-out]">
+        <p className="text-[var(--color-fg-muted)]">{c.body}</p>
+        <CodeBlock className="mt-4 bg-[var(--color-surface)]">{c.code}</CodeBlock>
+      </div>
+    </div>
   );
 }
