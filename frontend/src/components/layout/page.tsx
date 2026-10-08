@@ -23,7 +23,8 @@ export function Page({
       {backdrop && <RazorSenseBackdrop framing={backdrop} />}
       <div
         className={cn(
-          "mx-auto px-4 pb-16 pt-6 md:px-8 md:pb-24 md:pt-10",
+          // The top padding clears the floating app bar (h-14).
+          "mx-auto px-4 pb-16 pt-20 md:px-8 md:pb-24 md:pt-24",
           LANE[lane],
           className,
         )}

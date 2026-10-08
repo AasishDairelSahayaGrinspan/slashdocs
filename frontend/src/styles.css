@@ -31,7 +31,8 @@
 }
 
 /* Tokens from the Blade design system (bladeTheme, @razorpay/blade 12). As in
-   Slash, pages sit on Blade's intense gray and the rail on its moderate gray. */
+   Slash, pages sit on Blade's intense gray, and app chrome (the document bar
+   and the comments panel) on its moderate gray. */
 @theme {
   --font-sans: "Inter", "Inter Fallback", ui-sans-serif, system-ui, sans-serif;
   --font-heading:
@@ -43,7 +44,7 @@
   --radius-lg: 16px;
 
   --color-bg: #ffffff;
-  --color-rail: #f7f7f7;
+  --color-chrome: #f7f7f7;
   --color-surface: #ffffff;
   --color-surface-muted: #f7f7f7;
   --color-border: #dee1e3;
@@ -62,7 +63,7 @@
 
 .dark {
   --color-bg: #131415;
-  --color-rail: #131415;
+  --color-chrome: #131415;
   --color-surface: #1f2124;
   --color-surface-muted: #1b1c1d;
   --color-border: #3b3d40;
@@ -231,15 +232,15 @@
   padding: 1.5px;
 }
 
-/* The rail's current row: a RazorSense wash that fades into the rail. */
-.rail-link {
+/* Slash's selected row: a RazorSense wash that fades out to the right. */
+.wash-link {
   transition:
     background-color 150ms ease-out,
     color 150ms ease-out;
 }
-.rail-link:hover,
-.rail-link:focus-visible,
-.rail-link[aria-current] {
+.wash-link:hover,
+.wash-link:focus-visible,
+.wash-link[aria-current] {
   color: var(--color-fg);
   background: linear-gradient(
     90deg,
@@ -249,7 +250,7 @@
     transparent 88%
   );
 }
-.rail-link[aria-current] {
+.wash-link[aria-current] {
   --wash: 40%;
 }
 

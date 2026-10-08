@@ -21,7 +21,7 @@ import {
   Tag,
   Trash2,
 } from "lucide-react";
-import { AccountMenu } from "@/components/layout/account-menu";
+import { AccountMenu } from "@/components/layout/topbar";
 import { Logo } from "@/components/layout/logo";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -126,7 +126,7 @@ export function DocBar({
   });
   const { printDocument: exportPDF } = useDoc();
   return (
-    <header className="flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-rail)] px-2 sm:gap-2 sm:px-3">
+    <header className="flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-chrome)] px-2 sm:gap-2 sm:px-3">
       <Button asChild variant="ghost" size="icon" className="shrink-0">
         <Link
           to={backTo}
