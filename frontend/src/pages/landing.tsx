@@ -14,7 +14,6 @@ import {
   DeckArt,
   GitHubArt,
   MagazineArt,
-  PrototypeArt,
   ReceiptsArt,
   ReportArt,
   ScreenerArt,
@@ -196,39 +195,29 @@ export function LandingPage() {
         </section>
 
         <section className="border-y border-[var(--color-border)] bg-[var(--color-surface-muted)]">
-          <div className="mx-auto max-w-6xl px-6 py-24 md:py-32">
-            <div className="grid gap-14 md:grid-cols-[5fr_6fr] md:gap-20">
-              <div className="md:sticky md:top-24 md:self-start">
-                <h2 className={h2}>More than a link to an HTML file.</h2>
-                <p className={cn(lead, "mt-6")}>
-                  A host gives you a link. A team needs four more answers, and the agent
-                  needs a place in the conversation.
-                </p>
-              </div>
-              <ol className="grid gap-12">
-                {QUESTIONS.map((q) => (
-                  <li key={q.title} className="grid grid-cols-[auto_1fr] gap-x-5">
-                    <span className="grid h-10 w-10 place-items-center rounded-sm bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
-                      <q.icon className="h-5 w-5" strokeWidth={1.75} />
-                    </span>
-                    <div>
-                      <h3 className="text-xl font-semibold tracking-[-0.02em] md:text-2xl">
-                        {q.title}
-                      </h3>
-                      <p className="mt-2 text-[var(--color-fg-muted)]">{q.body}</p>
-                    </div>
-                  </li>
-                ))}
-              </ol>
+          <div className="mx-auto grid max-w-6xl gap-14 px-6 py-24 md:grid-cols-[5fr_6fr] md:gap-20 md:py-32">
+            <div className="md:sticky md:top-24 md:self-start">
+              <h2 className={h2}>More than a link to an HTML file.</h2>
+              <p className={cn(lead, "mt-6")}>
+                A host gives you a link. A team needs four more answers, and the agent
+                needs a place in the conversation.
+              </p>
             </div>
-            <Shot
-              art={<PrototypeArt />}
-              title="302 comments, 37 versions"
-              className="razorsense-ring mt-16 md:mt-24"
-            >
-              A team reviewed a clickable prototype of self-serve alerts. Reviewers
-              tried the flow and argued about validation rules on the prototype itself.
-            </Shot>
+            <ol className="grid gap-12">
+              {QUESTIONS.map((q) => (
+                <li key={q.title} className="grid grid-cols-[auto_1fr] gap-x-5">
+                  <span className="grid h-10 w-10 place-items-center rounded-sm bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
+                    <q.icon className="h-5 w-5" strokeWidth={1.75} />
+                  </span>
+                  <div>
+                    <h3 className="text-xl font-semibold tracking-[-0.02em] md:text-2xl">
+                      {q.title}
+                    </h3>
+                    <p className="mt-2 text-[var(--color-fg-muted)]">{q.body}</p>
+                  </div>
+                </li>
+              ))}
+            </ol>
           </div>
         </section>
 
