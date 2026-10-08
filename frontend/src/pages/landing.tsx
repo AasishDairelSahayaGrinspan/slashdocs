@@ -10,6 +10,7 @@ import {
   siteLink,
 } from "@/components/layout/site-chrome";
 import { AgentLoop } from "@/components/marketing/agent-loop";
+import { Architecture } from "@/components/marketing/architecture";
 import {
   DeckArt,
   GitHubArt,
@@ -41,7 +42,7 @@ const QUESTIONS = [
   {
     icon: History,
     title: "Which copy is current?",
-    body: "Each push makes a version that never changes, and the history keeps all of them. A push from an old version fails, so two agents cannot overwrite each other.",
+    body: "Each push makes a version that never changes. You can roll back to any earlier version.",
   },
   {
     icon: ShieldCheck,
@@ -82,8 +83,9 @@ slashdocs docs create report.html --title "Q3 incident review"`,
   },
   {
     title: "Remote MCP",
-    body: "For agents without a terminal. Add one URL to the client and sign in through the browser.",
-    code: `claude mcp add --transport http slashdocs ${publicURL()}/mcp`,
+    body: "For agents without a terminal.",
+    code: `claude mcp add --transport http slashdocs \\
+  ${publicURL()}/mcp`,
   },
   {
     title: "Bots",
@@ -93,16 +95,6 @@ slashdocs sa key create sa_123
 # In CI, set SLASHDOCS_TOKEN to the key, then:
 slashdocs docs create report.html --title "Nightly report"`,
   },
-];
-
-const SELF_HOST = [
-  ["One binary", "A Go server with the web app built in."],
-  ["Compose or Helm", "Docker Compose to try it, a Helm chart to run it in a cluster."],
-  [
-    "Your infrastructure",
-    "Your Postgres, your S3-compatible bucket, and any OIDC sign-in.",
-  ],
-  ["Ready to watch", "A Grafana dashboard comes with it."],
 ];
 
 const h2 = "text-3xl font-semibold tracking-[-0.02em] md:text-5xl";
@@ -151,13 +143,6 @@ export function LandingPage() {
                 <Link to="/login">Sign in</Link>
               </Button>
             </div>
-            <p className="mt-8 text-sm text-[var(--color-fg-muted)]">
-              At Razorpay:{" "}
-              <strong className="font-semibold text-[var(--color-fg)]">28k+</strong>{" "}
-              documents and{" "}
-              <strong className="font-semibold text-[var(--color-fg)]">60+</strong>{" "}
-              bots.
-            </p>
           </div>
           <div className="mt-16 md:mt-20">
             <AgentLoop />
@@ -168,19 +153,18 @@ export function LandingPage() {
           <h2 className={h2}>What agents make when the format is open.</h2>
           <p className={cn(lead, "mt-6")}>
             Each document is one HTML file, so it can be anything a web page can be.
-            Each drawing below is based on a real document at Razorpay.
           </p>
           <div className="mt-12 grid gap-4 md:grid-cols-3">
             <Shot art={<ReportArt />} title="A report that updates itself" wide>
-              An agent reads the E2E test logs twice a day and updates this report. It
-              runs the daily stand-up.
+              Agents keep live documents up to date on a schedule. Nobody updates them
+              by hand.
             </Shot>
             <Shot art={<DeckArt />} title="A slide deck">
-              Animated slides, reviewed like a spec: one comment per slide.
+              Slides with much more flexible animations, and much faster for agents to
+              make.
             </Shot>
             <Shot art={<MagazineArt />} title="A magazine">
-              The new-joiner bootcamp recap, with photos and awards, in place of an
-              email.
+              Release a magazine after an event.
             </Shot>
             <Shot art={<SketchArt />} title="An animated PR explainer" wide>
               A hand-drawn diagram of the change, attached to the pull request, so
@@ -248,10 +232,6 @@ export function LandingPage() {
         <section className="border-t border-[var(--color-border)]">
           <div className="mx-auto max-w-6xl px-6 py-24 md:py-32">
             <h2 className={h2}>Anything a person can do, an agent can do.</h2>
-            <p className={cn(lead, "mt-6")}>
-              The CLI and MCP give every agent the same authoring guidelines, so the
-              first draft fits the platform, whichever model wrote it.
-            </p>
             <div className="mt-12 grid gap-8 md:grid-cols-2 md:items-center md:gap-12">
               <Connect />
               <Shot art={<ScreenerArt />} title="A bot that reviews">
@@ -268,36 +248,29 @@ export function LandingPage() {
             <p className={cn(lead, "mt-6")}>
               Your documents and your data stay with you. slashdocs is MIT licensed.
             </p>
-            <div className="mt-12 grid gap-12 md:grid-cols-2">
-              <div className="min-w-0">
-                <CodeBlock className="bg-[var(--color-surface)]">{`git clone https://github.com/razorpay/slashdocs.git
-cd slashdocs
-docker compose up --build`}</CodeBlock>
-                <p className="mt-3 text-sm text-[var(--color-fg-muted)]">
-                  This starts slashdocs with Postgres, MinIO, and a local Dex sign-in.
-                  For production, read the{" "}
-                  <a
-                    href={SELF_HOSTING_URL}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-[var(--color-fg)] underline underline-offset-2"
-                  >
-                    self-hosting guide
-                  </a>
-                  .
-                </p>
-              </div>
-              <dl className="grid content-start gap-x-8 gap-y-10 sm:grid-cols-2">
-                {SELF_HOST.map(([term, detail]) => (
-                  <div key={term}>
-                    <dt className="font-semibold">{term}</dt>
-                    <dd className="mt-1 text-sm text-[var(--color-fg-muted)]">
-                      {detail}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
+            <div className="mt-12">
+              <Architecture />
             </div>
+            <div className="mt-12 grid gap-8 md:grid-cols-2 md:gap-12">
+              <Start title="Try it with Docker Compose">{`git clone https://github.com/razorpay/slashdocs.git
+cd slashdocs
+docker compose up --build`}</Start>
+              <Start title="Run it in a cluster with Helm">{`helm upgrade --install slashdocs ./charts/slashdocs \\
+  --namespace slashdocs --create-namespace -f values.yaml`}</Start>
+            </div>
+            <p className="mt-6 text-sm text-[var(--color-fg-muted)]">
+              Compose starts slashdocs with Postgres, MinIO, and a local Dex sign-in.
+              For production, read the{" "}
+              <a
+                href={SELF_HOSTING_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--color-fg)] underline underline-offset-2"
+              >
+                self-hosting guide
+              </a>
+              .
+            </p>
           </div>
         </section>
       </main>
@@ -328,6 +301,16 @@ function Shot({
         <div className="mt-1 text-sm text-[var(--color-fg-muted)]">{children}</div>
       </figcaption>
     </figure>
+  );
+}
+
+// One way to start slashdocs, with its commands.
+function Start({ title, children }: { title: string; children: string }) {
+  return (
+    <div className="min-w-0">
+      <h3 className="text-sm font-medium text-[var(--color-fg-muted)]">{title}</h3>
+      <CodeBlock className="mt-3 bg-[var(--color-surface)]">{children}</CodeBlock>
+    </div>
   );
 }
 
