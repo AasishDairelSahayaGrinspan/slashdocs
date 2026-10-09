@@ -197,7 +197,25 @@ SLASHDOCS_ORG_NAME=Acme
 Org deployments can also set a server-wide sharing default applied to every
 created document (`SLASHDOCS_DEFAULT_DOC_PERMISSION`: `viewer`, `commenter`,
 `editor`, or `private`, the default). Users can set a different preference on the CLI by
-setting the same env variable on their system while using the CLI.
+setting the same env variable on their system while using the CLI. The default
+grant is applied by the creating principal, who owns the new document, so it is
+unaffected by the sharing rules below.
+
+### Who can change sharing
+
+Adding, changing, and revoking grants — including general access, the
+"everyone" grant — requires the **owner** role on the document or folder.
+Editors may write content but may not decide who else gets in, and viewers and
+commenters have no sharing rights at all.
+
+The one exception is your own grant: any principal may revoke it to leave a
+document or folder they no longer want access to. That is scoped to a grant
+whose principal is exactly the caller, so it can never remove the general
+access or Google Group grants that other people reach the resource through.
+
+An owner-level Google Group grant counts as owner for these rules, but only
+the canonical owner (`documents.owner_id`) may create or change an
+owner-level group grant, so ownership cannot be forked.
 
 ### Featured sections
 

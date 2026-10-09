@@ -347,7 +347,14 @@ func documentMoveCmd(g *globals, out io.Writer) *cobra.Command {
 }
 
 func grantsCmd(g *globals, out io.Writer) *cobra.Command {
-	c := &cobra.Command{Use: "grants", Short: "Manage document grants"}
+	c := &cobra.Command{
+		Use:   "grants",
+		Short: "Manage document grants",
+		Long: "Manage who can reach a document.\n\n" +
+			"Adding, changing, and revoking grants requires the owner role. The one\n" +
+			"exception is your own grant: you may always revoke that to leave a\n" +
+			"document you no longer want access to.",
+	}
 	var principal, address, group, role string
 	var everyone bool
 	add := &cobra.Command{
