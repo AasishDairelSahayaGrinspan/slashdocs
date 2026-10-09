@@ -70,6 +70,28 @@ function installFetch() {
                 },
               ],
             },
+            // A second grant-bearing row that is NOT the caller. Without it,
+            // the caller's row is the only one carrying a grant_id and the
+            // identity half of canLeave never has to hold: dropping
+            // samePrincipal would still render exactly one Leave button.
+            {
+              principal: {
+                type: "user",
+                id: "usr_colleague",
+                email: "colleague@example.com",
+                name: "Colleague",
+              },
+              effective_role: "commenter",
+              sources: [
+                {
+                  resource_type: "document",
+                  resource_id: "doc_1",
+                  resource_title: "Doc",
+                  role: "commenter",
+                  grant_id: "gr_colleague",
+                },
+              ],
+            },
             {
               principal: { type: "anyone", id: "" },
               effective_role: "commenter",

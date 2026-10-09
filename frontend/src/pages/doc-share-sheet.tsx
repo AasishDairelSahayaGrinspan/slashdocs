@@ -382,8 +382,8 @@ export function ShareSheet({
                     Sharing is read-only for your access level.
                   </p>
                   <p className="mt-1 text-xs leading-5 text-[var(--color-fg-muted)]">
-                    You can see who has access and copy the link, but you need at least
-                    commenter access to change sharing.
+                    You can see who has access and copy the link. Only the owner can
+                    change who else gets in.
                   </p>
                 </div>
               </div>
