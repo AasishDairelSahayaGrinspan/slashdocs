@@ -48,6 +48,12 @@ type Config struct {
 	// programmatic users of server.New retain the existing feature set unless
 	// the application entrypoint explicitly disables labels.
 	DisableLabels bool
+	// Docent fields — all empty means the feature is disabled. See
+	// handlers_docent.go; this is an internal-only add-on, deliberately not
+	// part of the core feature set.
+	DocentAgentBaseURL string
+	DocentAgentAPIKey  string
+	DocentAgentModel   string
 }
 
 // Server wraps the gin engine.
@@ -84,6 +90,10 @@ type dependencies struct {
 	googleGroupDirectory      googlegroups.GoogleGroupDirectory
 	googleGroupResolver       *googlegroups.Resolver
 	labelsEnabled             bool
+	docentAgentBaseURL        string
+	docentAgentAPIKey         string
+	docentAgentModel          string
+	docentHTTPClient          *http.Client
 }
 
 // Option configures the Server.
@@ -157,6 +167,10 @@ func New(cfg Config, opts ...Option) *Server {
 		githubHTTPClient:     http.DefaultClient,
 		googleGroupsEnabled:  cfg.GoogleGroupsEnabled,
 		labelsEnabled:        !cfg.DisableLabels,
+		docentAgentBaseURL:   cfg.DocentAgentBaseURL,
+		docentAgentAPIKey:    cfg.DocentAgentAPIKey,
+		docentAgentModel:     cfg.DocentAgentModel,
+		docentHTTPClient:     &http.Client{Timeout: 120 * time.Second},
 	}
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
 		deps.githubOAuth = &oauth2.Config{
@@ -293,6 +307,7 @@ func (s *Server) routes(deps dependencies) {
 	authed.GET("/documents/:id/versions/:version_id/html", h.getVersionHTML)
 	authed.POST("/documents/:id/versions/:version_id/render-token", h.createRenderToken)
 	authed.POST("/documents/:id/versions/:version_id/print-token", h.createPrintToken)
+	authed.POST("/documents/:id/docent/generate", h.generateDocent)
 	authed.GET("/documents/:id/labels", h.listDocumentLabels)
 	authed.PUT("/documents/:id/labels", h.replaceDocumentLabels)
 	authed.POST("/documents/:id/github/raw", h.githubRawContent)

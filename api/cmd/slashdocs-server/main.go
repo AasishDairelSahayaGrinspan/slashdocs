@@ -327,6 +327,13 @@ func newApplicationServer(ctx context.Context, store *pgrepo.Store, blobs blob.S
 		GoogleGroupsEnabled:       googleGroups.enabled,
 		GoogleGroupsMembershipTTL: googleGroups.membershipTTL,
 		DisableLabels:             !labelsEnabled,
+		// Docent is an optional, internal-only add-on (not a core SlashDocs
+		// capability) so it gets its own env namespace rather than SLASHDOCS_*.
+		// All empty means disabled, matching the rest of this server's
+		// opt-in-feature convention.
+		DocentAgentBaseURL: os.Getenv("DOCENT_AGENT_BASE_URL"),
+		DocentAgentAPIKey:  os.Getenv("DOCENT_AGENT_API_KEY"),
+		DocentAgentModel:   envOrDefault("DOCENT_AGENT_MODEL", "gpt-4o"),
 	}, options...), nil
 }
 

@@ -34,6 +34,7 @@ export type ServerConfig = {
   provider_name: string;
   google_groups_enabled: boolean;
   labels_enabled: boolean;
+  docent_enabled: boolean;
 };
 export type GoogleGroup = { id: string; email: string; name: string };
 export type Version = {
@@ -492,6 +493,18 @@ export const api = {
     }),
   deleteDocument: (id: string) =>
     request<void>(`/v1/documents/${id}`, { method: "DELETE" }),
+  // Generates a Docent board from the given document and returns the new,
+  // separate document it was saved as. Internal-only feature — see
+  // ServerConfig.docent_enabled.
+  generateDocent: (docId: string, versionId?: string) =>
+    request<{
+      id: string;
+      current_version_id: string;
+      default_grant?: { grant_id: string; role: string };
+    }>(`/v1/documents/${encodeURIComponent(docId)}/docent/generate`, {
+      method: "POST",
+      body: JSON.stringify(versionId ? { version_id: versionId } : {}),
+    }),
   updateServiceAccount: (id: string, name: string, disabled: boolean) =>
     request<ServiceAccount>(`/v1/service-accounts/${id}`, {
       method: "PATCH",

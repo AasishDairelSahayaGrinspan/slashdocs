@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{{TITLE}}</title>
+<style>
+  :root{
+    --bg:#0a0e16; --panel:#10151f; --panel-2:#0d121b; --line:#1f2733;
+    --ink:#e8ecf2; --ink-dim:#8893a3; --ink-faint:#56606e;
+    --accent:#7c6cf0; --accent-ink:#ffffff;
+    --tone-start:#1f9d8a; --tone-start-bg:#123a35;
+    --tone-process:#4c7ef2; --tone-process-bg:#13233f;
+    --tone-gate:#d9a63e; --tone-gate-bg:#3a2d10;
+    --tone-end:#2fb878; --tone-end-bg:#103a27;
+    --tone-info:#8893a3; --tone-info-bg:#1a2029;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:'IBM Plex Sans', system-ui, -apple-system, sans-serif;
+    display:flex; flex-direction:column; overflow:hidden;
+  }
+  /* header */
+  header{
+    display:flex; align-items:center; gap:14px; padding:10px 18px;
+    border-bottom:1px solid var(--line); background:var(--panel); flex:none;
+  }
+  header .title-block{display:flex; flex-direction:column; gap:1px;}
+  header .title{font-weight:600; font-size:14.5px;}
+  header .subdate{font-size:11px; color:var(--ink-faint);}
+  header .spacer{flex:1;}
+  button.chip{
+    background:var(--panel-2); border:1px solid var(--line); color:var(--ink-dim);
+    font-size:12.5px; font-family:inherit; padding:6px 12px; border-radius:8px;
+    cursor:pointer; display:flex; align-items:center; gap:6px;
+  }
+  button.chip:hover{border-color:var(--accent); color:var(--ink);}
+  button.chip.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
+  button.chip.replay{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600;}
+
+  /* body layout */
+  main{flex:1; display:flex; min-height:0;}
+  #board-viewport{flex:1; position:relative; overflow:hidden; background:
+      radial-gradient(circle at 1px 1px, #161d29 1px, transparent 1px) 0 0/22px 22px, var(--bg);
+  }
+  #board-canvas{position:absolute; left:0; top:0; width:2000px; height:1000px; transform-origin:0 0; transition:transform .7s cubic-bezier(.22,.8,.3,1);}
+  svg#arrow-layer{position:absolute; left:0; top:0; width:2000px; height:1000px; pointer-events:none;}
+  .el{position:absolute; opacity:0; transform:translateY(10px) scale(.96); transition:opacity .5s ease, transform .5s ease;}
+  .el.shown{opacity:1; transform:translateY(0) scale(1);}
+
+  .el.card{
+    border-radius:12px; padding:12px 14px; font-size:14px; font-weight:500; line-height:1.4;
+    box-shadow:0 6px 18px rgba(0,0,0,.35); border:1px solid rgba(255,255,255,.08);
+    display:flex; align-items:center;
+  }
+  .el.card.tone-start{background:linear-gradient(135deg,var(--tone-start-bg),#0d2b27); color:#bdf5ea; border-color:var(--tone-start);}
+  .el.card.tone-process{background:linear-gradient(135deg,var(--tone-process-bg),#0d1930); color:#cfe0ff; border-color:var(--tone-process);}
+  .el.card.tone-gate{background:linear-gradient(135deg,var(--tone-gate-bg),#2a2008); color:#ffe9b8; border-color:var(--tone-gate);}
+  .el.card.tone-end{background:linear-gradient(135deg,var(--tone-end-bg),#0b2a1c); color:#c4f3da; border-color:var(--tone-end);}
+  .el.card.tone-info{background:linear-gradient(135deg,var(--tone-info-bg),#12161d); color:var(--ink); border-color:var(--line);}
+
+  .el.title-block h1{font-size:26px; margin:0 0 6px; font-weight:700;}
+  .el.title-block p{margin:0; color:var(--ink-dim); font-size:14px; font-style:italic;}
+
+  .el.note{font-size:12.5px; color:var(--ink-faint); font-style:italic;}
+
+  .el.frame{border:1.5px dashed var(--line); border-radius:14px; background:rgba(255,255,255,.015);}
+  .el.frame .frame-label{
+    position:absolute; top:-11px; left:14px; background:var(--bg); padding:0 8px;
+    font-size:11px; color:var(--ink-dim); font-family:ui-monospace,monospace; letter-spacing:.03em;
+  }
+
+  path.arrow{fill:none; stroke:#3a4556; stroke-width:2;}
+  path.arrow.tone-start{stroke:var(--tone-start);}
+  path.arrow.tone-process{stroke:var(--tone-process);}
+  path.arrow.tone-gate{stroke:var(--tone-gate);}
+  path.arrow.tone-end{stroke:var(--tone-end);}
+
+  /* narration side panel */
+  #side{width:360px; flex:none; border-left:1px solid var(--line); background:var(--panel); display:flex; flex-direction:column;}
+  #side .side-head{padding:14px 16px 8px; font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--ink-faint); font-weight:600; display:flex; align-items:center; gap:6px; flex:none;}
+  #narration{flex:1; overflow-y:auto; padding:4px 16px 16px; display:flex; flex-direction:column; gap:10px;}
+  #narration .empty{color:var(--ink-faint); font-size:13.5px; margin-top:6px;}
+  .bubble{background:var(--panel-2); border:1px solid var(--line); border-radius:10px; padding:11px 13px; font-size:13.5px; line-height:1.55; color:var(--ink); opacity:0; transform:translateY(6px); transition:opacity .4s ease, transform .4s ease;}
+  .bubble.shown{opacity:1; transform:translateY(0);}
+  .bubble.current{border-color:var(--accent);}
+
+  /* page view */
+  #page-view{flex:1; overflow-y:auto; padding:40px 60px; display:none;}
+  #page-view.active{display:block;}
+  #board-viewport.hidden{display:none;}
+  #page-view .empty{color:var(--ink-faint); font-size:14px; text-align:center; margin-top:120px;}
+  #page-view article{max-width:680px; margin:0 auto; font-size:16px; line-height:1.75; color:var(--ink);}
+  #page-view article p{margin:0 0 16px;}
+
+  /* transport bar */
+  footer{flex:none; border-top:1px solid var(--line); background:var(--panel); padding:8px 18px 12px;}
+  #scrubber{width:100%; accent-color:var(--accent); cursor:pointer;}
+  .transport-row{display:flex; align-items:center; gap:14px; margin-top:6px;}
+  .transport-row .spacer{flex:1;}
+  button.ctrl{background:none; border:none; color:var(--ink-dim); cursor:pointer; font-size:16px; padding:4px 8px;}
+  button.ctrl:hover{color:var(--ink);}
+  button.ctrl.play{background:var(--accent); color:var(--accent-ink); border-radius:50%; width:34px; height:34px; display:flex; align-items:center; justify-content:center; font-size:14px;}
+  #step-count{font-size:12px; color:var(--ink-faint); font-family:ui-monospace,monospace; min-width:52px; text-align:right;}
+  #speed-btn{font-family:ui-monospace,monospace; font-size:12px;}
+
+  @media (max-width:760px){
+    #side{width:0; display:none;}
+    #board-canvas{width:1400px;}
+  }
+</style>
+</head>
+<body>
+  <header>
+    <span style="font-size:18px;">🗺️</span>
+    <div class="title-block">
+      <span class="title" id="hdr-title">{{TITLE}}</span>
+      <span class="subdate" id="hdr-date">{{DATE}}</span>
+    </div>
+    <button class="chip replay" id="btn-replay">↺ Replay</button>
+    <div class="spacer"></div>
+    <button class="chip active" id="tab-board">⬚ Board</button>
+    <button class="chip" id="tab-page">▤ Page</button>
+    <button class="chip" id="btn-voice">🔇 Voice</button>
+    <button class="chip active" id="btn-follow">◎ Following</button>
+  </header>
+
+  <main>
+    <div id="board-viewport">
+      <div id="board-canvas">
+        <svg id="arrow-layer"></svg>
+      </div>
+    </div>
+    <div id="page-view"></div>
+    <div id="side">
+      <div class="side-head">✦ Narration</div>
+      <div id="narration"><div class="empty">No narration yet.</div></div>
+    </div>
+  </main>
+
+  <footer>
+    <input type="range" id="scrubber" min="0" max="0" value="0" step="1">
+    <div class="transport-row">
+      <button class="ctrl" id="speed-btn">1×</button>
+      <button class="ctrl" id="btn-prev">⏮</button>
+      <button class="ctrl play" id="btn-play">▶</button>
+      <button class="ctrl" id="btn-next">⏭</button>
+      <div class="spacer"></div>
+      <span id="step-count">0 / 0</span>
+    </div>
+  </footer>
+
+<script>
+/* ---- story data: {steps:[{narration, elements:[...], }...], title, date} ---- */
+const STORY = {{STORY_JSON}};
+
+const steps = STORY.steps || [];
+const canvas = document.getElementById('board-canvas');
+const svg = document.getElementById('arrow-layer');
+const viewport = document.getElementById('board-viewport');
+const narrationEl = document.getElementById('narration');
+const pageView = document.getElementById('page-view');
+const scrubber = document.getElementById('scrubber');
+const stepCount = document.getElementById('step-count');
+const btnPlay = document.getElementById('btn-play');
+const btnVoice = document.getElementById('btn-voice');
+const btnFollow = document.getElementById('btn-follow');
+const speedBtn = document.getElementById('speed-btn');
+const tabBoard = document.getElementById('tab-board');
+const tabPage = document.getElementById('tab-page');
+
+let current = -1;        // last fully-rendered step index
+let playing = false;
+let voiceOn = false;
+let followOn = true;
+let speed = 1;
+const speeds = [1, 1.5, 2];
+let advanceTimer = null;
+const elNodes = {};       // id -> DOM node, for arrow anchoring
+
+scrubber.max = Math.max(0, steps.length - 1);
+
+function msForText(text){
+  const base = 900 + (text || '').length * 38;
+  return base / speed;
+}
+
+function clearBoard(){
+  canvas.querySelectorAll('.el').forEach(n => n.remove());
+  svg.innerHTML = '';
+  narrationEl.innerHTML = '<div class="empty">No narration yet.</div>';
+  pageView.innerHTML = '';
+  for (const k in elNodes) delete elNodes[k];
+  canvas.style.transform = 'translate(0px,0px) scale(1)';
+}
+
+function centerOf(id){
+  const n = elNodes[id];
+  if(!n) return null;
+  return { x: n.offsetLeft + n.offsetWidth/2, y: n.offsetTop + n.offsetHeight/2,
+           w:n.offsetWidth, h:n.offsetHeight, left:n.offsetLeft, top:n.offsetTop };
+}
+
+function addElement(spec){
+  const node = document.createElement('div');
+  node.className = 'el ' + spec.type + (spec.tone ? ' tone-' + spec.tone : '');
+  node.style.left = spec.x + 'px';
+  node.style.top = spec.y + 'px';
+  if(spec.w) node.style.width = spec.w + 'px';
+  if(spec.h) node.style.height = spec.h + 'px';
+
+  if(spec.type === 'title-block'){
+    node.innerHTML = '<h1>' + spec.text + '</h1>' + (spec.subtitle ? '<p>' + spec.subtitle + '</p>' : '');
+  } else if(spec.type === 'frame'){
+    node.innerHTML = spec.label ? '<span class="frame-label">' + spec.label + '</span>' : '';
+  } else {
+    node.textContent = spec.text || '';
+  }
+  canvas.appendChild(node);
+  if(spec.id) elNodes[spec.id] = node;
+  requestAnimationFrame(() => requestAnimationFrame(() => node.classList.add('shown')));
+  return node;
+}
+
+function addArrow(spec){
+  requestAnimationFrame(() => {
+    const a = centerOf(spec.from), b = centerOf(spec.to);
+    if(!a || !b) return;
+    const path = document.createElementNS('http://www.w3.org/2000/svg','path');
+    const midx = (a.x + b.x) / 2;
+    const d = 'M ' + a.x + ' ' + a.y + ' C ' + midx + ' ' + a.y + ', ' + midx + ' ' + b.y + ', ' + b.x + ' ' + b.y;
+    path.setAttribute('d', d);
+    path.setAttribute('class', 'arrow' + (spec.tone ? ' tone-' + spec.tone : ''));
+    path.setAttribute('marker-end', 'url(#arrowhead)');
+    svg.appendChild(path);
+  });
+}
+
+function ensureArrowMarker(){
+  svg.innerHTML = '<defs><marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto"><path d="M0,0 L6,3 L0,6 Z" fill="#5b6978"/></marker></defs>';
+}
+ensureArrowMarker();
+
+function appendNarration(text, isCurrent){
+  if(narrationEl.querySelector('.empty')) narrationEl.innerHTML = '';
+  narrationEl.querySelectorAll('.bubble').forEach(b => b.classList.remove('current'));
+  const b = document.createElement('div');
+  b.className = 'bubble' + (isCurrent ? ' current' : '');
+  b.textContent = text;
+  narrationEl.appendChild(b);
+  requestAnimationFrame(() => requestAnimationFrame(() => b.classList.add('shown')));
+  narrationEl.scrollTop = narrationEl.scrollHeight;
+}
+
+function fitCamera(targets){
+  if(!followOn || !targets.length) return;
+  const pad = 70;
+  let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+  targets.forEach(t => {
+    const c = centerOf(t);
+    if(!c) return;
+    minX = Math.min(minX, c.left); minY = Math.min(minY, c.top);
+    maxX = Math.max(maxX, c.left + c.w); maxY = Math.max(maxY, c.top + c.h);
+  });
+  if(minX === Infinity) return;
+  minX -= pad; minY -= pad; maxX += pad; maxY += pad;
+  const bboxW = maxX - minX, bboxH = maxY - minY;
+  const vw = viewport.clientWidth, vh = viewport.clientHeight;
+  let scale = Math.min(vw / bboxW, vh / bboxH, 1.25);
+  scale = Math.max(scale, 0.55);
+  const tx = vw/2 - (minX + bboxW/2) * scale;
+  const ty = vh/2 - (minY + bboxH/2) * scale;
+  canvas.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+}
+
+function renderStepInstant(i){
+  const step = steps[i];
+  if(!step) return;
+  (step.elements || []).forEach(spec => {
+    if(spec.type === 'arrow') return; // second pass
+    addElement(spec);
+  });
+  (step.elements || []).forEach(spec => {
+    if(spec.type === 'arrow') addArrow(spec);
+  });
+  if(step.narration) appendNarration(step.narration, i === current);
+}
+
+function jumpTo(targetIndex, animateCamera){
+  cancelSpeech();
+  clearBoard();
+  ensureArrowMarker();
+  current = targetIndex;
+  for(let i = 0; i <= targetIndex; i++) renderStepInstant(i);
+  const lastEls = (steps[targetIndex] && steps[targetIndex].elements || [])
+    .filter(s => s.type !== 'arrow').map(s => s.id).filter(Boolean);
+  if(animateCamera !== false && lastEls.length) fitCamera(lastEls);
+  updateChrome();
+}
+
+function allIdsUpTo(i){
+  const ids = [];
+  for(let k=0;k<=i;k++) (steps[k].elements||[]).forEach(s => s.id && ids.push(s.id));
+  return ids.slice(-4);
+}
+
+function updateChrome(){
+  scrubber.value = current;
+  stepCount.textContent = (current+1) + ' / ' + steps.length;
+}
+
+function cancelSpeech(){
+  if(window.speechSynthesis) window.speechSynthesis.cancel();
+  if(advanceTimer){ clearTimeout(advanceTimer); advanceTimer = null; }
+}
+
+function speakAndAdvance(text){
+  if(voiceOn && window.speechSynthesis && text){
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = speed;
+    u.onend = () => { if(playing) scheduleNext(300); };
+    u.onerror = () => { if(playing) scheduleNext(300); };
+    window.speechSynthesis.speak(u);
+  } else {
+    advanceTimer = setTimeout(() => { if(playing) advance(); }, msForText(text));
+  }
+}
+
+function scheduleNext(delay){
+  advanceTimer = setTimeout(() => { if(playing) advance(); }, delay);
+}
+
+function advance(){
+  if(current >= steps.length - 1){ playing = false; btnPlay.textContent = '▶'; return; }
+  current += 1;
+  renderStepInstant(current);
+  const ids = (steps[current].elements||[]).filter(s=>s.type!=='arrow').map(s=>s.id).filter(Boolean);
+  if(ids.length) fitCamera(ids);
+  updateChrome();
+  if(playing) speakAndAdvance(steps[current].narration);
+}
+
+function play(){
+  playing = true;
+  btnPlay.textContent = '⏸';
+  if(current < 0){ jumpTo(0); speakAndAdvance(steps[0] && steps[0].narration); }
+  else speakAndAdvance(steps[current] && steps[current].narration);
+}
+function pause(){
+  playing = false;
+  btnPlay.textContent = '▶';
+  cancelSpeech();
+}
+
+btnPlay.addEventListener('click', () => playing ? pause() : play());
+document.getElementById('btn-next').addEventListener('click', () => { pause(); jumpTo(Math.min(current+1, steps.length-1)); });
+document.getElementById('btn-prev').addEventListener('click', () => { pause(); jumpTo(Math.max(current-1, 0)); });
+document.getElementById('btn-replay').addEventListener('click', () => { pause(); jumpTo(-1 >= 0 ? 0 : 0); clearBoard(); current=-1; updateChrome(); play(); });
+scrubber.addEventListener('input', () => { pause(); jumpTo(parseInt(scrubber.value, 10)); });
+speedBtn.addEventListener('click', () => {
+  const idx = (speeds.indexOf(speed) + 1) % speeds.length;
+  speed = speeds[idx];
+  speedBtn.textContent = speed + '×';
+});
+btnVoice.addEventListener('click', () => {
+  voiceOn = !voiceOn;
+  btnVoice.textContent = (voiceOn ? '🔊' : '🔇') + ' Voice';
+  btnVoice.classList.toggle('active', voiceOn);
+  if(!voiceOn && window.speechSynthesis) window.speechSynthesis.cancel();
+});
+btnFollow.addEventListener('click', () => {
+  followOn = !followOn;
+  btnFollow.classList.toggle('active', followOn);
+});
+tabBoard.addEventListener('click', () => {
+  tabBoard.classList.add('active'); tabPage.classList.remove('active');
+  viewport.classList.remove('hidden'); pageView.classList.remove('active');
+  document.getElementById('side').style.display = 'flex';
+});
+tabPage.addEventListener('click', () => {
+  tabPage.classList.add('active'); tabBoard.classList.remove('active');
+  viewport.classList.add('hidden'); pageView.classList.add('active');
+  document.getElementById('side').style.display = 'none';
+  if(current < 0){
+    pageView.innerHTML = '<div class="empty">The page is empty — play the board first.</div>';
+  } else {
+    const paras = steps.slice(0, current+1).map(s => '<p>' + s.narration + '</p>').join('');
+    pageView.innerHTML = '<article>' + paras + '</article>';
+  }
+});
+
+window.addEventListener('resize', () => { if(current >= 0) jumpTo(current); });
+
+updateChrome();
+</script>
+</body>
+</html>

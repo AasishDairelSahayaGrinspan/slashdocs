@@ -7,6 +7,7 @@ import { errorMessage } from "@/lib/errors";
 import {
   ArrowLeft,
   Check,
+  Clapperboard,
   ExternalLink,
   FileDown,
   FolderIcon,
@@ -14,6 +15,7 @@ import {
   Maximize2,
   GitBranch,
   Keyboard,
+  LoaderCircle,
   MoreHorizontal,
   PanelRightClose,
   PanelRightOpen,
@@ -123,6 +125,16 @@ export function DocBar({
       nav(backTo);
     },
     onError: (e) => toast.error(errorMessage(e, "Delete failed")),
+  });
+  const docentEnabled = config.data?.docent_enabled === true;
+  const generateDocent = useMutation({
+    mutationFn: () => api.generateDocent(docId, current),
+    onSuccess: (result) => {
+      toast.success("Docent board generated.");
+      q.invalidateQueries({ queryKey: queryKeys.documents() });
+      nav(`/app/d/${result.id}`);
+    },
+    onError: (e) => toast.error(errorMessage(e, "Could not generate a Docent board")),
   });
   const { printDocument: exportPDF } = useDoc();
   return (
@@ -257,6 +269,23 @@ export function DocBar({
           }}
         />
       </Sheet>
+      {docentEnabled ? (
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => generateDocent.mutate()}
+          disabled={generateDocent.isPending}
+          aria-label="Generate a Docent board from this document"
+          tooltip={generateDocent.isPending ? false : "Generate a Docent board"}
+          className="shrink-0"
+        >
+          {generateDocent.isPending ? (
+            <LoaderCircle className="h-4 w-4 animate-spin" />
+          ) : (
+            <Clapperboard className="h-4 w-4" />
+          )}
+        </Button>
+      ) : null}
       <Button
         variant="ghost"
         size="icon"
