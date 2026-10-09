@@ -20,6 +20,8 @@ import {
   type GoogleGroup,
 } from "@/api";
 import { publicURL } from "@/lib/config";
+import { useMe } from "@/lib/hooks";
+import { samePrincipal } from "@/lib/principals";
 import { queryKeys } from "@/lib/queryKeys";
 import {
   ROLES,
@@ -60,6 +62,9 @@ export function ShareSheet({
   const id = resourceId || docId || "";
   const isFolder = resourceType === "folder";
   const q = useQueryClient();
+  // Identifies the caller's own row, which carries the one grant control a
+  // non-owner gets: leaving.
+  const me = useMe();
   const accessKey = isFolder
     ? queryKeys.folderAccess(id)
     : queryKeys.documentAccess(id);
@@ -591,6 +596,13 @@ export function ShareSheet({
                       !item.sources.some((source) => source.grant_id) &&
                       !isGroup;
                     const ownerGroup = isGroup && item.effective_role === "owner";
+                    // Leaving is scoped to the caller's own direct grant, so it
+                    // can never reach the general-access or group grants that
+                    // admit other people.
+                    const canLeave =
+                      !canManageAccess &&
+                      !!grantId &&
+                      samePrincipal(me.data?.principal, item.principal);
                     const principalLabel =
                       item.principal.name ||
                       item.principal.email ||
@@ -629,6 +641,16 @@ export function ShareSheet({
                           <span className="text-xs font-medium text-[var(--color-fg-muted)]">
                             Owner
                           </span>
+                        ) : canLeave ? (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0 text-[var(--color-danger)]"
+                            disabled={revokeDirectGrant.isPending}
+                            onClick={() => revokeDirectGrant.mutate(grantId)}
+                          >
+                            {isFolder ? "Leave folder" : "Leave document"}
+                          </Button>
                         ) : (
                           <select
                             value={item.effective_role}
