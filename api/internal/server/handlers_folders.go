@@ -490,7 +490,8 @@ func (h handlers) patchFolderGrant(c *gin.Context) {
 }
 func (h handlers) deleteFolderGrant(c *gin.Context) {
 	// Viewer floor: be on the folder before naming one of its grants.
-	if !h.needFolderRole(c, c.Param("id"), repo.RoleViewer) {
+	role, ok := h.folderRole(c, c.Param("id"))
+	if !ok {
 		return
 	}
 	existing, err := h.deps.repository.GetGrant(c.Request.Context(), c.Param("id"), c.Param("grant_id"))
@@ -501,7 +502,8 @@ func (h handlers) deleteFolderGrant(c *gin.Context) {
 	// Revoking your own grant is leaving the folder. Revoking anyone else's --
 	// including the "anyone" grant that others reach the folder through -- is
 	// sharing management and requires the owner.
-	if !isSelfGrant(existing, current(c)) && !h.needFolderRole(c, c.Param("id"), repo.RoleOwner) {
+	if !isSelfGrant(existing, current(c)) && !atLeast(role, repo.RoleOwner) {
+		forbidden(c, string(repo.RoleOwner)+" role required")
 		return
 	}
 	if !h.requireCanonicalOwnerForOwnerGroupChange(c, "folder", c.Param("id"), existing, repo.Grant{}) {
