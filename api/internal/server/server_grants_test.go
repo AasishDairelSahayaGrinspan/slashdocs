@@ -101,6 +101,26 @@ func seedDocumentGrant(t *testing.T, e *testEnv, p auth.Principal, role repo.Rol
 	return g
 }
 
+// Agents publish most documents here, so a bot-created document must stay
+// shareable by a human. documents.owner_id holds the service account, and
+// RoleForDocument compares the caller against it directly, so no user is ever
+// the canonical owner of a bot-created document.
+func TestServiceAccountOwnedDocumentIsShareableByItsHumanOwner(t *testing.T) {
+	e := newTestEnv(t)
+	bot := auth.Principal{Type: auth.PrincipalServiceAccount, ID: e.sa.ID}
+	docID, _ := e.createDocument("bot report", "<html><body>hi</body></html>", bot)
+
+	// fixtureOwner owns the service account that owns this document.
+	rr := do(t, e.h, http.MethodPost, "/v1/documents/"+docID+"/grants", `{
+	  "principal": { "type": "user", "email": "viewer@example.com" },
+	  "role": "viewer"
+	}`, map[string]string{
+		"Content-Type":     "application/json",
+		"X-Test-Principal": principalHeader(fixtureOwner),
+	})
+	assertStatus(t, rr, http.StatusCreated)
+}
+
 // Managing sharing is owner-only. This replaces the previous policy, under
 // which any commenter could create, change, and revoke grants.
 func TestCommenterCannotManageDocumentGrants(t *testing.T) {

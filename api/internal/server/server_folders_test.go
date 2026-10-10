@@ -4,7 +4,26 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+
+	"github.com/razorpay/slashdocs/api/internal/auth"
 )
+
+// A bot can create folders too, and folders.owner_id names only the bot, so
+// the human who owns the bot must still be able to share what it created.
+func TestServiceAccountOwnedFolderIsShareableByItsHumanOwner(t *testing.T) {
+	e := newTestEnv(t)
+	bot := principalHeader(auth.Principal{Type: auth.PrincipalServiceAccount, ID: e.sa.ID})
+	folderID := createFolder(t, e, `{"title":"Bot output"}`, bot)
+
+	// fixtureOwner owns the service account that owns this folder.
+	rr := do(t, e.h, http.MethodPost, "/v1/folders/"+folderID+"/grants",
+		`{"address":"`+fixtureViewer.Email+`","role":"viewer"}`,
+		map[string]string{
+			"X-Test-Principal": principalHeader(fixtureOwner),
+			"Content-Type":     "application/json",
+		})
+	assertStatus(t, rr, http.StatusCreated)
+}
 
 func TestFolderAccessControl(t *testing.T) {
 	owner := principalHeader(fixtureOwner)
