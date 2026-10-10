@@ -172,10 +172,13 @@ func folderGrantsCmd(g *globals, out io.Writer) *cobra.Command {
 			return "Changed grant " + args[1] + " on folder " + args[0] + " to " + updRole + "."
 		})
 	}}
-	upd.Flags().StringVar(&updRole, "role", "viewer", "new role")
+	upd.Flags().StringVar(&updRole, "role", "viewer", "viewer, commenter, editor, or owner (groups only)")
 
 	revoke := mutate(g, out, "revoke <folder_id> <grant_id>", "Revoke a folder grant", "DELETE", "/v1/folders/%s/grants/%s", 2, func(a []string) string { return "Revoked grant " + a[1] + " on folder " + a[0] + "." })
 
+	// Cobra prints a subcommand's own Long and never its parent's.
+	add.Long += "\n\n" + grantOwnerRule
+	upd.Long, revoke.Long = grantOwnerRule, grantOwnerRule
 	c.AddCommand(list, add, upd, revoke)
 	return c
 }
