@@ -172,9 +172,17 @@ export function DocBar({
         {currentVersion && (
           <span
             className={`hidden shrink-0 text-xs tabular-nums sm:inline ${isViewingOlder ? "text-amber-600 dark:text-amber-300" : "text-[var(--color-fg-muted)]"}`}
-            title={isViewingOlder ? "Viewing an older version" : "Latest version"}
+            title={
+              (isViewingOlder ? "Viewing an older version" : "Latest version") +
+              (currentVersion.created_at
+                ? ` · created ${formatTimestamp(currentVersion.created_at)}`
+                : "")
+            }
           >
             v{currentVersion.number}
+            {currentVersion.created_at
+              ? ` · ${formatTimestamp(currentVersion.created_at)}`
+              : ""}
             {isViewingOlder ? " · older" : ""}
           </span>
         )}
