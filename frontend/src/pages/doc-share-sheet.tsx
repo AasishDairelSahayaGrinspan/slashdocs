@@ -7,6 +7,16 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/misc";
 import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
   SheetBody,
   SheetContent,
   SheetHeader,
@@ -46,6 +56,7 @@ export function ShareSheet({
   resourceId,
   canManageAccess = true,
   isCanonicalOwner = false,
+  onLeft,
   onOpenAutoFocus,
   onInteractOutside,
 }: {
@@ -54,6 +65,9 @@ export function ShareSheet({
   resourceId?: string;
   canManageAccess?: boolean;
   isCanonicalOwner?: boolean;
+  // Called after the caller revokes their own grant. The sheet cannot read
+  // this resource any more, so the page owns what happens next.
+  onLeft?: () => void;
   onOpenAutoFocus?: ComponentPropsWithoutRef<typeof SheetContent>["onOpenAutoFocus"];
   onInteractOutside?: ComponentPropsWithoutRef<
     typeof SheetContent
@@ -222,6 +236,21 @@ export function ShareSheet({
       invalidateAccess();
     },
     onError: (e) => toast.error(errorMessage(e, "Couldn't revoke access.")),
+  });
+  const leave = useMutation({
+    mutationFn: (grantId: string) =>
+      isFolder ? api.deleteFolderGrant(id, grantId) : api.deleteGrant(id, grantId),
+    onSuccess: () => {
+      toast.success(isFolder ? "You left this folder." : "You left this document.");
+      // Deliberately not invalidateAccess(): GET /access requires viewer,
+      // which the caller just gave up, so refetching it is a guaranteed 403
+      // and a red toast on top of this green one. Refresh only the listings
+      // they can still read, and hand control back to the page.
+      q.invalidateQueries({ queryKey: queryKeys.documents() });
+      q.invalidateQueries({ queryKey: queryKeys.pins() });
+      onLeft?.();
+    },
+    onError: (e) => toast.error(errorMessage(e, "Couldn't leave.")),
   });
   const general = useMutation({
     mutationFn: async (next: string) => {
@@ -598,10 +627,19 @@ export function ShareSheet({
                     const ownerGroup = isGroup && item.effective_role === "owner";
                     // Leaving is scoped to the caller's own direct grant, so it
                     // can never reach the general-access or group grants that
-                    // admit other people.
+                    // admit other people -- and for that reason it is only
+                    // offered when that grant is the caller's ONLY route in.
+                    // Deleting it while general access or a parent folder also
+                    // admits them would report success, remove nothing, and
+                    // silently move them to whatever role the other route
+                    // confers. Group-derived access is invisible from here;
+                    // the row simply offers nothing to act on.
+                    const hasOtherRoute =
+                      !!anyoneItem || (item.sources?.length ?? 0) > 1;
                     const canLeave =
                       !canManageAccess &&
                       !!grantId &&
+                      !hasOtherRoute &&
                       samePrincipal(me.data?.principal, item.principal);
                     const principalLabel =
                       item.principal.name ||
@@ -642,15 +680,38 @@ export function ShareSheet({
                             Owner
                           </span>
                         ) : canLeave ? (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="shrink-0 text-[var(--color-danger)]"
-                            disabled={revokeDirectGrant.isPending}
-                            onClick={() => revokeDirectGrant.mutate(grantId)}
-                          >
-                            {isFolder ? "Leave folder" : "Leave document"}
-                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="shrink-0 text-[var(--color-danger)]"
+                                disabled={leave.isPending}
+                              >
+                                {isFolder ? "Leave folder" : "Leave document"}
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogTitle>
+                                {isFolder
+                                  ? "Leave this folder?"
+                                  : "Leave this document?"}
+                              </AlertDialogTitle>
+                              <AlertDialogDescription>
+                                You lose access immediately. Only the owner can add you
+                                back.
+                              </AlertDialogDescription>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  variant="danger"
+                                  onClick={() => grantId && leave.mutate(grantId)}
+                                >
+                                  Leave
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
                         ) : (
                           <select
                             value={item.effective_role}
