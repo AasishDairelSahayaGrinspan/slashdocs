@@ -280,14 +280,12 @@ async function installFakeWorkspace(page: Page, state: WorkspaceState) {
     if (path === "/v1/documents/doc_1/access") {
       return json(route, {
         current_role: documentRole(state),
-        canonical_owner: state.actor === "owner",
         items: accessItems(state, "document"),
       });
     }
     if (path === "/v1/folders/fld_1/access") {
       return json(route, {
         current_role: folderRole(state),
-        canonical_owner: state.actor === "owner",
         items: accessItems(state, "folder"),
       });
     }
@@ -335,7 +333,7 @@ async function shareWithPlatformGroup(page: Page) {
   await expect(page.getByText("Access granted.")).toBeVisible();
 }
 
-test("canonical owner shares a document and folder with a verified group", async ({
+test("owner shares a document and folder with a verified group", async ({
   page,
 }) => {
   const state = newState();

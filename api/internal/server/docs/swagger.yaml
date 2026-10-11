@@ -473,7 +473,6 @@ definitions:
         - viewer
         - commenter
         - editor
-        - owner
     type: object
   server.grantPrincipal:
     properties:

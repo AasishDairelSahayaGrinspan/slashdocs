@@ -155,7 +155,7 @@ func folderGrantsCmd(g *globals, out io.Writer) *cobra.Command {
 	add.Flags().StringVar(&group, "group", "", "verified organization Google Group email")
 	add.Flags().BoolVar(&everyone, "everyone", false, "share with everyone")
 	add.Flags().StringVar(&principal, "principal", "", "legacy: sa:<id> or user:<email>")
-	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, editor, or owner (groups only)")
+	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, or editor")
 
 	var updRole string
 	upd := &cobra.Command{Use: "update <folder_id> <grant_id>", Short: "Update a folder grant role", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {

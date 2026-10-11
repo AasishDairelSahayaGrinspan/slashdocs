@@ -1045,8 +1045,9 @@ type grantQueryRower interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID string, forUpdate bool) (repo.Grant, error) {
-	query := `
+// lockGrant reads an active grant and locks it for the rest of the transaction.
+func lockGrant(ctx context.Context, db grantQueryRower, resourceID, grantID string) (repo.Grant, error) {
+	const query = `
 		SELECT g.id,g.resource_type,g.resource_id,g.principal_type,g.principal_id,
 		       COALESCE(u.email,gg.email,''),COALESCE(u.name,sa.name,gg.display_name,''),
 		       g.role,g.granted_by_type,g.granted_by_user_id,
@@ -1057,10 +1058,8 @@ func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID strin
 		LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
 		LEFT JOIN users gu ON g.granted_by_type='user' AND g.granted_by_user_id=gu.id
 		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
-		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`
-	if forUpdate {
-		query += ` FOR UPDATE OF g`
-	}
+		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL
+		FOR UPDATE OF g`
 	row := db.QueryRow(ctx, query, grantID, resourceID)
 	var g repo.Grant
 	var principalType, grantedByType string
@@ -1079,17 +1078,13 @@ func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID strin
 	return g, nil
 }
 
-func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.Grant, error) {
-	return getGrant(ctx, s.db, resourceID, grantID, false)
-}
-
 func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role, updatedBy auth.Principal) (repo.Grant, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return repo.Grant{}, err
 	}
 	defer rollback(ctx, tx)
-	existing, err := getGrant(ctx, tx, resourceID, grantID, true)
+	existing, err := lockGrant(ctx, tx, resourceID, grantID)
 	if err != nil {
 		return repo.Grant{}, err
 	}
@@ -1119,7 +1114,7 @@ func (s *Store) DeleteGrant(ctx context.Context, resourceID, grantID string, del
 		return err
 	}
 	defer rollback(ctx, tx)
-	existing, err := getGrant(ctx, tx, resourceID, grantID, true)
+	existing, err := lockGrant(ctx, tx, resourceID, grantID)
 	if err != nil {
 		return err
 	}
