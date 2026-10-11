@@ -105,6 +105,7 @@ func (h handlers) createComment(c *gin.Context) {
 	}
 	incComment("created", cm.Status, actorType(c))
 	h.announce(c, repo.DocumentEventComments)
+	h.maybeRespondToDocentComment(c.Param("id"), cm)
 	c.JSON(http.StatusCreated, commentJSON(cm, cm.VersionID, "", *p))
 }
 

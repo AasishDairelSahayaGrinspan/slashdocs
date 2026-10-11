@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="docent-source-doc-id" content="{{SOURCE_DOC_ID}}">
 <title>{{TITLE}}</title>
 <style>
   :root{
@@ -39,6 +40,9 @@
   button.chip:hover{border-color:var(--accent); color:var(--ink);}
   button.chip.active{background:var(--accent); border-color:var(--accent); color:var(--accent-ink);}
   button.chip.replay{background:var(--accent); border-color:var(--accent); color:var(--accent-ink); font-weight:600;}
+  .zoom-group{display:inline-flex; gap:2px; padding:2px; border:1px solid var(--line); border-radius:9px; background:var(--panel-2);}
+  .zoom-group button.chip{padding:5px 10px; border:0; border-radius:7px; background:none;}
+  .zoom-group button.chip:hover{background:var(--panel); border:0;}
 
   /* body layout */
   main{flex:1; display:flex; min-height:0;}
@@ -125,6 +129,11 @@
     <button class="chip" id="tab-page">▤ Page</button>
     <button class="chip" id="btn-voice">🔇 Voice</button>
     <button class="chip active" id="btn-follow">◎ Following</button>
+    <div class="zoom-group" role="group" aria-label="Zoom board">
+      <button class="chip" id="btn-zoom-out" aria-label="Zoom out" title="Zoom out">−</button>
+      <button class="chip" id="btn-zoom-fit" aria-label="Fit the whole board" title="Fit the whole board">⤢</button>
+      <button class="chip" id="btn-zoom-in" aria-label="Zoom in" title="Zoom in">+</button>
+    </div>
   </header>
 
   <main>
@@ -167,6 +176,9 @@ const stepCount = document.getElementById('step-count');
 const btnPlay = document.getElementById('btn-play');
 const btnVoice = document.getElementById('btn-voice');
 const btnFollow = document.getElementById('btn-follow');
+const btnZoomIn = document.getElementById('btn-zoom-in');
+const btnZoomOut = document.getElementById('btn-zoom-out');
+const btnZoomFit = document.getElementById('btn-zoom-fit');
 const speedBtn = document.getElementById('speed-btn');
 const tabBoard = document.getElementById('tab-board');
 const tabPage = document.getElementById('tab-page');
@@ -266,8 +278,15 @@ function appendNarration(text, isCurrent){
   narrationEl.scrollTop = narrationEl.scrollHeight;
 }
 
-function fitCamera(targets){
-  if(!followOn || !targets.length) return;
+let zoomMul = 1;         // manual multiplier on top of the auto-fit scale
+let lastTargets = [];    // most recent fit target ids, so zoom in/out/fit can redo the frame
+
+// applyFit always draws, regardless of the Following toggle — this is what
+// the zoom buttons call directly so they work whether or not the camera is
+// currently following the playback.
+function applyFit(targets){
+  if(!targets || !targets.length) return;
+  lastTargets = targets;
   const pad = 70;
   let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
   targets.forEach(t => {
@@ -280,11 +299,35 @@ function fitCamera(targets){
   minX -= pad; minY -= pad; maxX += pad; maxY += pad;
   const bboxW = maxX - minX, bboxH = maxY - minY;
   const vw = viewport.clientWidth, vh = viewport.clientHeight;
-  let scale = Math.min(vw / bboxW, vh / bboxH, 1.25);
-  scale = Math.max(scale, 0.55);
+  let scale = Math.min(vw / bboxW, vh / bboxH, 1.25) * zoomMul;
+  scale = Math.max(scale, 0.15);
   const tx = vw/2 - (minX + bboxW/2) * scale;
   const ty = vh/2 - (minY + bboxH/2) * scale;
   canvas.style.transform = 'translate(' + tx + 'px,' + ty + 'px) scale(' + scale + ')';
+}
+
+// fitCamera is the automatic, playback-driven path: it only moves the
+// camera while Following is on, and resets any manual zoom first so the
+// authored framing is trusted again once the reader lets it drive.
+function fitCamera(targets){
+  if(!targets || !targets.length) return;
+  lastTargets = targets;
+  if(!followOn) return;
+  zoomMul = 1;
+  applyFit(targets);
+}
+
+function zoomBy(mult){
+  if(followOn){ followOn = false; btnFollow.classList.remove('active'); }
+  zoomMul = Math.max(0.3, Math.min(3, zoomMul * mult));
+  applyFit(lastTargets);
+}
+
+function fitWholeBoard(){
+  if(followOn){ followOn = false; btnFollow.classList.remove('active'); }
+  zoomMul = 1;
+  const allShown = Object.keys(elNodes);
+  applyFit(allShown.length ? allShown : lastTargets);
 }
 
 function renderStepInstant(i){
@@ -379,7 +422,11 @@ btnVoice.addEventListener('click', () => {
 btnFollow.addEventListener('click', () => {
   followOn = !followOn;
   btnFollow.classList.toggle('active', followOn);
+  if(followOn){ zoomMul = 1; applyFit(lastTargets); }
 });
+btnZoomIn.addEventListener('click', () => zoomBy(1.25));
+btnZoomOut.addEventListener('click', () => zoomBy(1/1.25));
+btnZoomFit.addEventListener('click', fitWholeBoard);
 tabBoard.addEventListener('click', () => {
   tabBoard.classList.add('active'); tabPage.classList.remove('active');
   viewport.classList.remove('hidden'); pageView.classList.remove('active');

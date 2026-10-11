@@ -45,15 +45,14 @@ import (
 // or at any reverse proxy sitting in front of it. The client starts a job,
 // gets an id back immediately, and polls for the result.
 const (
-	docentMaxPlaintextBytes  = 50_000
-	docentMinPlaintextBytes  = 500
-	docentMaxSteps           = 16
-	docentMaxElementsPerStep = 12
-	docentMinSteps           = 3
-	docentCanvasW            = 2000
-	docentCanvasH            = 1000
-	docentJobTimeout         = 5 * time.Minute
-	docentJobRetention       = 15 * time.Minute
+	docentMaxPlaintextBytes = 50_000
+	docentMinPlaintextBytes = 500
+	docentMaxSteps          = 16
+	docentMinSteps          = 3
+	docentCanvasW           = 2000
+	docentCanvasH           = 1000
+	docentJobTimeout        = 5 * time.Minute
+	docentJobRetention      = 15 * time.Minute
 )
 
 //go:embed docentassets/player-template.html
@@ -558,11 +557,7 @@ func callDocentLLM(ctx context.Context, httpClient *http.Client, agentBaseURL, a
 // The result is embedded into a new document, so out-of-range or malformed
 // input is clamped or dropped rather than trusted verbatim.
 func parseDocentStory(content string) (*docentStory, error) {
-	content = strings.TrimSpace(content)
-	content = strings.TrimPrefix(content, "```json")
-	content = strings.TrimPrefix(content, "```")
-	content = strings.TrimSuffix(content, "```")
-	content = strings.TrimSpace(content)
+	content = stripDocentCodeFence(content)
 
 	var story docentStory
 	if err := json.Unmarshal([]byte(content), &story); err != nil {
@@ -583,9 +578,6 @@ func parseDocentStory(content string) (*docentStory, error) {
 	for si := range story.Steps {
 		step := &story.Steps[si]
 		step.Narration = truncateRunes(strings.TrimSpace(step.Narration), 1000)
-		if len(step.Elements) > docentMaxElementsPerStep {
-			step.Elements = step.Elements[:docentMaxElementsPerStep]
-		}
 		kept := step.Elements[:0]
 		for _, el := range step.Elements {
 			if !docentElementTypes[el.Type] {
@@ -688,8 +680,32 @@ func renderDocentBoard(story *docentStory, sourceTitle, sourceDocID string) (str
 	out := docentPlayerTemplate
 	out = strings.ReplaceAll(out, "{{TITLE}}", html.EscapeString(title))
 	out = strings.ReplaceAll(out, "{{DATE}}", html.EscapeString(dateLine))
+	out = strings.ReplaceAll(out, "{{SOURCE_DOC_ID}}", html.EscapeString(sourceDocID))
 	out = strings.ReplaceAll(out, "{{STORY_JSON}}", safeStoryJSON)
 	return out, nil
+}
+
+// docentSourceMetaPattern matches the <meta name="docent-source-doc-id"
+// content="..."> tag renderDocentBoard embeds in every board it produces.
+// Checking for this tag — rather than a new document table column — is how a
+// document is recognized as "a Docent board" without a schema change: it's a
+// property of content the server itself generated and controls, so a regex
+// over bytes it already wrote is as reliable as a column and touches nothing
+// outside Docent's own files.
+var docentSourceMetaPattern = regexp.MustCompile(`<meta name="docent-source-doc-id" content="([^"]*)">`)
+
+// docentSourceDocID reports whether raw HTML is a Docent-generated board and,
+// if so, the source document it was generated from.
+func docentSourceDocID(raw []byte) (docID string, ok bool) {
+	m := docentSourceMetaPattern.FindSubmatch(raw)
+	if m == nil {
+		return "", false
+	}
+	id := html.UnescapeString(string(m[1]))
+	if id == "" {
+		return "", false
+	}
+	return id, true
 }
 
 // docentHTMLToText extracts visible text nodes from HTML, skipping
