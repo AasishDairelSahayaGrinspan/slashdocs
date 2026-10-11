@@ -318,7 +318,8 @@ export function ShareSheet({
             </p>
             <p className="text-xs text-[var(--color-fg-muted)]">
               This access is inherited from{" "}
-              <span className="font-medium">{pendingChange.source.resource_title}</span>.
+              <span className="font-medium">{pendingChange.source.resource_title}</span>
+              .
               {pendingChange.action === "revoke"
                 ? " Removing it will affect everyone who accesses items through that folder."
                 : " Changing it will affect everyone who accesses items through that folder."}
@@ -336,7 +337,9 @@ export function ShareSheet({
                 disabled={updateGrant.isPending || revokeGrant.isPending}
                 onClick={confirmPending}
               >
-                {pendingChange.action === "revoke" ? "Remove from folder" : "Change on folder"}
+                {pendingChange.action === "revoke"
+                  ? "Remove from folder"
+                  : "Change on folder"}
               </Button>
             </div>
           </div>
