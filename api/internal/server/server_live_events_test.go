@@ -22,7 +22,7 @@ type liveEvent struct {
 
 // openLiveStream connects to the document event stream and reads up to the
 // ": connected" marker, returning the events sent before it (the snapshot).
-func openLiveStream(t *testing.T, ctx context.Context, ts *httptest.Server, docID, query string, p auth.Principal) (*bufio.Reader, []liveEvent) {
+func openLiveStream(ctx context.Context, t *testing.T, ts *httptest.Server, docID, query string, p auth.Principal) (*bufio.Reader, []liveEvent) {
 	t.Helper()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/v1/documents/"+docID+"/kv/events"+query, nil)
 	if err != nil {
@@ -96,7 +96,7 @@ func TestDocumentLiveStreamStartsAtLiveEdgeAndAnnouncesComments(t *testing.T) {
 	defer ts.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	reader, snapshot := openLiveStream(t, ctx, ts, e.doc.ID, "", fixtureViewer)
+	reader, snapshot := openLiveStream(ctx, t, ts, e.doc.ID, "", fixtureViewer)
 	if len(snapshot) != 0 {
 		t.Fatalf("snapshot = %#v, want no replayed events", snapshot)
 	}
@@ -128,7 +128,7 @@ func TestDocumentPresenceSnapshotLiveUpdatesAndLeave(t *testing.T) {
 	}
 	assertStatus(t, post(fixtureEditor, `{"session":"editor-session","version":"`+e.ver.ID+`"}`), http.StatusNoContent)
 
-	reader, snapshot := openLiveStream(t, ctx, ts, e.doc.ID, "?session=viewer-session", fixtureViewer)
+	reader, snapshot := openLiveStream(ctx, t, ts, e.doc.ID, "?session=viewer-session", fixtureViewer)
 	if len(snapshot) != 1 || snapshot[0].name != repo.DocumentEventPresence || snapshot[0].id != "" {
 		t.Fatalf("snapshot = %#v, want one presence event without an id", snapshot)
 	}
@@ -143,7 +143,7 @@ func TestDocumentPresenceSnapshotLiveUpdatesAndLeave(t *testing.T) {
 	}
 
 	editorCtx, editorLeave := context.WithCancel(ctx)
-	openLiveStream(t, editorCtx, ts, e.doc.ID, "?session=editor-tab-2", fixtureEditor)
+	openLiveStream(editorCtx, t, ts, e.doc.ID, "?session=editor-tab-2", fixtureEditor)
 	editorLeave()
 	left := readLiveEvent(t, reader)
 	if data := presenceOf(t, left); data["session"] != "editor-tab-2" || data["left"] != true || left.event.UpdatedBy.ID != fixtureEditor.ID {

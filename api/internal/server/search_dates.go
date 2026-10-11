@@ -44,7 +44,7 @@ func searchPeriod(phrase string, now time.Time) (start, end time.Time, ok bool) 
 var ordinal = regexp.MustCompile(`^(\d+)(?:st|nd|rd|th)$`)
 
 // relativePeriod reads dates that count from today.
-func relativePeriod(words []string, today time.Time) (start, end time.Time, ok bool) {
+func relativePeriod(words []string, today time.Time) (start, end time.Time, ok bool) { //nolint:gocyclo // one branch per supported date phrase; a table would obscure the grammar.
 	day := func(d time.Time) (time.Time, time.Time, bool) { return d, d.AddDate(0, 0, 1), true }
 	switch len(words) {
 	case 1:
