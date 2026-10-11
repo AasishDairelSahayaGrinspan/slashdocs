@@ -94,6 +94,7 @@ type dependencies struct {
 	docentAgentAPIKey         string
 	docentAgentModel          string
 	docentHTTPClient          *http.Client
+	docentJobs                *docentJobStore
 }
 
 // Option configures the Server.
@@ -170,7 +171,12 @@ func New(cfg Config, opts ...Option) *Server {
 		docentAgentBaseURL:   cfg.DocentAgentBaseURL,
 		docentAgentAPIKey:    cfg.DocentAgentAPIKey,
 		docentAgentModel:     cfg.DocentAgentModel,
-		docentHTTPClient:     &http.Client{Timeout: 120 * time.Second},
+		// Generation runs in a background job (see handlers_docent.go), so
+		// this timeout only bounds the LLM call itself, not any client or
+		// proxy connection. Real gateway models have been observed taking
+		// 100s+ even for small sources.
+		docentHTTPClient: &http.Client{Timeout: 240 * time.Second},
+		docentJobs:       newDocentJobStore(),
 	}
 	if cfg.GitHubClientID != "" && cfg.GitHubClientSecret != "" && cfg.AppOrigin != "" {
 		deps.githubOAuth = &oauth2.Config{
@@ -308,6 +314,7 @@ func (s *Server) routes(deps dependencies) {
 	authed.POST("/documents/:id/versions/:version_id/render-token", h.createRenderToken)
 	authed.POST("/documents/:id/versions/:version_id/print-token", h.createPrintToken)
 	authed.POST("/documents/:id/docent/generate", h.generateDocent)
+	authed.GET("/documents/:id/docent/jobs/:job_id", h.getDocentJob)
 	authed.GET("/documents/:id/labels", h.listDocumentLabels)
 	authed.PUT("/documents/:id/labels", h.replaceDocumentLabels)
 	authed.POST("/documents/:id/github/raw", h.githubRawContent)

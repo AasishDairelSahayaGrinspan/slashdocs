@@ -212,9 +212,21 @@ function addElement(spec){
   if(spec.h) node.style.height = spec.h + 'px';
 
   if(spec.type === 'title-block'){
-    node.innerHTML = '<h1>' + spec.text + '</h1>' + (spec.subtitle ? '<p>' + spec.subtitle + '</p>' : '');
+    const h1 = document.createElement('h1');
+    h1.textContent = spec.text || '';
+    node.appendChild(h1);
+    if(spec.subtitle){
+      const p = document.createElement('p');
+      p.textContent = spec.subtitle;
+      node.appendChild(p);
+    }
   } else if(spec.type === 'frame'){
-    node.innerHTML = spec.label ? '<span class="frame-label">' + spec.label + '</span>' : '';
+    if(spec.label){
+      const span = document.createElement('span');
+      span.className = 'frame-label';
+      span.textContent = spec.label;
+      node.appendChild(span);
+    }
   } else {
     node.textContent = spec.text || '';
   }
@@ -300,12 +312,6 @@ function jumpTo(targetIndex, animateCamera){
   updateChrome();
 }
 
-function allIdsUpTo(i){
-  const ids = [];
-  for(let k=0;k<=i;k++) (steps[k].elements||[]).forEach(s => s.id && ids.push(s.id));
-  return ids.slice(-4);
-}
-
 function updateChrome(){
   scrubber.value = current;
   stepCount.textContent = (current+1) + ' / ' + steps.length;
@@ -357,7 +363,7 @@ function pause(){
 btnPlay.addEventListener('click', () => playing ? pause() : play());
 document.getElementById('btn-next').addEventListener('click', () => { pause(); jumpTo(Math.min(current+1, steps.length-1)); });
 document.getElementById('btn-prev').addEventListener('click', () => { pause(); jumpTo(Math.max(current-1, 0)); });
-document.getElementById('btn-replay').addEventListener('click', () => { pause(); jumpTo(-1 >= 0 ? 0 : 0); clearBoard(); current=-1; updateChrome(); play(); });
+document.getElementById('btn-replay').addEventListener('click', () => { pause(); clearBoard(); current=-1; updateChrome(); play(); });
 scrubber.addEventListener('input', () => { pause(); jumpTo(parseInt(scrubber.value, 10)); });
 speedBtn.addEventListener('click', () => {
   const idx = (speeds.indexOf(speed) + 1) % speeds.length;
@@ -383,11 +389,20 @@ tabPage.addEventListener('click', () => {
   tabPage.classList.add('active'); tabBoard.classList.remove('active');
   viewport.classList.add('hidden'); pageView.classList.add('active');
   document.getElementById('side').style.display = 'none';
+  pageView.innerHTML = '';
   if(current < 0){
-    pageView.innerHTML = '<div class="empty">The page is empty — play the board first.</div>';
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'The page is empty — play the board first.';
+    pageView.appendChild(empty);
   } else {
-    const paras = steps.slice(0, current+1).map(s => '<p>' + s.narration + '</p>').join('');
-    pageView.innerHTML = '<article>' + paras + '</article>';
+    const article = document.createElement('article');
+    steps.slice(0, current+1).forEach(s => {
+      const p = document.createElement('p');
+      p.textContent = s.narration;
+      article.appendChild(p);
+    });
+    pageView.appendChild(article);
   }
 });
 

@@ -36,6 +36,13 @@ export type ServerConfig = {
   labels_enabled: boolean;
   docent_enabled: boolean;
 };
+export type DocentStartResult =
+  | { status: "exists"; id: string; current_version_id: string }
+  | { status: "pending"; job_id: string; truncated?: boolean };
+export type DocentJobResult =
+  | { status: "pending" }
+  | { status: "done"; id: string; current_version_id: string }
+  | { status: "error"; error: { code: string; message: string } };
 export type GoogleGroup = { id: string; email: string; name: string };
 export type Version = {
   id: string;
@@ -493,18 +500,20 @@ export const api = {
     }),
   deleteDocument: (id: string) =>
     request<void>(`/v1/documents/${id}`, { method: "DELETE" }),
-  // Generates a Docent board from the given document and returns the new,
-  // separate document it was saved as. Internal-only feature — see
-  // ServerConfig.docent_enabled.
+  // Starts generating a Docent board from the given document. Internal-only
+  // feature — see ServerConfig.docent_enabled. Generation runs as a
+  // background job (a real model can take well over a minute), so this
+  // returns either an already-generated board for this exact source version
+  // ("exists") or a job to poll with getDocentJob ("pending").
   generateDocent: (docId: string, versionId?: string) =>
-    request<{
-      id: string;
-      current_version_id: string;
-      default_grant?: { grant_id: string; role: string };
-    }>(`/v1/documents/${encodeURIComponent(docId)}/docent/generate`, {
+    request<DocentStartResult>(`/v1/documents/${encodeURIComponent(docId)}/docent/generate`, {
       method: "POST",
       body: JSON.stringify(versionId ? { version_id: versionId } : {}),
     }),
+  getDocentJob: (docId: string, jobId: string) =>
+    request<DocentJobResult>(
+      `/v1/documents/${encodeURIComponent(docId)}/docent/jobs/${encodeURIComponent(jobId)}`,
+    ),
   updateServiceAccount: (id: string, name: string, disabled: boolean) =>
     request<ServiceAccount>(`/v1/service-accounts/${id}`, {
       method: "PATCH",

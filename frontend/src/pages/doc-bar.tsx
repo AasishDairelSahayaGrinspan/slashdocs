@@ -47,7 +47,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Sheet, SheetTrigger } from "@/components/ui/sheet";
 import { DeleteDocumentDialog } from "@/components/delete-document-dialog";
-import { api, type Principal, type Version } from "@/api";
+import { api, APIError, type Principal, type Version } from "@/api";
 import { canManageSharing, ROLE_RANK } from "@/lib/constants";
 import { changeSummaryLines } from "@/lib/change-summary";
 import { formatTimestamp } from "@/lib/format-date";
@@ -128,9 +128,26 @@ export function DocBar({
   });
   const docentEnabled = config.data?.docent_enabled === true;
   const generateDocent = useMutation({
-    mutationFn: () => api.generateDocent(docId, current),
+    mutationFn: async () => {
+      const start = await api.generateDocent(docId, current);
+      if (start.status === "exists") {
+        return { id: start.id, reopened: true as const };
+      }
+      // Generation runs as a background job — a real model can take well
+      // over a minute — so poll rather than hold one request open.
+      toast.message("Generating your Docent board — this can take a minute or two.");
+      const jobId = start.job_id;
+      for (;;) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const job = await api.getDocentJob(docId, jobId);
+        if (job.status === "done") return { id: job.id, reopened: false as const };
+        if (job.status === "error") {
+          throw new APIError(0, job.error.code, job.error.message);
+        }
+      }
+    },
     onSuccess: (result) => {
-      toast.success("Docent board generated.");
+      toast.success(result.reopened ? "Opening the existing Docent board." : "Docent board generated.");
       q.invalidateQueries({ queryKey: queryKeys.documents() });
       nav(`/app/d/${result.id}`);
     },
