@@ -9,8 +9,8 @@ A release is a git tag. Pushing a tag that matches `v<major>.<minor>.<patch>`
    Stable releases also move `razorpay/slashdocs:latest`; pre-releases do not.
 2. Packages the Helm chart with `version` and `appVersion` set to the tag, so the
    chart defaults to the image that was just pushed.
-3. Builds standalone CLI archives for Linux and macOS (amd64 and arm64) with
-   GoReleaser, and publishes a GitHub Release containing the archives, a
+3. Builds standalone CLI archives for Linux, macOS, and Windows (amd64 and
+   arm64) with GoReleaser, and publishes a GitHub Release containing the archives, a
    `checksums.txt`, the chart `.tgz`, and a changelog grouped from the commit
    messages since the previous tag.
 

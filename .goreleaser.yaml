@@ -1,7 +1,8 @@
 # GoReleaser builds the standalone CLI archives and creates the GitHub Release.
 # It runs from .github/workflows/release.yml on a `v*` tag; the Docker image is
-# built separately in that workflow. Platforms match the CLI binaries the
-# server embeds and serves from /install.sh.
+# built separately in that workflow. Linux and macOS archives match the CLI
+# binaries the server embeds and serves from /install.sh; the Windows zip is
+# only available here (and via `go install`), since install.sh is POSIX sh.
 version: 2
 
 project_name: slashdocs
@@ -25,6 +26,7 @@ builds:
     goos:
       - linux
       - darwin
+      - windows
     goarch:
       - amd64
       - arm64
@@ -34,6 +36,10 @@ archives:
     formats:
       - tar.gz
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
     files:
       - LICENSE
       - README.md
