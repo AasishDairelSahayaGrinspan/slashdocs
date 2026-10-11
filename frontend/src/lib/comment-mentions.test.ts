@@ -1,14 +1,13 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { assert, test } from "vitest";
 
-import type { CommentMention, CommentMentionPrincipal } from "../src/api.ts";
+import type { CommentMention, CommentMentionPrincipal } from "../api.ts";
 import {
   inferTextareaEdit,
   getMentionTarget,
   insertMention,
   mentionTextSegments,
   reconcileMentionDraft,
-} from "../src/lib/comment-mentions.ts";
+} from "./comment-mentions.ts";
 
 const alice: CommentMentionPrincipal = {
   type: "user",
@@ -124,7 +123,7 @@ test("rendering preserves structured ranges before terminal punctuation", () => 
     const segments = mentionTextSegments(body, [candidate]);
 
     assert.deepEqual(segments[0], { text: "@Alice", mention: candidate });
-    assert.equal(
+    assert.strictEqual(
       segments
         .slice(1)
         .map(({ text }) => text)
@@ -140,8 +139,8 @@ test("mention search accepts full names and Unicode without reopening accepted t
     end: 18,
     query: "Anurag Rao",
   });
-  assert.equal(getMentionTarget("me@example.com", 14), null);
-  assert.equal(
+  assert.strictEqual(getMentionTarget("me@example.com", 14), null);
+  assert.strictEqual(
     getMentionTarget("@Alice please review", 20, [mention(alice, 0, 6)]),
     null,
   );
