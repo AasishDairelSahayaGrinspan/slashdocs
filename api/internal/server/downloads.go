@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"path"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 
@@ -60,7 +61,7 @@ func embeddedDownload(name string) ([]byte, bool) {
 	return b, err == nil && len(b) > 0
 }
 
-func (h handlers) versionJSON(c *gin.Context) {
+var cachedCLIAssets = sync.OnceValue(func() []cliAsset {
 	assets := make([]cliAsset, 0, len(cliPlatforms))
 	for _, p := range cliPlatforms {
 		asset := cliAsset{OS: p.os, Arch: p.arch, URL: "/cli/" + p.os + "/" + p.arch}
@@ -72,7 +73,11 @@ func (h handlers) versionJSON(c *gin.Context) {
 		asset.Signature, _ = embeddedDownload(cliAssetName(p.os, p.arch) + ".sig")
 		assets = append(assets, asset)
 	}
-	c.JSON(http.StatusOK, versionResponse{Version: releaseVersion(), Commit: releaseCommit(), Install: "/install.sh", Assets: assets})
+	return assets
+})
+
+func (h handlers) versionJSON(c *gin.Context) {
+	c.JSON(http.StatusOK, versionResponse{Version: releaseVersion(), Commit: releaseCommit(), Install: "/install.sh", Assets: cachedCLIAssets()})
 }
 
 func (h handlers) downloadSkill(c *gin.Context) {

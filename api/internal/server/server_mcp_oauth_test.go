@@ -266,7 +266,7 @@ func TestMCPAuthorizeRequiresBrowserSessionAndExplicitConsent(t *testing.T) {
 
 	consent := do(t, e.h, http.MethodGet, path, "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
 	assertStatus(t, consent, http.StatusOK)
-	for _, want := range []string{"Connect Review agent?", fixtureUser.Name, `name="decision" value="deny"`, `name="decision" value="approve"`} {
+	for _, want := range []string{"Connect Review agent?", "Access goes to <strong>client.example</strong>", "The client name is self-reported and is not verified.", fixtureUser.Name, `name="decision" value="deny"`, `name="decision" value="approve"`} {
 		if !strings.Contains(consent.Body.String(), want) {
 			t.Errorf("consent page missing %q: %s", want, consent.Body.String())
 		}
@@ -319,6 +319,9 @@ func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
 	values := mcpAuthorizeValues(e, clientID, redirectURI, mcpTestVerifier, "cursor-state")
 	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
 	assertStatus(t, consent, http.StatusOK)
+	if !strings.Contains(consent.Body.String(), "Access goes to <strong>cursor://anysphere.cursor-retrieval</strong>") {
+		t.Fatal("consent did not show the private-use redirect target")
+	}
 	if got := consent.Header().Get("Content-Security-Policy"); !strings.Contains(got, "form-action 'self' cursor:") {
 		t.Fatalf("consent Content-Security-Policy = %q, want scheme-only cursor: form-action source", got)
 	}
@@ -353,6 +356,9 @@ func TestMCPOAuthFlowAcceptsDifferentLoopbackPortThanRegistered(t *testing.T) {
 	values := mcpAuthorizeValues(e, clientID, liveRedirect, mcpTestVerifier, "loopback-state")
 	consent := do(t, e.h, http.MethodGet, "/oauth/authorize?"+values.Encode(), "", map[string]string{"Accept": "text/html", "Cookie": e.cookie})
 	assertStatus(t, consent, http.StatusOK)
+	if !strings.Contains(consent.Body.String(), "Access goes to <strong>http://127.0.0.1:49812</strong>") {
+		t.Fatal("consent did not show the live loopback redirect target")
+	}
 
 	code := approveMCPAuthorization(t, e, clientID, liveRedirect, mcpTestVerifier, "loopback-state")
 	exchanged := postMCPToken(t, e, mcpTokenValues(e, code, clientID, liveRedirect, mcpTestVerifier))
