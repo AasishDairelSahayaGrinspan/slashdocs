@@ -55,12 +55,14 @@ the commit messages do not give it.
   values bump the minor version while we are pre-1.0, and the major version
   after that. Call them out under **Breaking changes** in the release notes.
 
-## Required repository secrets
+## Docker Hub credentials
 
-| Secret               | Used by                                   | Notes                                                                 |
-|----------------------|-------------------------------------------|-----------------------------------------------------------------------|
-| `DOCKERHUB_USERNAME` | `release.yml`, Docker Hub login            | A Docker Hub account with push rights to the `razorpay` organization. |
-| `DOCKERHUB_TOKEN`    | `release.yml`, Docker Hub login            | A Docker Hub access token with **Read & Write** scope for that account. Prefer an organization access token scoped to `razorpay/slashdocs`. |
+`release.yml` logs in to Docker Hub with the organization-level Actions secrets
+`PUBLIC_DOCKER_USERNAME` and `PUBLIC_DOCKER_PASSWORD`, the same pair the other
+public Razorpay repositories use to publish under the `razorpay` Docker Hub
+organization. They are already visible to this repository; nothing needs to be
+added per repo. If they are ever rotated or renamed at the organization level,
+update the two `secrets.*` references in `release.yml`.
 
 `GITHUB_TOKEN` is provided automatically and is used to create the GitHub Release.
 
