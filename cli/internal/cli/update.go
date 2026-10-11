@@ -21,20 +21,21 @@ import (
 	"github.com/razorpay/slashdocs/skills"
 )
 
-// releaseKey is the ed25519 public key of the release workflow. The CLI
-// installs only binaries that this key signs, so a server, even a malicious
-// one, cannot make the CLI run code that the maintainers did not release. A
-// fork that publishes its own releases replaces this key. See
-// docs/releasing.md.
-var releaseKey = func() ed25519.PublicKey {
-	k, err := base64.StdEncoding.DecodeString("j/TAsJhtyNVSSBHICaq02BO6CXmMqc0uUjNZ/3RBWuY=")
-	if err != nil || len(k) != ed25519.PublicKeySize {
-		panic("invalid release key")
-	}
-	return k
-}()
+var (
+	errNoReleaseKey = errors.New("this CLI build has no release key, so it installs no updates")
+	errUnsigned     = errors.New("the CLI download does not have a valid release signature")
+)
 
-var errUnsigned = errors.New("the CLI download does not have a valid release signature")
+// releaseKey decodes ReleaseKey. The CLI installs only binaries that this key
+// signs, so a server, even a malicious one, cannot make the CLI run code that
+// the maintainers did not release.
+func releaseKey() (ed25519.PublicKey, error) {
+	k, err := base64.StdEncoding.DecodeString(ReleaseKey)
+	if err != nil || len(k) != ed25519.PublicKeySize {
+		return nil, errNoReleaseKey
+	}
+	return k, nil
+}
 
 // executable is the binary that an update replaces. Tests replace it.
 var executable = os.Executable
@@ -198,6 +199,10 @@ func skillRoots(home string) []string {
 }
 
 func installCLIUpdate(ctx context.Context, c *Client, version string, asset serverAsset) error {
+	key, err := releaseKey()
+	if err != nil {
+		return err
+	}
 	exe, err := executable()
 	if err != nil {
 		return err
@@ -244,7 +249,7 @@ func installCLIUpdate(ctx context.Context, c *Client, version string, asset serv
 	if asset.Size > 0 && int(written) != asset.Size {
 		return fmt.Errorf("download size mismatch: got %d, want %d", written, asset.Size)
 	}
-	if !ed25519.Verify(releaseKey, releaseMessage(version, asset.OS, asset.Arch, h.Sum(nil)), asset.Signature) {
+	if !ed25519.Verify(key, releaseMessage(version, asset.OS, asset.Arch, h.Sum(nil)), asset.Signature) {
 		return errUnsigned
 	}
 	//nolint:gosec // G302: the signed CLI follows the installer's conventional world-executable mode.

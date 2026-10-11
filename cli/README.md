@@ -91,7 +91,7 @@ The command installs the `slashdocs` skill into `~/.agents/skills/slashdocs/SKIL
 
 ## Updates
 
-The CLI updates itself from the server it uses. It installs only a newer release that the slashdocs release key signs, so a server cannot make the CLI run code that the maintainers did not release. See [docs/releasing.md](../docs/releasing.md#cli-signing-key).
+The CLI updates itself from the server it uses. It installs only a newer release that the slashdocs release key signs, so a server cannot make the CLI run code that the maintainers did not release. Builds get the public key at build time. See [docs/releasing.md](../docs/releasing.md#cli-signing-key).
 
 ## Output
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -58,9 +59,9 @@ func setupUpdate(t *testing.T, local string) (ed25519.PrivateKey, string) {
 	if err := os.WriteFile(exe, []byte("old binary"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	oldVersion, oldKey, oldExecutable := Version, releaseKey, executable
-	Version, releaseKey, executable = local, pub, func() (string, error) { return exe, nil }
-	t.Cleanup(func() { Version, releaseKey, executable = oldVersion, oldKey, oldExecutable })
+	oldVersion, oldKey, oldExecutable := Version, ReleaseKey, executable
+	Version, ReleaseKey, executable = local, base64.StdEncoding.EncodeToString(pub), func() (string, error) { return exe, nil }
+	t.Cleanup(func() { Version, ReleaseKey, executable = oldVersion, oldKey, oldExecutable })
 	return priv, exe
 }
 
@@ -108,6 +109,20 @@ func TestUpdateCLIRefusesUntrustedBinaries(t *testing.T) {
 				t.Fatalf("executable = %q, want the old binary", got)
 			}
 		})
+	}
+}
+
+func TestUpdateCLIWithoutReleaseKeyInstallsNothing(t *testing.T) {
+	key, exe := setupUpdate(t, "v1.0.0")
+	ReleaseKey = ""
+	rs := &releaseServer{version: "v1.1.0", signVersion: "v1.1.0", key: key}
+
+	changed, err := runUpdate(t, rs.start(t, []byte("new binary")), false)
+	if !errors.Is(err, errNoReleaseKey) || changed || rs.downloads != 0 {
+		t.Fatalf("updateCLI = (%v, %v) with %d downloads, want errNoReleaseKey and no download", changed, err, rs.downloads)
+	}
+	if got := string(readTestFile(t, exe)); got != "old binary" {
+		t.Fatalf("executable = %q, want the old binary", got)
 	}
 }
 

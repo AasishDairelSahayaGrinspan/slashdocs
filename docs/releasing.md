@@ -80,11 +80,17 @@ does not trust the server. It installs a binary only when:
 
 The CLI also installs its agent skill from its own binary, not from the server.
 
-The public key is `releaseKey` in
-[`cli/internal/cli/update.go`](../cli/internal/cli/update.go). The private key
-is the repository Actions secret `CLI_SIGNING_KEY`, in PEM format. The Docker
-build in `release.yml` gets it as a BuildKit secret and writes a `.sig` file
-next to each CLI binary. `release.yml` stops if the secret is not set.
+The key pair lives in two repository Actions settings:
+
+| Setting | Content | Use |
+|---|---|---|
+| Variable `CLI_RELEASE_KEY` | Base64 ed25519 public key | Build input `SLASHDOCS_CLI_RELEASE_KEY`, set into the CLI with `-ldflags` |
+| Secret `CLI_SIGNING_KEY` | ed25519 private key, PEM | BuildKit secret; the Docker build writes a `.sig` file next to each CLI binary |
+
+The Dockerfile, GoReleaser, and the Makefile all read
+`SLASHDOCS_CLI_RELEASE_KEY`. A CLI built without it installs no updates.
+`release.yml` stops if either setting is missing, and the Docker build stops
+if the two keys do not match.
 
 To create a key pair, for a new key or for a fork that publishes its own
 releases:
@@ -94,13 +100,13 @@ openssl genpkey -algorithm ed25519 -out cli-signing-key.pem
 openssl pkey -in cli-signing-key.pem -pubout -outform DER | tail -c 32 | base64
 ```
 
-Put the second command's output in `releaseKey`, and store the PEM file as the
-`CLI_SIGNING_KEY` secret. Then delete the local PEM file, or keep it offline.
+Store the second command's output as the `CLI_RELEASE_KEY` variable, and the
+PEM file as the `CLI_SIGNING_KEY` secret. Then delete the local PEM file, or keep it offline.
 CLIs that have the old key cannot auto-update to a release signed with a new
 key; their users reinstall once with `curl -fsSL https://<host>/install.sh | sh`.
 If the private key leaks, change the key the same way.
 
-Images built without the secret, for example from source, serve unsigned CLI
+Images built without the keys, for example from source, serve unsigned CLI
 binaries. CLIs installed from such a server work, but they do not auto-update.
 
 ## Re-running a release

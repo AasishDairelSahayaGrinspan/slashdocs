@@ -22,6 +22,7 @@ builds:
       - -s -w
       - -X github.com/razorpay/slashdocs/cli/internal/cli.Version={{ .Tag }}
       - -X github.com/razorpay/slashdocs/cli/internal/cli.Commit={{ .ShortCommit }}
+      - -X github.com/razorpay/slashdocs/cli/internal/cli.ReleaseKey={{ .Env.SLASHDOCS_CLI_RELEASE_KEY }}
     goos:
       - linux
       - darwin

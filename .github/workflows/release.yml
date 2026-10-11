@@ -7,7 +7,8 @@ name: Release
 # Produces:
 #   - Docker Hub image razorpay/slashdocs:<version>, :<major>.<minor>, and
 #     :latest (latest is skipped for pre-releases), for linux/amd64 and arm64.
-#     The image serves CLI binaries signed with CLI_SIGNING_KEY.
+#     The image serves CLI binaries signed with CLI_SIGNING_KEY. All CLI
+#     builds trust the public key in the CLI_RELEASE_KEY variable.
 #   - A GitHub Release with CLI archives, checksums, the packaged Helm chart,
 #     and a changelog generated from the commits since the previous tag.
 
@@ -31,11 +32,14 @@ jobs:
       version: ${{ steps.meta.outputs.version }}
     env:
       CLI_SIGNING_KEY: ${{ secrets.CLI_SIGNING_KEY }}
+      SLASHDOCS_CLI_RELEASE_KEY: ${{ vars.CLI_RELEASE_KEY }}
     steps:
-      # Without the key, the image serves unsigned CLI binaries, and every
-      # installed CLI refuses to update to this release.
-      - name: Require the CLI signing key
-        run: test -n "$CLI_SIGNING_KEY" || { echo "::error::CLI_SIGNING_KEY is not set; see docs/releasing.md"; exit 1; }
+      # Without the keys, the image serves unsigned CLI binaries or builds
+      # CLIs that install no updates.
+      - name: Require the CLI release keys
+        run: |
+          test -n "$CLI_SIGNING_KEY" || { echo "::error::The CLI_SIGNING_KEY secret is not set; see docs/releasing.md"; exit 1; }
+          test -n "$SLASHDOCS_CLI_RELEASE_KEY" || { echo "::error::The CLI_RELEASE_KEY variable is not set; see docs/releasing.md"; exit 1; }
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -78,6 +82,7 @@ jobs:
           build-args: |
             SLASHDOCS_VERSION=${{ github.ref_name }}
             SLASHDOCS_COMMIT_SHA=${{ github.sha }}
+            SLASHDOCS_CLI_RELEASE_KEY=${{ vars.CLI_RELEASE_KEY }}
           secret-envs: |
             cli_signing_key=CLI_SIGNING_KEY
           cache-from: type=gha
@@ -137,3 +142,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SLASHDOCS_CLI_RELEASE_KEY: ${{ vars.CLI_RELEASE_KEY }}
