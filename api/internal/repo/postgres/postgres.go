@@ -953,6 +953,25 @@ func (s *Store) DeleteGitHubConnection(ctx context.Context, userID string) error
 	}
 	return nil
 }
+func (s *Store) ListGitHubAuthorAccess(ctx context.Context, documentID, owner, repoName string, freshAfter time.Time) ([]repo.GitHubAuthorAccess, error) {
+	rows, err := s.q.ListGitHubAuthorAccess(ctx, dbsqlc.ListGitHubAuthorAccessParams{DocumentID: documentID, Owner: owner, Repo: repoName, FreshAfter: pgtype.Timestamptz{Time: freshAfter, Valid: true}})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.GitHubAuthorAccess, len(rows))
+	for i, r := range rows {
+		out[i] = repo.GitHubAuthorAccess{Author: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID}, UserID: r.UserID.String, AccessTokenCiphertext: r.AccessTokenCiphertext}
+		if r.CanRead.Valid {
+			out[i].CanRead = &r.CanRead.Bool
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) RecordGitHubRepoAccess(ctx context.Context, userID, owner, repoName string, canRead bool) error {
+	return s.q.UpsertGitHubRepoAccess(ctx, dbsqlc.UpsertGitHubRepoAccessParams{UserID: userID, Owner: owner, Repo: repoName, CanRead: canRead})
+}
+
 func (s *Store) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]repo.ServiceAccount, error) {
 	rows, err := s.q.ListServiceAccounts(ctx, owner.ID)
 	if err != nil {

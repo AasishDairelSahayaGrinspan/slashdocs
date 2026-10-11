@@ -195,6 +195,14 @@ type GithubConnection struct {
 	UpdatedAt             pgtype.Timestamptz
 }
 
+type GithubRepoAccess struct {
+	UserID    string
+	Owner     string
+	Repo      string
+	CanRead   bool
+	CheckedAt pgtype.Timestamptz
+}
+
 type GoogleGroup struct {
 	ID             string
 	CustomerID     string

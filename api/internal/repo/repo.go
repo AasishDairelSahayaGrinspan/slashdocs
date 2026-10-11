@@ -220,6 +220,19 @@ type GitHubConnection struct {
 	UpdatedAt             string `json:"updated_at,omitempty"`
 }
 
+// GitHubAuthorAccess tells if one version creator of a document can read a
+// GitHub repository.
+type GitHubAuthorAccess struct {
+	Author auth.Principal
+	// UserID is the user whose GitHub access counts for the author: the author,
+	// or the owner of a service account.
+	UserID string
+	// AccessTokenCiphertext is empty when that user has no GitHub connection.
+	AccessTokenCiphertext []byte
+	// CanRead is nil when no fresh answer is cached.
+	CanRead *bool
+}
+
 type Anchor struct {
 	Quote       string `json:"quote"`
 	Prefix      string `json:"prefix"`
@@ -364,6 +377,10 @@ type Repository interface {
 	UpsertGitHubConnection(ctx context.Context, connection GitHubConnection) error
 	GetGitHubConnection(ctx context.Context, userID string) (GitHubConnection, error)
 	DeleteGitHubConnection(ctx context.Context, userID string) error
+	// ListGitHubAuthorAccess returns every principal who created a version of
+	// the document. Cached answers older than freshAfter are not returned.
+	ListGitHubAuthorAccess(ctx context.Context, documentID, owner, repo string, freshAfter time.Time) ([]GitHubAuthorAccess, error)
+	RecordGitHubRepoAccess(ctx context.Context, userID, owner, repo string, canRead bool) error
 	CreateServiceAccount(ctx context.Context, owner auth.Principal, name string) (ServiceAccount, error)
 	ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]ServiceAccount, error)
 	GetServiceAccount(ctx context.Context, id string) (ServiceAccount, error)
