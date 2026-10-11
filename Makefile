@@ -112,7 +112,7 @@ e2e-browser:
 			exit 1; \
 		fi; \
 	else \
-		COMPOSE_PROJECT_NAME=$(E2E_COMPOSE_PROJECT) docker compose up -d --build --wait; \
+		COMPOSE_PROJECT_NAME=$(E2E_COMPOSE_PROJECT) SLASHDOCS_IMAGE=$${SLASHDOCS_IMAGE:-slashdocs-e2e:local} docker compose up -d --build --wait; \
 	fi
 	cd frontend && npm ci
 	cd frontend && npm run e2e:install
