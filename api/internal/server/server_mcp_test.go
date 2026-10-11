@@ -543,6 +543,32 @@ func TestMCPToolPermissionsAndConcurrentVersionConflict(t *testing.T) {
 	}
 }
 
+func TestMCPCommentAuthorNeedsCurrentDocumentAccess(t *testing.T) {
+	e := newMCPOAuthTestEnv(t)
+	ctx := context.Background()
+	doc, version, err := e.store.CreateDocument(ctx, fixtureOwner, "private", []byte("<p>test</p>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	grant, err := e.store.CreateGrant(ctx, "document", doc.ID, fixtureUser, repo.RoleCommenter, fixtureOwner)
+	if err != nil {
+		t.Fatal(err)
+	}
+	comment, err := e.store.CreateComment(ctx, doc.ID, version.ID, "original", repo.Anchor{Quote: "test"}, fixtureUser, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.DeleteGrant(ctx, doc.ID, grant.ID, fixtureOwner); err != nil {
+		t.Fatal(err)
+	}
+	token := auth.NewMCPAccessToken(fixtureUser.ID, e.resource, oauthTestSigningMaterial, time.Minute)
+	for _, tool := range []string{"update_comment", "delete_comment", "resolve_comment", "reopen_comment", "reply_comment"} {
+		assertMCPToolError(t, callMCPToolHTTP(t, e, token, tool, map[string]any{
+			"document_id": doc.ID, "comment_id": comment.ID, "body": "changed",
+		}), "forbidden")
+	}
+}
+
 type mcpToolHTTPResult struct {
 	IsError bool
 	Text    string
