@@ -69,7 +69,7 @@ test("uploads HTML in the UI and renders it only on the render origin", async ({
 }) => {
   const title = uniqueName("Browser upload");
   await page.goto("/app/documents");
-  await page.getByRole("button", { name: "More" }).click();
+  await page.getByRole("button", { name: "More", exact: true }).click();
   await page.getByRole("menuitem", { name: "Upload HTML (backup)" }).click();
 
   const dialog = page.getByRole("dialog", { name: "Upload HTML (backup)" });
