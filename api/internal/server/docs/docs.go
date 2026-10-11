@@ -2616,8 +2616,7 @@ const docTemplate = `{
                     "enum": [
                         "viewer",
                         "commenter",
-                        "editor",
-                        "owner"
+                        "editor"
                     ],
                     "allOf": [
                         {

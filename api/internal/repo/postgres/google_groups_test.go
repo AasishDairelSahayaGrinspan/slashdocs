@@ -40,10 +40,4 @@ func TestGoogleGroupRoleMergesWithDirectAndAnyoneUsingHighestPrecedence(t *testi
 	if role, err := store.RoleForDocument(ctx, member, doc.ID); err != nil || role != repo.RoleEditor {
 		t.Fatalf("merged role=%q err=%v, want editor", role, err)
 	}
-	if _, err := store.CreateGrant(ctx, "document", doc.ID, group, repo.RoleOwner, owner); err != nil {
-		t.Fatal(err)
-	}
-	if role, err := store.RoleForDocument(ctx, member, doc.ID); err != nil || role != repo.RoleOwner {
-		t.Fatalf("group owner role=%q err=%v", role, err)
-	}
 }

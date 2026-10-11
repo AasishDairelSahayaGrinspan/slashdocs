@@ -238,7 +238,6 @@ export function DocBar({
         <ShareSheet
           docId={docId}
           canManageAccess={canManageAccess}
-          isCanonicalOwner={canManage}
           onOpenAutoFocus={(event) => {
             const frame = shareFrameFocusRef.current;
             shareFrameFocusRef.current = null;

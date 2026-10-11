@@ -308,7 +308,6 @@ export function FolderPage() {
                 resourceType="folder"
                 resourceId={id}
                 canManageAccess={canManageAccess}
-                isCanonicalOwner={isOwner}
               />
             </Sheet>
             <Dropdown>

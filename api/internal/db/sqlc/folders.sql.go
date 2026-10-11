@@ -30,13 +30,22 @@ const deleteFolderSubtree = `-- name: DeleteFolderSubtree :execrows
 WITH RECURSIVE d(id, depth) AS (
   SELECT $1::text, 1
   UNION ALL
-  SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth < 64
+  SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id
+  WHERE d.depth < 64 AND f.owner_type= $2 AND f.owner_id= $3
 )
 DELETE FROM folders WHERE id IN (SELECT id FROM d)
 `
 
-func (q *Queries) DeleteFolderSubtree(ctx context.Context, folderID string) (int64, error) {
-	result, err := q.db.Exec(ctx, deleteFolderSubtree, folderID)
+type DeleteFolderSubtreeParams struct {
+	FolderID  string
+	OwnerType string
+	OwnerID   string
+}
+
+// Deletes the folder and every folder below it that the same principal owns.
+// The walk stops at folders that other principals own.
+func (q *Queries) DeleteFolderSubtree(ctx context.Context, arg DeleteFolderSubtreeParams) (int64, error) {
+	result, err := q.db.Exec(ctx, deleteFolderSubtree, arg.FolderID, arg.OwnerType, arg.OwnerID)
 	if err != nil {
 		return 0, err
 	}
@@ -478,6 +487,58 @@ func (q *Queries) ListFolderAncestors(ctx context.Context, arg ListFolderAncesto
 	return items, nil
 }
 
+const listFolderSubtreeOrphans = `-- name: ListFolderSubtreeOrphans :many
+WITH RECURSIVE d(id, depth) AS (
+  SELECT $3::text, 1
+  UNION ALL
+  SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id
+  WHERE d.depth < 64 AND f.owner_type= $1 AND f.owner_id= $2
+)
+SELECT f.id, f.title, f.owner_type, f.owner_id
+FROM folders f JOIN d ON f.parent_folder_id=d.id
+WHERE NOT (f.owner_type= $1 AND f.owner_id= $2)
+`
+
+type ListFolderSubtreeOrphansParams struct {
+	OwnerType string
+	OwnerID   string
+	FolderID  string
+}
+
+type ListFolderSubtreeOrphansRow struct {
+	ID        string
+	Title     string
+	OwnerType string
+	OwnerID   string
+}
+
+// The folders that other principals own directly inside the folders that
+// DeleteFolderSubtree removes. Like Google Drive, a folder delete keeps them.
+func (q *Queries) ListFolderSubtreeOrphans(ctx context.Context, arg ListFolderSubtreeOrphansParams) ([]ListFolderSubtreeOrphansRow, error) {
+	rows, err := q.db.Query(ctx, listFolderSubtreeOrphans, arg.OwnerType, arg.OwnerID, arg.FolderID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []ListFolderSubtreeOrphansRow
+	for rows.Next() {
+		var i ListFolderSubtreeOrphansRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.OwnerType,
+			&i.OwnerID,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const listRootFolderEntries = `-- name: ListRootFolderEntries :many
 WITH RECURSIVE anc(folder_id, ancestor_id, depth) AS (
   SELECT c.id, c.parent_folder_id, 1 FROM folders c WHERE c.parent_folder_id IS NOT NULL
@@ -630,6 +691,26 @@ type RecordFolderWorkspaceEntryParams struct {
 func (q *Queries) RecordFolderWorkspaceEntry(ctx context.Context, arg RecordFolderWorkspaceEntryParams) error {
 	_, err := q.db.Exec(ctx, recordFolderWorkspaceEntry, arg.FolderID, arg.PrincipalType, arg.PrincipalID)
 	return err
+}
+
+const rootFolderTitleTaken = `-- name: RootFolderTitleTaken :one
+SELECT EXISTS(
+  SELECT 1 FROM folders
+  WHERE parent_folder_id IS NULL AND owner_type= $1 AND owner_id= $2 AND lower(title)=lower($3)
+)::bool
+`
+
+type RootFolderTitleTakenParams struct {
+	OwnerType string
+	OwnerID   string
+	Title     string
+}
+
+func (q *Queries) RootFolderTitleTaken(ctx context.Context, arg RootFolderTitleTakenParams) (bool, error) {
+	row := q.db.QueryRow(ctx, rootFolderTitleTaken, arg.OwnerType, arg.OwnerID, arg.Title)
+	var column_1 bool
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const searchFoldersByTitle = `-- name: SearchFoldersByTitle :many

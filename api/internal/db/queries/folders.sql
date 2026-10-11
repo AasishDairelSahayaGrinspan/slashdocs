@@ -84,13 +84,35 @@ UPDATE folders SET parent_folder_id=NULLIF(@parent_folder_id::text,''), updated_
 SELECT EXISTS(SELECT 1 FROM folders f WHERE f.id = @folder_id)::bool AS folder_exists,
        EXISTS(SELECT 1 FROM folders f WHERE f.id = @folder_id AND f.owner_type = @owner_type AND f.owner_id = @owner_id)::bool AS is_owner;
 
--- name: DeleteFolderSubtree :execrows
+-- name: ListFolderSubtreeOrphans :many
+-- The folders that other principals own directly inside the folders that
+-- DeleteFolderSubtree removes. Like Google Drive, a folder delete keeps them.
 WITH RECURSIVE d(id, depth) AS (
   SELECT @folder_id::text, 1
   UNION ALL
-  SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id WHERE d.depth < 64
+  SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id
+  WHERE d.depth < 64 AND f.owner_type= @owner_type AND f.owner_id= @owner_id
+)
+SELECT f.id, f.title, f.owner_type, f.owner_id
+FROM folders f JOIN d ON f.parent_folder_id=d.id
+WHERE NOT (f.owner_type= @owner_type AND f.owner_id= @owner_id);
+
+-- name: DeleteFolderSubtree :execrows
+-- Deletes the folder and every folder below it that the same principal owns.
+-- The walk stops at folders that other principals own.
+WITH RECURSIVE d(id, depth) AS (
+  SELECT @folder_id::text, 1
+  UNION ALL
+  SELECT f.id, d.depth+1 FROM folders f JOIN d ON f.parent_folder_id=d.id
+  WHERE d.depth < 64 AND f.owner_type= @owner_type AND f.owner_id= @owner_id
 )
 DELETE FROM folders WHERE id IN (SELECT id FROM d);
+
+-- name: RootFolderTitleTaken :one
+SELECT EXISTS(
+  SELECT 1 FROM folders
+  WHERE parent_folder_id IS NULL AND owner_type= @owner_type AND owner_id= @owner_id AND lower(title)=lower(@title)
+)::bool;
 
 -- name: FindRootFoldersByTitle :many
 -- Resolves the first segment of a folder path: root folders with the given

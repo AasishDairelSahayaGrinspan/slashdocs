@@ -188,23 +188,21 @@ func TestGrantPatchIsScopedToDocument(t *testing.T) {
 	assertStatus(t, rr, http.StatusNotFound)
 }
 
-// accessCallerFields decodes the caller-describing fields of an /access
-// response. The share sheet gates its controls on current_role
-// (canManageSharing) and canonical_owner (owner-group changes), so both must
-// be present and describe the CALLER, not the resource owner.
-func accessCallerFields(t *testing.T, body []byte) (role string, canonical bool) {
+// accessCallerRole decodes current_role from an /access response. The share
+// sheet gates its controls on it (canManageSharing), so it must be present and
+// describe the CALLER, not the resource owner.
+func accessCallerRole(t *testing.T, body []byte) string {
 	t.Helper()
 	var out struct {
-		CurrentRole    *string `json:"current_role"`
-		CanonicalOwner *bool   `json:"canonical_owner"`
+		CurrentRole *string `json:"current_role"`
 	}
 	if err := json.Unmarshal(body, &out); err != nil {
 		t.Fatalf("access response is not JSON: %v; body=%s", err, body)
 	}
-	if out.CurrentRole == nil || out.CanonicalOwner == nil {
-		t.Fatalf("access response missing current_role/canonical_owner: %s", body)
+	if out.CurrentRole == nil {
+		t.Fatalf("access response missing current_role: %s", body)
 	}
-	return *out.CurrentRole, *out.CanonicalOwner
+	return *out.CurrentRole
 }
 
 func TestDocumentAccessReportsCallerRole(t *testing.T) {
@@ -212,20 +210,18 @@ func TestDocumentAccessReportsCallerRole(t *testing.T) {
 	for _, tc := range []struct {
 		principal auth.Principal
 		wantRole  string
-		wantOwner bool
 	}{
-		{fixtureOwner, "owner", true},
-		{fixtureEditor, "editor", false},
-		{fixtureCommenter, "commenter", false},
-		{fixtureViewer, "viewer", false},
+		{fixtureOwner, "owner"},
+		{fixtureEditor, "editor"},
+		{fixtureCommenter, "commenter"},
+		{fixtureViewer, "viewer"},
 	} {
 		rr := do(t, e.h, http.MethodGet, "/v1/documents/"+e.doc.ID+"/access", "", map[string]string{
 			"X-Test-Principal": principalHeader(tc.principal),
 		})
 		assertStatus(t, rr, http.StatusOK)
-		role, canonical := accessCallerFields(t, rr.Body.Bytes())
-		if role != tc.wantRole || canonical != tc.wantOwner {
-			t.Fatalf("%s: current_role=%q canonical_owner=%v, want %q/%v", tc.principal.Email, role, canonical, tc.wantRole, tc.wantOwner)
+		if role := accessCallerRole(t, rr.Body.Bytes()); role != tc.wantRole {
+			t.Fatalf("%s: current_role=%q, want %q", tc.principal.Email, role, tc.wantRole)
 		}
 	}
 }
@@ -245,15 +241,15 @@ func TestFolderAccessReportsCallerRole(t *testing.T) {
 
 	rr = do(t, e.h, http.MethodGet, "/v1/folders/"+folderID+"/access", "", owner)
 	assertStatus(t, rr, http.StatusOK)
-	if role, canonical := accessCallerFields(t, rr.Body.Bytes()); role != "owner" || !canonical {
-		t.Fatalf("owner: current_role=%q canonical_owner=%v, want owner/true", role, canonical)
+	if role := accessCallerRole(t, rr.Body.Bytes()); role != "owner" {
+		t.Fatalf("owner: current_role=%q, want owner", role)
 	}
 
 	rr = do(t, e.h, http.MethodGet, "/v1/folders/"+folderID+"/access", "", map[string]string{
 		"X-Test-Principal": principalHeader(fixtureEditor),
 	})
 	assertStatus(t, rr, http.StatusOK)
-	if role, canonical := accessCallerFields(t, rr.Body.Bytes()); role != "editor" || canonical {
-		t.Fatalf("editor: current_role=%q canonical_owner=%v, want editor/false", role, canonical)
+	if role := accessCallerRole(t, rr.Body.Bytes()); role != "editor" {
+		t.Fatalf("editor: current_role=%q, want editor", role)
 	}
 }

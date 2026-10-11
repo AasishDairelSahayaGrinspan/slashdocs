@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -262,7 +263,16 @@ func (s *Store) DeleteFolder(ctx context.Context, id string, p auth.Principal) e
 	if !own.IsOwner {
 		return repo.ErrForbidden
 	}
-	deleted, err := q.DeleteFolderSubtree(ctx, id)
+	orphans, err := q.ListFolderSubtreeOrphans(ctx, dbsqlc.ListFolderSubtreeOrphansParams{FolderID: id, OwnerType: string(p.Type), OwnerID: p.ID})
+	if err != nil {
+		return err
+	}
+	for _, o := range orphans {
+		if err := moveOrphanToRoot(ctx, q, o); err != nil {
+			return err
+		}
+	}
+	deleted, err := q.DeleteFolderSubtree(ctx, dbsqlc.DeleteFolderSubtreeParams{FolderID: id, OwnerType: string(p.Type), OwnerID: p.ID})
 	if err != nil {
 		return err
 	}
@@ -270,6 +280,23 @@ func (s *Store) DeleteFolder(ctx context.Context, id string, p auth.Principal) e
 		return repo.ErrNotFound
 	}
 	return tx.Commit(ctx)
+}
+
+// moveOrphanToRoot moves a folder that a folder delete keeps to its owner's
+// root. Root titles are unique for each owner, so it adds " (2)", " (3)", and
+// so on to the title when the owner already has a root folder with that title.
+func moveOrphanToRoot(ctx context.Context, q *dbsqlc.Queries, o dbsqlc.ListFolderSubtreeOrphansRow) error {
+	title := o.Title
+	for n := 2; ; n++ {
+		taken, err := q.RootFolderTitleTaken(ctx, dbsqlc.RootFolderTitleTakenParams{OwnerType: o.OwnerType, OwnerID: o.OwnerID, Title: title})
+		if err != nil {
+			return err
+		}
+		if !taken {
+			return q.UpdateFolderTitleAndParent(ctx, dbsqlc.UpdateFolderTitleAndParentParams{ID: o.ID, Title: title})
+		}
+		title = fmt.Sprintf("%s (%d)", o.Title, n)
+	}
 }
 
 func (s *Store) ListFolder(ctx context.Context, p auth.Principal, folderID, path string) ([]repo.FolderEntry, bool, *repo.Folder, error) {

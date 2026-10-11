@@ -203,4 +203,23 @@ func TestPostgresFolderInvariants(t *testing.T) {
 			t.Fatalf("pins=%#v", pins)
 		}
 	})
+	t.Run("delete keeps folders that others own", func(t *testing.T) {
+		r := newFolderStore(t)
+		root, _ := r.CreateFolder(ctx, owner, "Root", "")
+		mine, _ := r.CreateFolder(ctx, owner, "Mine", root.ID)
+		theirs, _ := r.CreateFolder(ctx, other, "Notes", mine.ID)
+		if _, err := r.CreateFolder(ctx, other, "Notes", ""); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.DeleteFolder(ctx, root.ID, owner); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := r.GetFolder(ctx, mine.ID); !errors.Is(err, repo.ErrNotFound) {
+			t.Fatalf("own subfolder err=%v, want deleted", err)
+		}
+		kept, err := r.GetFolder(ctx, theirs.ID)
+		if err != nil || kept.ParentFolderID != "" || kept.Title != "Notes (2)" {
+			t.Fatalf("kept=%#v err=%v, want root folder %q", kept, err, "Notes (2)")
+		}
+	})
 }
