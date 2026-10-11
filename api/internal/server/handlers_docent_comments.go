@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/razorpay/slashdocs/api/internal/auth"
 	"github.com/razorpay/slashdocs/api/internal/repo"
@@ -57,6 +58,7 @@ func (h handlers) maybeRespondToDocentComment(docID string, cm repo.Comment) {
 		agentModel:   h.deps.docentAgentModel,
 		httpClient:   h.deps.docentHTTPClient,
 	}
+	jobs := h.deps.docentJobs
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -64,6 +66,15 @@ func (h handlers) maybeRespondToDocentComment(docID string, cm repo.Comment) {
 					slog.String("doc_id", docID), slog.String("comment_id", cm.ID), slog.Any("panic", r))
 			}
 		}()
+		// Serialize per board first, then rate-limit: a burst of comments on
+		// one board must neither run concurrent LLM calls / racing version
+		// writes, nor run one every time regardless of how recently the last
+		// one fired (see docentCommentCooldown).
+		unlock := jobs.commentResponseLock(docID)
+		defer unlock()
+		if !jobs.commentResponseAllowed(docID, time.Now()) {
+			return
+		}
 		runDocentCommentResponse(params)
 	}()
 }
@@ -128,6 +139,22 @@ func runDocentCommentResponse(p docentCommentResponseParams) {
 		slog.Error("docent comment response: llm call failed", slog.String("doc_id", p.docID), slog.Any("error", err))
 		reply = "Docent couldn't process this comment automatically — the configured backend did not return a usable response. A person should take a look."
 		newStory = nil
+	}
+
+	// A comment only needs Commenter access to leave (see createComment), but
+	// applying a fix is a content-changing write that normally needs Editor
+	// access (see createVersion's RoleEditor check) — so a commenter-only
+	// collaborator can still get an explanation, but Docent only writes a new
+	// version on their behalf when they could have made that same edit
+	// themselves. This also bounds how much a comment can influence the
+	// board's actual content: the worst a commenter-only principal can do is
+	// get misleading reply text, never a document mutation.
+	if newStory != nil {
+		role, roleErr := p.repository.RoleForDocument(ctx, p.comment.Author, p.docID)
+		if roleErr != nil || !atLeast(role, repo.RoleEditor) {
+			reply = reply + " (This would need a board editor to apply — commenting access alone isn't enough to change the board's content.)"
+			newStory = nil
+		}
 	}
 
 	if newStory != nil {

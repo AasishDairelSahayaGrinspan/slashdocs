@@ -153,18 +153,63 @@ type docentJob struct {
 // replicas — an accepted scope limit for an internal add-on; see the PR
 // description.
 type docentJobStore struct {
-	mu       sync.Mutex
-	jobs     map[string]*docentJob
-	bySource map[string]string // "<docID>@<versionID>" -> board document id
-	inFlight map[string]bool   // "<principalType>:<principalID>" -> true while a job runs
+	mu             sync.Mutex
+	jobs           map[string]*docentJob
+	bySource       map[string]string      // "<docID>@<versionID>" -> board document id
+	inFlight       map[string]bool        // "<principalType>:<principalID>" -> true while a job runs
+	commentLocks   map[string]*sync.Mutex // board docID -> serializes that board's comment auto-responses
+	commentLastRun map[string]time.Time   // board docID -> start time of its last comment auto-response attempt
 }
 
 func newDocentJobStore() *docentJobStore {
 	return &docentJobStore{
-		jobs:     map[string]*docentJob{},
-		bySource: map[string]string{},
-		inFlight: map[string]bool{},
+		jobs:           map[string]*docentJob{},
+		bySource:       map[string]string{},
+		inFlight:       map[string]bool{},
+		commentLocks:   map[string]*sync.Mutex{},
+		commentLastRun: map[string]time.Time{},
 	}
+}
+
+// docentCommentCooldown bounds how often one board's comments can trigger a
+// real LLM call: a burst of comments on the same board (accidental or
+// adversarial) must not run up LLM cost or hammer the configured backend.
+// Comments that arrive inside the cooldown simply get no automated reply,
+// same as a comment on a document Docent never generated.
+const docentCommentCooldown = 20 * time.Second
+
+// commentResponseLock returns the mutex that serializes one board's comment
+// auto-responses, so concurrent comments on the same board can't run
+// concurrent LLM calls or race to create conflicting versions from the same
+// base version. Callers must call the returned unlock exactly once. The lock
+// map grows by one entry per distinct board ever commented on and is never
+// pruned — the same accepted, bounded, process-local cost as the rest of this
+// store (see the doc comment above).
+func (s *docentJobStore) commentResponseLock(docID string) func() {
+	s.mu.Lock()
+	l, ok := s.commentLocks[docID]
+	if !ok {
+		l = &sync.Mutex{}
+		s.commentLocks[docID] = l
+	}
+	s.mu.Unlock()
+	l.Lock()
+	return l.Unlock
+}
+
+// commentResponseAllowed enforces docentCommentCooldown per board. It reports
+// true, and records the attempt, at most once per cooldown window per board.
+// Callers must hold that board's commentResponseLock first so the
+// check-and-record is atomic with respect to other comments on the same
+// board.
+func (s *docentJobStore) commentResponseAllowed(docID string, now time.Time) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if last, ok := s.commentLastRun[docID]; ok && now.Sub(last) < docentCommentCooldown {
+		return false
+	}
+	s.commentLastRun[docID] = now
+	return true
 }
 
 func principalKey(p auth.Principal) string {

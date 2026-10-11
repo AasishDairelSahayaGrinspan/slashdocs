@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
 	"github.com/razorpay/slashdocs/api/internal/server"
 	"github.com/stretchr/testify/require"
 )
@@ -190,4 +192,52 @@ func TestDocentComment_OrdinaryDocumentNeverTriggersLLM(t *testing.T) {
 	reply := pollForReply(t, e, docID, commentID, fixtureUser)
 	require.Nil(t, reply, "a document Docent did not generate must never get an automated reply")
 	require.Equal(t, int32(0), atomic.LoadInt32(calls), "a non-Docent document must never call the LLM backend")
+}
+
+func TestDocentComment_CommenterOnlyCannotApplyFix(t *testing.T) {
+	fakeLLM, calls := docentFakeLLM(t, docentCommentFixResponse)
+	defer fakeLLM.Close()
+
+	e := newConfiguredTestEnv(t, server.Config{DocentAgentBaseURL: fakeLLM.URL})
+	boardID, boardVerID := createDocentBoard(t, e)
+
+	// A second principal with Commenter (not Editor) access to the board.
+	if _, err := e.store.CreateGrant(context.Background(), "document", boardID, fixtureDocentOtherUser, repo.RoleCommenter, fixtureUser); err != nil {
+		t.Fatalf("seed commenter grant: %v", err)
+	}
+
+	commentID := postComment(t, e, boardID, boardVerID, "This says US but it should say EU.", fixtureDocentOtherUser)
+
+	reply := pollForReply(t, e, boardID, commentID, fixtureDocentOtherUser)
+	require.NotNil(t, reply, "Docent never replied to the comment")
+	require.Contains(t, reply.Body, "board editor")
+	require.Equal(t, int32(2), atomic.LoadInt32(calls), "the model is still asked to decide, even though its fix can't be applied")
+
+	docReq := do(t, e.h, http.MethodGet, "/v1/documents/"+boardID, "", map[string]string{
+		"X-Test-Principal": principalHeader(fixtureUser),
+	})
+	assertStatus(t, docReq, http.StatusOK)
+	require.Equal(t, boardVerID, jsonField(t, docReq.Body.Bytes(), "current_version_id"),
+		"a commenter-only principal must never cause a board version write")
+}
+
+func TestDocentComment_RateLimitedWithinCooldown(t *testing.T) {
+	fakeLLM, calls := docentFakeLLM(t, docentCommentFixResponse)
+	defer fakeLLM.Close()
+
+	e := newConfiguredTestEnv(t, server.Config{DocentAgentBaseURL: fakeLLM.URL})
+	boardID, boardVerID := createDocentBoard(t, e)
+
+	commentID1 := postComment(t, e, boardID, boardVerID, "First comment.", fixtureUser)
+	reply1 := pollForReply(t, e, boardID, commentID1, fixtureUser)
+	require.NotNil(t, reply1, "Docent never replied to the first comment")
+	require.Equal(t, int32(2), atomic.LoadInt32(calls))
+
+	// A second comment on the same board, immediately after. pollForReply's
+	// own deadline (5s) is well under the cooldown window (20s), so a nil
+	// result here means the cooldown held, not that Docent was merely slow.
+	commentID2 := postComment(t, e, boardID, boardVerID, "Second comment, right away.", fixtureUser)
+	reply2 := pollForReply(t, e, boardID, commentID2, fixtureUser)
+	require.Nil(t, reply2, "a comment inside the cooldown window must get no automated reply")
+	require.Equal(t, int32(2), atomic.LoadInt32(calls), "the cooldown must prevent a second LLM call")
 }
