@@ -233,7 +233,7 @@ func TestNotificationMigrationRecoversOccupiedVersion24(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = database.Close() })
+	defer database.Close()
 	setMigrationTestFS(t)
 	if err := goose.SetDialect("postgres"); err != nil {
 		t.Fatal(err)

@@ -152,7 +152,7 @@ func (s *documentKVStream) run(liveEvents <-chan repo.DocumentKVEvent) {
 // document and comment change notices, and viewer presence. A connection with
 // neither after_revision nor Last-Event-ID starts at the live edge. A session
 // parameter marks the viewer as gone when the stream ends.
-func (h handlers) streamDocumentKVEvents(c *gin.Context) { //nolint:gocyclo // SSE handshake: resume, snapshot, and presence branches read best as one sequence.
+func (h handlers) streamDocumentKVEvents(c *gin.Context) {
 	docID := c.Param("id")
 	if !h.needDocRole(c, docID, repo.RoleViewer) {
 		return

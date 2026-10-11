@@ -24,7 +24,7 @@ func documentHeadingsCmd(g *globals, out io.Writer) *cobra.Command {
 	return cmd
 }
 
-func documentLinkCmd(g *globals, out io.Writer) *cobra.Command { //nolint:gocyclo // flag validation for the link kinds is intentionally exhaustive and flat.
+func documentLinkCmd(g *globals, out io.Writer) *cobra.Command {
 	var heading, comment, version, text, prefix, suffix string
 	cmd := &cobra.Command{Use: "link <doc_id>", Short: "Get a URL to a document, heading, text, or comment", Args: exactArgs(1), RunE: func(_ *cobra.Command, args []string) error {
 		if text != "" && (heading != "" || comment != "") {
