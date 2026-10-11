@@ -67,3 +67,10 @@ api/internal/server/bridge_dist/**
 api/internal/server/download_dist/**
 !api/internal/server/download_dist/
 !api/internal/server/download_dist/.gitkeep
+
+# Local planning and scratch output (never part of the project)
+/planning/
+/tmp/
+/brag-output/
+frontend/tmp/
+.DS_Store

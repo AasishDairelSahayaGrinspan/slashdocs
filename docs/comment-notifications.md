@@ -87,8 +87,8 @@ rewritten by these viewer conveniences.
 
 ## Slack setup
 
-This first iteration uses one internal Slack app for the deployment. Platform and
-Slack email addresses must match. Install the app with bot scopes
+Each deployment uses one Slack app. Platform and Slack email addresses must
+match. Install the app with bot scopes
 [`users:read`](https://docs.slack.dev/reference/scopes/users.read/) (required by Slack alongside email lookup),
 [`users:read.email`](https://docs.slack.dev/reference/methods/users.lookupByEmail/),
 [`im:write`](https://docs.slack.dev/reference/methods/conversations.open/), and
@@ -99,15 +99,13 @@ this integration does not handle messages sent back to the bot. In an app
 manifest, set `features.app_home.messages_tab_enabled` and
 `features.app_home.messages_tab_read_only_enabled` to `true`.
 
-The server reads the bot token from `SLASHDOCS_SLACK_BOT_TOKEN` at startup. On
-Razorpay deployments, Credstash is the internal UI for managing Kubernetes
-Secrets; the Helm chart injects the secret value as an environment variable.
-The application does not invoke a Credstash client or access DynamoDB/KMS for
-this token.
+The server reads the bot token from `SLASHDOCS_SLACK_BOT_TOKEN` at startup.
+Keep the token in your secret store and inject it as an environment variable;
+the application never reads secret-manager APIs itself. An unset or empty token
+disables delivery and enqueueing.
 
-For devstack, put the bot token at
-`slashdocs/slashdocs-secrets/SLASHDOCS_SLACK_BOT_TOKEN` in the Credstash UI. The Slashdocs chart
-supports this through its existing `extraEnv` setting:
+On Kubernetes, put the token in a Secret and reference it through the chart's
+`extraEnv` setting:
 
 ```yaml
 extraEnv:
@@ -118,13 +116,12 @@ extraEnv:
         key: SLASHDOCS_SLACK_BOT_TOKEN
 ```
 
-Keep `SLASHDOCS_APP_ORIGIN` set to the public application origin so notification
-buttons point to the right deployment. An unset or empty token disables
-delivery and enqueueing. With the required `secretKeyRef` above, Kubernetes
-prevents a pod from starting if the Secret or key is missing. Rotate by updating
-the Kubernetes Secret through Credstash and restarting the workload; revoke the
-old token after rollout. For offboarding, disable the environment injection,
-revoke the Slack token, and remove its Kubernetes Secret key through Credstash.
+With a required `secretKeyRef`, Kubernetes prevents a pod from starting if the
+Secret or key is missing. Keep `SLASHDOCS_APP_ORIGIN` set to the public
+application origin so notification buttons point to the right deployment.
+Rotate by updating the Secret and restarting the workload, then revoke the old
+token after rollout. To offboard, remove the environment injection, revoke the
+Slack token, and delete the Secret key.
 
 ## Delivery behavior
 
@@ -159,10 +156,6 @@ environment; when absent, it does not send Slack messages. The RAW workspace
 integration check uses this same environment-variable contract and real Slack
 delivery.
 
-Applied Seezo guidance: `validation/notifications`,
-`validation/third-party-services`, `secrets/credstash`, `secrets/handling`,
-`authorization/access-control`, `authorization/state-changing-operations`,
-`data-protection/sensitive-data`, `validation/untrusted-input`, `api/security`.
 
 ### Links to selected text
 

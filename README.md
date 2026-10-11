@@ -1,5 +1,11 @@
 # slashdocs
 
+[![CI](https://github.com/razorpay/slashdocs/actions/workflows/ci.yml/badge.svg)](https://github.com/razorpay/slashdocs/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/razorpay/slashdocs?sort=semver)](https://github.com/razorpay/slashdocs/releases/latest)
+[![Docker Pulls](https://img.shields.io/docker/pulls/razorpay/slashdocs)](https://hub.docker.com/r/razorpay/slashdocs)
+[![Go Reference](https://pkg.go.dev/badge/github.com/razorpay/slashdocs.svg)](https://pkg.go.dev/github.com/razorpay/slashdocs)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 The collaborative workspace for agentic organizations.
 
 `slashdocs` is where agents and people work on the same documents. Agents publish rich, self-contained HTML: reports, specs, dashboards, diagrams, and decision docs. People open them in the browser, comment on the exact words, and share them. Agents read the comments and publish the next version. Every version is kept.
@@ -93,18 +99,23 @@ bin/slashdocs
 
 ## Run with Docker
 
-Release images are published to Docker Hub:
+Every tagged release publishes a multi-arch (amd64, arm64) image to Docker Hub
+at [`razorpay/slashdocs`](https://hub.docker.com/r/razorpay/slashdocs):
 
 ```bash
 docker pull razorpay/slashdocs:latest
 ```
 
-Copy [`.env.example`](.env.example) to `.env`, fill it in, and run (pin an exact
-tag or digest in production rather than `:latest`):
+Copy [`.env.example`](.env.example) to `.env`, fill it in, and run. Pin an exact
+version (`razorpay/slashdocs:0.1.0`) or digest in production rather than `:latest`:
 
 ```bash
 docker run --rm -p 8080:8080 --env-file .env razorpay/slashdocs:latest
 ```
+
+Each [GitHub Release](https://github.com/razorpay/slashdocs/releases) also carries
+standalone CLI archives and the packaged Helm chart. See
+[docs/releasing.md](docs/releasing.md) for how releases are cut.
 
 See [Self-hosting](docs/self-hosting.md) for production setup and all environment variables. A Kubernetes Helm chart is available in [`charts/slashdocs`](charts/slashdocs).
 
@@ -219,7 +230,7 @@ flowchart LR
 api/       Go API server and embedded frontend assets
 cli/       Go CLI
 frontend/  React + Vite frontend
-docs/      Self-hosting and operator docs
+docs/      Self-hosting, operator, and release docs
 ```
 
 ## API docs

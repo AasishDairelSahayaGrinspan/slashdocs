@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+
+	"github.com/razorpay/slashdocs/skills"
 )
 
 // BuildVersion and BuildCommit are set with -ldflags in release builds.
@@ -17,22 +19,19 @@ var (
 	BuildCommit  = ""
 )
 
+// download_dist holds the CLI binaries and, in release builds, a .sig file
+// for each binary. See the Dockerfile for the signed message.
+//
 //go:embed download_dist/*
 var downloadDist embed.FS
 
-// Keep this file in sync with ../../../../skills/slashdocs/SKILL.md. It is
-// embedded into the server binary so self-hosted installs do not depend on
-// GitHub access, npx, or a Node runtime to install the agent skill.
-//
-//go:embed embedded/skills/slashdocs/SKILL.md
-var slashdocsSkillMD []byte
-
 type cliAsset struct {
-	OS     string `json:"os"`
-	Arch   string `json:"arch"`
-	URL    string `json:"url"`
-	SHA256 string `json:"sha256,omitempty"`
-	Size   int    `json:"size,omitempty"`
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	URL       string `json:"url"`
+	SHA256    string `json:"sha256,omitempty"`
+	Size      int    `json:"size,omitempty"`
+	Signature []byte `json:"signature,omitempty"`
 }
 
 // versionResponse is the payload of GET /version.json.
@@ -53,7 +52,11 @@ var cliPlatforms = []struct{ os, arch string }{
 func cliAssetName(goos, goarch string) string { return "slashdocs-" + goos + "-" + goarch }
 
 func embeddedCLIAsset(goos, goarch string) ([]byte, bool) {
-	b, err := downloadDist.ReadFile(path.Join("download_dist", cliAssetName(goos, goarch)))
+	return embeddedDownload(cliAssetName(goos, goarch))
+}
+
+func embeddedDownload(name string) ([]byte, bool) {
+	b, err := downloadDist.ReadFile(path.Join("download_dist", name))
 	return b, err == nil && len(b) > 0
 }
 
@@ -66,6 +69,7 @@ func (h handlers) versionJSON(c *gin.Context) {
 			asset.SHA256 = hex.EncodeToString(sum[:])
 			asset.Size = len(b)
 		}
+		asset.Signature, _ = embeddedDownload(cliAssetName(p.os, p.arch) + ".sig")
 		assets = append(assets, asset)
 	}
 	c.JSON(http.StatusOK, versionResponse{Version: releaseVersion(), Commit: releaseCommit(), Install: "/install.sh", Assets: assets})
@@ -80,7 +84,7 @@ func (h handlers) downloadSkill(c *gin.Context) {
 		return
 	}
 	c.Header("Content-Disposition", `attachment; filename="SKILL.md"`)
-	c.Data(http.StatusOK, "text/markdown; charset=utf-8", slashdocsSkillMD)
+	c.Data(http.StatusOK, "text/markdown; charset=utf-8", skills.Slashdocs)
 }
 
 func (h handlers) downloadCLI(c *gin.Context) {

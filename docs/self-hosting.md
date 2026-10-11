@@ -271,11 +271,13 @@ Build the image from source, or pull the prebuilt image from Docker Hub.
 # Build locally
 docker build -t slashdocs:local .
 
-# Docker Hub
+# Docker Hub (published for every tagged release, linux/amd64 and linux/arm64)
 docker pull razorpay/slashdocs:latest
 ```
 
-Pin an exact tag or digest in production rather than `:latest`.
+Pin an exact version (`razorpay/slashdocs:0.1.0`) or digest in production
+rather than `:latest`. Available versions are listed on the
+[releases page](https://github.com/razorpay/slashdocs/releases).
 
 Run it, pointing at your Postgres and S3-compatible storage. Copy
 [`.env.example`](../.env.example) to `.env`, fill it in, and pass it through:
@@ -532,7 +534,7 @@ both. The redirect URI to register is
 | `ALLOWED_OAUTH_DOMAINS`                     | unset       | Comma-separated email-domain allowlist for OAuth logins (public deployments).                                                                                                                                                                                                                       |
 | `SLASHDOCS_DEPLOYMENT`                      | `public`    | `public` or `org`. An org deployment gates login to `SLASHDOCS_ORG_DOMAINS`.                                                                                                                                                                                                                        |
 | `SLASHDOCS_ORG_DOMAINS`                     | unset       | Comma-separated org domains. Required when `SLASHDOCS_DEPLOYMENT=org`; also the login gate.                                                                                                                                                                                                         |
-| `SLASHDOCS_ORG_NAME`                        | unset       | Org display name used in share UI copy (e.g. "Anyone in Acme").                                                                                                                                                                                                                                     |
+| `SLASHDOCS_ORG_NAME`                        | unset       | Org display name used in share UI copy (e.g. "Anyone in Razorpay").                                                                                                                                                                                                                                     |
 | `BLOB_REGION`                               | `us-east-1` | AWS region for the S3 client.                                                                                                                                                                                                                                                                       |
 | `BLOB_ENDPOINT`                             | unset       | Custom S3 endpoint (MinIO, R2, etc.).                                                                                                                                                                                                                                                               |
 | `BLOB_ACCESS_KEY_ID`                        | unset       | Override AWS-SDK default credential chain.                                                                                                                                                                                                                                                          |

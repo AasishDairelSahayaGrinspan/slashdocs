@@ -36,7 +36,7 @@ export SLASHDOCS_TOKEN=slashdocs_sa_...
 ```bash
 slashdocs docs list
 slashdocs docs list 'incident author:alice@example.com labels:api,review in:"Product Specs"'
-slashdocs docs list 'author:/@razorpay\.com$/ labels:/^api-/'
+slashdocs docs list 'author:/@example\.com$/ labels:/^api-/'
 slashdocs docs labels set doc_123 api review-ready
 slashdocs docs labels list doc_123
 slashdocs docs pull doc_123 --out report.html
@@ -81,13 +81,17 @@ or CLI to mint credentials.
 
 ## Skills
 
-Refresh the bundled agent skill from the connected slashdocs server:
+Reinstall the agent skill that is bundled with the CLI:
 
 ```bash
 slashdocs skills update
 ```
 
-The command installs the latest server-served `slashdocs` skill into `~/.agents/skills/slashdocs/SKILL.md` and `~/.claude/skills/slashdocs/SKILL.md`.
+The command installs the `slashdocs` skill into `~/.agents/skills/slashdocs/SKILL.md` and `~/.claude/skills/slashdocs/SKILL.md`. The skill comes from the CLI binary, not from the server. Each CLI update also installs the skill of the new version.
+
+## Updates
+
+The CLI updates itself from the server it uses. It installs only a newer release that the slashdocs signing private key signs, so a server cannot make the CLI run code that the maintainers did not release. Builds get the matching public key at build time. See [docs/releasing.md](../docs/releasing.md#cli-signing-keys).
 
 ## Output
 
