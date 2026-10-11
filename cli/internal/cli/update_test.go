@@ -29,7 +29,7 @@ func (rs *releaseServer) start(t *testing.T, binary []byte) *httptest.Server {
 	sum := sha256.Sum256(binary)
 	asset := serverAsset{OS: runtime.GOOS, Arch: runtime.GOARCH, URL: "/cli", Size: len(binary)}
 	if rs.key != nil {
-		asset.Signature = ed25519.Sign(rs.key, releaseMessage(rs.signVersion, runtime.GOOS, runtime.GOARCH, sum[:]))
+		asset.Signature = ed25519.Sign(rs.key, signedMessage(rs.signVersion, runtime.GOOS, runtime.GOARCH, sum[:]))
 	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -47,7 +47,7 @@ func (rs *releaseServer) start(t *testing.T, binary []byte) *httptest.Server {
 }
 
 // setupUpdate makes this test run as CLI version local, trust a new release
-// key, and update a temporary executable. It returns the release key and the
+// key, and update a temporary executable. It returns the private key and the
 // path of the executable.
 func setupUpdate(t *testing.T, local string) (ed25519.PrivateKey, string) {
 	t.Setenv("HOME", t.TempDir())
@@ -59,9 +59,9 @@ func setupUpdate(t *testing.T, local string) (ed25519.PrivateKey, string) {
 	if err := os.WriteFile(exe, []byte("old binary"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	oldVersion, oldKey, oldExecutable := Version, ReleaseKey, executable
-	Version, ReleaseKey, executable = local, base64.StdEncoding.EncodeToString(pub), func() (string, error) { return exe, nil }
-	t.Cleanup(func() { Version, ReleaseKey, executable = oldVersion, oldKey, oldExecutable })
+	oldVersion, oldKey, oldExecutable := Version, SigningPublicKey, executable
+	Version, SigningPublicKey, executable = local, base64.StdEncoding.EncodeToString(pub), func() (string, error) { return exe, nil }
+	t.Cleanup(func() { Version, SigningPublicKey, executable = oldVersion, oldKey, oldExecutable })
 	return priv, exe
 }
 
@@ -112,14 +112,14 @@ func TestUpdateCLIRefusesUntrustedBinaries(t *testing.T) {
 	}
 }
 
-func TestUpdateCLIWithoutReleaseKeyInstallsNothing(t *testing.T) {
+func TestUpdateCLIWithoutSigningPublicKeyInstallsNothing(t *testing.T) {
 	key, exe := setupUpdate(t, "v1.0.0")
-	ReleaseKey = ""
+	SigningPublicKey = ""
 	rs := &releaseServer{version: "v1.1.0", signVersion: "v1.1.0", key: key}
 
 	changed, err := runUpdate(t, rs.start(t, []byte("new binary")), false)
-	if !errors.Is(err, errNoReleaseKey) || changed || rs.downloads != 0 {
-		t.Fatalf("updateCLI = (%v, %v) with %d downloads, want errNoReleaseKey and no download", changed, err, rs.downloads)
+	if !errors.Is(err, errNoSigningPublicKey) || changed || rs.downloads != 0 {
+		t.Fatalf("updateCLI = (%v, %v) with %d downloads, want errNoSigningPublicKey and no download", changed, err, rs.downloads)
 	}
 	if got := string(readTestFile(t, exe)); got != "old binary" {
 		t.Fatalf("executable = %q, want the old binary", got)

@@ -7,8 +7,9 @@ name: Release
 # Produces:
 #   - Docker Hub image razorpay/slashdocs:<version>, :<major>.<minor>, and
 #     :latest (latest is skipped for pre-releases), for linux/amd64 and arm64.
-#     The image serves CLI binaries signed with CLI_SIGNING_KEY. All CLI
-#     builds trust the public key in the CLI_RELEASE_KEY variable.
+#     The image serves CLI binaries signed with the
+#     SLASHDOCS_CLI_SIGNING_PRIVATE_KEY secret. All CLI builds trust the
+#     SLASHDOCS_CLI_SIGNING_PUBLIC_KEY variable.
 #   - A GitHub Release with CLI archives, checksums, the packaged Helm chart,
 #     and a changelog generated from the commits since the previous tag.
 
@@ -31,15 +32,15 @@ jobs:
     outputs:
       version: ${{ steps.meta.outputs.version }}
     env:
-      CLI_SIGNING_KEY: ${{ secrets.CLI_SIGNING_KEY }}
-      SLASHDOCS_CLI_RELEASE_KEY: ${{ vars.CLI_RELEASE_KEY }}
+      SLASHDOCS_CLI_SIGNING_PRIVATE_KEY: ${{ secrets.SLASHDOCS_CLI_SIGNING_PRIVATE_KEY }}
+      SLASHDOCS_CLI_SIGNING_PUBLIC_KEY: ${{ vars.SLASHDOCS_CLI_SIGNING_PUBLIC_KEY }}
     steps:
       # Without the keys, the image serves unsigned CLI binaries or builds
       # CLIs that install no updates.
-      - name: Require the CLI release keys
+      - name: Require the CLI signing keys
         run: |
-          test -n "$CLI_SIGNING_KEY" || { echo "::error::The CLI_SIGNING_KEY secret is not set; see docs/releasing.md"; exit 1; }
-          test -n "$SLASHDOCS_CLI_RELEASE_KEY" || { echo "::error::The CLI_RELEASE_KEY variable is not set; see docs/releasing.md"; exit 1; }
+          test -n "$SLASHDOCS_CLI_SIGNING_PRIVATE_KEY" || { echo "::error::The SLASHDOCS_CLI_SIGNING_PRIVATE_KEY secret is not set; see docs/releasing.md"; exit 1; }
+          test -n "$SLASHDOCS_CLI_SIGNING_PUBLIC_KEY" || { echo "::error::The SLASHDOCS_CLI_SIGNING_PUBLIC_KEY variable is not set; see docs/releasing.md"; exit 1; }
 
       - name: Checkout
         uses: actions/checkout@v4
@@ -82,9 +83,9 @@ jobs:
           build-args: |
             SLASHDOCS_VERSION=${{ github.ref_name }}
             SLASHDOCS_COMMIT_SHA=${{ github.sha }}
-            SLASHDOCS_CLI_RELEASE_KEY=${{ vars.CLI_RELEASE_KEY }}
+            SLASHDOCS_CLI_SIGNING_PUBLIC_KEY=${{ vars.SLASHDOCS_CLI_SIGNING_PUBLIC_KEY }}
           secret-envs: |
-            cli_signing_key=CLI_SIGNING_KEY
+            SLASHDOCS_CLI_SIGNING_PRIVATE_KEY=SLASHDOCS_CLI_SIGNING_PRIVATE_KEY
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -142,4 +143,4 @@ jobs:
           args: release --clean
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SLASHDOCS_CLI_RELEASE_KEY: ${{ vars.CLI_RELEASE_KEY }}
+          SLASHDOCS_CLI_SIGNING_PUBLIC_KEY: ${{ vars.SLASHDOCS_CLI_SIGNING_PUBLIC_KEY }}

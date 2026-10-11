@@ -8,7 +8,7 @@ A release is a git tag. Pushing a tag that matches `v<major>.<minor>.<patch>`
    Docker Hub as `razorpay/slashdocs:<version>` and `razorpay/slashdocs:<major>.<minor>`.
    Stable releases also move `razorpay/slashdocs:latest`; pre-releases do not.
    The image contains the CLI binaries that the server serves, each signed
-   with the [CLI signing key](#cli-signing-key).
+   with the [CLI signing private key](#cli-signing-keys).
 2. Packages the Helm chart with `version` and `appVersion` set to the tag, so the
    chart defaults to the image that was just pushed.
 3. Builds standalone CLI archives for Linux and macOS (amd64 and arm64) with
@@ -68,13 +68,13 @@ update the two `secrets.*` references in `release.yml`.
 
 `GITHUB_TOKEN` is provided automatically and is used to create the GitHub Release.
 
-## CLI signing key
+## CLI signing keys
 
 The CLI updates itself from the server it talks to, and that server can be
 any URL that a user, a script, or an agent passes with `--server`. So the CLI
 does not trust the server. It installs a binary only when:
 
-- the binary has an ed25519 signature from the release key, over
+- the binary has an ed25519 signature from the signing private key, over
   `slashdocs <version> <os>/<arch> <sha256 of the binary>`, and
 - the version is newer than the version of the CLI.
 
@@ -84,11 +84,11 @@ The key pair lives in two repository Actions settings:
 
 | Setting | Content | Use |
 |---|---|---|
-| Variable `CLI_RELEASE_KEY` | Base64 ed25519 public key | Build input `SLASHDOCS_CLI_RELEASE_KEY`, set into the CLI with `-ldflags` |
-| Secret `CLI_SIGNING_KEY` | ed25519 private key, PEM | BuildKit secret; the Docker build writes a `.sig` file next to each CLI binary |
+| Variable `SLASHDOCS_CLI_SIGNING_PUBLIC_KEY` | Base64 ed25519 public key | Build input `SLASHDOCS_CLI_SIGNING_PUBLIC_KEY`, set into the CLI with `-ldflags` |
+| Secret `SLASHDOCS_CLI_SIGNING_PRIVATE_KEY` | ed25519 private key, PEM | BuildKit secret; the Docker build writes a `.sig` file next to each CLI binary |
 
 The Dockerfile, GoReleaser, and the Makefile all read
-`SLASHDOCS_CLI_RELEASE_KEY`. A CLI built without it installs no updates.
+`SLASHDOCS_CLI_SIGNING_PUBLIC_KEY`. A CLI built without it installs no updates.
 `release.yml` stops if either setting is missing, and the Docker build stops
 if the two keys do not match.
 
@@ -100,8 +100,9 @@ openssl genpkey -algorithm ed25519 -out cli-signing-key.pem
 openssl pkey -in cli-signing-key.pem -pubout -outform DER | tail -c 32 | base64
 ```
 
-Store the second command's output as the `CLI_RELEASE_KEY` variable, and the
-PEM file as the `CLI_SIGNING_KEY` secret. Then delete the local PEM file, or keep it offline.
+Store the second command's output as the `SLASHDOCS_CLI_SIGNING_PUBLIC_KEY`
+variable, and the PEM file as the `SLASHDOCS_CLI_SIGNING_PRIVATE_KEY` secret.
+Then delete the local PEM file, or keep it offline.
 CLIs that have the old key cannot auto-update to a release signed with a new
 key; their users reinstall once with `curl -fsSL https://<host>/install.sh | sh`.
 If the private key leaks, change the key the same way.

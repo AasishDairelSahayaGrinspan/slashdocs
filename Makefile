@@ -6,9 +6,9 @@ JSONNET ?= jsonnet
 JB ?= jb
 SLASHDOCS_VERSION ?= dev-local-$(shell date +%Y%m%d%H%M%S)
 SLASHDOCS_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || true)
-SLASHDOCS_CLI_RELEASE_KEY ?=
+SLASHDOCS_CLI_SIGNING_PUBLIC_KEY ?=
 E2E_COMPOSE_PROJECT ?= slashdocs-e2e
-CLI_LDFLAGS := -X github.com/razorpay/slashdocs/cli/internal/cli.Version=$(SLASHDOCS_VERSION) -X github.com/razorpay/slashdocs/cli/internal/cli.Commit=$(SLASHDOCS_COMMIT) -X github.com/razorpay/slashdocs/cli/internal/cli.ReleaseKey=$(SLASHDOCS_CLI_RELEASE_KEY)
+CLI_LDFLAGS := -X github.com/razorpay/slashdocs/cli/internal/cli.Version=$(SLASHDOCS_VERSION) -X github.com/razorpay/slashdocs/cli/internal/cli.Commit=$(SLASHDOCS_COMMIT) -X github.com/razorpay/slashdocs/cli/internal/cli.SigningPublicKey=$(SLASHDOCS_CLI_SIGNING_PUBLIC_KEY)
 SERVER_LDFLAGS := -X github.com/razorpay/slashdocs/api/internal/server.BuildVersion=$(SLASHDOCS_VERSION) -X github.com/razorpay/slashdocs/api/internal/server.BuildCommit=$(SLASHDOCS_COMMIT)
 
 .PHONY: swagger frontend backend cli cli-assets build build-frontend build-backend build-cli dashboards check-dashboards format lint bin/golangci-lint test ci e2e e2e-browser clean

@@ -22,17 +22,17 @@ import (
 )
 
 var (
-	errNoReleaseKey = errors.New("this CLI build has no release key, so it installs no updates")
-	errUnsigned     = errors.New("the CLI download does not have a valid release signature")
+	errNoSigningPublicKey = errors.New("this CLI build has no signing public key, so it installs no updates")
+	errUnsigned           = errors.New("the CLI download does not have a valid release signature")
 )
 
-// releaseKey decodes ReleaseKey. The CLI installs only binaries that this key
-// signs, so a server, even a malicious one, cannot make the CLI run code that
-// the maintainers did not release.
-func releaseKey() (ed25519.PublicKey, error) {
-	k, err := base64.StdEncoding.DecodeString(ReleaseKey)
+// signingPublicKey decodes SigningPublicKey. The CLI installs only binaries
+// that the matching private key signs, so a server, even a malicious one,
+// cannot make the CLI run code that the maintainers did not release.
+func signingPublicKey() (ed25519.PublicKey, error) {
+	k, err := base64.StdEncoding.DecodeString(SigningPublicKey)
 	if err != nil || len(k) != ed25519.PublicKeySize {
-		return nil, errNoReleaseKey
+		return nil, errNoSigningPublicKey
 	}
 	return k, nil
 }
@@ -54,10 +54,10 @@ type serverAsset struct {
 	Signature []byte `json:"signature"`
 }
 
-// releaseMessage is the text that the release build signs for each CLI
+// signedMessage is the text that the release build signs for each CLI
 // binary (see the Dockerfile). It binds the binary to its version and
 // platform, so a server cannot give an old signed binary a new version.
-func releaseMessage(version, goos, goarch string, sum []byte) []byte {
+func signedMessage(version, goos, goarch string, sum []byte) []byte {
 	return fmt.Appendf(nil, "slashdocs %s %s/%s %x", version, goos, goarch, sum)
 }
 
@@ -199,7 +199,7 @@ func skillRoots(home string) []string {
 }
 
 func installCLIUpdate(ctx context.Context, c *Client, version string, asset serverAsset) error {
-	key, err := releaseKey()
+	key, err := signingPublicKey()
 	if err != nil {
 		return err
 	}
@@ -249,7 +249,7 @@ func installCLIUpdate(ctx context.Context, c *Client, version string, asset serv
 	if asset.Size > 0 && int(written) != asset.Size {
 		return fmt.Errorf("download size mismatch: got %d, want %d", written, asset.Size)
 	}
-	if !ed25519.Verify(key, releaseMessage(version, asset.OS, asset.Arch, h.Sum(nil)), asset.Signature) {
+	if !ed25519.Verify(key, signedMessage(version, asset.OS, asset.Arch, h.Sum(nil)), asset.Signature) {
 		return errUnsigned
 	}
 	//nolint:gosec // G302: the signed CLI follows the installer's conventional world-executable mode.
