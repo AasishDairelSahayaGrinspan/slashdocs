@@ -7,6 +7,8 @@ A release is a git tag. Pushing a tag that matches `v<major>.<minor>.<patch>`
 1. Builds the server image for `linux/amd64` and `linux/arm64` and pushes it to
    Docker Hub as `razorpay/slashdocs:<version>` and `razorpay/slashdocs:<major>.<minor>`.
    Stable releases also move `razorpay/slashdocs:latest`; pre-releases do not.
+   The image contains the CLI binaries that the server serves, each signed
+   with the [CLI signing key](#cli-signing-key).
 2. Packages the Helm chart with `version` and `appVersion` set to the tag, so the
    chart defaults to the image that was just pushed.
 3. Builds standalone CLI archives for Linux and macOS (amd64 and arm64) with
@@ -65,6 +67,41 @@ added per repo. If they are ever rotated or renamed at the organization level,
 update the two `secrets.*` references in `release.yml`.
 
 `GITHUB_TOKEN` is provided automatically and is used to create the GitHub Release.
+
+## CLI signing key
+
+The CLI updates itself from the server it talks to, and that server can be
+any URL that a user, a script, or an agent passes with `--server`. So the CLI
+does not trust the server. It installs a binary only when:
+
+- the binary has an ed25519 signature from the release key, over
+  `slashdocs <version> <os>/<arch> <sha256 of the binary>`, and
+- the version is newer than the version of the CLI.
+
+The CLI also installs its agent skill from its own binary, not from the server.
+
+The public key is `releaseKey` in
+[`cli/internal/cli/update.go`](../cli/internal/cli/update.go). The private key
+is the repository Actions secret `CLI_SIGNING_KEY`, in PEM format. The Docker
+build in `release.yml` gets it as a BuildKit secret and writes a `.sig` file
+next to each CLI binary. `release.yml` stops if the secret is not set.
+
+To create a key pair, for a new key or for a fork that publishes its own
+releases:
+
+```bash
+openssl genpkey -algorithm ed25519 -out cli-signing-key.pem
+openssl pkey -in cli-signing-key.pem -pubout -outform DER | tail -c 32 | base64
+```
+
+Put the second command's output in `releaseKey`, and store the PEM file as the
+`CLI_SIGNING_KEY` secret. Then delete the local PEM file, or keep it offline.
+CLIs that have the old key cannot auto-update to a release signed with a new
+key; their users reinstall once with `curl -fsSL https://<host>/install.sh | sh`.
+If the private key leaks, change the key the same way.
+
+Images built without the secret, for example from source, serve unsigned CLI
+binaries. CLIs installed from such a server work, but they do not auto-update.
 
 ## Re-running a release
 

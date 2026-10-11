@@ -15,10 +15,6 @@ func e2eMux(t *testing.T) *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/me", jsonH(t, map[string]any{"principal": map[string]any{"type": "user", "id": "usr_1"}, "user": map[string]any{"id": "usr_1", "email": "me@example.com", "name": "Me"}}))
 	mux.HandleFunc("/v1/config", jsonH(t, map[string]any{"deployment": "org", "org_name": "Acme", "everyone_label": "Acme"}))
-	mux.HandleFunc("/skills/slashdocs/SKILL.md", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
-		writeTestString(t, w, "---\nname: slashdocs\ndescription: e2e skill\n---\n")
-	})
 	mux.HandleFunc("/v1/documents", func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
 		case "GET":

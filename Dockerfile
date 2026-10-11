@@ -26,17 +26,28 @@ ARG TARGETARCH
 ARG SLASHDOCS_VERSION="dev"
 ARG SLASHDOCS_COMMIT_SHA=""
 WORKDIR /src
-RUN apk add --no-cache git ca-certificates
+RUN apk add --no-cache git ca-certificates openssl
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . ./
 COPY --from=frontend /src/api/internal/server/frontend_dist ./api/internal/server/frontend_dist
 COPY --from=frontend /src/api/internal/server/bridge_dist ./api/internal/server/bridge_dist
 COPY --from=frontend /src/bridge.source.hash ./bridge.source.hash
-RUN mkdir -p api/internal/server/download_dist && \
+# Release builds get the CLI signing key as a BuildKit secret and sign each
+# CLI binary. The CLI auto-updates only to binaries with a valid signature; the
+# message must match releaseMessage in cli/internal/cli/update.go. Builds
+# without the key (CI checks, local builds) serve unsigned binaries.
+RUN --mount=type=secret,id=cli_signing_key \
+    set -e; \
+    key=/run/secrets/cli_signing_key; \
+    mkdir -p api/internal/server/download_dist; \
     for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do \
-      os="${target%/*}"; arch="${target#*/}"; \
-      CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X github.com/razorpay/slashdocs/cli/internal/cli.Version=$SLASHDOCS_VERSION -X github.com/razorpay/slashdocs/cli/internal/cli.Commit=$SLASHDOCS_COMMIT_SHA" -o "api/internal/server/download_dist/slashdocs-$os-$arch" ./cli; \
+      os="${target%/*}"; arch="${target#*/}"; bin="api/internal/server/download_dist/slashdocs-$os-$arch"; \
+      CGO_ENABLED=0 GOOS=$os GOARCH=$arch go build -trimpath -ldflags="-s -w -X github.com/razorpay/slashdocs/cli/internal/cli.Version=$SLASHDOCS_VERSION -X github.com/razorpay/slashdocs/cli/internal/cli.Commit=$SLASHDOCS_COMMIT_SHA" -o "$bin" ./cli; \
+      if [ -s "$key" ]; then \
+        printf 'slashdocs %s %s/%s %s' "$SLASHDOCS_VERSION" "$os" "$arch" "$(sha256sum "$bin" | cut -d' ' -f1)" > /tmp/release-message; \
+        openssl pkeyutl -sign -rawin -inkey "$key" -in /tmp/release-message -out "$bin.sig"; \
+      fi; \
     done
 RUN BRIDGE_SOURCE_HASH="$(cat bridge.source.hash)" && test "${#BRIDGE_SOURCE_HASH}" -eq 64 && CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/slashdocs/api/internal/server.BuildVersion=$SLASHDOCS_VERSION -X github.com/razorpay/slashdocs/api/internal/server.BuildCommit=$SLASHDOCS_COMMIT_SHA -X github.com/razorpay/slashdocs/api/internal/server.BuildBridgeSourceHash=$BRIDGE_SOURCE_HASH" -o /out/slashdocs-server ./api/cmd/slashdocs-server
 RUN env CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -trimpath -ldflags="-s -w -X github.com/razorpay/slashdocs/cli/internal/cli.Version=$SLASHDOCS_VERSION -X github.com/razorpay/slashdocs/cli/internal/cli.Commit=$SLASHDOCS_COMMIT_SHA" -o /out/slashdocs ./cli

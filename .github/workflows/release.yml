@@ -7,6 +7,7 @@ name: Release
 # Produces:
 #   - Docker Hub image razorpay/slashdocs:<version>, :<major>.<minor>, and
 #     :latest (latest is skipped for pre-releases), for linux/amd64 and arm64.
+#     The image serves CLI binaries signed with CLI_SIGNING_KEY.
 #   - A GitHub Release with CLI archives, checksums, the packaged Helm chart,
 #     and a changelog generated from the commits since the previous tag.
 
@@ -28,7 +29,14 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       version: ${{ steps.meta.outputs.version }}
+    env:
+      CLI_SIGNING_KEY: ${{ secrets.CLI_SIGNING_KEY }}
     steps:
+      # Without the key, the image serves unsigned CLI binaries, and every
+      # installed CLI refuses to update to this release.
+      - name: Require the CLI signing key
+        run: test -n "$CLI_SIGNING_KEY" || { echo "::error::CLI_SIGNING_KEY is not set; see docs/releasing.md"; exit 1; }
+
       - name: Checkout
         uses: actions/checkout@v4
 
@@ -70,6 +78,8 @@ jobs:
           build-args: |
             SLASHDOCS_VERSION=${{ github.ref_name }}
             SLASHDOCS_COMMIT_SHA=${{ github.sha }}
+          secret-envs: |
+            cli_signing_key=CLI_SIGNING_KEY
           cache-from: type=gha
           cache-to: type=gha,mode=max
 

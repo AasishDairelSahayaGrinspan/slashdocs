@@ -1,11 +1,9 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"time"
 
 	"github.com/spf13/cobra"
 )
@@ -19,16 +17,10 @@ func skillsCmd(g *globals, out io.Writer) *cobra.Command {
 func skillsUpdateCmd(g *globals, out io.Writer) *cobra.Command {
 	return &cobra.Command{
 		Use:   "update",
-		Short: "Refresh bundled agent skills from the slashdocs server",
+		Short: "Reinstall the agent skill bundled with this CLI",
 		Args:  exactArgs(0),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			c, err := client(g)
-			if err != nil {
-				return err
-			}
-			ctx, cancel := context.WithTimeout(cmd.Context(), 30*time.Second)
-			defer cancel()
-			paths, err := installBundledSkillFromServer(ctx, c)
+			paths, err := installBundledSkill()
 			if err != nil {
 				return err
 			}
@@ -42,7 +34,7 @@ func skillsUpdateCmd(g *globals, out io.Writer) *cobra.Command {
 				}
 				return render(out, g, b)
 			}
-			if err := confirm(out, g, "Updated slashdocs skill from "+c.Base); err != nil {
+			if err := confirm(out, g, "Updated slashdocs skill"); err != nil {
 				return err
 			}
 			for _, p := range paths {
