@@ -93,7 +93,7 @@ test: swagger frontend
 
 ci: build test lint
 
-# Boots the docker-compose dev stack (Postgres, MinIO, Dex, slashdocs) and runs
+# Boots the docker-compose dev stack (Postgres, versitygw, Dex, slashdocs) and runs
 # the non-interactive end-to-end smoke test in scripts/e2e.sh. The stack is
 # left running; tear it down with `scripts/e2e.sh down`.
 e2e:

@@ -242,8 +242,8 @@ Bearer token instead of using browser OAuth.
 
 The repository ships a ready-made compose stack —
 [`docker-compose.yml`](../docker-compose.yml) — that runs the server together
-with Postgres, MinIO, and a Dex identity provider configured exactly like the
-split-horizon example above ([`dev/dex-config.yaml`](../dev/dex-config.yaml)):
+with Postgres, versitygw (S3), and a Dex identity provider configured exactly
+like the split-horizon example above ([`dev/dex-config.yaml`](../dev/dex-config.yaml)):
 
 ```bash
 docker compose up --build

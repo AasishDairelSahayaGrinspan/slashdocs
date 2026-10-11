@@ -1,7 +1,7 @@
 import { useTitle } from "@/lib/use-title";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useOnboarding, autoMarkFirstDoc } from "@/lib/onboarding";
+import { useOnboarding, autoMarkFirstDoc, onboardingProgress } from "@/lib/onboarding";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
@@ -61,7 +61,7 @@ export function DocumentsPage() {
   const { state: onb } = useOnboarding();
   const nav = useNavigate();
   useEffect(() => {
-    if (onb.status === "active" && !onb.steps.cli_installed && !onb.steps.cli_authed) {
+    if (onb.status === "active" && onboardingProgress(onb).done === 0) {
       nav("/app/start", { replace: true });
     }
   }, [onb, nav]);

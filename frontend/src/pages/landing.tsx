@@ -259,8 +259,8 @@ docker compose up --build`}</Start>
   --namespace slashdocs --create-namespace -f values.yaml`}</Start>
             </div>
             <p className="mt-6 text-sm text-[var(--color-fg-muted)]">
-              Compose starts slashdocs with Postgres, MinIO, and a local Dex sign-in.
-              For production, read the{" "}
+              Compose starts slashdocs with Postgres, versitygw (S3), and a local Dex
+              sign-in. For production, read the{" "}
               <a
                 href={SELF_HOSTING_URL}
                 target="_blank"
