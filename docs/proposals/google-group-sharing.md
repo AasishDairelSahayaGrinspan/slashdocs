@@ -156,7 +156,7 @@ gives `owner`. The owner of a document or folder is the one principal in its
 An earlier version let the owner grant `owner` to a group. Folder inheritance
 then let an editor take ownership of another user's document: the editor gave
 owner on their own folder to a group that they were in, and moved the document
-into that folder. Migration `00030_single_owner` changes those grants to
+into that folder. Migration `00031_single_owner` changes those grants to
 `editor`, and a check constraint keeps `owner` out of `resource_grants`.
 
 Moves and deletes also follow Google Drive:
