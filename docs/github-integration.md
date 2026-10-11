@@ -48,6 +48,30 @@ The document can present this as a button or link-like control. It should call
 `connect()` rather than constructing an OAuth URL, because the app and render
 frames may be served from separate origins.
 
+## Author access rule
+
+Document code reads GitHub with the reader's token. Thus a document gives a
+file only when **every principal who created a version of the document** can
+also read the repository. The document cannot give its authors data that they
+cannot already read. The rule covers all version creators, not only the
+current editors, because code stays in a document after its author stops
+editing.
+
+- A service account counts as its owner, because the owner controls its keys.
+  A document that a service account creates can read the repositories that
+  the owner can read. Do not give the keys of a service account to a bot
+  that writes documents for other people: those people then get the owner's
+  GitHub access.
+- An author who has not connected GitHub fails the rule. The request fails
+  with `403 github_author_access`, and the error details give the author.
+- The reader is not examined as an author: the fetch with the reader's own
+  token proves their access.
+- slashdocs caches each user's answer for each repository for 4 hours, so
+  popular documents do not use up the authors' GitHub rate limit. When a user
+  connects GitHub again, the cached answers for that user are no longer used.
+  After GitHub removes a user's access, documents can read the repository for
+  4 hours more.
+
 The document decides how to render the returned raw content. DOM inserted
 after the fetch is monitored by the existing annotation bridge, so readers can
 select it and attach comments normally. Files are limited to 50 MiB.
