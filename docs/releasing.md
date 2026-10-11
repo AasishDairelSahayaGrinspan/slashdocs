@@ -39,7 +39,6 @@ Then watch the **Release** workflow under Actions. When it finishes:
 
 - `docker pull razorpay/slashdocs:0.1.0` works on both architectures.
 - The GitHub Release lists the CLI archives, `checksums.txt`, and `slashdocs-0.1.0.tgz`.
-- `go install github.com/razorpay/slashdocs/cli@v0.1.0` resolves.
 
 Edit the generated release notes afterwards if a highlight deserves a sentence
 the commit messages do not give it.

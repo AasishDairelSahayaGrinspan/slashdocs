@@ -90,6 +90,6 @@ release:
 
     **CLI**: install from a running server with
     `curl -fsSL https://<your-slashdocs-host>/install.sh | bash`, or download an
-    archive below, or `go install github.com/razorpay/slashdocs/cli@{{ .Tag }}`.
+    archive below.
   footer: |
     See [docs/self-hosting.md](https://github.com/razorpay/slashdocs/blob/{{ .Tag }}/docs/self-hosting.md) for configuration.
