@@ -40,19 +40,18 @@ jobs:
 
       - name: Check Go formatting
         run: |
-          unformatted="$(gofmt -l api cli internal)"
+          unformatted="$(gofmt -l api cli internal skills)"
           if [ -n "$unformatted" ]; then
             echo "gofmt needed on:"; echo "$unformatted"; exit 1
           fi
 
-      - name: Lint frontend
-        run: npm run lint --prefix frontend && npm run format:check --prefix frontend
+      # golangci-lint at the version that the Makefile pins, then the frontend
+      # lint and format checks.
+      - name: Lint Go and frontend
+        run: make lint
 
       - name: Lint Helm chart
         run: helm lint charts/slashdocs
-
-      # `make lint` additionally runs golangci-lint; it is not enforced in CI
-      # yet because master has a handful of open findings. Run it locally.
 
   test:
     name: Test

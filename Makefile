@@ -82,7 +82,7 @@ lint: bin/golangci-lint
 	cd api && ../bin/golangci-lint fmt --diff --config ../.golangci.yaml
 	cd cli && ../bin/golangci-lint fmt --diff --config ../.golangci.yaml
 	GOLANGCI_LINT_CACHE=$(GOLANGCI_LINT_CACHE) GOCACHE=$(GOLANGCI_LINT_GOCACHE) \
-		./bin/golangci-lint run ./api/... ./cli/...
+		./bin/golangci-lint run ./api/... ./cli/... ./internal/... ./skills/...
 	cd frontend && npm run lint && npm run format:check
 
 # Handler and repository tests run against a real PostgreSQL database: a
