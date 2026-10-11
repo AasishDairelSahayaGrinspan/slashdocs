@@ -89,16 +89,6 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Sync Docker Hub description from README
-        uses: peter-evans/dockerhub-description@v4
-        continue-on-error: true
-        with:
-          username: ${{ secrets.PUBLIC_DOCKER_USERNAME }}
-          password: ${{ secrets.PUBLIC_DOCKER_PASSWORD }}
-          repository: razorpay/slashdocs
-          short-description: Give your agents the power to publish reviewable HTML documents.
-          readme-filepath: ./README.md
-
   release:
     name: GitHub Release
     runs-on: ubuntu-latest
