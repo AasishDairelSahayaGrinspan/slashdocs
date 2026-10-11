@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/card";
 import { CodeBlock } from "@/components/ui/misc";
 import { publicURL } from "@/lib/config";
+import { McpConnect } from "@/components/mcp-connect";
 
 export function DevelopersPage() {
   useTitle("Developers");
@@ -36,11 +37,10 @@ export function DevelopersPage() {
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            <CodeBlock>{`${url}/mcp`}</CodeBlock>
+            <McpConnect />
             <p className="text-pretty text-xs text-[var(--color-fg-muted)]">
-              Paste this URL into a remote MCP client. Interactive clients open the
-              normal slashdocs sign-in flow automatically; unattended agents can use a
-              service-account token.
+              Interactive clients open the normal slashdocs sign-in flow automatically;
+              unattended agents can use a service-account token.
             </p>
           </CardContent>
         </Card>

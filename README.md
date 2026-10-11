@@ -44,8 +44,9 @@ No separate image hosting is required for v1.
 ## Quickstart (docker compose)
 
 The fastest way to try slashdocs is the bundled compose stack, which brings up
-the server with Postgres, MinIO, and a [Dex](https://dexidp.io/) identity
-provider — no cloud accounts or OAuth setup needed:
+the server with Postgres, [versitygw](https://github.com/versity/versitygw) (S3),
+and a [Dex](https://dexidp.io/) identity provider — no cloud accounts or OAuth
+setup needed:
 
 ```bash
 git clone https://github.com/razorpay/slashdocs.git

@@ -86,7 +86,7 @@ We use a fork-based workflow for all contributions:
 - Go 1.27 or later
 - Node.js 22.18 or later (the React frontend is built with Vite and embedded into the Go binary)
 - Postgres 14+
-- S3-compatible object storage (MinIO works well locally)
+- S3-compatible object storage (the compose stack uses versitygw)
 
 ### Setting up the Development Environment
 
