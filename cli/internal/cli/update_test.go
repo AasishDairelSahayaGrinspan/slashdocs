@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"testing"
 
 	"github.com/razorpay/slashdocs/skills"
@@ -123,6 +124,20 @@ func TestUpdateCLIWithoutSigningPublicKeyInstallsNothing(t *testing.T) {
 	}
 	if got := string(readTestFile(t, exe)); got != "old binary" {
 		t.Fatalf("executable = %q, want the old binary", got)
+	}
+}
+
+func TestAutoUpdateWithoutSigningPublicKeyMakesNoRequest(t *testing.T) {
+	setupUpdate(t, "v1.0.0")
+	SigningPublicKey = ""
+	t.Setenv("SLASHDOCS_DISABLE_AUTO_UPDATE", "")
+	var requests atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests.Add(1) }))
+	t.Cleanup(srv.Close)
+
+	maybeAutoUpdate(&globals{}, &Client{Base: srv.URL})
+	if n := requests.Load(); n != 0 {
+		t.Fatalf("auto-update made %d requests, want none", n)
 	}
 }
 

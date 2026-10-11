@@ -333,9 +333,7 @@ async function shareWithPlatformGroup(page: Page) {
   await expect(page.getByText("Access granted.")).toBeVisible();
 }
 
-test("owner shares a document and folder with a verified group", async ({
-  page,
-}) => {
+test("owner shares a document and folder with a verified group", async ({ page }) => {
   const state = newState();
   await installFakeWorkspace(page, state);
 
