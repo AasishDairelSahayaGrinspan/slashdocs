@@ -1,10 +1,9 @@
-# No `# syntax=` directive: it would pull the docker/dockerfile frontend from
-# Docker Hub, which the internal CI runners cannot reach, and nothing here
-# needs beyond the built-in BuildKit syntax.
+# No `# syntax=` directive: nothing here needs more than the built-in BuildKit
+# syntax, and skipping it avoids an extra registry pull at build time.
 
-# Registry prefix for base images. Empty means Docker Hub; internal CI passes
-# its pull-through cache (c.rzp.io/proxy_dockerhub/) because the org runners
-# cannot pull from docker.io directly.
+# Optional registry prefix for the base images, for builds that must go through
+# a private pull-through cache (for example "registry.example.com/dockerhub/").
+# Empty means Docker Hub.
 ARG BASE_IMAGE_PREFIX=""
 
 # Build on the native runner arch and cross-compile to the target arch, so the

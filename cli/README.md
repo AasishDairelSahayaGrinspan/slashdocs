@@ -36,7 +36,7 @@ export SLASHDOCS_TOKEN=slashdocs_sa_...
 ```bash
 slashdocs docs list
 slashdocs docs list 'incident author:alice@example.com labels:api,review in:"Product Specs"'
-slashdocs docs list 'author:/@razorpay\.com$/ labels:/^api-/'
+slashdocs docs list 'author:/@example\.com$/ labels:/^api-/'
 slashdocs docs labels set doc_123 api review-ready
 slashdocs docs labels list doc_123
 slashdocs docs pull doc_123 --out report.html

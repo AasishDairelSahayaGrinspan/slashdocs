@@ -67,12 +67,10 @@ services:
     # CI prebuilds this image once with a shared layer cache and injects the
     # tag; local runs fall back to an ordinary compose build. The image is built
     # here, not pulled from a registry.
-    # nosemgrep: razorpay.custom-docker-base-image-check-docker-compose
     image: ${SLASHDOCS_IMAGE:-slashdocs-e2e:local}
     ports:
       - "8080:8080"
     environment:
-      # nosemgrep: generic_postgres_string
       DATABASE_URL: postgres://slashdocs:slashdocs@postgres:5432/slashdocs?sslmode=disable
       SLASHDOCS_MIGRATE: "true"
       # The compose stack uses direct Postgres, so exercise LISTEN/NOTIFY rather
