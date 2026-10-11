@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -195,6 +196,7 @@ func New(cfg Config, opts ...Option) *Server {
 		r.Use(accessLogMiddleware())
 	}
 	r.Use(recoveryMiddleware())
+	r.Use(requestBodyMiddleware())
 	r.Use(prometheusMiddleware())
 	if len(cfg.PreviousOrigins) > 0 && cfg.AppOrigin != "" {
 		r.Use(movedOriginMiddleware(cfg.AppOrigin, cfg.PreviousOrigins))
@@ -462,6 +464,10 @@ const maxHTMLBytes = 50 * 1024 * 1024
 func readMultipartFile(c *gin.Context, field string) ([]byte, error) {
 	f, err := c.FormFile(field)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) || errors.Is(err, multipart.ErrMessageTooLarge) {
+			return nil, errPayloadTooLarge
+		}
 		return nil, err
 	}
 	rc, err := f.Open()
