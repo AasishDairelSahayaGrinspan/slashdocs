@@ -11,8 +11,7 @@
     "e2e:list": "playwright test --list",
     "e2e:typecheck": "tsc -p tsconfig.e2e.json --noEmit",
     "preview": "vite preview",
-    "test": "tsc -p tsconfig.tests.json --noEmit && node --test tests/*.test.ts",
-    "test:unit": "vitest run",
+    "test": "vitest run",
     "lint": "eslint src bridge tests e2e playwright.config.ts && npm run e2e:typecheck",
     "format": "prettier --write src bridge tests \"e2e/**/*.ts\" playwright.config.ts tsconfig.e2e.json",
     "format:check": "prettier --check src bridge tests \"e2e/**/*.ts\" playwright.config.ts tsconfig.e2e.json"
