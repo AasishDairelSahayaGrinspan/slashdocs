@@ -64,7 +64,9 @@ func signedMessage(version, goos, goarch string, sum []byte) []byte {
 func maybeNudgeUpdate(g *globals, c *Client) { maybeAutoUpdate(g, c) }
 
 func maybeAutoUpdate(g *globals, c *Client) {
-	if Version == "" || env("SLASHDOCS_DISABLE_AUTO_UPDATE") != "" {
+	// A build without a signing public key, such as `make cli`, can never
+	// install an update, so it does not look for one.
+	if _, err := signingPublicKey(); err != nil || Version == "" || env("SLASHDOCS_DISABLE_AUTO_UPDATE") != "" {
 		return
 	}
 	// This check is best-effort housekeeping after a command: use the
