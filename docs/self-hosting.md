@@ -177,7 +177,7 @@ slashdocs runs in one of two modes, set by `SLASHDOCS_DEPLOYMENT`:
   (`SLASHDOCS_ORG_DOMAINS`, a comma-separated list that supports multiple domains
   for acquisitions). Sharing with "everyone" then means _anyone in the org_,
   because only org members can authenticate. Set `SLASHDOCS_ORG_NAME` to label the
-  org in the UI (e.g. "Anyone in Razorpay").
+  org in the UI (e.g. "Anyone in Acme").
 
 On an org deployment the org domains are the login gate, so you do not also
 need `ALLOWED_OAUTH_DOMAINS`. The document permission model is identical in both
@@ -271,11 +271,13 @@ Build the image from source, or pull the prebuilt image from Docker Hub.
 # Build locally
 docker build -t slashdocs:local .
 
-# Docker Hub
+# Docker Hub (published for every tagged release, linux/amd64 and linux/arm64)
 docker pull razorpay/slashdocs:latest
 ```
 
-Pin an exact tag or digest in production rather than `:latest`.
+Pin an exact version (`razorpay/slashdocs:0.1.0`) or digest in production
+rather than `:latest`. Available versions are listed on the
+[releases page](https://github.com/razorpay/slashdocs/releases).
 
 Run it, pointing at your Postgres and S3-compatible storage. Copy
 [`.env.example`](../.env.example) to `.env`, fill it in, and pass it through:

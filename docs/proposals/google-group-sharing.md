@@ -188,7 +188,7 @@ Response:
   "items": [
     {
       "id": "groups/012345",
-      "email": "tech-infra-common-platforms@razorpay.com",
+      "email": "platform-team@example.com",
       "name": "Common Platform"
     }
   ]
@@ -209,7 +209,7 @@ Extend the existing document and folder grant request:
 {
   "principal": {
     "type": "google_group",
-    "email": "tech-infra-common-platforms@razorpay.com"
+    "email": "platform-team@example.com"
   },
   "role": "commenter"
 }
@@ -228,11 +228,11 @@ Add mutually exclusive group syntax for documents and folders:
 
 ```bash
 slashdocs docs grants add <doc_id> \
-  --group tech-infra-common-platforms@razorpay.com \
+  --group platform-team@example.com \
   --role commenter
 
 slashdocs folders grants add <folder_id> \
-  --group tech-infra-common-platforms@razorpay.com \
+  --group platform-team@example.com \
   --role viewer
 ```
 

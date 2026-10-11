@@ -41,7 +41,11 @@ func ParseFeatured(raw string) ([]FeaturedSection, error) {
 		if err != nil {
 			return nil, err
 		}
-		section := FeaturedSection{Title: strings.TrimSpace(key.(string))}
+		title, ok := key.(string)
+		if !ok {
+			return nil, fmt.Errorf("section key %v is not a string", key)
+		}
+		section := FeaturedSection{Title: strings.TrimSpace(title)}
 		if err := dec.Decode(&section); err != nil {
 			return nil, fmt.Errorf("section %q: %w", section.Title, err)
 		}

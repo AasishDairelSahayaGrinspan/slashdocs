@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -1430,9 +1431,13 @@ func (s *Store) ListDocumentKVEvents(ctx context.Context, documentID string, aft
 }
 
 func (s *Store) ListDocumentPresence(ctx context.Context, documentID string, maxAge time.Duration) ([]repo.DocumentKVEvent, error) {
+	maxAgeSeconds := int64(maxAge / time.Second)
+	if maxAgeSeconds > math.MaxInt32 {
+		maxAgeSeconds = math.MaxInt32
+	}
 	rows, err := s.q.ListRecentDocumentPresenceEvents(ctx, dbsqlc.ListRecentDocumentPresenceEventsParams{
 		DocumentID:    documentID,
-		MaxAgeSeconds: int32(maxAge / time.Second),
+		MaxAgeSeconds: int32(maxAgeSeconds),
 	})
 	if err != nil {
 		return nil, err
