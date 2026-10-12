@@ -60,6 +60,13 @@ cd slashdocs
 docker compose up --build
 ```
 
+Building the image needs Docker with Compose v2 and the
+[Buildx](https://docs.docker.com/build/concepts/overview/#buildx) plugin, because
+the Dockerfile uses BuildKit features. Docker Desktop and Docker's official
+Engine packages include both. Distro packages may not: on Ubuntu or Debian, run
+`sudo apt install docker-buildx`. Check with `docker buildx version`. Running
+the published image needs neither.
+
 Open <http://localhost:8080> and sign in as `admin@example.com` with password
 `password`.
 
