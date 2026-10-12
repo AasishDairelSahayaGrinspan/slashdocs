@@ -47,6 +47,15 @@ type defaultGrantPrincipal struct {
 // @Router /v1/documents [post]
 func (h handlers) createDocument(c *gin.Context) {
 	p := current(c)
+	html, err := readMultipartFile(c, "file")
+	if errors.Is(err, errPayloadTooLarge) {
+		c.JSON(http.StatusRequestEntityTooLarge, errorResponse("payload_too_large", "HTML file exceeds 50 MiB", nil))
+		return
+	}
+	if err != nil {
+		badRequest(c, "invalid document upload")
+		return
+	}
 	title := c.PostForm("title")
 	// The request override beats the server-wide default regardless of
 	// deployment mode: only the server env is org-gated (at startup), because
@@ -60,12 +69,7 @@ func (h handlers) createDocument(c *gin.Context) {
 		}
 		permission = role
 	}
-	html, err := readMultipartFile(c, "file")
-	if errors.Is(err, errPayloadTooLarge) {
-		c.JSON(http.StatusRequestEntityTooLarge, errorResponse("payload_too_large", "HTML file exceeds 50 MiB", nil))
-		return
-	}
-	if err != nil || title == "" {
+	if title == "" {
 		badRequest(c, "invalid document upload")
 		return
 	}

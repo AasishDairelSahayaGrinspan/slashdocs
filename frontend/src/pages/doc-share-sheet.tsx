@@ -35,7 +35,6 @@ type PendingChange = {
   source: AccessSource;
   action: "update" | "revoke";
   newRole?: string;
-  kind?: "inherited" | "owner_group";
 };
 
 export function ShareSheet({
@@ -43,7 +42,6 @@ export function ShareSheet({
   resourceType = "document",
   resourceId,
   canManageAccess = true,
-  isCanonicalOwner = false,
   onOpenAutoFocus,
   onInteractOutside,
 }: {
@@ -51,7 +49,6 @@ export function ShareSheet({
   resourceType?: "document" | "folder";
   resourceId?: string;
   canManageAccess?: boolean;
-  isCanonicalOwner?: boolean;
   onOpenAutoFocus?: ComponentPropsWithoutRef<typeof SheetContent>["onOpenAutoFocus"];
   onInteractOutside?: ComponentPropsWithoutRef<
     typeof SheetContent
@@ -267,14 +264,13 @@ export function ShareSheet({
       item.principal?.id ||
       "this principal";
     if (nextValue === "revoke") {
-      setPendingChange({ label, source: src, action: "revoke", kind: "inherited" });
+      setPendingChange({ label, source: src, action: "revoke" });
     } else {
       setPendingChange({
         label,
         source: src,
         action: "update",
         newRole: nextValue,
-        kind: "inherited",
       });
     }
   };
@@ -288,7 +284,6 @@ export function ShareSheet({
         label,
         source: anyoneInheritedSource,
         action: "revoke",
-        kind: "inherited",
       });
     } else {
       setPendingChange({
@@ -296,7 +291,6 @@ export function ShareSheet({
         source: anyoneInheritedSource,
         action: "update",
         newRole: nextValue,
-        kind: "inherited",
       });
     }
   };
@@ -323,23 +317,12 @@ export function ShareSheet({
               {pendingChange.label}?
             </p>
             <p className="text-xs text-[var(--color-fg-muted)]">
-              {pendingChange.kind === "owner_group" ? (
-                <>
-                  Owner-level Google Group access can only be changed by the canonical
-                  owner. This does not transfer canonical ownership.
-                </>
-              ) : (
-                <>
-                  This access is inherited from{" "}
-                  <span className="font-medium">
-                    {pendingChange.source.resource_title}
-                  </span>
-                  .
-                  {pendingChange.action === "revoke"
-                    ? " Removing it will affect everyone who accesses items through that folder."
-                    : " Changing it will affect everyone who accesses items through that folder."}
-                </>
-              )}
+              This access is inherited from{" "}
+              <span className="font-medium">{pendingChange.source.resource_title}</span>
+              .
+              {pendingChange.action === "revoke"
+                ? " Removing it will affect everyone who accesses items through that folder."
+                : " Changing it will affect everyone who accesses items through that folder."}
             </p>
             <div className="flex gap-2">
               <Button
@@ -355,12 +338,8 @@ export function ShareSheet({
                 onClick={confirmPending}
               >
                 {pendingChange.action === "revoke"
-                  ? pendingChange.kind === "owner_group"
-                    ? "Remove owner access"
-                    : "Remove from folder"
-                  : pendingChange.kind === "owner_group"
-                    ? "Change owner access"
-                    : "Change on folder"}
+                  ? "Remove from folder"
+                  : "Change on folder"}
               </Button>
             </div>
           </div>
@@ -411,7 +390,6 @@ export function ShareSheet({
                         setShareMode("people");
                         setAddress("");
                         setSelectedGroup(null);
-                        if (role === "owner") setRole(DEFAULT_ROLE);
                       }}
                     >
                       People and bots
@@ -538,9 +516,6 @@ export function ShareSheet({
                       {r.label}
                     </option>
                   ))}
-                  {shareMode === "groups" && isCanonicalOwner ? (
-                    <option value="owner">Owner</option>
-                  ) : null}
                 </select>
                 <Button
                   className="w-full"
@@ -581,20 +556,13 @@ export function ShareSheet({
                   namedItems.map((item) => {
                     const grantId = directGrantId(item);
                     const src = inheritedSource(item);
-                    const direct = item.sources.find(
-                      (source) => source.resource_id === id,
-                    );
                     const inherited = !!src;
                     const isGroup = item.principal.type === "google_group";
-                    const canonicalOwner =
-                      item.effective_role === "owner" &&
-                      !item.sources.some((source) => source.grant_id) &&
-                      !isGroup;
-                    const ownerGroup = isGroup && item.effective_role === "owner";
+                    const isOwner = item.effective_role === "owner";
                     const principalLabel =
                       item.principal.name ||
                       item.principal.email ||
-                      (canonicalOwner ? "Owner" : item.principal.id);
+                      (isOwner ? "Owner" : item.principal.id);
                     return (
                       <div
                         key={item.principal.type + ":" + item.principal.id}
@@ -614,18 +582,16 @@ export function ShareSheet({
                             </div>
                           ) : null}
                           <div className="truncate text-[11px] text-[var(--color-fg-muted)]">
-                            {canonicalOwner
-                              ? "Canonical owner"
+                            {isOwner
+                              ? "Owner"
                               : inherited && src
                                 ? `Inherited from ${src.resource_title}`
                                 : isGroup
-                                  ? ownerGroup
-                                    ? "Google Group co-owner · direct access"
-                                    : "Google Group · direct access"
+                                  ? "Google Group · direct access"
                                   : "Direct access"}
                           </div>
                         </div>
-                        {canonicalOwner ? (
+                        {isOwner ? (
                           <span className="text-xs font-medium text-[var(--color-fg-muted)]">
                             Owner
                           </span>
@@ -634,7 +600,6 @@ export function ShareSheet({
                             value={item.effective_role}
                             disabled={
                               !canManageAccess ||
-                              (ownerGroup && !isCanonicalOwner) ||
                               updateGrant.isPending ||
                               revokeGrant.isPending ||
                               updateDirectGrant.isPending ||
@@ -642,23 +607,6 @@ export function ShareSheet({
                             }
                             onChange={(e) => {
                               const next = e.target.value;
-                              if (
-                                isGroup &&
-                                direct?.grant_id &&
-                                (ownerGroup || next === "owner")
-                              ) {
-                                setPendingChange({
-                                  label:
-                                    item.principal.name ||
-                                    item.principal.email ||
-                                    item.principal.id,
-                                  source: direct,
-                                  action: next === "revoke" ? "revoke" : "update",
-                                  newRole: next === "revoke" ? undefined : next,
-                                  kind: "owner_group",
-                                });
-                                return;
-                              }
                               const inheritedRole = src?.role;
                               const reducingBelowInherited =
                                 inheritedRole &&
@@ -682,9 +630,6 @@ export function ShareSheet({
                                 {r.label}
                               </option>
                             ))}
-                            {isGroup && (isCanonicalOwner || ownerGroup) ? (
-                              <option value="owner">Owner</option>
-                            ) : null}
                             <option value="revoke">Remove access</option>
                           </select>
                         )}

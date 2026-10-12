@@ -185,6 +185,16 @@ func documentCreateCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
+		var created struct {
+			ID        string `json:"id"`
+			VersionID string `json:"current_version_id"`
+		}
+		if err := json.Unmarshal(b, &created); err != nil {
+			return err
+		}
+		if err := recordBaseVersion(g, created.ID, created.VersionID); err != nil {
+			return err
+		}
 		return renderCreatedDocument(out, g, cl, title, perm, b)
 	}}
 	cmd.Flags().StringVar(&title, "title", "", "document title (defaults to the file name)")
@@ -401,14 +411,14 @@ func grantsCmd(g *globals, out io.Writer) *cobra.Command {
 	add.Flags().StringVar(&group, "group", "", "verified organization Google Group email")
 	add.Flags().BoolVar(&everyone, "everyone", false, "share with everyone who can reach this server")
 	add.Flags().StringVar(&principal, "principal", "", "legacy: sa:<id> or user:<email>")
-	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, editor, or owner (groups only)")
+	add.Flags().StringVar(&role, "role", "viewer", "viewer, commenter, or editor")
 	var r string
 	upd := &cobra.Command{Use: "update <doc_id> <grant_id>", Short: "Update a grant role", Args: exactArgs(2), RunE: func(cmd *cobra.Command, args []string) error {
 		return action(g, out, func(c *Client) ([]byte, error) {
 			return c.doJSON("PATCH", apiPath("/v1/documents/%s/grants/%s", args[0], args[1]), map[string]any{"role": r})
 		}, func(map[string]any) string { return "Changed grant " + args[1] + " on " + args[0] + " to " + r + "." })
 	}}
-	upd.Flags().StringVar(&r, "role", "viewer", "new grant role: viewer, commenter, editor, or owner")
+	upd.Flags().StringVar(&r, "role", "viewer", "new grant role: viewer, commenter, or editor")
 	revoke := mutate(g, out, "revoke <doc_id> <grant_id>", "Revoke a document grant", "DELETE", "/v1/documents/%s/grants/%s", 2, func(a []string) string { return "Revoked grant " + a[1] + " on " + a[0] + "." })
 	list := simplePath(g, out, "list", "GET", "/v1/documents/%s/access")
 	list.Short = "List effective document access"
@@ -464,13 +474,7 @@ func pullCmd(g *globals, out io.Writer) *cobra.Command {
 		if err != nil {
 			return err
 		}
-		name, cx, cfg := currentContext(g)
-		cx.Pulled[args[0]] = v
-		cfg.Contexts[name] = cx
-		if cfg.ActiveContext == "" {
-			cfg.ActiveContext = name
-		}
-		if err := saveConfig(cfg); err != nil {
+		if err := recordBaseVersion(g, args[0], v); err != nil {
 			return err
 		}
 		if outp != "" {
@@ -485,6 +489,19 @@ func pullCmd(g *globals, out io.Writer) *cobra.Command {
 	cmd.Flags().StringVar(&ver, "version", "", "specific version ID to pull (defaults to the current version)")
 	cmd.Flags().StringVar(&outp, "out", "", "write HTML to this file instead of stdout")
 	return cmd
+}
+
+func recordBaseVersion(g *globals, docID, versionID string) error {
+	if docID == "" || versionID == "" {
+		return nil
+	}
+	name, cx, cfg := currentContext(g)
+	cx.Pulled[docID] = versionID
+	cfg.Contexts[name] = cx
+	if cfg.ActiveContext == "" {
+		cfg.ActiveContext = name
+	}
+	return saveConfig(cfg)
 }
 
 func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
@@ -508,6 +525,15 @@ func docsPushCmd(g *globals, out io.Writer) *cobra.Command {
 		}
 		b, err := cl.multipart(apiPath("/v1/documents/%s/versions", doc), map[string]string{"base_version_id": base, "change_summary": summary}, "file", fn, data)
 		if err != nil {
+			return err
+		}
+		var pushed struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(b, &pushed); err != nil {
+			return err
+		}
+		if err := recordBaseVersion(g, doc, pushed.ID); err != nil {
 			return err
 		}
 		return printPushedVersion(out, g, doc, cl.Base, b)

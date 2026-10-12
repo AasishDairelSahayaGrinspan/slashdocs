@@ -254,13 +254,13 @@ export function LandingPage() {
             <div className="mt-12 grid gap-8 md:grid-cols-2 md:gap-12">
               <Start title="Try it with Docker Compose">{`git clone https://github.com/razorpay/slashdocs.git
 cd slashdocs
-docker compose up --build`}</Start>
+docker compose up`}</Start>
               <Start title="Run it in a cluster with Helm">{`helm upgrade --install slashdocs ./charts/slashdocs \\
   --namespace slashdocs --create-namespace -f values.yaml`}</Start>
             </div>
             <p className="mt-6 text-sm text-[var(--color-fg-muted)]">
-              Compose starts slashdocs with Postgres, MinIO, and a local Dex sign-in.
-              For production, read the{" "}
+              Compose starts slashdocs with Postgres, versitygw (S3), and a local Dex
+              sign-in. For production, read the{" "}
               <a
                 href={SELF_HOSTING_URL}
                 target="_blank"

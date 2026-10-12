@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"sort"
 	"time"
 
@@ -953,6 +954,25 @@ func (s *Store) DeleteGitHubConnection(ctx context.Context, userID string) error
 	}
 	return nil
 }
+func (s *Store) ListGitHubAuthorAccess(ctx context.Context, documentID, owner, repoName string, freshAfter time.Time) ([]repo.GitHubAuthorAccess, error) {
+	rows, err := s.q.ListGitHubAuthorAccess(ctx, dbsqlc.ListGitHubAuthorAccessParams{DocumentID: documentID, Owner: owner, Repo: repoName, FreshAfter: pgtype.Timestamptz{Time: freshAfter, Valid: true}})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]repo.GitHubAuthorAccess, len(rows))
+	for i, r := range rows {
+		out[i] = repo.GitHubAuthorAccess{Author: auth.Principal{Type: auth.PrincipalType(r.CreatedByType), ID: r.CreatedByID}, UserID: r.UserID.String, AccessTokenCiphertext: r.AccessTokenCiphertext}
+		if r.CanRead.Valid {
+			out[i].CanRead = &r.CanRead.Bool
+		}
+	}
+	return out, nil
+}
+
+func (s *Store) RecordGitHubRepoAccess(ctx context.Context, userID, owner, repoName string, canRead bool) error {
+	return s.q.UpsertGitHubRepoAccess(ctx, dbsqlc.UpsertGitHubRepoAccessParams{UserID: userID, Owner: owner, Repo: repoName, CanRead: canRead})
+}
+
 func (s *Store) ListServiceAccounts(ctx context.Context, owner auth.Principal) ([]repo.ServiceAccount, error) {
 	rows, err := s.q.ListServiceAccounts(ctx, owner.ID)
 	if err != nil {
@@ -1026,8 +1046,9 @@ type grantQueryRower interface {
 	QueryRow(context.Context, string, ...any) pgx.Row
 }
 
-func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID string, forUpdate bool) (repo.Grant, error) {
-	query := `
+// lockGrant reads an active grant and locks it for the rest of the transaction.
+func lockGrant(ctx context.Context, db grantQueryRower, resourceID, grantID string) (repo.Grant, error) {
+	const query = `
 		SELECT g.id,g.resource_type,g.resource_id,g.principal_type,g.principal_id,
 		       COALESCE(u.email,gg.email,''),COALESCE(u.name,sa.name,gg.display_name,''),
 		       g.role,g.granted_by_type,g.granted_by_user_id,
@@ -1038,10 +1059,8 @@ func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID strin
 		LEFT JOIN google_groups gg ON g.principal_type='google_group' AND g.principal_id=gg.id
 		LEFT JOIN users gu ON g.granted_by_type='user' AND g.granted_by_user_id=gu.id
 		LEFT JOIN service_accounts gsa ON g.granted_by_type='service_account' AND g.granted_by_user_id=gsa.id -- nosemgrep: detected-google-gcm-service-account - slashdocs-native principal type/table, not a Google credential.
-		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL`
-	if forUpdate {
-		query += ` FOR UPDATE OF g`
-	}
+		WHERE g.id=$1 AND g.resource_id=$2 AND g.revoked_at IS NULL
+		FOR UPDATE OF g`
 	row := db.QueryRow(ctx, query, grantID, resourceID)
 	var g repo.Grant
 	var principalType, grantedByType string
@@ -1060,17 +1079,13 @@ func getGrant(ctx context.Context, db grantQueryRower, resourceID, grantID strin
 	return g, nil
 }
 
-func (s *Store) GetGrant(ctx context.Context, resourceID, grantID string) (repo.Grant, error) {
-	return getGrant(ctx, s.db, resourceID, grantID, false)
-}
-
 func (s *Store) UpdateGrant(ctx context.Context, resourceID, grantID string, role repo.Role, updatedBy auth.Principal) (repo.Grant, error) {
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return repo.Grant{}, err
 	}
 	defer rollback(ctx, tx)
-	existing, err := getGrant(ctx, tx, resourceID, grantID, true)
+	existing, err := lockGrant(ctx, tx, resourceID, grantID)
 	if err != nil {
 		return repo.Grant{}, err
 	}
@@ -1100,7 +1115,7 @@ func (s *Store) DeleteGrant(ctx context.Context, resourceID, grantID string, del
 		return err
 	}
 	defer rollback(ctx, tx)
-	existing, err := getGrant(ctx, tx, resourceID, grantID, true)
+	existing, err := lockGrant(ctx, tx, resourceID, grantID)
 	if err != nil {
 		return err
 	}
@@ -1430,9 +1445,13 @@ func (s *Store) ListDocumentKVEvents(ctx context.Context, documentID string, aft
 }
 
 func (s *Store) ListDocumentPresence(ctx context.Context, documentID string, maxAge time.Duration) ([]repo.DocumentKVEvent, error) {
+	maxAgeSeconds := int64(maxAge / time.Second)
+	if maxAgeSeconds > math.MaxInt32 {
+		maxAgeSeconds = math.MaxInt32
+	}
 	rows, err := s.q.ListRecentDocumentPresenceEvents(ctx, dbsqlc.ListRecentDocumentPresenceEventsParams{
 		DocumentID:    documentID,
-		MaxAgeSeconds: int32(maxAge / time.Second),
+		MaxAgeSeconds: int32(maxAgeSeconds),
 	})
 	if err != nil {
 		return nil, err

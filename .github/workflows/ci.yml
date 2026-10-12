@@ -1,17 +1,60 @@
-name: slashdocs CI
+name: CI
 
 on:
   pull_request:
   push:
     branches:
       - master
+  workflow_dispatch:
 
 permissions:
   contents: read
 
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Set up Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci --prefix frontend
+
+      - name: Check Go formatting
+        run: |
+          unformatted="$(gofmt -l api cli internal skills)"
+          if [ -n "$unformatted" ]; then
+            echo "gofmt needed on:"; echo "$unformatted"; exit 1
+          fi
+
+      # golangci-lint at the version that the Makefile pins, then the frontend
+      # lint and format checks.
+      - name: Lint Go and frontend
+        run: make lint
+
+      - name: Lint Helm chart
+        run: helm lint charts/slashdocs
+
   test:
-    name: Test slashdocs
+    name: Test
     runs-on: ubuntu-latest
     # Go tests need PostgreSQL. A service container skips the per-package
     # testcontainers startup; locally, plain `go test ./...` starts a
@@ -29,8 +72,8 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - name: Checkout Codebase
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -39,7 +82,7 @@ jobs:
           cache: true
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -65,8 +108,8 @@ jobs:
     name: E2E compose and browser
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Codebase
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -75,7 +118,7 @@ jobs:
           cache: true
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -85,10 +128,10 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # Build the stack image once with the shared layer cache; the compose
-      # stack and the docker job both reuse these layers instead of
-      # rebuilding the frontend and Go stages from scratch.
+      # stack reuses these layers instead of rebuilding the frontend and Go
+      # stages from scratch.
       - name: Build stack image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: Dockerfile
@@ -133,33 +176,29 @@ jobs:
         if: always()
         run: scripts/e2e.sh down
 
-  docker:
-    name: Build Docker image
-    # Harbor (c.rzp.io) resolves to an internal ALB, so this is the one job
-    # that must stay on the org runners. Gate on tests: no image may be
-    # pushed from a commit whose tests failed.
-    runs-on: [k8s-runner, linux-amd64]
+  image:
+    name: Docker image (build only)
+    runs-on: ubuntu-latest
     needs: test
     steps:
-      - name: Checkout Codebase
-        uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
 
-      - name: Build Docker Image For slashdocs
-        uses: razorpay/actions/docker-image-build-push@master
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      # Proves the release Dockerfile builds for both platforms on every
+      # change. Nothing is pushed here; publishing happens only from
+      # release.yml when a maintainer pushes a `v*` tag.
+      - name: Build multi-arch image
+        uses: docker/build-push-action@v7
         with:
-          username: ${{ secrets.HARBOR_DOCKER_USERNAME }}
-          password: ${{ secrets.HARBOR_DOCKER_PASSWORD }}
-          registry: c.rzp.io
-          repository: slashdocs
-          enable-login: true
-          push: true
           context: .
           file: Dockerfile
           platforms: linux/amd64,linux/arm64
-          # On pull_request events github.sha is the synthetic merge commit;
-          # tag with the pushed head so image tags match `git log` SHAs.
-          custom-tag: ${{ github.event.pull_request.head.sha || github.sha }}
+          push: false
           build-args: |
-            SLASHDOCS_VERSION=${{ github.event.pull_request.head.sha || github.sha }}
-            SLASHDOCS_COMMIT_SHA=${{ github.event.pull_request.head.sha || github.sha }}
-            BASE_IMAGE_PREFIX=c.rzp.io/proxy_dockerhub/
+            SLASHDOCS_VERSION=${{ github.sha }}
+            SLASHDOCS_COMMIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

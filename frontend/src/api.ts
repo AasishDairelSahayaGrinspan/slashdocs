@@ -606,13 +606,11 @@ export const api = {
     request<{
       items: EffectiveAccessItem[];
       current_role: string;
-      canonical_owner: boolean;
     }>(`/v1/folders/${id}/access`),
   documentAccess: (id: string) =>
     request<{
       items: EffectiveAccessItem[];
       current_role: string;
-      canonical_owner: boolean;
     }>(`/v1/documents/${id}/access`),
   // Pins
   listPins: () => request<{ items: Pin[] }>("/v1/pins"),

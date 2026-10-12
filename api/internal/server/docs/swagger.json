@@ -2609,8 +2609,7 @@
                     "enum": [
                         "viewer",
                         "commenter",
-                        "editor",
-                        "owner"
+                        "editor"
                     ],
                     "allOf": [
                         {

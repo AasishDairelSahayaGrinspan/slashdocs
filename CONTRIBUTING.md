@@ -86,7 +86,8 @@ We use a fork-based workflow for all contributions:
 - Go 1.27 or later
 - Node.js 22.18 or later (the React frontend is built with Vite and embedded into the Go binary)
 - Postgres 14+
-- S3-compatible object storage (MinIO works well locally)
+- S3-compatible object storage (the compose stack uses versitygw)
+- For the compose stack and image builds: Docker with Compose v2 and the Buildx plugin (`docker buildx version` should work; on Ubuntu or Debian, `sudo apt install docker-buildx`)
 
 ### Setting up the Development Environment
 
@@ -168,6 +169,12 @@ When adding new features or modifying existing ones, please update the documenta
 - [docs/self-hosting.md](docs/self-hosting.md) for anything operators need to know
 
 ## Getting Help
+
+## Releases
+
+Maintainers cut releases by pushing a `v*` tag; CI builds and publishes the
+Docker image, CLI archives, and Helm chart from that tag. Contributors do not
+need to touch versions or tags; see [docs/releasing.md](docs/releasing.md).
 
 If you have questions or need help with the contribution process, please open a [GitHub issue](https://github.com/razorpay/slashdocs/issues).
 

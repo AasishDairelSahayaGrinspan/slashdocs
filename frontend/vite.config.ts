@@ -10,7 +10,9 @@ export default defineConfig({
   },
   server: {},
   test: {
-    include: ["src/**/*.test.{ts,tsx}"],
+    // Bridge tests live in tests/, because every file under bridge/ is part of
+    // the bridge source hash.
+    include: ["src/**/*.test.{ts,tsx}", "tests/**/*.test.ts"],
     environment: "jsdom",
     setupFiles: "./src/test/setup.ts",
     restoreMocks: true,

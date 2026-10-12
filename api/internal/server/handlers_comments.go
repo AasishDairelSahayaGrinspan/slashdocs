@@ -447,7 +447,7 @@ func authoredBy(cm repo.Comment, p auth.Principal) bool {
 
 func (h handlers) canDeleteComment(c *gin.Context, docID, commentID string) bool {
 	cm, ok := h.loadCommentInDocument(c, docID, commentID)
-	if !ok {
+	if !ok || !h.needDocRole(c, docID, repo.RoleCommenter) {
 		return false
 	}
 	if authoredBy(cm, *current(c)) {
@@ -459,7 +459,7 @@ func (h handlers) canDeleteComment(c *gin.Context, docID, commentID string) bool
 
 func (h handlers) canMutateComment(c *gin.Context, docID, commentID string) bool {
 	cm, ok := h.loadCommentInDocument(c, docID, commentID)
-	if !ok {
+	if !ok || !h.needDocRole(c, docID, repo.RoleCommenter) {
 		return false
 	}
 	p := current(c)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/oauth2"
+	"golang.org/x/sync/singleflight"
 
 	"github.com/razorpay/slashdocs/api/internal/auth"
 	"github.com/razorpay/slashdocs/api/internal/googlegroups"
@@ -86,6 +88,7 @@ type dependencies struct {
 	documentKVEvents          kvevents.Subscriber
 	githubOAuth               *oauth2.Config
 	githubHTTPClient          *http.Client
+	githubAccessChecks        *singleflight.Group
 	googleGroupsEnabled       bool
 	googleGroupDirectory      googlegroups.GoogleGroupDirectory
 	googleGroupResolver       *googlegroups.Resolver
@@ -166,6 +169,7 @@ func New(cfg Config, opts ...Option) *Server {
 		defaultDocPermission: cfg.DefaultDocPermission,
 		featured:             cfg.Featured,
 		githubHTTPClient:     http.DefaultClient,
+		githubAccessChecks:   new(singleflight.Group),
 		googleGroupsEnabled:  cfg.GoogleGroupsEnabled,
 		labelsEnabled:        !cfg.DisableLabels,
 		docentAgentBaseURL:   cfg.DocentAgentBaseURL,
@@ -212,6 +216,7 @@ func New(cfg Config, opts ...Option) *Server {
 		r.Use(accessLogMiddleware())
 	}
 	r.Use(recoveryMiddleware())
+	r.Use(requestBodyMiddleware())
 	r.Use(prometheusMiddleware())
 	if len(cfg.PreviousOrigins) > 0 && cfg.AppOrigin != "" {
 		r.Use(movedOriginMiddleware(cfg.AppOrigin, cfg.PreviousOrigins))
@@ -481,6 +486,10 @@ const maxHTMLBytes = 50 * 1024 * 1024
 func readMultipartFile(c *gin.Context, field string) ([]byte, error) {
 	f, err := c.FormFile(field)
 	if err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) || errors.Is(err, multipart.ErrMessageTooLarge) {
+			return nil, errPayloadTooLarge
+		}
 		return nil, err
 	}
 	rc, err := f.Open()

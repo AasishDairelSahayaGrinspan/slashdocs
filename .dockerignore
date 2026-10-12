@@ -5,11 +5,10 @@ bin
 
 # Non-build inputs: keep these out of the build context so changing them never
 # invalidates the Docker layer cache (the build only needs go.mod/sum, api/,
-# cli/, and frontend/).
+# cli/, frontend/, and skills/).
 docs
 charts
 monitoring
-skills
 *.md
 LICENSE
 .goreleaser.yaml

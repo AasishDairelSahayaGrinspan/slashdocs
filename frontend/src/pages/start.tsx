@@ -1,33 +1,32 @@
 import { useTitle } from "@/lib/use-title";
 import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import {
-  ArrowRight,
-  Check,
-  ChevronDown,
-  Circle,
-  ExternalLink,
-  PartyPopper,
-  Sparkles,
-  X,
-} from "lucide-react";
+import { ArrowRight, Check, ChevronDown, Circle, PartyPopper, X } from "lucide-react";
 import { publicURL } from "@/lib/config";
 import { Button } from "@/components/ui/button";
 import { Page } from "@/components/layout/page";
 import { beat } from "@/lib/enter";
 import { CodeBlock } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
+import { Segmented } from "@/components/ui/segmented";
+import { McpConnect } from "@/components/mcp-connect";
 import {
   onboardingProgress,
+  requiredSteps,
   useOnboarding,
   type OnboardingState,
+  type SetupPath,
+  type StepKey,
 } from "@/lib/onboarding";
 
-type StepKey = keyof OnboardingState["steps"];
+const PATHS: { value: SetupPath; label: string }[] = [
+  { value: "cli", label: "Terminal (CLI)" },
+  { value: "mcp", label: "Agent app (MCP)" },
+];
 
 export function StartPage() {
   useTitle("Get started");
-  const { state, setStep, skip } = useOnboarding();
+  const { state, setStep, setPath, skip } = useOnboarding();
   const loginCmd = `slashdocs auth login ${publicURL()}`;
   const { done, total } = onboardingProgress(state);
   const nav = useNavigate();
@@ -36,8 +35,11 @@ export function StartPage() {
     skip();
     nav("/app/documents");
   };
-
-  const allRequiredDone = state.steps.cli_installed && state.steps.cli_authed;
+  // The first incomplete step opens by default.
+  const open = [...requiredSteps[state.path], "first_doc_seen" as const].find(
+    (k) => !state.steps[k],
+  );
+  const step = { state, setStep, open };
 
   return (
     <Page lane="focus" backdrop="halo">
@@ -65,7 +67,7 @@ export function StartPage() {
         </p>
       </header>
 
-      {allRequiredDone && state.status !== "skipped" && (
+      {done === total && state.status !== "skipped" && (
         <div className="glass-card enter mb-6 flex items-center gap-4 rounded-lg p-5">
           <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-[var(--color-accent-muted)] text-[var(--color-accent)]">
             <PartyPopper className="h-5 w-5" />
@@ -84,6 +86,14 @@ export function StartPage() {
         </div>
       )}
 
+      <Segmented
+        label="Setup path"
+        value={state.path}
+        onChange={setPath}
+        options={PATHS}
+        className="enter mb-4"
+      />
+
       <div
         className="enter mb-4 flex items-center gap-3 text-xs text-[var(--color-fg-muted)]"
         style={beat(3)}
@@ -100,49 +110,59 @@ export function StartPage() {
       </div>
 
       <ol className="enter space-y-3" style={beat(4)}>
-        <Step
-          n={1}
-          title="Install the CLI and slashdocs skill"
-          stepKey="cli_installed"
-          state={state}
-          setStep={setStep}
-        >
-          <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time, on the machine where your agent runs. This installs the slashdocs
-            CLI plus the bundled agent skill, so your agent knows when to publish docs
-            to slashdocs.
-          </p>
-          <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
-          <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
-            Works on macOS and Linux. The skill is fetched from this slashdocs server
-            and installed into the standard agent skills directory and Claude's skills
-            directory — no GitHub auth or npx step required.
-          </p>
-        </Step>
+        {state.path === "mcp" ? (
+          <Step
+            n={1}
+            title="Add slashdocs to your agent app"
+            stepKey="agent_configured"
+            {...step}
+          >
+            <McpConnect />
+          </Step>
+        ) : (
+          <>
+            <Step
+              n={1}
+              title="Install the CLI and slashdocs skill"
+              stepKey="cli_installed"
+              {...step}
+            >
+              <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
+                One-time, on the machine where your agent runs. This installs the
+                slashdocs CLI plus the bundled agent skill, so your agent knows when to
+                publish docs to slashdocs.
+              </p>
+              <CodeBlock>{`curl -fsSL ${publicURL()}/install.sh | sh`}</CodeBlock>
+              <p className="mt-3 text-xs text-[var(--color-fg-muted)]">
+                Works on macOS and Linux. The skill is fetched from this slashdocs
+                server and installed into the standard agent skills directory and
+                Claude's skills directory — no GitHub auth or npx step required.
+              </p>
+            </Step>
+
+            <Step
+              n={2}
+              title="Sign in once from your terminal"
+              stepKey="cli_authed"
+              {...step}
+            >
+              <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
+                One-time. After this, your agent can publish documents on your behalf —
+                no keys or tokens to copy around.
+              </p>
+              <CodeBlock>{loginCmd}</CodeBlock>
+            </Step>
+          </>
+        )}
 
         <Step
-          n={2}
-          title="Sign in once from your terminal"
-          stepKey="cli_authed"
-          state={state}
-          setStep={setStep}
-        >
-          <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
-            One-time. After this, your agent can publish documents on your behalf — no
-            keys or tokens to copy around.
-          </p>
-          <CodeBlock>{loginCmd}</CodeBlock>
-        </Step>
-
-        <Step
-          n={3}
+          n={requiredSteps[state.path].length + 1}
           title="Try it end-to-end"
           stepKey="first_doc_seen"
-          state={state}
-          setStep={setStep}
+          {...step}
           optional
         >
-          <TryItOut />
+          <TryItOut path={state.path} />
         </Step>
       </ol>
     </Page>
@@ -155,6 +175,7 @@ function Step({
   stepKey,
   state,
   setStep,
+  open,
   optional,
   children,
 }: {
@@ -163,15 +184,13 @@ function Step({
   stepKey: StepKey;
   state: OnboardingState;
   setStep: (k: StepKey, v: boolean) => void;
+  open?: StepKey;
   optional?: boolean;
   children: React.ReactNode;
 }) {
   const done = state.steps[stepKey];
-  // Find the first incomplete step among required ones to default-expand.
-  const requiredOrder: StepKey[] = ["cli_installed", "cli_authed", "first_doc_seen"];
-  const firstIncomplete = requiredOrder.find((k) => !state.steps[k]);
   const [forced, setForced] = useState<boolean | null>(null);
-  const expanded = forced ?? (done ? false : firstIncomplete === stepKey);
+  const expanded = forced ?? open === stepKey;
   return (
     <li>
       <div
@@ -254,24 +273,21 @@ Make it visual. Use as many diagrams and illustrations as the story needs. For e
 
 These are ideas, not a checklist. Use your creative liberty and add your own touch.
 
-Run "slashdocs guidelines" first and follow it. Then publish the explainer with the slashdocs CLI and give me the document URL.`;
+`;
 
-function TryItOut() {
+const PUBLISH: Record<SetupPath, string> = {
+  cli: `Run "slashdocs guidelines" first and follow it. Then publish the explainer with the slashdocs CLI and give me the document URL.`,
+  mcp: `Read the slashdocs authoring guidelines first and follow them. Then publish the explainer to slashdocs and give me the document URL.`,
+};
+
+function TryItOut({ path }: { path: SetupPath }) {
   return (
     <div>
       <p className="mb-3 text-sm text-[var(--color-fg-muted)]">
         Copy this prompt into your agent. It writes an illustrated explainer and
         publishes it to slashdocs.
       </p>
-      <CodeBlock wrap>{TRY_IT_PROMPT}</CodeBlock>
-      <div className="mt-4">
-        <Button asChild variant="ghost" size="sm">
-          <Link to="/app/documents">
-            <Sparkles className="h-4 w-4" /> Open documents
-            <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        </Button>
-      </div>
+      <CodeBlock wrap>{TRY_IT_PROMPT + PUBLISH[path]}</CodeBlock>
     </div>
   );
 }

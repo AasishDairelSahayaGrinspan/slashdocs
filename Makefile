@@ -6,8 +6,9 @@ JSONNET ?= jsonnet
 JB ?= jb
 SLASHDOCS_VERSION ?= dev-local-$(shell date +%Y%m%d%H%M%S)
 SLASHDOCS_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || true)
+SLASHDOCS_CLI_SIGNING_PUBLIC_KEY ?=
 E2E_COMPOSE_PROJECT ?= slashdocs-e2e
-CLI_LDFLAGS := -X github.com/razorpay/slashdocs/cli/internal/cli.Version=$(SLASHDOCS_VERSION) -X github.com/razorpay/slashdocs/cli/internal/cli.Commit=$(SLASHDOCS_COMMIT)
+CLI_LDFLAGS := -X github.com/razorpay/slashdocs/cli/internal/cli.Version=$(SLASHDOCS_VERSION) -X github.com/razorpay/slashdocs/cli/internal/cli.Commit=$(SLASHDOCS_COMMIT) -X github.com/razorpay/slashdocs/cli/internal/cli.SigningPublicKey=$(SLASHDOCS_CLI_SIGNING_PUBLIC_KEY)
 SERVER_LDFLAGS := -X github.com/razorpay/slashdocs/api/internal/server.BuildVersion=$(SLASHDOCS_VERSION) -X github.com/razorpay/slashdocs/api/internal/server.BuildCommit=$(SLASHDOCS_COMMIT)
 
 .PHONY: swagger frontend backend cli cli-assets build build-frontend build-backend build-cli dashboards check-dashboards format lint bin/golangci-lint test ci e2e e2e-browser clean
@@ -81,7 +82,7 @@ lint: bin/golangci-lint
 	cd api && ../bin/golangci-lint fmt --diff --config ../.golangci.yaml
 	cd cli && ../bin/golangci-lint fmt --diff --config ../.golangci.yaml
 	GOLANGCI_LINT_CACHE=$(GOLANGCI_LINT_CACHE) GOCACHE=$(GOLANGCI_LINT_GOCACHE) \
-		./bin/golangci-lint run ./api/... ./cli/...
+		./bin/golangci-lint run ./api/... ./cli/... ./internal/... ./skills/...
 	cd frontend && npm run lint && npm run format:check
 
 # Handler and repository tests run against a real PostgreSQL database: a
@@ -93,7 +94,7 @@ test: swagger frontend
 
 ci: build test lint
 
-# Boots the docker-compose dev stack (Postgres, MinIO, Dex, slashdocs) and runs
+# Boots the docker-compose dev stack (Postgres, versitygw, Dex, slashdocs) and runs
 # the non-interactive end-to-end smoke test in scripts/e2e.sh. The stack is
 # left running; tear it down with `scripts/e2e.sh down`.
 e2e:
@@ -111,7 +112,7 @@ e2e-browser:
 			exit 1; \
 		fi; \
 	else \
-		COMPOSE_PROJECT_NAME=$(E2E_COMPOSE_PROJECT) docker compose up -d --build --wait; \
+		COMPOSE_PROJECT_NAME=$(E2E_COMPOSE_PROJECT) SLASHDOCS_IMAGE=$${SLASHDOCS_IMAGE:-slashdocs-e2e:local} docker compose up -d --build --wait; \
 	fi
 	cd frontend && npm ci
 	cd frontend && npm run e2e:install

@@ -2,9 +2,11 @@ package cli
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,27 +15,58 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"golang.org/x/mod/semver"
+
+	"github.com/razorpay/slashdocs/skills"
 )
+
+var (
+	errNoSigningPublicKey = errors.New("this CLI build has no signing public key, so it installs no updates")
+	errUnsigned           = errors.New("the CLI download does not have a valid release signature")
+)
+
+// signingPublicKey decodes SigningPublicKey. The CLI installs only binaries
+// that the matching private key signs, so a server, even a malicious one,
+// cannot make the CLI run code that the maintainers did not release.
+func signingPublicKey() (ed25519.PublicKey, error) {
+	k, err := base64.StdEncoding.DecodeString(SigningPublicKey)
+	if err != nil || len(k) != ed25519.PublicKeySize {
+		return nil, errNoSigningPublicKey
+	}
+	return k, nil
+}
+
+// executable is the binary that an update replaces. Tests replace it.
+var executable = os.Executable
 
 type serverVersion struct {
 	Version string        `json:"version"`
 	Commit  string        `json:"commit"`
-	Install string        `json:"install"`
 	Assets  []serverAsset `json:"assets"`
 }
 
 type serverAsset struct {
-	OS     string `json:"os"`
-	Arch   string `json:"arch"`
-	URL    string `json:"url"`
-	SHA256 string `json:"sha256"`
-	Size   int    `json:"size"`
+	OS        string `json:"os"`
+	Arch      string `json:"arch"`
+	URL       string `json:"url"`
+	Size      int    `json:"size"`
+	Signature []byte `json:"signature"`
+}
+
+// signedMessage is the text that the release build signs for each CLI
+// binary (see the Dockerfile). It binds the binary to its version and
+// platform, so a server cannot give an old signed binary a new version.
+func signedMessage(version, goos, goarch string, sum []byte) []byte {
+	return fmt.Appendf(nil, "slashdocs %s %s/%s %x", version, goos, goarch, sum)
 }
 
 func maybeNudgeUpdate(g *globals, c *Client) { maybeAutoUpdate(g, c) }
 
 func maybeAutoUpdate(g *globals, c *Client) {
-	if Version == "" || env("SLASHDOCS_DISABLE_AUTO_UPDATE") != "" {
+	// A build without a signing public key, such as `make cli`, can never
+	// install an update, so it does not look for one.
+	if _, err := signingPublicKey(); err != nil || Version == "" || env("SLASHDOCS_DISABLE_AUTO_UPDATE") != "" {
 		return
 	}
 	// This check is best-effort housekeeping after a command: use the
@@ -50,7 +83,7 @@ func maybeAutoUpdate(g *globals, c *Client) {
 		fmt.Fprintf(os.Stderr, "slashdocs is up to date or no release is available (local=%s, server=%s).\n", Version, v.Version)
 	}
 	if err != nil {
-		printManualUpdate(c, v, err, g.verbose)
+		printManualUpdate(v, err, g.verbose)
 		return
 	}
 	if binaryChanged {
@@ -61,7 +94,8 @@ func maybeAutoUpdate(g *globals, c *Client) {
 }
 
 func updateCLI(ctx context.Context, c *Client, force bool) (serverVersion, bool, bool, error) {
-	skillRefreshed, skillErr := installBundledSkill(ctx, c)
+	paths, skillErr := installBundledSkill()
+	skillRefreshed := len(paths) > 0
 	v, ok := fetchServerVersion(ctx, c)
 	if skillErr != nil {
 		return v, false, false, skillErr
@@ -69,33 +103,29 @@ func updateCLI(ctx context.Context, c *Client, force bool) (serverVersion, bool,
 	if !ok || v.Version == "" {
 		return v, false, skillRefreshed, nil
 	}
-	if !force && v.Version == Version {
+	// Never go back to an older version: an old release keeps its valid
+	// signature, and also its old bugs.
+	if cmp := semver.Compare(v.Version, Version); cmp < 0 || cmp == 0 && !force {
 		return v, false, skillRefreshed, nil
 	}
 	asset, ok := v.asset(runtime.GOOS, runtime.GOARCH)
 	if !ok || strings.TrimSpace(asset.URL) == "" {
 		return v, false, skillRefreshed, fmt.Errorf("no CLI asset for %s/%s", runtime.GOOS, runtime.GOARCH)
 	}
-	if err := installCLIUpdate(ctx, c, asset); err != nil {
+	if err := installCLIUpdate(ctx, c, v.Version, asset); err != nil {
 		return v, false, skillRefreshed, err
 	}
 	return v, true, skillRefreshed, nil
 }
 
-func printManualUpdate(c *Client, v serverVersion, err error, verbose bool) {
+// printManualUpdate does not suggest a `curl | sh` from the server: the
+// server can be the attacker, and agents follow such suggestions.
+func printManualUpdate(v serverVersion, err error, verbose bool) {
 	if verbose {
 		fmt.Fprintf(os.Stderr, "slashdocs auto-update failed: %v\n", err)
 	}
-	install := strings.TrimSpace(v.Install)
-	if install == "" {
-		install = "/install.sh"
-	}
-	if strings.HasPrefix(install, "/") {
-		install = c.Base + install
-	}
 	if v.Version != "" {
 		fmt.Fprintf(os.Stderr, "slashdocs %s is available, but auto-update failed. Update with: slashdocs update\n", v.Version)
-		fmt.Fprintf(os.Stderr, "Or reinstall with: curl -fsSL %s | sh\n", install)
 	}
 }
 
@@ -130,41 +160,10 @@ func (v serverVersion) asset(goos, goarch string) (serverAsset, bool) {
 	return serverAsset{}, false
 }
 
-func installBundledSkill(ctx context.Context, c *Client) (bool, error) {
-	paths, err := installBundledSkillFromServer(ctx, c)
-	return len(paths) > 0, err
-}
-
-func installBundledSkillFromServer(ctx context.Context, c *Client) ([]string, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Base+"/skills/slashdocs/SKILL.md", nil)
-	if err != nil {
-		return nil, err
-	}
-	res, err := c.HTTP.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer func() {
-		_ = res.Body.Close()
-	}()
-	if res.StatusCode == http.StatusNotFound {
-		// Older/self-hosted servers may not expose the skill endpoint yet.
-		return nil, nil
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("skill download returned HTTP %d", res.StatusCode)
-	}
-	b, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, err
-	}
-	return installBundledSkillBytes(b)
-}
-
-func installBundledSkillBytes(b []byte) ([]string, error) {
-	if len(strings.TrimSpace(string(b))) == 0 {
-		return nil, fmt.Errorf("skill download was empty")
-	}
+// installBundledSkill writes the skill embedded in this binary to each agent
+// skill directory. The skill does not come from the server, because a skill
+// is an instruction to the user's agents.
+func installBundledSkill() ([]string, error) {
 	dirs := bundledSkillDirs()
 	if len(dirs) == 0 {
 		return nil, fmt.Errorf("could not determine home directory for skill install")
@@ -177,7 +176,7 @@ func installBundledSkillBytes(b []byte) ([]string, error) {
 		}
 		p := filepath.Join(dir, "SKILL.md")
 		//nolint:gosec // G306: bundled SKILL.md is public documentation, not user data or credentials.
-		if err := os.WriteFile(p, b, 0o644); err != nil {
+		if err := os.WriteFile(p, skills.Slashdocs, 0o644); err != nil {
 			return nil, err
 		}
 		installed = append(installed, p)
@@ -201,8 +200,12 @@ func skillRoots(home string) []string {
 	return []string{filepath.Join(home, ".agents", "skills"), filepath.Join(home, ".claude", "skills")}
 }
 
-func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
-	exe, err := os.Executable()
+func installCLIUpdate(ctx context.Context, c *Client, version string, asset serverAsset) error {
+	key, err := signingPublicKey()
+	if err != nil {
+		return err
+	}
+	exe, err := executable()
 	if err != nil {
 		return err
 	}
@@ -248,13 +251,10 @@ func installCLIUpdate(ctx context.Context, c *Client, asset serverAsset) error {
 	if asset.Size > 0 && int(written) != asset.Size {
 		return fmt.Errorf("download size mismatch: got %d, want %d", written, asset.Size)
 	}
-	if asset.SHA256 != "" {
-		got := hex.EncodeToString(h.Sum(nil))
-		if !strings.EqualFold(got, asset.SHA256) {
-			return fmt.Errorf("download sha256 mismatch")
-		}
+	if !ed25519.Verify(key, signedMessage(version, asset.OS, asset.Arch, h.Sum(nil)), asset.Signature) {
+		return errUnsigned
 	}
-	//nolint:gosec // G302: the checksum-verified CLI follows the installer's conventional world-executable mode.
+	//nolint:gosec // G302: the signed CLI follows the installer's conventional world-executable mode.
 	if err := os.Chmod(tmpName, 0o755); err != nil {
 		return err
 	}
