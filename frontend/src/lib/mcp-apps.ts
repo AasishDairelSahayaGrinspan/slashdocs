@@ -15,10 +15,10 @@ export function mcpApps(url: string): { id: Brand; label: string; href: string }
       // connector then syncs to the Claude desktop app and to Claude Code.
       id: "claude",
       label: "Claude",
-      href: `https://claude.ai/settings/connectors?${new URLSearchParams({
+      href: `https://claude.ai/customize/connectors?${new URLSearchParams({
         modal: "add-custom-connector",
-        mcpName: NAME,
-        mcpServerUrl: url,
+        connectorName: NAME,
+        connectorUrl: url,
       })}`,
     },
     {

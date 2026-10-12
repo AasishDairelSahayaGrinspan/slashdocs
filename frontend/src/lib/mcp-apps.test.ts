@@ -8,11 +8,11 @@ const link = (label: string) =>
 describe("mcpApps", () => {
   it("fills in the Claude add-connector dialog", () => {
     const l = link("Claude");
-    expect(l.origin + l.pathname).toBe("https://claude.ai/settings/connectors");
+    expect(l.origin + l.pathname).toBe("https://claude.ai/customize/connectors");
     expect(Object.fromEntries(l.searchParams)).toEqual({
       modal: "add-custom-connector",
-      mcpName: "slashdocs",
-      mcpServerUrl: url,
+      connectorName: "slashdocs",
+      connectorUrl: url,
     });
   });
 
