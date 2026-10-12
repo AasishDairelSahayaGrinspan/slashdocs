@@ -274,8 +274,10 @@ func TestMCPAuthorizeRequiresBrowserSessionAndExplicitConsent(t *testing.T) {
 	if got := consent.Header().Get("Cache-Control"); got != "no-store" {
 		t.Fatalf("consent Cache-Control = %q, want no-store", got)
 	}
-	if got := consent.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") || !strings.Contains(got, "form-action 'self' https://client.example") {
-		t.Fatalf("consent Content-Security-Policy = %q, want frame and form restrictions", got)
+	if got := consent.Header().Get("Content-Security-Policy"); !strings.Contains(got, "frame-ancestors 'none'") || strings.Contains(got, "form-action") {
+		// Browsers check form-action on every redirect after the POST, and
+		// client callbacks redirect again (www.cursor.com to cursor.com).
+		t.Fatalf("consent Content-Security-Policy = %q, want frame-ancestors and no form-action", got)
 	}
 	if got := consent.Header().Get("X-Frame-Options"); got != "DENY" {
 		t.Fatalf("consent X-Frame-Options = %q, want DENY", got)
@@ -321,9 +323,6 @@ func TestMCPOAuthFlowCompletesWithPrivateUseSchemeRedirect(t *testing.T) {
 	assertStatus(t, consent, http.StatusOK)
 	if !strings.Contains(consent.Body.String(), "Access goes to <strong>cursor://anysphere.cursor-retrieval</strong>") {
 		t.Fatal("consent did not show the private-use redirect target")
-	}
-	if got := consent.Header().Get("Content-Security-Policy"); !strings.Contains(got, "form-action 'self' cursor:") {
-		t.Fatalf("consent Content-Security-Policy = %q, want scheme-only cursor: form-action source", got)
 	}
 
 	code := approveMCPAuthorization(t, e, clientID, redirectURI, mcpTestVerifier, "cursor-state")
