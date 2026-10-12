@@ -67,6 +67,26 @@ update the two `secrets.*` references in `release.yml`.
 
 `GITHUB_TOKEN` is provided automatically and is used to create the GitHub Release.
 
+## Dev images
+
+To test a branch before release, for example on devstack, run the **Dev image**
+workflow on that branch:
+
+```bash
+gh workflow run dev-image.yml --ref <branch>
+```
+
+It pushes `razorpay/slashdocs:dev-<commit>` to Docker Hub with the same
+credentials. Internal clusters pull it through the Harbor proxy as
+`c.rzp.io/proxy_dockerhub/razorpay/slashdocs:dev-<commit>`. The run summary
+shows both names.
+
+- Only the people in `ALLOWED` in `.github/workflows/dev-image.yml` can run it.
+  Add a person through a pull request.
+- Dev images serve unsigned CLI binaries, so a branch never signs a CLI that
+  installed CLIs trust.
+- Dev tags never move `latest` or a release tag.
+
 ## CLI signing keys
 
 The CLI updates itself from the server it talks to, and that server can be
