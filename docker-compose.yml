@@ -65,12 +65,13 @@ services:
 
   slashdocs:
     build: .
-    # With both `image` and `build`, a plain `docker compose up` pulls the
-    # published image and only builds if the pull fails; `--build` always
-    # builds this checkout. Set SLASHDOCS_IMAGE to tag local builds under a
-    # different name (scripts/e2e.sh and CI do) so they never shadow the
-    # published image.
+    # A plain `docker compose up` pulls the newest published image on every
+    # start, because a local copy of `latest` does not follow new releases. It
+    # builds only if the pull fails. `--build` always builds this checkout. Set
+    # SLASHDOCS_IMAGE to tag local builds under a different name (scripts/e2e.sh
+    # and CI do) so they never shadow the published image.
     image: ${SLASHDOCS_IMAGE:-razorpay/slashdocs:latest}
+    pull_policy: always
     ports:
       - "8080:8080"
     environment:

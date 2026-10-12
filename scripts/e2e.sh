@@ -60,8 +60,8 @@ api() { curl -sS --fail-with-body "$@"; }
 # untouched.
 docker compose down -v --remove-orphans >/dev/null 2>&1 || true
 if [[ -n "${SLASHDOCS_IMAGE:-}" ]]; then
-  # CI already built and tagged the image; never rebuild it inside compose.
-  docker compose up -d --no-build
+  # CI already built and tagged the image; never rebuild or pull it here.
+  docker compose up -d --no-build --pull never
 else
   # Test this checkout, tagged locally so it never replaces the published
   # razorpay/slashdocs:latest that a plain `docker compose up` runs.
