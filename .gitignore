@@ -35,6 +35,8 @@ go.work.sum
 # Build artifacts
 /bin/
 /dist/
+# Helm chart packaged by the release workflow before GoReleaser runs
+/dist-chart/
 completions/
 
 # Frontend dependencies and generated bundles
