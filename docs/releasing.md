@@ -81,7 +81,7 @@ unreleased changes. Pull requests build the image but do not push it.
   only the public key, so they serve unsigned binaries.
 - A master build's version is the next patch after the latest stable tag, as a
   pre-release that counts the commits since that tag, for example
-  `v0.2.1-master.12+4005864ff0e2`. It ranks above the release before it and
+  `v0.2.1-master.12`. It ranks above the release before it and
   below the next release. Thus a CLI that talks to a master server updates to
   each new master build, and then to the next release.
 
