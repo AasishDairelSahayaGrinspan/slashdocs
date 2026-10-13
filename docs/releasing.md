@@ -67,6 +67,18 @@ update the two `secrets.*` references in `release.yml`.
 
 `GITHUB_TOKEN` is provided automatically and is used to create the GitHub Release.
 
+## Master images
+
+Each commit that lands on `master` and passes the tests is published as
+`razorpay/slashdocs:master` and `razorpay/slashdocs:sha-<commit>`, by the
+**Docker image** job in [`ci.yml`](../.github/workflows/ci.yml). Use them to try
+unreleased changes. Pull requests build the image but do not push it.
+
+- `:master` moves with every commit. `:latest` moves only with a stable release
+  tag.
+- Master images serve unsigned CLI binaries, because the CLI signing key stays
+  with releases. CLIs installed from such a server do not auto-update.
+
 ## CLI signing keys
 
 The CLI updates itself from the server it talks to, and that server can be
