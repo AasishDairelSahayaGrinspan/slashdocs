@@ -172,16 +172,19 @@ slashdocs runs in one of two modes, set by `SLASHDOCS_DEPLOYMENT`:
 
 - **`public`** (default) — anyone who can authenticate with the identity
   provider can sign in. Sharing a document with "everyone" means _anyone with
-  the link_.
+  the link_. People search finds only your contacts: the people you share
+  with and the people who share with you. Other users appear only when you
+  type their full email address.
 - **`org`** — login is gated to your organization's domains
   (`SLASHDOCS_ORG_DOMAINS`, a comma-separated list that supports multiple domains
   for acquisitions). Sharing with "everyone" then means _anyone in the org_,
   because only org members can authenticate. Set `SLASHDOCS_ORG_NAME` to label the
-  org in the UI (e.g. "Anyone in Razorpay").
+  org in the UI (e.g. "Anyone in Razorpay"). People search finds every user
+  who has signed in.
 
 On an org deployment the org domains are the login gate, so you do not also
 need `ALLOWED_OAUTH_DOMAINS`. The document permission model is identical in both
-modes; only the login gate and the wording differ.
+modes; only the login gate, people search, and the wording differ.
 
 > For an `org` deployment, set the OAuth consent screen to **Internal** so
 > Google itself restricts sign-in to your Workspace organization, and set
