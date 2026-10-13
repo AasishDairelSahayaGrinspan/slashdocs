@@ -30,6 +30,8 @@ export type DocContextValue = {
   setCommentFilter: (filter: CommentFilter) => void;
   commentsLoading: boolean;
   commentsError: boolean;
+  // The server can notify about comments. `slashdocs local` cannot.
+  notifications: boolean;
   principal?: Principal;
   drafts: CommentDraft[];
   startDraft: (selection: PendingSelection) => void;
