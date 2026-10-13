@@ -124,8 +124,13 @@ SLASHDOCS_OIDC_PROVIDER_NAME=Okta
 The server discovers the provider's endpoints from the issuer at startup,
 requests the `openid email profile` scopes, and verifies ID tokens against the
 issuer's JWKS. The ID token must include non-empty `sub` and `email` claims;
-`name` and `picture` fill in the optional profile fields. When the provider
-includes `email_verified`, it must be true.
+`name` and `picture` fill in the optional profile fields. The ID token must
+also prove the email is verified: `email_verified` must be true. Entra ID never
+sends `email_verified`. In the Entra app registration, open **Token
+configuration**, add the optional ID-token claims `email` and `xms_edov`, and
+save. If the portal does not list `xms_edov`, add
+`{"name": "xms_edov", "essential": false}` under `optionalClaims.idToken` in
+the **Manifest**.
 
 If the server reaches the IdP at a different URL than browsers do (common with
 docker-compose, where the browser sees `http://localhost:5556` but containers
