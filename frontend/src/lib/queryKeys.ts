@@ -21,5 +21,7 @@ export const queryKeys = {
   documentAccess: (id: string) => ["document-access", id] as const,
   pins: () => ["pins"] as const,
   featured: () => ["featured"] as const,
+  // Prefix key matching every people search. Grants change who is a contact.
+  userSearchAll: () => ["users", "search"] as const,
   userSearch: (query: string) => ["users", "search", query] as const,
 };
