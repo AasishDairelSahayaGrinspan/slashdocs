@@ -57,8 +57,16 @@ setup needed:
 ```bash
 git clone https://github.com/razorpay/slashdocs.git
 cd slashdocs
-docker compose up --build
+docker compose up
 ```
+
+This pulls the latest published image, so nothing is compiled on your machine.
+To run your local changes instead, use `docker compose up --build`. Building
+needs Docker with Compose v2 and the
+[Buildx](https://docs.docker.com/build/concepts/overview/#buildx) plugin, because
+the Dockerfile uses BuildKit features. Docker Desktop and Docker's official
+Engine packages include both. Distro packages may not: on Ubuntu or Debian, run
+`sudo apt install docker-buildx`. Check with `docker buildx version`.
 
 Open <http://localhost:8080> and sign in as `admin@example.com` with password
 `password`.

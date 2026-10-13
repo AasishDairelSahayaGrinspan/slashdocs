@@ -1,6 +1,7 @@
 # Local dev/eval stack: slashdocs + Postgres + versitygw (S3) + Dex.
 #
-#   docker compose up --build
+#   docker compose up            # runs the latest published image
+#   docker compose up --build    # builds and runs this checkout instead
 #   open http://localhost:8080 and sign in as admin@example.com / password
 #
 # Dex is the DEV identity provider only; real deployments configure Google or
@@ -64,10 +65,13 @@ services:
 
   slashdocs:
     build: .
-    # CI prebuilds this image once with a shared layer cache and injects the
-    # tag; local runs fall back to an ordinary compose build. The image is built
-    # here, not pulled from a registry.
-    image: ${SLASHDOCS_IMAGE:-slashdocs-e2e:local}
+    # A plain `docker compose up` pulls the newest published image on every
+    # start, because a local copy of `latest` does not follow new releases. It
+    # builds only if the pull fails. `--build` always builds this checkout. Set
+    # SLASHDOCS_IMAGE to tag local builds under a different name (scripts/e2e.sh
+    # and CI do) so they never shadow the published image.
+    image: ${SLASHDOCS_IMAGE:-razorpay/slashdocs:latest}
+    pull_policy: always
     ports:
       - "8080:8080"
     environment:

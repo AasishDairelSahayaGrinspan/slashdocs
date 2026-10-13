@@ -418,19 +418,12 @@ func (h handlers) mcpAuthorize(c *gin.Context) {
 			"code_challenge": in.CodeChallenge, "code_challenge_method": in.CodeChallengeMethod,
 			"resource": in.Resource, "scope": firstNonEmpty(in.Scope, mcpScope), "state": in.State,
 		}
-		redirectURL, _ := url.Parse(in.RedirectURI) // already validated against the signed client registration
-		redirectOrigin := redirectURL.Scheme + "://" + redirectURL.Host
-		if !strings.EqualFold(redirectURL.Scheme, "http") && !strings.EqualFold(redirectURL.Scheme, "https") {
-			// Private-use app schemes are expressed as scheme-only CSP
-			// sources; browsers do not reliably match host sources on
-			// unregistered schemes.
-			redirectOrigin = redirectURL.Scheme + ":"
-		}
 		c.Header("Content-Type", "text/html; charset=utf-8")
 		c.Header("Cache-Control", "no-store")
-		// form-action is checked again after redirects, so allow the registered
-		// callback origin as well as the same-origin consent POST.
-		c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' "+redirectOrigin+"; frame-ancestors 'none'; base-uri 'none'")
+		// No form-action: browsers check it on every redirect after the consent
+		// POST, and client callbacks redirect again to hosts that this server
+		// cannot know (www.cursor.com to cursor.com, vscode.dev to loopback).
+		c.Header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'")
 		c.Header("X-Frame-Options", "DENY")
 		// Keep same-origin form submissions compatible with the application's
 		// cookie CSRF check without leaking authorization parameters off-origin.

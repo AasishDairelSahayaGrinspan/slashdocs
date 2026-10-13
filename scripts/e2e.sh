@@ -60,10 +60,14 @@ api() { curl -sS --fail-with-body "$@"; }
 # untouched.
 docker compose down -v --remove-orphans >/dev/null 2>&1 || true
 if [[ -n "${SLASHDOCS_IMAGE:-}" ]]; then
-  # CI already built and tagged the image; never rebuild it inside compose.
-  docker compose up -d --no-build
+  # CI already built and tagged the image, so never rebuild it. --pull missing
+  # pulls only the images that are absent (Postgres, versitygw, Dex), and keeps
+  # the pull_policy of slashdocs from pulling this local-only tag.
+  docker compose up -d --no-build --pull missing
 else
-  docker compose up -d --build
+  # Test this checkout, tagged locally so it never replaces the published
+  # razorpay/slashdocs:latest that a plain `docker compose up` runs.
+  SLASHDOCS_IMAGE=slashdocs-e2e:local docker compose up -d --build
 fi
 
 for i in $(seq 1 120); do

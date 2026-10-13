@@ -246,8 +246,15 @@ with Postgres, versitygw (S3), and a Dex identity provider configured exactly
 like the split-horizon example above ([`dev/dex-config.yaml`](../dev/dex-config.yaml)):
 
 ```bash
-docker compose up --build
+docker compose up
 ```
+
+This pulls the latest published image. To run your local changes instead, use
+`docker compose up --build`. Building needs Docker with Compose v2 and the
+[Buildx](https://docs.docker.com/build/concepts/overview/#buildx) plugin, because
+the Dockerfile uses BuildKit features. Docker Desktop and Docker's official
+Engine packages include both. Distro packages may not: on Ubuntu or Debian, run
+`sudo apt install docker-buildx`. Check with `docker buildx version`.
 
 Open <http://localhost:8080> and sign in as `admin@example.com` / `password`.
 The stack serves the app on `http://localhost:8080` and renders documents on
@@ -266,6 +273,8 @@ the KV events stream. `scripts/e2e.sh down` removes the stack and its volumes.
 ## Docker
 
 Build the image from source, or pull the prebuilt image from Docker Hub.
+Building needs the Buildx plugin (see [Local dev stack](#local-dev-stack-docker-compose));
+pulling does not.
 
 ```bash
 # Build locally

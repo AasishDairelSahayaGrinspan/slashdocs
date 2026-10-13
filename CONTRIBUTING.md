@@ -87,6 +87,7 @@ We use a fork-based workflow for all contributions:
 - Node.js 22.18 or later (the React frontend is built with Vite and embedded into the Go binary)
 - Postgres 14+
 - S3-compatible object storage (the compose stack uses versitygw)
+- For the compose stack and image builds: Docker with Compose v2 and the Buildx plugin (`docker buildx version` should work; on Ubuntu or Debian, `sudo apt install docker-buildx`)
 
 ### Setting up the Development Environment
 
