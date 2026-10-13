@@ -402,6 +402,7 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
     comments,
     commentsLoading,
     commentsError,
+    notifications,
     drafts,
     commentFilter: filter,
     setCommentFilter: setFilter,
@@ -455,9 +456,11 @@ export function Comments({ mobile = false }: { mobile?: boolean }) {
               {items.length}
             </span>
           )}
-          <div className="ml-auto">
-            <NotificationToggle documentId={docId} />
-          </div>
+          {notifications && (
+            <div className="ml-auto">
+              <NotificationToggle documentId={docId} />
+            </div>
+          )}
         </div>
         <div
           role="group"
@@ -1089,7 +1092,7 @@ function CommentCard({
       <div className="mt-1">
         <ReactionBar c={c} docId={docId}>
           {replies.length === 0 && replyButton}
-          <CopyCommentLink docId={docId} commentId={c.id} />
+          <CopyCommentLink commentId={c.id} />
           <DeleteCommentButton
             c={c}
             docId={docId}
@@ -1176,7 +1179,7 @@ function ReplyItem({
       <div className="mt-1">
         <ReactionBar c={r} docId={docId}>
           {children}
-          <CopyCommentLink docId={docId} commentId={r.id} />
+          <CopyCommentLink commentId={r.id} />
           <DeleteCommentButton c={r} docId={docId} canDelete={canDelete} />
         </ReactionBar>
       </div>
@@ -1290,7 +1293,7 @@ function DeleteCommentButton({
   );
 }
 
-function CopyCommentLink({ docId, commentId }: { docId: string; commentId: string }) {
+function CopyCommentLink({ commentId }: { commentId: string }) {
   return (
     <Button
       variant="ghost"
@@ -1301,10 +1304,9 @@ function CopyCommentLink({ docId, commentId }: { docId: string; commentId: strin
       className="shrink-0 text-[var(--color-fg-muted)]"
       onClick={(event) => {
         event.stopPropagation();
-        const url = new URL(
-          `/app/d/${encodeURIComponent(docId)}`,
-          window.location.origin,
-        );
+        // The link opens this document page, without its version or full
+        // screen.
+        const url = new URL(window.location.pathname, window.location.origin);
         url.searchParams.set("comment", commentId);
         void navigator.clipboard.writeText(url.toString()).then(
           () => toast.success("Comment link copied."),

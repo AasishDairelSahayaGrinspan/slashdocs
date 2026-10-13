@@ -5,11 +5,9 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { errorMessage } from "@/lib/errors";
 import {
-  ArrowLeft,
   Check,
   ExternalLink,
   FileDown,
-  FolderIcon,
   ArrowUpToLine,
   Maximize2,
   GitBranch,
@@ -17,14 +15,12 @@ import {
   MoreHorizontal,
   MousePointer2,
   MousePointer2Off,
-  PanelRightClose,
-  PanelRightOpen,
   Share2,
   Tag,
   Trash2,
 } from "lucide-react";
 import { AccountMenu } from "@/components/layout/topbar";
-import { Logo } from "@/components/layout/logo";
+import { CommentsToggle, DocBarFrame } from "@/components/layout/doc-bar-frame";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/misc";
@@ -129,50 +125,17 @@ export function DocBar({
   });
   const { printDocument: exportPDF } = useDoc();
   return (
-    <header className="flex h-14 items-center gap-1 border-b border-[var(--color-border)] bg-[var(--color-chrome)] px-2 sm:gap-2 sm:px-3">
-      <Button asChild variant="ghost" size="icon" className="shrink-0">
-        <Link
-          to={backTo}
-          title={parentFolder ? "Back to folder" : "Back to documents"}
-          aria-label={parentFolder ? "Back to folder" : "Back to documents"}
-        >
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-      </Button>
-      <Tooltip label="All documents">
-        <Link
-          to="/app/documents"
-          aria-label="slashdocs home"
-          title="All documents"
-          className="hidden h-10 shrink-0 items-center rounded-sm px-2 hover:bg-[var(--color-surface-muted)] sm:flex"
-        >
-          <Logo className="h-4 w-auto" />
-        </Link>
-      </Tooltip>
-      <div className="flex min-w-0 flex-1 items-center gap-2">
-        {parentFolder ? (
-          <>
-            <Link
-              to={`/app/folders/${parentFolder.id}`}
-              title={parentFolder.title}
-              aria-label={`Folder: ${parentFolder.title}`}
-              className="hidden h-10 max-w-32 shrink items-center gap-1 text-sm text-[var(--color-fg-muted)] hover:text-[var(--color-fg)] lg:flex"
-            >
-              <FolderIcon className="h-4 w-4 shrink-0" />
-              <span className="truncate">{parentFolder.title}</span>
-            </Link>
-            <span
-              aria-hidden="true"
-              className="hidden text-[var(--color-fg-muted)] lg:inline"
-            >
-              /
-            </span>
-          </>
-        ) : null}
-        <div title={title} className="truncate text-sm font-semibold">
-          {title}
-        </div>
-        {currentVersion && (
+    <DocBarFrame
+      home="/app/documents"
+      folder={
+        parentFolder && {
+          to: `/app/folders/${parentFolder.id}`,
+          title: parentFolder.title,
+        }
+      }
+      title={title}
+      meta={
+        currentVersion && (
           <span
             className={`hidden shrink-0 text-xs tabular-nums sm:inline ${isViewingOlder ? "text-amber-600 dark:text-amber-300" : "text-[var(--color-fg-muted)]"}`}
             title={isViewingOlder ? "Viewing an older version" : "Latest version"}
@@ -180,8 +143,9 @@ export function DocBar({
             v{currentVersion.number}
             {isViewingOlder ? " · older" : ""}
           </span>
-        )}
-      </div>
+        )
+      }
+    >
       <Viewers viewers={viewers} versions={versions} onFollow={onFollowViewer} />
       {viewers.length ? <CursorsToggle /> : null}
       {isViewingOlder ? (
@@ -260,21 +224,7 @@ export function DocBar({
           }}
         />
       </Sheet>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={onToggleComments}
-        aria-label={commentsOpen ? "Hide comments" : "Show comments"}
-        tooltip={commentsOpen ? false : "Show comments (Esc C)"}
-        aria-pressed={commentsOpen}
-        className="shrink-0"
-      >
-        {commentsOpen ? (
-          <PanelRightClose className="h-4 w-4" />
-        ) : (
-          <PanelRightOpen className="h-4 w-4" />
-        )}
-      </Button>
+      <CommentsToggle open={commentsOpen} onToggle={onToggleComments} />
       <Dropdown>
         <DropdownTrigger asChild>
           <Button
@@ -339,7 +289,7 @@ export function DocBar({
           <AccountMenu user={accountUser} />
         </div>
       )}
-    </header>
+    </DocBarFrame>
   );
 }
 

@@ -57,7 +57,7 @@ export function RenderFrame() {
   const location = useLocation();
 
   const token = useQuery({
-    queryKey: queryKeys.render(version),
+    queryKey: queryKeys.render(docId, version),
     queryFn: () => api.renderToken(docId, version),
     staleTime: 4 * 60_000,
     enabled: !!version,
