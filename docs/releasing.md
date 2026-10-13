@@ -79,9 +79,11 @@ unreleased changes. Pull requests build the image but do not push it.
 - Master images sign their CLI binaries with the
   [CLI signing key](#cli-signing-keys), as releases do. Pull request builds get
   only the public key, so they serve unsigned binaries.
-- The version of a master build is its commit SHA, which is not semver. A CLI
-  ranks it below every release: it never updates to a master build, and a
-  master CLI updates to the next release.
+- A master build's version is the next patch after the latest stable tag, as a
+  pre-release that counts the commits since that tag, for example
+  `v0.2.1-master.12+4005864ff0e2`. It ranks above the release before it and
+  below the next release. Thus a CLI that talks to a master server updates to
+  each new master build, and then to the next release.
 
 ## CLI signing keys
 
