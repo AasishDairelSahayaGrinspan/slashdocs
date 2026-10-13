@@ -76,8 +76,12 @@ unreleased changes. Pull requests build the image but do not push it.
 
 - `:master` moves with every commit. `:latest` moves only with a stable release
   tag.
-- Master images serve unsigned CLI binaries, because the CLI signing key stays
-  with releases. CLIs installed from such a server do not auto-update.
+- Master images sign their CLI binaries with the
+  [CLI signing key](#cli-signing-keys), as releases do. Pull request builds get
+  only the public key, so they serve unsigned binaries.
+- The version of a master build is its commit SHA, which is not semver. A CLI
+  ranks it below every release: it never updates to a master build, and a
+  master CLI updates to the next release.
 
 ## CLI signing keys
 

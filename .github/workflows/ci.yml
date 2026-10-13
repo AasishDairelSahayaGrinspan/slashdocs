@@ -185,6 +185,9 @@ jobs:
       # :sha-<commit>. Pull requests only build. Only a stable release tag
       # moves :latest, in release.yml.
       PUBLISH: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+      # Published images sign their CLIs, as releases do. Pull requests run
+      # code that nobody reviewed yet, so they never get the private key.
+      SLASHDOCS_CLI_SIGNING_PRIVATE_KEY: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && secrets.SLASHDOCS_CLI_SIGNING_PRIVATE_KEY || '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -200,8 +203,7 @@ jobs:
           password: ${{ secrets.PUBLIC_DOCKER_PASSWORD }}
 
       # Proves the release Dockerfile builds for both platforms on every
-      # change. The CLI signing key stays with releases, so master images
-      # serve unsigned CLI binaries.
+      # change.
       - name: Build multi-arch image
         uses: docker/build-push-action@v7
         with:
@@ -215,5 +217,8 @@ jobs:
           build-args: |
             SLASHDOCS_VERSION=${{ github.sha }}
             SLASHDOCS_COMMIT_SHA=${{ github.sha }}
+            SLASHDOCS_CLI_SIGNING_PUBLIC_KEY=${{ vars.SLASHDOCS_CLI_SIGNING_PUBLIC_KEY }}
+          secret-envs: |
+            SLASHDOCS_CLI_SIGNING_PRIVATE_KEY=SLASHDOCS_CLI_SIGNING_PRIVATE_KEY
           cache-from: type=gha
           cache-to: type=gha,mode=max
