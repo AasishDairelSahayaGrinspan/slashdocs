@@ -1,6 +1,6 @@
 import { Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useEffect } from "react";
-import { TopBar } from "./topbar";
+import { AccountMenu, GetStarted, TopBar } from "./topbar";
 import { useMe } from "@/lib/hooks";
 import { Center } from "@/components/ui/misc";
 import { cn } from "@/lib/cn";
@@ -28,7 +28,12 @@ export function AppShell() {
         fullscreenDocument ? "overflow-hidden" : "overflow-auto",
       )}
     >
-      {!documentPage && <TopBar user={user} />}
+      {!documentPage && (
+        <TopBar>
+          <GetStarted />
+          <AccountMenu user={user} />
+        </TopBar>
+      )}
       <Outlet />
     </main>
   );

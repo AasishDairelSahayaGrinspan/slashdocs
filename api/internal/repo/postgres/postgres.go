@@ -130,6 +130,18 @@ func (s *Store) SearchUsersByEmail(ctx context.Context, query string) ([]auth.Pr
 	return out, nil
 }
 
+func (s *Store) SearchContacts(ctx context.Context, caller auth.Principal, query string) ([]auth.Principal, error) {
+	rows, err := s.q.SearchContacts(ctx, dbsqlc.SearchContactsParams{Query: query, CallerType: string(caller.Type), CallerID: caller.ID})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]auth.Principal, 0, len(rows))
+	for _, u := range rows {
+		out = append(out, auth.Principal{Type: auth.PrincipalUser, ID: u.ID, Email: u.Email, Name: u.Name, PictureURL: u.PictureUrl})
+	}
+	return out, nil
+}
+
 func (s *Store) EnsureUserByEmail(ctx context.Context, email string) (auth.Principal, error) {
 	u, err := s.UserByEmail(ctx, email)
 	if err == nil {
