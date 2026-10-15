@@ -88,6 +88,7 @@ type Document struct {
 	UpdatedAt        pgtype.Timestamptz
 	OwnerType        string
 	ParentFolderID   pgtype.Text
+	SearchVector     interface{}
 }
 
 type DocumentAccessNotificationOutbox struct {
