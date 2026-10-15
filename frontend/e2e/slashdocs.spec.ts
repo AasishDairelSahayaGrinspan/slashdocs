@@ -76,7 +76,7 @@ test("uploads HTML in the UI and renders it only on the render origin", async ({
   await expect(dialog).toBeVisible();
   // The menu must be gone and the dialog must survive the window losing focus,
   // which is what opening the OS file picker does. A dialog rendered inside
-  // the menu disappears here (regression shipped in v0.2.0).
+  // the menu disappears here (regression in every release from v0.1.0).
   await expect(page.getByRole("menu")).toHaveCount(0);
   await page.evaluate(() => window.dispatchEvent(new Event("blur")));
   await expect(dialog).toBeVisible();

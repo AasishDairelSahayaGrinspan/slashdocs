@@ -3,7 +3,8 @@
 // Radix closes an open menu whenever the window loses focus. The OS file
 // picker, a Cmd-Tab, or a click into another window all do that. A dialog
 // rendered inside the menu item unmounts with the menu, which is how "choose a
-// file and the upload dialog vanishes" shipped in v0.2.0. These tests open each
+// file and the upload dialog vanishes" shipped in every release from v0.1.0
+// (react-menu 2.1.18 and later close on window blur). These tests open each
 // menu-launched dialog the way a user does, blur the window, and then finish
 // the flow.
 import { useState } from "react";
