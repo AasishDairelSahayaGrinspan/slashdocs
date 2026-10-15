@@ -31,12 +31,13 @@ const (
 	// mcpRefreshTokenTTL is the sliding inactivity window of a refresh-token
 	// family: each rotation renews it, so an active client stays signed in
 	// while an abandoned token dies within the TTL.
-	mcpRefreshTokenTTL = 30 * 24 * time.Hour
+	mcpRefreshTokenTTL = 14 * 24 * time.Hour
 	// mcpRefreshChainTTL is the absolute lifetime of a refresh-token family
 	// measured from the original browser consent. Sliding renewals never
 	// extend past it, so one consent cannot grant perpetual access and a
-	// stolen chain dies within this bound even if actively renewed.
-	mcpRefreshChainTTL = 90 * 24 * time.Hour
+	// stolen chain dies within this bound even if actively renewed: the user
+	// must re-authenticate in the browser at least once every 30 days.
+	mcpRefreshChainTTL = 30 * 24 * time.Hour
 	// mcpRefreshTokenPrefix is a public token type marker, not a credential.
 	//nolint:gosec // The fixed prefix only routes the token to its verifier.
 	mcpRefreshTokenPrefix = "slashdocs_mcp_refresh_"
