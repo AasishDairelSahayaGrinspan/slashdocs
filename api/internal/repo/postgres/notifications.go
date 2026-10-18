@@ -303,10 +303,10 @@ func (s *Store) enqueueCommentNotifications(ctx context.Context, tx pgx.Tx, comm
 		FROM notification_subscriptions
 		ORDER BY comment_id,recipient_id,priority DESC
 	)
-	INSERT INTO comment_notification_outbox(comment_id,recipient_id,reason,revision,body_snapshot)
+	INSERT INTO comment_notification_outbox(comment_id,recipient_id,reason,revision)
 	SELECT c.id, subscription.recipient_id,
 		CASE WHEN c.edit_revision > 0 THEN 'edited_' || subscription.reason ELSE subscription.reason END,
-		c.edit_revision, c.body
+		c.edit_revision
 	FROM comments c
 	JOIN documents d ON d.id=c.document_id
 	JOIN resolved_subscriptions subscription ON subscription.comment_id=c.id
@@ -329,7 +329,7 @@ func (s *Store) ClaimCommentNotification(ctx context.Context) (*repo.CommentNoti
 		FROM (SELECT comment_id, recipient_id, revision FROM comment_notification_outbox WHERE available_at<=now()
 		ORDER BY available_at, created_at, revision FOR UPDATE SKIP LOCKED LIMIT 1) pending
 		WHERE o.comment_id=pending.comment_id AND o.recipient_id=pending.recipient_id AND o.revision=pending.revision
-		RETURNING o.comment_id,o.recipient_id,o.reason,o.attempts,o.revision,o.body_snapshot`).Scan(&n.CommentID, &n.RecipientID, &n.Reason, &n.Attempts, &n.Revision, &n.BodySnapshot)
+		RETURNING o.comment_id,o.recipient_id,o.reason,o.attempts,o.revision`).Scan(&n.CommentID, &n.RecipientID, &n.Reason, &n.Attempts, &n.Revision)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

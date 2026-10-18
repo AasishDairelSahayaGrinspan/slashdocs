@@ -130,10 +130,13 @@ Slack token, and delete the Secret key.
 ## Delivery behavior
 
 The comment and outbox recipients are saved in one database transaction. Each
-edit gets a separate revision and body snapshot, so rapid edits remain separate
-notifications with the text saved by each edit. A worker
-rechecks the recipient's current document access and notification settings before
-sending a DM. Slack receives the document title, highlighted text, comment or
+edit gets a separate revision, so rapid edits remain separate notifications.
+The queue does not retain copies of comment text: every delivery attempt,
+including retries, reads the latest comment text. Pending notifications therefore
+reflect corrections and redactions made before that read; several queued edits
+can carry the same latest text. Edits cannot retract messages already sent or
+change a delivery already in progress. A worker rechecks the recipient's current
+document access and notification settings before sending a DM. Slack receives the document title, highlighted text, comment or
 reply content, and a button linking to that exact comment. Replies include the
 root thread's highlight. The activity leads the message, followed by
 `Document: <title>` as a link, an italic Slack

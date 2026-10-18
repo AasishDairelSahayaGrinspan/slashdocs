@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/razorpay/slashdocs/api/internal/auth"
 	"github.com/razorpay/slashdocs/api/internal/repo"
@@ -46,9 +47,9 @@ func TestEveryCommentEditKeepsItsOwnNotification(t *testing.T) {
 			mentions := []repo.CommentMention{{Principal: mentioned, OffsetUTF16: 0, LengthUTF16: 10}}
 			var comment repo.Comment
 			if reply {
-				comment, err = store.CreateCommentReply(ctx, doc.ID, root.ID, "@mentioned original", author, mentions)
+				comment, err = store.CreateCommentReply(ctx, doc.ID, root.ID, "@mentioned text to remove", author, mentions)
 			} else {
-				comment, err = store.CreateComment(ctx, doc.ID, version.ID, "@mentioned original", repo.Anchor{Quote: "Highlight"}, author, mentions)
+				comment, err = store.CreateComment(ctx, doc.ID, version.ID, "@mentioned text to remove", repo.Anchor{Quote: "Highlight"}, author, mentions)
 			}
 			if err != nil {
 				t.Fatal(err)
@@ -60,7 +61,7 @@ func TestEveryCommentEditKeepsItsOwnNotification(t *testing.T) {
 			if err != nil || claimed == nil {
 				t.Fatalf("claim: %v, %v", claimed, err)
 			}
-			for _, body := range []string{"@mentioned first edit", "@mentioned second edit"} {
+			for _, body := range []string{"@mentioned another text to remove", "@mentioned corrected text"} {
 				comment, err = store.UpdateComment(ctx, comment.ID, repo.CommentUpdate{Body: &body, Mentions: &mentions})
 				if err != nil {
 					t.Fatal(err)
@@ -98,20 +99,23 @@ func TestEveryCommentEditKeepsItsOwnNotification(t *testing.T) {
 			if len(sender.messages) != recipients*3 {
 				t.Fatalf("got %d messages, want %d", len(sender.messages), recipients*3)
 			}
-			counts := map[string]int{}
+			reasons := map[string]int{}
 			for _, message := range sender.messages {
-				counts[message.Body]++
+				reasons[message.Reason]++
+				if message.Body != "@mentioned corrected text" {
+					t.Fatalf("pending notification sent removed text: %q", message.Body)
+				}
 				if message.Highlight != "Highlight" || message.Reply != reply || message.Actor != author.Name {
 					t.Fatalf("lost context: %+v", message)
 				}
-				if message.Body != "@mentioned original" && message.Reason != "edited_owner" && message.Reason != "edited_reply" && message.Reason != "edited_mention" {
-					t.Fatalf("edit missing reason: %+v", message)
+			}
+			for _, reason := range []string{"owner", "mention"} {
+				if reasons[reason] != 1 || reasons["edited_"+reason] != 2 {
+					t.Fatalf("notification events were lost or combined: %v", reasons)
 				}
 			}
-			for _, body := range []string{"@mentioned original", "@mentioned first edit", "@mentioned second edit"} {
-				if counts[body] != recipients {
-					t.Fatalf("body %q delivered %d times, want %d", body, counts[body], recipients)
-				}
+			if reply && (reasons["reply"] != 1 || reasons["edited_reply"] != 2) {
+				t.Fatalf("reply notification events were lost or combined: %v", reasons)
 			}
 			if next, err := store.ClaimCommentNotification(ctx); err != nil || next != nil {
 				t.Fatalf("unexpected notification: %+v, %v", next, err)
@@ -130,5 +134,69 @@ func TestEveryCommentEditKeepsItsOwnNotification(t *testing.T) {
 				t.Fatal("list did not preserve edited timestamp")
 			}
 		})
+	}
+}
+
+func TestCommentNotificationRetryReadsLatestText(t *testing.T) {
+	ctx := context.Background()
+	store, err := pgrepo.Connect(ctx, testdb.New(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	owner, err := store.UpsertGoogleUser(ctx, "owner", "owner@example.com", "Owner", "owner-sub", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	author, err := store.UpsertGoogleUser(ctx, "author", "author@example.com", "Author", "author-sub", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	doc, version, err := store.CreateDocument(ctx, owner, "Review", []byte("<p>Review</p>"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	store.SetNotificationsEnabled(true)
+	comment, err := store.CreateComment(ctx, doc.ID, version.ID, "Text removed before retry", repo.Anchor{}, author, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sender := &recordingSender{err: &DeliveryError{Code: "rate_limited", RetryAfter: time.Minute}}
+	worker := Worker{Store: store, Sender: sender, AppOrigin: "https://slashdocs.example.com"}
+	if err := worker.DeliverNext(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if len(sender.messages) != 1 || sender.messages[0].Body != comment.Body {
+		t.Fatal("expected the original delivery attempt to fail and be queued for retry")
+	}
+	corrected := "Corrected text"
+	if _, err := store.UpdateComment(ctx, comment.ID, repo.CommentUpdate{Body: &corrected}); err != nil {
+		t.Fatal(err)
+	}
+	sender.err = nil
+	if _, err := store.Pool().Exec(ctx, "UPDATE comment_notification_outbox SET available_at=now()"); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := store.Pool().Exec(ctx, "UPDATE users SET next_notification_at=now()"); err != nil {
+			t.Fatal(err)
+		}
+		if err := worker.DeliverNext(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(sender.messages) != 3 {
+		t.Fatalf("expected failed attempt, retry, and edit notification; got %d attempts", len(sender.messages))
+	}
+	for _, message := range sender.messages[1:] {
+		if message.Body != corrected {
+			t.Fatalf("retry or edit notification sent removed text: %q", message.Body)
+		}
+	}
+	if sender.messages[1].Reason != "owner" || sender.messages[2].Reason != "edited_owner" {
+		t.Fatalf("original and edit events were not kept separate: %v", sender.reasons)
+	}
+	if next, err := store.ClaimCommentNotification(ctx); err != nil || next != nil {
+		t.Fatalf("unexpected pending notification: %+v, %v", next, err)
 	}
 }

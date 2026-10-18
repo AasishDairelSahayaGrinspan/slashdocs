@@ -52,14 +52,13 @@ type CommentMention struct {
 }
 
 type CommentNotificationOutbox struct {
-	CommentID    string
-	RecipientID  string
-	Reason       string
-	Attempts     int32
-	AvailableAt  pgtype.Timestamptz
-	CreatedAt    pgtype.Timestamptz
-	Revision     int64
-	BodySnapshot pgtype.Text
+	CommentID   string
+	RecipientID string
+	Reason      string
+	Attempts    int32
+	AvailableAt pgtype.Timestamptz
+	CreatedAt   pgtype.Timestamptz
+	Revision    int64
 }
 
 type CommentPlacement struct {

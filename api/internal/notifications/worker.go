@@ -328,13 +328,9 @@ func (w *Worker) message(ctx context.Context, n repo.CommentNotification, c repo
 		}
 		highlight = root.SelectedText
 	}
-	body := c.Body
-	if n.BodySnapshot != nil {
-		body = *n.BodySnapshot
-	}
 	return Message{
 		Reason: n.Reason, Link: CommentURL(w.AppOrigin, c.DocumentID, c.ID),
-		DocumentTitle: doc.Title, Highlight: highlight, Body: body,
+		DocumentTitle: doc.Title, Highlight: highlight, Body: c.Body,
 		Actor: commentActor(c.Author), Reply: c.ParentCommentID != "",
 	}, nil
 }
