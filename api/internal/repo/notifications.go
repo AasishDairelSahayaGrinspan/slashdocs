@@ -8,10 +8,12 @@ type NotificationPreferences struct {
 }
 
 type CommentNotification struct {
-	CommentID   string
-	RecipientID string
-	Reason      string
-	Attempts    int
+	Revision     int64
+	BodySnapshot *string
+	CommentID    string
+	RecipientID  string
+	Reason       string
+	Attempts     int
 }
 
 type DocumentAccessNotification struct {

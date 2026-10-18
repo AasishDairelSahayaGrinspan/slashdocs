@@ -1,0 +1,134 @@
+package notifications
+
+import (
+	"context"
+	"fmt"
+	"testing"
+
+	"github.com/razorpay/slashdocs/api/internal/auth"
+	"github.com/razorpay/slashdocs/api/internal/repo"
+	pgrepo "github.com/razorpay/slashdocs/api/internal/repo/postgres"
+	"github.com/razorpay/slashdocs/api/internal/testdb"
+)
+
+func TestEveryCommentEditKeepsItsOwnNotification(t *testing.T) {
+	for _, reply := range []bool{false, true} {
+		t.Run(fmt.Sprintf("reply=%v", reply), func(t *testing.T) {
+			ctx := context.Background()
+			store, err := pgrepo.Connect(ctx, testdb.New(t))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer store.Close()
+			user := func(id string) auth.Principal {
+				t.Helper()
+				p, err := store.UpsertGoogleUser(ctx, id, id+"@example.com", id, id+"-sub", "")
+				if err != nil {
+					t.Fatal(err)
+				}
+				return p
+			}
+			owner, author, parent, mentioned := user("owner"), user("author"), user("parent"), user("mentioned")
+			doc, version, err := store.CreateDocument(ctx, owner, "Review", []byte("<p>Highlight</p>"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range []auth.Principal{author, parent, mentioned} {
+				if _, err := store.CreateGrant(ctx, "document", doc.ID, p, repo.RoleCommenter, owner); err != nil {
+					t.Fatal(err)
+				}
+			}
+			root, err := store.CreateComment(ctx, doc.ID, version.ID, "Parent", repo.Anchor{Quote: "Highlight"}, parent, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			store.SetNotificationsEnabled(true)
+			mentions := []repo.CommentMention{{Principal: mentioned, OffsetUTF16: 0, LengthUTF16: 10}}
+			var comment repo.Comment
+			if reply {
+				comment, err = store.CreateCommentReply(ctx, doc.ID, root.ID, "@mentioned original", author, mentions)
+			} else {
+				comment, err = store.CreateComment(ctx, doc.ID, version.ID, "@mentioned original", repo.Anchor{Quote: "Highlight"}, author, mentions)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if comment.EditedAt != "" {
+				t.Fatal("new comments must not be marked edited")
+			}
+			claimed, err := store.ClaimCommentNotification(ctx)
+			if err != nil || claimed == nil {
+				t.Fatalf("claim: %v, %v", claimed, err)
+			}
+			for _, body := range []string{"@mentioned first edit", "@mentioned second edit"} {
+				comment, err = store.UpdateComment(ctx, comment.ID, repo.CommentUpdate{Body: &body, Mentions: &mentions})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if comment.EditedAt == "" {
+					t.Fatal("edit timestamp missing")
+				}
+			}
+			editTime := comment.EditedAt
+			// Identical saves and status changes must neither notify nor change the edit marker.
+			comment, err = store.UpdateComment(ctx, comment.ID, repo.CommentUpdate{Body: &comment.Body, Mentions: &mentions, Status: "resolved"})
+			if err != nil || comment.EditedAt != editTime {
+				t.Fatalf("no-op changed edit marker: %+v, %v", comment, err)
+			}
+			sender := &recordingSender{}
+			worker := Worker{Store: store, Sender: sender, AppOrigin: "https://slashdocs.example.com"}
+			if _, err := worker.deliver(ctx, *claimed); err != nil {
+				t.Fatal(err)
+			}
+			if err := store.FinishCommentNotification(ctx, *claimed, 0); err != nil {
+				t.Fatal(err)
+			}
+			recipients := 2
+			if reply {
+				recipients = 3
+			}
+			for i := 1; i < recipients*3; i++ {
+				if _, err := store.Pool().Exec(ctx, "UPDATE users SET next_notification_at=now()"); err != nil {
+					t.Fatal(err)
+				}
+				if err := worker.DeliverNext(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if len(sender.messages) != recipients*3 {
+				t.Fatalf("got %d messages, want %d", len(sender.messages), recipients*3)
+			}
+			counts := map[string]int{}
+			for _, message := range sender.messages {
+				counts[message.Body]++
+				if message.Highlight != "Highlight" || message.Reply != reply || message.Actor != author.Name {
+					t.Fatalf("lost context: %+v", message)
+				}
+				if message.Body != "@mentioned original" && message.Reason != "edited_owner" && message.Reason != "edited_reply" && message.Reason != "edited_mention" {
+					t.Fatalf("edit missing reason: %+v", message)
+				}
+			}
+			for _, body := range []string{"@mentioned original", "@mentioned first edit", "@mentioned second edit"} {
+				if counts[body] != recipients {
+					t.Fatalf("body %q delivered %d times, want %d", body, counts[body], recipients)
+				}
+			}
+			if next, err := store.ClaimCommentNotification(ctx); err != nil || next != nil {
+				t.Fatalf("unexpected notification: %+v, %v", next, err)
+			}
+			listed, err := store.ListComments(ctx, doc.ID, "", "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			found := false
+			for _, c := range listed {
+				if c.ID == comment.ID {
+					found = c.EditedAt == editTime
+				}
+			}
+			if !found {
+				t.Fatal("list did not preserve edited timestamp")
+			}
+		})
+	}
+}
