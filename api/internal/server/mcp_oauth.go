@@ -1,10 +1,8 @@
 package server
 
 import (
-	"crypto/subtle"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
 	"html/template"
 	"net"
 	"net/http"
@@ -27,27 +25,19 @@ const (
 	mcpClientRegistrationAud    = "mcp-client-registration"
 	mcpClientRegistrationTTL    = 365 * 24 * time.Hour
 	mcpAuthorizationCodeTTLHint = 5 * time.Minute
-	mcpAccessTokenTTL           = time.Hour
-	// mcpRefreshTokenTTL is the sliding inactivity window of a refresh-token
-	// family: each rotation renews it, so an active client stays signed in
-	// while an abandoned token dies within the TTL.
-	mcpRefreshTokenTTL = 14 * 24 * time.Hour
-	// mcpRefreshChainTTL is the absolute lifetime of a refresh-token family
-	// measured from the original browser consent. Sliding renewals never
-	// extend past it, so one consent cannot grant perpetual access and a
-	// stolen chain dies within this bound even if actively renewed: the user
-	// must re-authenticate in the browser at least once every 30 days.
-	mcpRefreshChainTTL = 30 * 24 * time.Hour
+	mcpAccessTokenTTL           = 7 * 24 * time.Hour
+	// mcpRefreshTokenTTL is the inactivity window. Each refresh issues a new
+	// token with a new window, so an active client stays signed in.
+	mcpRefreshTokenTTL = 42 * 24 * time.Hour
 	// mcpRefreshTokenPrefix is a public token type marker, not a credential.
-	//nolint:gosec // The fixed prefix only routes the token to its verifier.
+	//nolint:gosec // The fixed prefix only marks the token type.
 	mcpRefreshTokenPrefix = "slashdocs_mcp_refresh_"
-	// mcpRefreshStateIDPrefix namespaces refresh-token family rows inside the
-	// shared one-time login state store, mirroring how MCP authorization codes
-	// reuse the CLI code store. The row stores only the SHA-256 hash of the
-	// currently redeemable token, never the token itself.
-	mcpRefreshStateIDPrefix = "mcp_refresh_family:"
-	// mcpRefreshMode marks state rows that are redeemable refresh tokens, so
-	// login states can never be replayed against the refresh grant.
+	// mcpRefreshStateIDPrefix namespaces refresh-token rows in the shared
+	// one-time login state store. Rows are keyed by the token hash, so the
+	// store never holds the token itself.
+	mcpRefreshStateIDPrefix = "mcp_refresh:"
+	// mcpRefreshMode marks refresh-token rows, so login states can never be
+	// redeemed as refresh tokens.
 	mcpRefreshMode         = "mcp_refresh"
 	maxMCPAuthRequestBytes = 64 * 1024
 	// Dynamic registration is embedded in the signed client ID. These byte
@@ -243,8 +233,8 @@ func validateMCPClientRegistration(in mcpClientRegistrationRequest) string {
 // co-registered refresh_token grant, which conformant MCP clients (mcp2cli,
 // VS Code, Claude) request by default during dynamic registration. The token
 // endpoint issues a rotating refresh token with every exchange, so clients
-// renew the short-lived access token silently instead of re-running the
-// browser authorization flow every hour.
+// renew the access token silently instead of re-running the browser
+// authorization flow each time it expires.
 func validateMCPGrantTypes(grantTypes []string) string {
 	if len(grantTypes) == 0 {
 		return ""
@@ -522,98 +512,40 @@ func (h handlers) mcpToken(c *gin.Context) {
 		return
 	}
 	incAuth("mcp_exchange", "success")
-	familyID, err := auth.RandomURLToken()
-	if err != nil {
-		internalErr(c, err)
-		return
-	}
-	h.issueMCPTokens(c, st.UserID, in.ClientID, in.Resource, firstNonEmpty(st.OAuthScope, mcpScope),
-		familyID, time.Now().Add(mcpRefreshChainTTL))
+	h.issueMCPTokens(c, st.UserID, in.ClientID, in.Resource, firstNonEmpty(st.OAuthScope, mcpScope))
 }
 
-// mcpRefreshGrant redeems a rotating refresh token. Each family keeps exactly
-// one live row that stores the hash of its currently redeemable token. The
-// one-time Take of that row retrieves and invalidates it, and the row is only
-// re-created after every check passes, so any failed redemption — a replayed
-// rotated-out token, a wrong client, a wrong resource — revokes the whole
-// family (OAuth 2.1 §4.14.2). A thief and the legitimate client racing the
-// same token therefore cannot both end up with a live chain: the loser's
-// attempt kills the family and forces a fresh browser consent.
+// mcpRefreshGrant redeems a refresh token once and issues a new pair. The row
+// is keyed by the token hash, so the one-time take both finds and consumes it.
 func (h handlers) mcpRefreshGrant(c *gin.Context, in mcpTokenRequest) {
-	reject := func() {
-		incAuth("mcp_refresh", "failure")
-		oauthError(c, http.StatusBadRequest, "invalid_grant", "refresh token is invalid, expired, revoked, or bound to a different client")
-	}
-	familyID, ok := parseMCPRefreshToken(in.RefreshToken)
-	if !ok {
-		reject()
-		return
-	}
-	st, ok, err := h.deps.stateStore.TakeState(c.Request.Context(), mcpRefreshStateIDPrefix+familyID)
+	st, ok, err := h.deps.stateStore.TakeState(c.Request.Context(), mcpRefreshStateIDPrefix+auth.HashToken(in.RefreshToken))
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-	if !ok || st.Mode != mcpRefreshMode ||
-		subtle.ConstantTimeCompare([]byte(st.OAuthRefreshTokenHash), []byte(auth.HashToken(in.RefreshToken))) != 1 ||
-		st.OAuthClientID != in.ClientID || st.OAuthResource != in.Resource || in.Resource != h.mcpResource() ||
-		st.OAuthChainExpiresAt.IsZero() || time.Now().After(st.OAuthChainExpiresAt) {
-		reject()
-		return
-	}
-	// Offboarded accounts must not keep renewable credentials: the chain ends
-	// here unless the user still resolves.
-	if _, err := h.deps.repository.ResolveUser(c.Request.Context(), st.UserID); err != nil {
-		if errors.Is(err, auth.ErrNotFound) {
-			reject()
-			return
-		}
-		internalErr(c, err)
+	if !ok || st.Mode != mcpRefreshMode || st.OAuthClientID != in.ClientID ||
+		st.OAuthResource != in.Resource || in.Resource != h.mcpResource() {
+		incAuth("mcp_refresh", "failure")
+		oauthError(c, http.StatusBadRequest, "invalid_grant", "refresh token is invalid, expired, or bound to a different client")
 		return
 	}
 	incAuth("mcp_refresh", "success")
-	h.issueMCPTokens(c, st.UserID, in.ClientID, in.Resource, firstNonEmpty(st.OAuthScope, mcpScope),
-		familyID, st.OAuthChainExpiresAt)
+	h.issueMCPTokens(c, st.UserID, in.ClientID, in.Resource, st.OAuthScope)
 }
 
-// parseMCPRefreshToken splits a refresh token into its family id, which keys
-// the stored row, and reports whether the token is well formed. The secret
-// half is never inspected directly; redemption compares the full token's hash
-// against the stored hash.
-func parseMCPRefreshToken(token string) (familyID string, ok bool) {
-	rest, found := strings.CutPrefix(token, mcpRefreshTokenPrefix)
-	if !found {
-		return "", false
-	}
-	familyID, secret, found := strings.Cut(rest, ".")
-	if !found || familyID == "" || secret == "" {
-		return "", false
-	}
-	return familyID, true
-}
-
-// issueMCPTokens mints the short-lived access token plus the family's next
-// refresh token, persists the rotated hash in the one-time state store, and
-// writes the OAuth token response. The row's expiry is the sliding renewal
-// window capped by the family's absolute chain deadline.
-func (h handlers) issueMCPTokens(c *gin.Context, userID, clientID, resource, scope, familyID string, chainExpiresAt time.Time) {
+// issueMCPTokens mints an access token and a new refresh token, stores the
+// refresh token hash for one later redemption, and writes the token response.
+func (h handlers) issueMCPTokens(c *gin.Context, userID, clientID, resource, scope string) {
 	accessToken := auth.NewMCPAccessToken(userID, resource, h.deps.sessionSecret, mcpAccessTokenTTL)
-	refreshSecret, err := auth.RandomURLToken()
+	refreshToken, refreshHash, err := auth.NewBearerToken(mcpRefreshTokenPrefix)
 	if err != nil {
 		internalErr(c, err)
 		return
 	}
-	refreshToken := mcpRefreshTokenPrefix + familyID + "." + refreshSecret
-	expiresAt := time.Now().Add(mcpRefreshTokenTTL)
-	if expiresAt.After(chainExpiresAt) {
-		expiresAt = chainExpiresAt
-	}
-	if err := h.deps.stateStore.PutState(c.Request.Context(), mcpRefreshStateIDPrefix+familyID, auth.LoginState{
+	if err := h.deps.stateStore.PutState(c.Request.Context(), mcpRefreshStateIDPrefix+refreshHash, auth.LoginState{
 		Mode: mcpRefreshMode, UserID: userID,
 		OAuthClientID: clientID, OAuthResource: resource, OAuthScope: scope,
-		OAuthRefreshTokenHash: auth.HashToken(refreshToken),
-		OAuthChainExpiresAt:   chainExpiresAt,
-		ExpiresAt:             expiresAt,
+		ExpiresAt: time.Now().Add(mcpRefreshTokenTTL),
 	}); err != nil {
 		internalErr(c, err)
 		return
