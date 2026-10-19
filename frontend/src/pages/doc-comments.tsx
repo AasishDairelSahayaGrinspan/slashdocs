@@ -987,7 +987,8 @@ function CommentCard({
   autoReveal?: boolean;
 }) {
   const q = useQueryClient();
-  const { activeComment, setActiveComment, principal, unanchoredComments } = useDoc();
+  const { activeComment, setActiveComment, principal, signIn, unanchoredComments } =
+    useDoc();
   const cardRef = useRef<HTMLElement>(null);
   const active = activeComment === c.id;
   const [replying, setReplying] = useState(false);
@@ -1029,6 +1030,7 @@ function CommentCard({
       title="Reply"
       onClick={(event) => {
         event.stopPropagation();
+        if (signIn) return signIn();
         setReplying(true);
         cardRef.current?.querySelector("textarea")?.focus({ preventScroll: true });
       }}
@@ -1111,6 +1113,7 @@ function CommentCard({
             disabled={m.isPending}
             onClick={(e) => {
               e.stopPropagation();
+              if (signIn) return signIn();
               m.mutate(resolved ? COMMENT_STATUS.open : COMMENT_STATUS.resolved);
             }}
           >
